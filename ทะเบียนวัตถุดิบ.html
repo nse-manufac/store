@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ทะเบียนวัตถุดิบ — ระบบ Bin Card</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#f4f6f9; --panel:#fff; --line:#dde3ea; --ink:#1c2733; --muted:#68778a;
+  --brand:#1f4e79; --brand-soft:#e8f0f8; --ok:#1a7f4b; --warn:#b06d00; --bad:#c02626;
+  --row-h:34px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-size:14px}
+#app{height:100vh;display:flex;flex-direction:column}
+
+header{background:var(--brand);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:600}
+header .sub{font-size:12px;opacity:.8}
+header .spacer{flex:1}
+.tabs{display:flex;gap:4px}
+.tabs button{background:rgba(255,255,255,.12);color:#fff;border:0;padding:6px 14px;border-radius:6px 6px 0 0;cursor:pointer;font-size:13px;font-family:inherit}
+.tabs button.on{background:var(--bg);color:var(--brand);font-weight:600}
+
+.toolbar{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input[type=text],input[type=search],select{font-family:inherit;font-size:13px;padding:6px 9px;
+  border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}
+input[type=search]{min-width:280px}
+input:focus,select:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+button.btn{font-family:inherit;font-size:13px;padding:6px 13px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;cursor:pointer}
+button.btn:hover{background:#f0f4f8}
+button.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+button.btn.primary:hover{filter:brightness(1.12)}
+button.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.stats{display:flex;gap:18px;font-size:12px;color:var(--muted);padding:6px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.stats b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+main{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:0 16px 12px}
+.grid-wrap{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.grid-head,.grid-row{display:grid;
+  grid-template-columns:130px minmax(240px,1fr) 78px 128px 92px 74px 78px minmax(150px,220px);
+  align-items:center}
+.grid-head{background:#eef2f7;border-bottom:2px solid var(--line);font-weight:600;font-size:12px;
+  color:var(--muted);position:sticky;top:0;z-index:2}
+.grid-head>div,.grid-row>div{padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grid-head>div{padding-top:8px;padding-bottom:8px;cursor:pointer;user-select:none}
+.grid-head>div:hover{color:var(--brand)}
+.scroller{flex:1;overflow-y:auto;position:relative}
+.grid-row{height:var(--row-h);border-bottom:1px solid #f0f3f6;font-size:13px}
+.grid-row:hover{background:#f7fafd}
+.grid-row.dirty{background:#fffbe6}
+.grid-row.inactive{color:#9aa7b5}
+.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+.grid-row select,.grid-row input[type=text]{width:100%;padding:2px 5px;font-size:12px;border-radius:4px}
+.chk{display:flex;justify-content:center}
+.chk input{width:16px;height:16px;cursor:pointer}
+
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;background:var(--brand-soft);color:var(--brand)}
+.empty{padding:60px 20px;text-align:center;color:var(--muted)}
+.drop{margin:auto;max-width:620px;background:var(--panel);border:2px dashed var(--line);
+  border-radius:12px;padding:48px 32px;text-align:center}
+.drop.over{border-color:var(--brand);background:var(--brand-soft)}
+.drop h2{margin:0 0 8px;font-size:17px}
+.drop p{color:var(--muted);margin:6px 0}
+
+table.plain{width:100%;border-collapse:collapse;font-size:13px}
+table.plain th{background:#eef2f7;text-align:left;padding:8px;border-bottom:2px solid var(--line);
+  font-size:12px;color:var(--muted);position:sticky;top:0}
+table.plain td{padding:6px 8px;border-bottom:1px solid #f0f3f6;vertical-align:top}
+table.plain input[type=text]{width:100%}
+.note{font-size:12px;color:var(--muted);margin:10px 2px}
+.warnbar{background:#fff4d6;border:1px solid #f0d799;color:#7a5600;padding:8px 12px;
+  border-radius:6px;margin:10px 0;font-size:13px}
+.savebar{position:fixed;right:20px;bottom:20px;background:var(--brand);color:#fff;
+  padding:10px 16px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.22);display:flex;gap:10px;align-items:center;font-size:13px}
+.savebar button{background:#fff;color:var(--brand);border:0;padding:6px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div>
+      <h1>ทะเบียนวัตถุดิบ</h1>
+      <div class="sub">ระบบ Bin Card — Phase 1</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="tabs">
+      <button :class="{on:tab==='mat'}"    @click="tab='mat'">วัตถุดิบ</button>
+      <button :class="{on:tab==='ent'}"    @click="tab='ent'">นิติบุคคล</button>
+      <button :class="{on:tab==='issues'}" @click="tab='issues'">ปัญหาที่พบ</button>
+    </div>
+  </header>
+
+  <!-- ---------- ยังไม่มีข้อมูล : หน้าโหลดไฟล์ ---------- -->
+  <main v-if="!loaded" @dragover.prevent="dragOver=true" @dragleave="dragOver=false" @drop.prevent="onDrop">
+    <div class="drop" :class="{over:dragOver}">
+      <h2>ลากไฟล์ทะเบียนวัตถุดิบมาวางตรงนี้</h2>
+      <p>ไฟล์ <b>ทะเบียนวัตถุดิบ_2026-07-26.xlsx</b> (ต้องมีชีต Materials)</p>
+      <p style="margin-top:18px">
+        <input type="file" accept=".xlsx,.xls" @change="onPick">
+      </p>
+      <p style="font-size:12px;margin-top:22px">
+        ข้อมูลจะถูกเก็บไว้ในเครื่องนี้ (localStorage) เปิดครั้งต่อไปไม่ต้องโหลดใหม่
+      </p>
+    </div>
+  </main>
+
+  <!-- ---------- แท็บวัตถุดิบ ---------- -->
+  <template v-else-if="tab==='mat'">
+    <div class="toolbar">
+      <input type="search" ref="searchBox" v-model="q"
+             placeholder="ค้นหา รหัส หรือ คำอธิบาย  (กด / เพื่อมาที่ช่องนี้)">
+      <select v-model="fCat">
+        <option value="">— ทุกหมวด —</option>
+        <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
+      </select>
+      <select v-model="fActive">
+        <option value="">— ใช้งาน: ทั้งหมด —</option>
+        <option value="TRUE">ใช้งานอยู่</option>
+        <option value="FALSE">ไม่ได้ใช้</option>
+      </select>
+      <select v-model="fExp">
+        <option value="">— วันหมดอายุ: ทั้งหมด —</option>
+        <option value="TRUE">ต้องกรอกวันหมดอายุ</option>
+        <option value="FALSE">ไม่ต้องกรอก</option>
+      </select>
+      <select v-model="fUnit">
+        <option value="">— ทุกหน่วย —</option>
+        <option v-for="u in units" :key="u" :value="u">{{ u || '(ว่าง)' }}</option>
+      </select>
+      <button class="btn" @click="resetFilters" :disabled="!hasFilter">ล้างตัวกรอง</button>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn" @click="addRow">+ เพิ่มรหัสใหม่</button>
+      <button class="btn primary" @click="exportXlsx">ดาวน์โหลด .xlsx</button>
+    </div>
+
+    <div class="stats">
+      <span>แสดง <b>{{ filtered.length.toLocaleString() }}</b> / {{ rows.length.toLocaleString() }} รายการ</span>
+      <span>ใช้งานอยู่ <b>{{ nActive.toLocaleString() }}</b></span>
+      <span>ต้องกรอกวันหมดอายุ <b>{{ nExpiry.toLocaleString() }}</b></span>
+      <span v-if="nNoUnit">ไม่มีหน่วย <b style="color:var(--bad)">{{ nNoUnit }}</b></span>
+      <span v-if="dirty">แก้ไขแล้ว <b style="color:var(--warn)">{{ dirtyCount }}</b> รายการ</span>
+      <span class="spacer" style="flex:1"></span>
+      <span v-if="filtered.length">
+        <button class="btn" style="padding:2px 9px" @click="bulk('active','TRUE')">ตั้งที่กรองอยู่เป็น "ใช้งาน"</button>
+        <button class="btn" style="padding:2px 9px" @click="bulk('active','FALSE')">เป็น "ไม่ใช้"</button>
+      </span>
+    </div>
+
+    <main>
+      <div class="grid-wrap">
+        <div class="grid-head">
+          <div @click="sortBy('material_code')">รหัสวัตถุดิบ {{ sortMark('material_code') }}</div>
+          <div @click="sortBy('description')">คำอธิบาย {{ sortMark('description') }}</div>
+          <div @click="sortBy('unit')">หน่วย {{ sortMark('unit') }}</div>
+          <div @click="sortBy('category')">หมวดหมู่ {{ sortMark('category') }}</div>
+          <div @click="sortBy('requires_expiry')" style="text-align:center">วันหมดอายุ {{ sortMark('requires_expiry') }}</div>
+          <div @click="sortBy('active')" style="text-align:center">ใช้งาน {{ sortMark('active') }}</div>
+          <div @click="sortBy('used_wk27')" style="text-align:right">ใช้ wk27 {{ sortMark('used_wk27') }}</div>
+          <div>หมายเหตุ</div>
+        </div>
+
+        <div class="scroller" ref="scroller" @scroll="onScroll">
+          <div :style="{height: filtered.length*rowH+'px', position:'relative'}">
+            <div :style="{transform:'translateY('+(startIdx*rowH)+'px)'}">
+              <div v-for="r in windowRows" :key="r._id"
+                   class="grid-row" :class="{dirty:r._dirty, inactive:r.active!=='TRUE'}">
+                <div class="mono">{{ r.material_code }}</div>
+                <div :title="r.description">{{ r.description }}</div>
+                <div>
+                  <select v-model="r.unit" @change="touch(r)">
+                    <option v-for="u in unitOptions" :key="u" :value="u">{{ u || '—' }}</option>
+                  </select>
+                </div>
+                <div>
+                  <select v-model="r.category" @change="touch(r)">
+                    <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                </div>
+                <div class="chk">
+                  <input type="checkbox" :checked="r.requires_expiry==='TRUE'"
+                         @change="setBool(r,'requires_expiry',$event.target.checked)">
+                </div>
+                <div class="chk">
+                  <input type="checkbox" :checked="r.active==='TRUE'"
+                         @change="setBool(r,'active',$event.target.checked)">
+                </div>
+                <div class="mono" style="text-align:right">{{ r.used_wk27 || '' }}</div>
+                <div><input type="text" v-model="r.remark" @input="touch(r)" placeholder="—"></div>
+              </div>
+            </div>
+          </div>
+          <div v-if="!filtered.length" class="empty">ไม่พบรายการที่ตรงกับตัวกรอง</div>
+        </div>
+      </div>
+    </main>
+  </template>
+
+  <!-- ---------- แท็บนิติบุคคล ---------- -->
+  <main v-else-if="tab==='ent'" style="overflow:auto">
+    <div class="warnbar">
+      ข้อมูลในตารางนี้ <b>ยังไม่ได้รับการยืนยัน</b> — กรอกให้ครบก่อนใช้ออก Bin Card จริง
+      เพราะ <b>ยอดคงเหลือจะแยกตามนิติบุคคล ห้ามปนกัน</b>
+    </div>
+    <div class="grid-wrap" style="padding:12px;overflow:auto">
+      <table class="plain">
+        <thead><tr>
+          <th style="width:110px">รหัส</th><th style="width:260px">ชื่อนิติบุคคล</th>
+          <th>ที่อยู่</th><th style="width:150px">Store Location</th>
+          <th style="width:110px">Vendor No.</th><th style="width:80px">ใช้งาน</th><th style="width:40px"></th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="(e,i) in entities" :key="i">
+            <td><input type="text" v-model="e.entity_code" @input="dirty=true"></td>
+            <td><input type="text" v-model="e.company_name" @input="dirty=true"></td>
+            <td><input type="text" v-model="e.address" @input="dirty=true"></td>
+            <td><input type="text" v-model="e.store_location" @input="dirty=true"></td>
+            <td><input type="text" v-model="e.vendor_no" @input="dirty=true"></td>
+            <td class="chk"><input type="checkbox" :checked="e.active==='TRUE'"
+                @change="e.active=$event.target.checked?'TRUE':'FALSE'; dirty=true"></td>
+            <td><button class="btn" style="padding:2px 8px" @click="entities.splice(i,1);dirty=true">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <p><button class="btn" @click="entities.push({entity_code:'',company_name:'',address:'',store_location:'',vendor_no:'',active:'TRUE'});dirty=true">+ เพิ่มนิติบุคคล</button></p>
+      <p class="note">
+        ที่อยู่ยังไม่ตรงกัน 3 แบบ — Delta ระบุ <b>222 หมู่ 9 ต.แม่กาษา อ.แม่สอด ตาก 63110</b> ·
+        ฟอร์ม Excel เขียน <b>93/59 Songkaew Road</b> · ใบ STOCK CARD ดูเหมือน <b>99/59</b>
+      </p>
+    </div>
+  </main>
+
+  <!-- ---------- แท็บปัญหาที่พบ ---------- -->
+  <main v-else style="overflow:auto">
+    <div class="toolbar" style="border-radius:8px 8px 0 0;margin-top:12px">
+      <select v-model="fIssue">
+        <option value="">— ทุกประเภท —</option>
+        <option v-for="t in issueTypes" :key="t" :value="t">{{ t }}</option>
+      </select>
+      <span class="note" style="margin:0">พบ <b>{{ filteredIssues.length.toLocaleString() }}</b> รายการ</span>
+    </div>
+    <div class="grid-wrap" style="overflow:auto">
+      <table class="plain">
+        <thead><tr>
+          <th style="width:200px">ประเภทปัญหา</th><th style="width:130px">รหัส</th>
+          <th>ค่าเดิม</th><th style="width:230px">ค่าที่ใช้</th><th style="width:230px">หมายเหตุ</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="(x,i) in visibleIssues" :key="i">
+            <td><span class="pill">{{ x[0] }}</span></td>
+            <td class="mono">{{ x[1] }}</td>
+            <td style="white-space:normal">{{ x[2] }}</td>
+            <td style="white-space:normal">{{ x[3] }}</td>
+            <td style="white-space:normal;color:var(--muted)">{{ x[4] }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="filteredIssues.length>visibleIssues.length" style="padding:12px">
+        <button class="btn" @click="issueLimit+=500">แสดงเพิ่มอีก 500 รายการ</button>
+      </p>
+    </div>
+  </main>
+
+  <div class="savebar" v-if="loaded && dirty">
+    <span>มีการแก้ไขที่ยังไม่ได้บันทึก</span>
+    <button @click="save">บันทึกลงเครื่อง</button>
+    <button @click="exportXlsx">ดาวน์โหลด .xlsx</button>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+const STORE_KEY = 'bincard.materials.v1';
+const UNIT_OPTIONS = ['PCE','MTR','KGM','NPR','PST','']; // หน่วยมาตรฐานตามทะเบียน Delta
+const CATEGORIES = ['CORE','WIRE','TAPE','TUBE','BOBBIN','BASE','INSULATOR','LABEL',
+                    'CHEMICAL','METAL PART','ELECTRONIC','PACKING','FG/SEMI','OTHER'];
+
+createApp({
+  setup() {
+    // ---------- state ----------
+    const tab      = ref('mat');
+    const loaded   = ref(false);
+    const dragOver = ref(false);
+    const dirty    = ref(false);
+
+    const rows     = ref([]);   // ทะเบียนวัตถุดิบ
+    const entities = ref([]);   // นิติบุคคล
+    const issues   = ref([]);   // log ปัญหา
+
+    const q        = ref('');
+    const fCat     = ref('');
+    const fActive  = ref('');
+    const fExp     = ref('');
+    const fUnit    = ref('');
+    const fIssue   = ref('');
+    const issueLimit = ref(500);
+
+    const sortKey  = ref('material_code');
+    const sortDir  = ref(1);
+
+    const rowH     = 34;
+    const startIdx = ref(0);
+    const winSize  = ref(40);
+    const scroller = ref(null);
+    const searchBox= ref(null);
+
+    // ---------- ตัวเลือกใน dropdown ----------
+    const unitOptions = UNIT_OPTIONS;
+    const categories  = CATEGORIES;
+    const units = computed(() => {
+      const s = new Set(rows.value.map(r => r.unit || ''));
+      return [...s].sort();
+    });
+    const issueTypes = computed(() => [...new Set(issues.value.map(x => x[0]))].sort());
+
+    // ---------- กรองและเรียง ----------
+    const hasFilter = computed(() =>
+      !!(q.value || fCat.value || fActive.value || fExp.value || fUnit.value));
+
+    const filtered = computed(() => {
+      const term = q.value.trim().toLowerCase();
+      let out = rows.value.filter(r => {
+        if (fCat.value    && r.category        !== fCat.value)    return false;
+        if (fActive.value && r.active          !== fActive.value) return false;
+        if (fExp.value    && r.requires_expiry !== fExp.value)    return false;
+        if (fUnit.value   && (r.unit || '')    !== fUnit.value)   return false;
+        if (term) {
+          const hay = String(r.material_code) + ' ' + String(r.description || '');
+          if (!hay.toLowerCase().includes(term)) return false;
+        }
+        return true;
+      });
+      const k = sortKey.value, d = sortDir.value;
+      out = out.slice().sort((a, b) => {
+        let x = a[k], y = b[k];
+        if (k === 'used_wk27') { x = +x || 0; y = +y || 0; }
+        else { x = String(x ?? ''); y = String(y ?? ''); }
+        return x < y ? -d : x > y ? d : 0;
+      });
+      return out;
+    });
+
+    const windowRows = computed(() =>
+      filtered.value.slice(startIdx.value, startIdx.value + winSize.value));
+
+    // ---------- สถิติ ----------
+    const nActive  = computed(() => rows.value.filter(r => r.active === 'TRUE').length);
+    const nExpiry  = computed(() => rows.value.filter(r => r.requires_expiry === 'TRUE').length);
+    const nNoUnit  = computed(() => rows.value.filter(r => !r.unit).length);
+    const dirtyCount = computed(() => rows.value.filter(r => r._dirty).length);
+
+    const filteredIssues = computed(() =>
+      fIssue.value ? issues.value.filter(x => x[0] === fIssue.value) : issues.value);
+    const visibleIssues  = computed(() => filteredIssues.value.slice(0, issueLimit.value));
+
+    // ---------- actions ----------
+    function touch(r) { r._dirty = true; dirty.value = true; }
+    function setBool(r, field, val) { r[field] = val ? 'TRUE' : 'FALSE'; touch(r); }
+
+    function bulk(field, val) {
+      if (!confirm(`ตั้งค่า ${field} = ${val} ให้ ${filtered.value.length} รายการที่กรองอยู่?`)) return;
+      filtered.value.forEach(r => { r[field] = val; r._dirty = true; });
+      dirty.value = true;
+    }
+
+    function addRow() {
+      const code = prompt('รหัสวัตถุดิบใหม่:');
+      if (!code) return;
+      const c = String(code).trim();
+      if (rows.value.some(r => String(r.material_code) === c)) {
+        alert('รหัสนี้มีอยู่แล้วในทะเบียน'); return;
+      }
+      rows.value.unshift({
+        _id: 'new-' + Date.now(), _dirty: true,
+        material_code: c, description: '', unit: 'PCE', category: 'OTHER',
+        requires_expiry: 'FALSE', active: 'TRUE', used_wk27: 0, remark: 'เพิ่มเอง'
+      });
+      dirty.value = true;
+      q.value = c; tab.value = 'mat';
+    }
+
+    function resetFilters() { q.value=''; fCat.value=''; fActive.value=''; fExp.value=''; fUnit.value=''; }
+
+    function sortBy(k) {
+      if (sortKey.value === k) sortDir.value = -sortDir.value;
+      else { sortKey.value = k; sortDir.value = 1; }
+      if (scroller.value) scroller.value.scrollTop = 0;
+      startIdx.value = 0;
+    }
+    function sortMark(k) { return sortKey.value === k ? (sortDir.value === 1 ? '▲' : '▼') : ''; }
+
+    function onScroll(e) {
+      const st = e.target.scrollTop;
+      const vis = Math.ceil(e.target.clientHeight / rowH);
+      winSize.value = vis + 12;
+      startIdx.value = Math.max(0, Math.floor(st / rowH) - 6);
+    }
+
+    // ---------- โหลดไฟล์ ----------
+    function onDrop(e) { dragOver.value = false; const f = e.dataTransfer.files[0]; if (f) readFile(f); }
+    function onPick(e) { const f = e.target.files[0]; if (f) readFile(f); }
+
+    function readFile(file) {
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          // อ่านเป็น ArrayBuffer เสมอ กัน bug การแปลงค่าของ SheetJS
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+          if (!wb.SheetNames.includes('Materials'))
+            throw new Error('ไม่พบชีตชื่อ Materials ในไฟล์นี้');
+
+          const mat = XLSX.utils.sheet_to_json(wb.Sheets['Materials'], { defval: '' });
+          rows.value = mat.map((r, i) => ({
+            _id: 'r' + i, _dirty: false,
+            material_code: r.material_code,
+            description: String(r.description ?? ''),
+            unit: String(r.unit ?? ''),
+            category: String(r.category ?? 'OTHER'),
+            requires_expiry: String(r.requires_expiry ?? 'FALSE').toUpperCase(),
+            active: String(r.active ?? 'FALSE').toUpperCase(),
+            used_wk27: +r.used_wk27 || 0,
+            remark: String(r.remark ?? '')
+          }));
+
+          entities.value = wb.SheetNames.includes('Entities')
+            ? XLSX.utils.sheet_to_json(wb.Sheets['Entities'], { defval: '' })
+                .filter(e => e.entity_code)
+                .map(e => ({
+                  entity_code: String(e.entity_code), company_name: String(e.company_name ?? ''),
+                  address: String(e.address ?? ''), store_location: String(e.store_location ?? ''),
+                  vendor_no: String(e.vendor_no ?? ''),
+                  active: String(e.active ?? 'TRUE').toUpperCase()
+                }))
+            : [];
+
+          issues.value = wb.SheetNames.includes('Issues_Log')
+            ? XLSX.utils.sheet_to_json(wb.Sheets['Issues_Log'], { header: 1, defval: '' }).slice(1)
+                .filter(r => r.length && r[0])
+            : [];
+
+          loaded.value = true;
+          dirty.value = false;
+          save();
+          nextTick(() => searchBox.value && searchBox.value.focus());
+        } catch (err) {
+          alert('อ่านไฟล์ไม่สำเร็จ: ' + err.message);
+        }
+      };
+      fr.readAsArrayBuffer(file);
+    }
+
+    // ---------- บันทึก / ส่งออก ----------
+    function save() {
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify({
+          rows: rows.value, entities: entities.value, issues: issues.value,
+          savedAt: new Date().toISOString()
+        }));
+        dirty.value = false;
+        rows.value.forEach(r => r._dirty = false);
+      } catch (err) {
+        alert('บันทึกไม่สำเร็จ (พื้นที่ localStorage อาจเต็ม): ' + err.message);
+      }
+    }
+
+    function exportXlsx() {
+      const wb = XLSX.utils.book_new();
+      const mat = rows.value.map(r => ({
+        material_code: r.material_code, description: r.description, unit: r.unit,
+        category: r.category, requires_expiry: r.requires_expiry, active: r.active,
+        used_wk27: r.used_wk27, remark: r.remark
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mat), 'Materials');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(entities.value), 'Entities');
+      XLSX.utils.book_append_sheet(wb,
+        XLSX.utils.aoa_to_sheet([['ประเภทปัญหา','material_code','ค่าเดิม','ค่าที่ใช้','หมายเหตุ'], ...issues.value]),
+        'Issues_Log');
+      const d = new Date();
+      const stamp = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+      XLSX.writeFile(wb, `ทะเบียนวัตถุดิบ_${stamp}.xlsx`);
+    }
+
+    // ---------- เริ่มต้น ----------
+    onMounted(() => {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        try {
+          const d = JSON.parse(raw);
+          rows.value = (d.rows || []).map(r => ({ ...r, _dirty: false }));
+          entities.value = d.entities || [];
+          issues.value = d.issues || [];
+          loaded.value = rows.value.length > 0;
+        } catch (e) { /* ข้อมูลเสีย เริ่มใหม่ */ }
+      }
+      window.addEventListener('keydown', e => {
+        if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+          e.preventDefault(); searchBox.value && searchBox.value.focus();
+        }
+      });
+      window.addEventListener('beforeunload', e => {
+        if (dirty.value) { e.preventDefault(); e.returnValue = ''; }
+      });
+    });
+
+    return {
+      tab, loaded, dragOver, dirty, rows, entities, issues,
+      q, fCat, fActive, fExp, fUnit, fIssue, issueLimit,
+      sortKey, sortDir, rowH, startIdx, winSize, scroller, searchBox,
+      unitOptions, categories, units, issueTypes,
+      hasFilter, filtered, windowRows,
+      nActive, nExpiry, nNoUnit, dirtyCount, filteredIssues, visibleIssues,
+      touch, setBool, bulk, addRow, resetFilters, sortBy, sortMark, onScroll,
+      onDrop, onPick, save, exportXlsx
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
