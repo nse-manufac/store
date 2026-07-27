@@ -527,6 +527,13 @@ td input{width:100%;padding:3px 6px;font-size:12px}
   </div>
   <div class="card">
     <h3>เชื่อมต่อ Google Sheets (ใช้ร่วมกันหลายคน)</h3>
+    <div class="msg bad" v-if="sync.needDeploy">
+      <b>สคริปต์บน Google Sheets เป็นเวอร์ชันเก่า</b> — รายการรับเข้า/จ่ายออกยังซิงค์ได้ปกติ
+      แต่<b>รายการ PO และของขาดจะยังไม่ขึ้น</b><br>
+      วิธีแก้: เปิด Apps Script → วางโค้ดจากไฟล์ <b>google-apps-script.gs</b> ทับของเดิม →
+      <b>Deploy → Manage deployments → ✏️ → Version: New version → Deploy</b> →
+      กลับมาที่ Google Sheet กดเมนู <b>ระบบ Bin Card → สร้างชีตที่จำเป็นทั้งหมด</b>
+    </div>
     <div class="msg" :class="sync.state==='error'?'bad':(sync.url?'ok':'warn')">
       <span v-if="!sync.url">ยังไม่ได้เชื่อมต่อ — ข้อมูลอยู่ในเครื่องนี้เครื่องเดียว ดูขั้นตอนในไฟล์
         <b>คู่มือติดตั้ง_GoogleSheets.md</b></span>
@@ -1050,6 +1057,7 @@ createApp({
           const po = String(row[3]).trim();
           lastPo = po;
           pos.push({
+            id: 'P' + curDate + '-' + po,
             date: curDate, sub: String(row[1] || '').trim(),
             pn: row[2] != null ? String(Math.round(Number(row[2]) || 0)) : '',
             po, qty: Number(row[5]) || 0,
@@ -1062,7 +1070,10 @@ createApp({
           const code = (note.match(/\b([345]\d{9})\b/) || [])[1] || '';
           const sh = note.match(/[Ss]hort\s*([\d,\.]+)\s*([A-Za-z]+)?/);
           const eta = note.match(/ETA\s+(.+)$/i);
+          // id ต้องมี PO ด้วย เพราะหมายเหตุข้อความเดียวกันโผล่ได้หลาย PO ในวันเดียวกัน
+          // (เช่น "4037010105 ETA 29 July 2026" โผล่ 3 PO) ถ้าไม่ใส่ PO จะยุบเหลือรายการเดียว
           shorts.push({
+            id: 'S' + curDate + '-' + lastPo + '-' + code + '-' + hash(note),
             date: curDate, po: lastPo, code,
             type: sh ? 'ขาด' : 'รอส่ง',
             qty: sh ? Number(String(sh[1]).replace(/[,\.]$/,'').replace(/,/g,'')) || 0 : 0,
@@ -1087,13 +1098,13 @@ createApp({
         try {
           const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
           const { pos, shorts:sh } = parsePoFile(wb);
-          const have = new Set(poList.value.map(p => p.po + '|' + p.date));
-          const newPos = pos.filter(p => !have.has(p.po + '|' + p.date));
+          const have = new Set(poList.value.map(p => p.id));
+          const newPos = pos.filter(p => !have.has(p.id));
           const dupPos = pos.length - newPos.length;
           const bomPn = new Set(bom.value.map(b => String(b.pn)));
           const pnNoBom = [...new Set(pos.map(p => p.pn).filter(pn => pn && !bomPn.has(pn)))];
-          const haveSh = new Set(shorts.value.map(s => s.date + '|' + s.code + '|' + s.note));
-          const newSh = sh.filter(s => !haveSh.has(s.date + '|' + s.code + '|' + s.note));
+          const haveSh = new Set(shorts.value.map(s => s.id));
+          const newSh = sh.filter(s => !haveSh.has(s.id));
           const codeNew = [...new Set(sh.map(s => s.code)
             .filter(c => c && !matMap.value.has(c)))];
           const dates = [...new Set(pos.map(p => p.date).filter(Boolean))].sort();
@@ -1107,12 +1118,25 @@ createApp({
     function applyPoImport(){
       const p = poImp.value; if (!p) return;
       let n = 0;
-      if (poOpt.pos)    { poList.value.push(...p.newPos); n += p.newPos.length; }
-      if (poOpt.shorts) { shorts.value.push(...p.newSh);  n += p.newSh.length; }
+      const now = new Date().toISOString();
+      if (poOpt.pos) {
+        p.newPos.forEach(r => { r.updated_at = now; r._dirty = true; });
+        poList.value.push(...p.newPos); n += p.newPos.length;
+      }
+      if (poOpt.shorts) {
+        p.newSh.forEach(r => { r.updated_at = now; r._dirty = true; });
+        shorts.value.push(...p.newSh); n += p.newSh.length;
+      }
       poList.value.sort((a,b) => (a.date + a.po) < (b.date + b.po) ? 1 : -1);
       poImp.value = null;
-      persist();
-      flash(`นำเข้าแล้ว ${n} รายการ`);
+      persist(); doSync();
+      flash(`นำเข้าแล้ว ${n} รายการ · กำลังส่งขึ้นเซิร์ฟเวอร์`);
+    }
+    /** สร้างรหัสสั้นจากข้อความ ใช้ทำ id ให้คงที่ทุกเครื่อง */
+    function hash(s){
+      let h = 0;
+      for (let i = 0; i < String(s).length; i++) h = (h * 31 + String(s).charCodeAt(i)) | 0;
+      return Math.abs(h).toString(36);
     }
 
     const todayStr = computed(() => today());
@@ -1128,7 +1152,12 @@ createApp({
         (p.po + ' ' + p.pn + ' ' + p.sub + ' ' + p.date).toLowerCase().includes(t));
     });
     const shortsOpen = computed(() => shorts.value.filter(s => !s.done));
-    function toggleShort(s){ s.done = !s.done; persist(); }
+    function toggleShort(s){
+      s.done = !s.done;
+      s.updated_at = new Date().toISOString();
+      s._dirty = true;
+      persist(); doSync();
+    }
 
     /** PO ที่เลือกได้ในหน้าคีย์รับเข้า — เรียงล่าสุดขึ้นก่อน */
     const poOptions = computed(() => {
@@ -1154,7 +1183,8 @@ createApp({
     // แล้วค่อยส่งขึ้นเบื้องหลัง — เน็ตหลุดก็ยังคีย์ต่อได้ ไม่มีวันเสียข้อมูลจากการกดบันทึก
     const sync = reactive({
       url:'', token:'', device:'', auto:true,
-      lastPull:'', lastOkAt:'', state:'off', error:''   // state: off|ok|busy|error
+      lastPull:'', lastPullAux:'', lastPullAuxNext:'',
+      lastOkAt:'', state:'off', error:'', needDeploy:false   // state: off|ok|busy|error
     });
     const pending = computed(() => txns.value.filter(t => t._dirty).length);
     const syncLabel = computed(() => {
@@ -1173,7 +1203,8 @@ createApp({
 
     function saveSyncCfg(){
       localStorage.setItem(K_SYNC, JSON.stringify({
-        url:sync.url, token:sync.token, device:sync.device, auto:sync.auto, lastPull:sync.lastPull }));
+        url:sync.url, token:sync.token, device:sync.device, auto:sync.auto,
+        lastPull:sync.lastPull, lastPullAux:sync.lastPullAux }));
     }
 
     // ใช้ text/plain เพื่อไม่ให้เบราว์เซอร์ยิง preflight ซึ่ง Apps Script ไม่รองรับ
@@ -1211,23 +1242,66 @@ createApp({
       return { added, updated };
     }
 
+    /** รวมข้อมูลที่ดึงมาเข้ากับ list ในเครื่อง — ใช้ได้กับทั้ง POs และ Shortages */
+    function mergeList(listRef, rows){
+      const byId = new Map(listRef.value.map(x => [x.id, x]));
+      let n = 0;
+      for (const r of rows) {
+        const local = byId.get(r.id);
+        if (!local) { listRef.value.push({ ...r, _dirty:false }); n++; continue; }
+        if (local._dirty) continue;
+        if (String(r.updated_at || '') > String(local.updated_at || '')) {
+          Object.assign(local, r, { _dirty:false }); n++;
+        }
+      }
+      return n;
+    }
+
     let syncing = false;
     async function doSync(silent = true){
       if (!sync.url || syncing) return;
       syncing = true; sync.state = 'busy'; sync.error = '';
       try {
+        // ── รายการเคลื่อนไหว ──
+        // หลังส่งขึ้นสำเร็จ ต้องรับเวลาของเซิร์ฟเวอร์มาเขียนทับเวลาในเครื่อง
+        // ไม่งั้นถ้านาฬิกาเครื่องเดินเร็วกว่าเซิร์ฟเวอร์ การแก้ไขจากเครื่องอื่นจะถูกมองข้ามตลอด
         const dirty = txns.value.filter(t => t._dirty);
         if (dirty.length) {
-          await api('pushTxns', { rows: dirty.map(cleanTxn) });
-          dirty.forEach(t => t._dirty = false);
+          const res = await api('pushTxns', { rows: dirty.map(cleanTxn) });
+          dirty.forEach(t => { t._dirty = false; if (res.serverTime) t.updated_at = res.serverTime; });
         }
         const d = await api('pullTxns', { since: sync.lastPull });
         const r = mergeIncoming(d.rows || []);
         sync.lastPull = d.serverTime;
+
+        // ── รายการ PO และของขาด (upsert ราย record เหมือนกัน) ──
+        // ห่อ try/catch แยก เพราะถ้า Apps Script บนเซิร์ฟเวอร์ยังเป็นเวอร์ชันเก่าที่ไม่มีคำสั่งนี้
+        // รายการรับเข้า-จ่ายออกต้องยังซิงค์ได้ตามปกติ ไม่ใช่พังทั้งระบบ
+        let auxUp = 0, auxDown = 0;
+        sync.needDeploy = false;
+        try {
+          for (const [table, listRef] of [['POs', poList], ['Shortages', shorts]]) {
+            const dirtyRows = listRef.value.filter(x => x._dirty && x.id);
+            if (dirtyRows.length) {
+              const res = await api('pushRows', { table,
+                rows: dirtyRows.map(x => { const o = { ...x }; delete o._dirty; return o; }) });
+              dirtyRows.forEach(x => { x._dirty = false; if (res.serverTime) x.updated_at = res.serverTime; });
+              auxUp += dirtyRows.length;
+            }
+            const dd = await api('pullRows', { table, since: sync.lastPullAux });
+            auxDown += mergeList(listRef, dd.rows || []);
+            sync.lastPullAuxNext = dd.serverTime;
+          }
+          if (sync.lastPullAuxNext) { sync.lastPullAux = sync.lastPullAuxNext; sync.lastPullAuxNext = ''; }
+        } catch (e) {
+          if (/ไม่รู้จัก(คำสั่ง|ตาราง)/.test(e.message)) sync.needDeploy = true;
+          else throw e;
+        }
+
         sync.lastOkAt = new Date().toISOString();
         sync.state = 'ok';
         persist(); saveSyncCfg();
-        if (!silent) flash(`ซิงค์แล้ว · ส่งขึ้น ${dirty.length} · รับมา ${r.added + r.updated}`);
+        if (!silent) flash(`ซิงค์แล้ว · ส่งขึ้น ${dirty.length + auxUp} · รับมา ${r.added + r.updated + auxDown}`);
       } catch (e) {
         sync.state = 'error'; sync.error = e.message;
         if (!silent) flash('ซิงค์ไม่สำเร็จ: ' + e.message, true);
@@ -1320,6 +1394,13 @@ createApp({
         if (s) { materials.value=s.materials||[]; entities.value=s.entities||[];
                  bom.value=s.bom||[]; people.value=s.people||[];
                  poList.value=s.poList||[]; shorts.value=s.shorts||[]; }
+        // ข้อมูลที่นำเข้าก่อนเวอร์ชันนี้ยังไม่มี id — เติมให้ แล้วมาร์คส่งขึ้นเซิร์ฟเวอร์
+        const stampNow = new Date().toISOString();
+        poList.value.forEach(p => { if (!p.id) {
+          p.id = 'P' + p.date + '-' + p.po; p.updated_at = stampNow; p._dirty = true; } });
+        shorts.value.forEach(x => { if (!x.id) {
+          x.id = 'S' + x.date + '-' + x.po + '-' + x.code + '-' + hash(x.note);
+          x.updated_at = stampNow; x._dirty = true; } });
         txns.value = JSON.parse(localStorage.getItem(K_TXN) || '[]');
       } catch (e) { /* ข้อมูลเสีย เริ่มใหม่ */ }
       if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
