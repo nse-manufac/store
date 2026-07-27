@@ -108,6 +108,9 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <button :class="{on:tab==='in'}"     @click="tab='in'">รับเข้า</button>
     <button :class="{on:tab==='out'}"    @click="tab='out'">จ่ายออก</button>
     <button :class="{on:tab==='card'}"   @click="tab='card'">ดูการ์ด</button>
+    <button :class="{on:tab==='po'}"     @click="tab='po'">รายการ PO</button>
+    <button :class="{on:tab==='short'}"  @click="tab='short'">ของขาด
+      <span class="badge" v-if="shortsOpen.length">{{ shortsOpen.length }}</span></button>
     <button :class="{on:tab==='list'}"   @click="tab='list'">ค้นหา / แก้ไข</button>
     <button :class="{on:tab==='claim'}"  @click="tab='claim'">คิวเคลม
       <span class="badge" v-if="claims.length">{{ claims.length }}</span></button>
@@ -158,7 +161,10 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <h3>1 · ข้อมูลหัวเอกสาร (จาก Subcontract Issue Document)</h3>
     <div class="row">
       <div class="f"><label>PO No.</label>
-        <input v-model.trim="inH.po" placeholder="TM4267H001" style="width:150px" class="mono"></div>
+        <input v-model.trim="inH.po" list="polist" placeholder="TM4267H001" style="width:160px" class="mono"
+               @change="pickPo(inH.po)">
+        <datalist id="polist"><option v-for="p in poOptions" :key="p.po" :value="p.po">
+          {{ p.pn }} · {{ p.qty }}</option></datalist></div>
       <div class="f"><label>P/N (สินค้า)</label>
         <input v-model.trim="inH.pn" list="pnlist" placeholder="2877669000" style="width:150px" class="mono">
         <datalist id="pnlist"><option v-for="p in bomPns" :key="p" :value="p"></option></datalist></div>
@@ -338,6 +344,106 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     </p>
   </div>
   <div class="card" v-else-if="cardCode"><p class="hint">ยังไม่มีรายการเคลื่อนไหวของรหัสนี้ในนิติบุคคล {{ entity }}</p></div>
+</main>
+
+<!-- ════════ รายการ PO ════════ -->
+<main v-if="tab==='po'">
+  <div class="card">
+    <h3>นำเข้าไฟล์ PO รายวัน</h3>
+    <p class="hint">ไฟล์จาก PC ของ Delta เช่น <b>PO 3M5 ON 28-29 JULY 2026.xlsx</b> —
+      นำเข้าแล้วหน้าคีย์รับเข้าจะเลือก PO จากรายการได้เลย ไม่ต้องพิมพ์ P/N กับจำนวนสั่งเอง</p>
+    <p><input type="file" accept=".xlsx" @change="onPoImport"></p>
+
+    <div v-if="poImp" style="margin-top:12px">
+      <div class="msg ok">
+        อ่าน <b>{{ poImp.fileName }}</b> ได้ {{ poImp.pos.length }} รายการ PO
+        <span v-if="poImp.dates.length">· วันที่ {{ poImp.dates.join(' และ ') }}</span>
+      </div>
+      <div class="msg bad" v-if="poImp.pnNoBom.length">
+        <b>พบ P/N ใหม่ที่ยังไม่มี BOM {{ poImp.pnNoBom.length }} รายการ</b> —
+        {{ poImp.pnNoBom.join(', ') }}<br>
+        ต้องขอ BOM จาก Delta แล้วเพิ่มเข้าระบบก่อน ไม่งั้นหน้าคีย์รับเข้าจะกางรายการวัตถุดิบให้ไม่ได้
+      </div>
+      <div class="msg warn" v-if="poImp.codeNew.length">
+        พบรหัสวัตถุดิบในหมายเหตุที่ยังไม่มีในทะเบียน: <b>{{ poImp.codeNew.join(', ') }}</b> —
+        ไปเพิ่มในโปรแกรมทะเบียนวัตถุดิบก่อน
+      </div>
+      <table class="plain" style="max-width:620px">
+        <thead><tr><th style="width:44px">รับ</th><th>สิ่งที่จะเพิ่ม</th><th style="width:80px" class="num">จำนวน</th></tr></thead>
+        <tbody>
+          <tr><td><input type="checkbox" v-model="poOpt.pos" :disabled="!poImp.newPos.length"></td>
+            <td><b>รายการ PO</b>
+              <span class="hint" v-if="poImp.dupPos"> · ข้ามที่ซ้ำ {{ poImp.dupPos }} รายการ</span></td>
+            <td class="num mono">{{ poImp.newPos.length }}</td></tr>
+          <tr><td><input type="checkbox" v-model="poOpt.shorts" :disabled="!poImp.newSh.length"></td>
+            <td><b>รายการของขาด / รอส่ง</b><br><span class="hint">แกะจากหมายเหตุเป็นฟิลด์ให้แล้ว</span></td>
+            <td class="num mono">{{ poImp.newSh.length }}</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:12px">
+        <button class="btn primary" @click="applyPoImport">ยืนยันนำเข้า</button>
+        <button class="btn" style="margin-left:8px" @click="poImp=null">ยกเลิก</button>
+      </p>
+    </div>
+  </div>
+
+  <div class="card" v-if="poList.length">
+    <div class="row" style="margin-bottom:10px">
+      <h3 style="margin:0">รายการ PO ทั้งหมด</h3>
+      <div class="grow"></div>
+      <input v-model.trim="poQ" placeholder="ค้นหา PO / P/N / วันที่" style="width:240px">
+      <span class="hint">{{ poFiltered.length }} รายการ</span>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:100px">วันที่</th><th style="width:100px">โรงงาน</th>
+          <th style="width:120px">PO</th><th style="width:110px">P/N</th>
+          <th class="num" style="width:100px">จำนวนสั่ง</th><th style="width:70px">มี BOM</th>
+          <th style="width:100px">คีย์รับแล้ว</th><th>หมายเหตุ</th></tr></thead>
+        <tbody>
+          <tr v-for="(p,i) in poFiltered.slice(0,300)" :key="i">
+            <td class="mono">{{ p.date }}</td><td>{{ p.sub }}</td>
+            <td class="mono">{{ p.po }}</td><td class="mono">{{ p.pn }}</td>
+            <td class="num mono">{{ fmt(p.qty) }}</td>
+            <td><span class="tag" :class="bomByPn.has(p.pn)?'ok':'bad'">
+              {{ bomByPn.has(p.pn) ? 'มี' : 'ไม่มี' }}</span></td>
+            <td><span class="tag" :class="poKeyed(p.po)?'ok':''">
+              {{ poKeyed(p.po) ? 'แล้ว' : 'ยัง' }}</span></td>
+            <td class="hint">{{ p.remark }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<!-- ════════ ของขาด ════════ -->
+<main v-if="tab==='short'">
+  <div class="msg" :class="shortsOpen.length?'warn':'ok'">
+    <span v-if="shortsOpen.length"><b>{{ shortsOpen.length }} รายการ</b> ที่ Delta แจ้งว่าของขาดหรือยังไม่ส่ง —
+      ติ๊กช่องซ้ายเมื่อของมาครบแล้ว</span>
+    <span v-else>ไม่มีรายการของขาดค้างอยู่</span>
+  </div>
+  <div class="card" v-if="shorts.length">
+    <table>
+      <thead><tr><th style="width:44px">มาแล้ว</th><th style="width:100px">วันที่แจ้ง</th>
+        <th style="width:120px">PO</th><th style="width:120px">รหัส</th><th>คำอธิบาย</th>
+        <th style="width:70px">ประเภท</th><th class="num" style="width:110px">จำนวนที่ขาด</th>
+        <th style="width:60px">หน่วย</th><th style="width:100px">ETA</th><th style="width:90px">เลย ETA</th></tr></thead>
+      <tbody>
+        <tr v-for="(s,i) in shorts" :key="i" :class="{void:s.done, bad:!s.done && s.eta && s.eta < todayStr}">
+          <td class="chk"><input type="checkbox" :checked="s.done" @change="toggleShort(s)"></td>
+          <td class="mono">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
+          <td class="mono">{{ s.code }}</td><td class="hint">{{ descOf(s.code) }}</td>
+          <td><span class="tag" :class="s.type==='ขาด'?'bad':''">{{ s.type }}</span></td>
+          <td class="num mono">{{ s.qty ? fmt(s.qty) : '—' }}</td>
+          <td class="hint">{{ s.unit }}</td><td class="mono">{{ s.eta || '—' }}</td>
+          <td><span v-if="!s.done && s.eta && s.eta < todayStr" class="tag bad">เลยแล้ว</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px"><button class="btn" @click="exportShorts">ส่งออกตารางของขาด .xlsx</button></p>
+  </div>
 </main>
 
 <!-- ════════ ค้นหา / แก้ไข ════════ -->
@@ -814,7 +920,8 @@ createApp({
       try {
         const setup = JSON.stringify({
           materials: materials.value.filter(m => m.active === 'TRUE'),
-          entities: entities.value, bom: bom.value, people: people.value });
+          entities: entities.value, bom: bom.value, people: people.value,
+          poList: poList.value, shorts: shorts.value });
         const tx = JSON.stringify(txns.value);
         localStorage.setItem(K_SETUP, setup);
         localStorage.setItem(K_TXN, tx);
@@ -860,6 +967,16 @@ createApp({
         claims.value.map(t => ({ ...sheetFromTxns([t])[0], diff: round5(+t.qty - +t.issued_qty) }))), 'Claims');
       download(wb, 'คิวเคลม');
     }
+    function exportShorts(){
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(shorts.value.map(s => ({
+        วันที่แจ้ง:s.date, PO:s.po, รหัส:s.code, คำอธิบาย:descOf(s.code), ประเภท:s.type,
+        จำนวนที่ขาด:s.qty, หน่วย:s.unit, ETA:s.eta,
+        สถานะ: s.done ? 'มาแล้ว' : (s.eta && s.eta < todayStr.value ? 'เลย ETA' : 'รออยู่'),
+        หมายเหตุเดิม:s.note }))), 'Shortages');
+      download(wb, 'ตารางของขาด');
+    }
+
     function exportAll(){
       const blob = new Blob([JSON.stringify({
         version:1, exportedAt:new Date().toISOString(),
@@ -890,6 +1007,146 @@ createApp({
       if (!confirm('ลบรายการเคลื่อนไหวทั้งหมด? แนะนำให้ส่งออกสำรองก่อน')) return;
       if (!confirm('ยืนยันอีกครั้ง — ข้อมูลจะหายถาวร')) return;
       txns.value = []; persist(); flash('ลบแล้ว');
+    }
+
+    // ═══════════ นำเข้าไฟล์ PO รายวัน (จาก PC ของ Delta) ═══════════
+    // ไฟล์นี้บอกว่าวันไหนจะปล่อย PO อะไรบ้าง ใช้เติมหน้าคีย์รับเข้าให้อัตโนมัติ
+    // ⚠️ ไฟล์นี้ไม่มีรายการวัตถุดิบต่อ PO — วัตถุดิบโผล่เฉพาะในหมายเหตุแจ้งของขาด
+    const THAI_MONTH = { 'มกร':1,'กุม':2,'มีน':3,'เมษ':4,'พฤษ':5,'มิถ':6,
+                         'กรก':7,'สิง':8,'กัน':9,'ตุล':10,'พฤศ':11,'ธัน':12 };
+    const EN_MONTH = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+
+    /** "วัน อังคาร ที่ 28 กรกฏาคม พ.ศ.2569" → "2026-07-28"  (รองรับสะกด กรกฏ/กรกฎ) */
+    function parseThaiDate(s){
+      const m = String(s).match(/ที่\s*(\d{1,2})\s*([ก-๙]+)\s*พ\.?ศ\.?\s*(\d{4})/);
+      if (!m) return '';
+      const mo = THAI_MONTH[m[2].slice(0,3)];
+      if (!mo) return '';
+      return (+m[3] - 543) + '-' + pad(mo) + '-' + pad(+m[1]);
+    }
+    /** "ETA 29 July 2026" → "2026-07-29" */
+    function parseEnDate(s){
+      const m = String(s).match(/(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})/);
+      if (!m) return '';
+      const mo = EN_MONTH[m[2].slice(0,3).toLowerCase()];
+      return mo ? m[3] + '-' + pad(mo) + '-' + pad(+m[1]) : '';
+    }
+
+    function parsePoFile(wb){
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, blankrows:true });
+      const pos = [], shorts = [];
+      let curDate = '', lastPo = '';
+      for (const row of aoa) {
+        if (!row) continue;
+        const a = row[0];
+        if (typeof a === 'string' && a.includes('subcontract')) {
+          const d = parseThaiDate(a);
+          if (d) curDate = d;
+          continue;
+        }
+        // แถวข้อมูล PO: คอลัมน์ A เป็นเลขลำดับ และคอลัมน์ D มีเลข PO
+        if (typeof a === 'number' && row[3]) {
+          const po = String(row[3]).trim();
+          lastPo = po;
+          pos.push({
+            date: curDate, sub: String(row[1] || '').trim(),
+            pn: row[2] != null ? String(Math.round(Number(row[2]) || 0)) : '',
+            po, qty: Number(row[5]) || 0,
+            core: String(row[9] || '').trim(), remark: String(row[16] || '').trim()
+          });
+        }
+        // คอลัมน์ L (ดัชนี 11) เก็บหมายเหตุของขาด/ETA แบบข้อความอิสระ
+        const note = row[11];
+        if (typeof note === 'string' && /\d{10}/.test(note)) {
+          const code = (note.match(/\b([345]\d{9})\b/) || [])[1] || '';
+          const sh = note.match(/[Ss]hort\s*([\d,\.]+)\s*([A-Za-z]+)?/);
+          const eta = note.match(/ETA\s+(.+)$/i);
+          shorts.push({
+            date: curDate, po: lastPo, code,
+            type: sh ? 'ขาด' : 'รอส่ง',
+            qty: sh ? Number(String(sh[1]).replace(/[,\.]$/,'').replace(/,/g,'')) || 0 : 0,
+            unit: sh && sh[2] ? sh[2].toUpperCase() : '',
+            eta: eta ? parseEnDate(eta[1]) : '',
+            note: note.trim(), done: false
+          });
+        }
+      }
+      return { pos, shorts };
+    }
+
+    const poList  = ref([]);   // รายการ PO ที่นำเข้ามา
+    const shorts  = ref([]);   // ของขาด / รอส่ง
+    const poImp   = ref(null);
+    const poOpt   = reactive({ pos:true, shorts:true });
+
+    function onPoImport(e){
+      const f = e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+          const { pos, shorts:sh } = parsePoFile(wb);
+          const have = new Set(poList.value.map(p => p.po + '|' + p.date));
+          const newPos = pos.filter(p => !have.has(p.po + '|' + p.date));
+          const dupPos = pos.length - newPos.length;
+          const bomPn = new Set(bom.value.map(b => String(b.pn)));
+          const pnNoBom = [...new Set(pos.map(p => p.pn).filter(pn => pn && !bomPn.has(pn)))];
+          const haveSh = new Set(shorts.value.map(s => s.date + '|' + s.code + '|' + s.note));
+          const newSh = sh.filter(s => !haveSh.has(s.date + '|' + s.code + '|' + s.note));
+          const codeNew = [...new Set(sh.map(s => s.code)
+            .filter(c => c && !matMap.value.has(c)))];
+          const dates = [...new Set(pos.map(p => p.date).filter(Boolean))].sort();
+          poImp.value = { fileName:f.name, pos, newPos, dupPos, pnNoBom, sh, newSh, codeNew, dates };
+        } catch (err) { flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true); }
+      };
+      fr.readAsArrayBuffer(f);
+      e.target.value = '';
+    }
+
+    function applyPoImport(){
+      const p = poImp.value; if (!p) return;
+      let n = 0;
+      if (poOpt.pos)    { poList.value.push(...p.newPos); n += p.newPos.length; }
+      if (poOpt.shorts) { shorts.value.push(...p.newSh);  n += p.newSh.length; }
+      poList.value.sort((a,b) => (a.date + a.po) < (b.date + b.po) ? 1 : -1);
+      poImp.value = null;
+      persist();
+      flash(`นำเข้าแล้ว ${n} รายการ`);
+    }
+
+    const todayStr = computed(() => today());
+    /** PO นี้เคยคีย์รับเข้าไปแล้วหรือยัง */
+    function poKeyed(po){
+      return txns.value.some(t => !t.voided && t.direction === 'IN' && t.doc_ref === po);
+    }
+
+    const poQ = ref('');
+    const poFiltered = computed(() => {
+      const t = poQ.value.trim().toLowerCase();
+      return poList.value.filter(p => !t ||
+        (p.po + ' ' + p.pn + ' ' + p.sub + ' ' + p.date).toLowerCase().includes(t));
+    });
+    const shortsOpen = computed(() => shorts.value.filter(s => !s.done));
+    function toggleShort(s){ s.done = !s.done; persist(); }
+
+    /** PO ที่เลือกได้ในหน้าคีย์รับเข้า — เรียงล่าสุดขึ้นก่อน */
+    const poOptions = computed(() => {
+      const seen = new Set(); const out = [];
+      for (const p of poList.value) {
+        if (seen.has(p.po)) continue;
+        seen.add(p.po); out.push(p);
+      }
+      return out;
+    });
+    function pickPo(po){
+      const hit = poList.value.find(p => p.po === po);
+      if (!hit) return;
+      inH.pn = hit.pn; inH.order = hit.qty;
+      if (hit.date) inH.date = hit.date;
+      // SUB ในไฟล์ เช่น TUE-TPP ตรงกับรหัสนิติบุคคล
+      if (hit.sub && entities.value.some(e => e.entity_code === hit.sub)) entity.value = hit.sub;
+      if (inH.pn && inH.order) loadBom();
     }
 
     // ═══════════ เชื่อมต่อ Google Sheets (offline-first) ═══════════
@@ -993,7 +1250,8 @@ createApp({
         sync.state = 'busy';
         const d = await api('pushSetup', {
           materials: materials.value.filter(m => m.active === 'TRUE'),
-          entities: entities.value, bom: bom.value, people: people.value });
+          entities: entities.value, bom: bom.value, people: people.value,
+          poList: poList.value, shorts: shorts.value });
         sync.state='ok';
         flash('อัปโหลดข้อมูลตั้งต้นแล้ว · เวอร์ชัน ' + String(d.setupVersion).slice(0,19));
       } catch (e) { sync.state='error'; sync.error=e.message; flash('อัปโหลดไม่สำเร็จ: '+e.message, true); }
@@ -1008,6 +1266,8 @@ createApp({
         if (d.entities && d.entities.length)   entities.value  = d.entities;
         if (d.bom)                             bom.value       = d.bom;
         if (d.people)                          people.value    = d.people;
+        if (d.poList)                          poList.value    = d.poList;
+        if (d.shorts)                          shorts.value    = d.shorts;
         if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
         sync.state='ok'; persist();
         flash(`ดึงข้อมูลตั้งต้นแล้ว · วัตถุดิบ ${materials.value.length} · BOM ${bom.value.length}`);
@@ -1058,7 +1318,8 @@ createApp({
       try {
         const s = JSON.parse(localStorage.getItem(K_SETUP) || 'null');
         if (s) { materials.value=s.materials||[]; entities.value=s.entities||[];
-                 bom.value=s.bom||[]; people.value=s.people||[]; }
+                 bom.value=s.bom||[]; people.value=s.people||[];
+                 poList.value=s.poList||[]; shorts.value=s.shorts||[]; }
         txns.value = JSON.parse(localStorage.getItem(K_TXN) || '[]');
       } catch (e) { /* ข้อมูลเสีย เริ่มใหม่ */ }
       if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
@@ -1116,6 +1377,8 @@ createApp({
       newPerson, addPerson, persist, storageBytes, storagePct,
       sync, pending, syncLabel, syncColor, doSync, testConn, uploadSetup, downloadSetup,
       resetSyncClock, saveSyncCfg, connectAndPull, copySetupLink,
+      poList, shorts, poImp, poOpt, onPoImport, applyPoImport, poQ, poFiltered,
+      shortsOpen, toggleShort, poOptions, pickPo, poKeyed, todayStr, exportShorts,
       exportTxn, exportClaims, exportAll, restoreAll, clearTxns
     };
   }
