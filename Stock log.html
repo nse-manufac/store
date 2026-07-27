@@ -275,7 +275,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
         <th class="num">จำนวน</th><th>ผู้เบิก/ผู้รับ</th><th>PO</th><th style="width:80px"></th></tr></thead>
       <tbody>
         <tr v-for="t in recent" :key="t.id" :class="{void:t.voided}">
-          <td class="hint mono">{{ t.created_at.slice(11,19) }}</td>
+          <td class="hint mono">{{ localTime(t.created_at) }}</td>
           <td><span class="tag" :class="t.direction==='IN'?'ok':''">{{ t.direction==='IN'?'รับ':'จ่าย' }}</span></td>
           <td class="mono">{{ t.material_code }}</td>
           <td class="hint">{{ descOf(t.material_code) }}</td>
@@ -427,7 +427,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       <span v-else-if="sync.state==='error'">เชื่อมต่อไม่ได้: {{ sync.error }} —
         <b>ยังคีย์งานต่อได้ตามปกติ</b> ระบบจะส่งขึ้นให้เองเมื่อเน็ตกลับมา</span>
       <span v-else>เชื่อมต่อแล้ว · รอส่ง {{ pending }} รายการ ·
-        ซิงค์ล่าสุด {{ sync.lastOkAt ? sync.lastOkAt.slice(11,19) : '—' }}</span>
+        ซิงค์ล่าสุด {{ localTime(sync.lastOkAt) || '—' }}</span>
     </div>
     <div class="row">
       <div class="f" style="flex:1;min-width:340px"><label>URL ของ Web App</label>
@@ -518,8 +518,23 @@ const K_SETUP = 'bincard.setup.v1';   // materials / entities / bom / people
 const K_TXN   = 'bincard.txns.v1';    // รายการเคลื่อนไหว
 const K_SYNC  = 'bincard.sync.v1';    // การตั้งค่าเชื่อมต่อ Google Sheets
 
-const today = () => new Date().toISOString().slice(0, 10);
+// ⚠️ ห้ามใช้ toISOString() ทำวันที่ เพราะให้เวลา UTC ซึ่งช้ากว่าไทย 7 ชั่วโมง
+// ถ้าใช้ จะได้วันที่ของ "เมื่อวาน" ทุกครั้งที่คีย์ก่อน 07:00 น.
+const pad = n => String(n).padStart(2, '0');
+const today = (d = new Date()) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 const nowHour = () => new Date().getHours();
+
+/** แปลงเวลา ISO (UTC) ที่เก็บไว้ ให้เป็นเวลาไทยสำหรับแสดงผล */
+function localTime(iso){
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+function localDateTime(iso){
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : today(d) + ' ' + localTime(iso);
+}
 
 createApp({
   setup() {
@@ -825,7 +840,8 @@ createApp({
         description:descOf(t.material_code), unit:unitOf(t.material_code),
         po:t.doc_ref, part_no:t.part_no, date:t.date, time:t.time, qty:t.qty,
         reqmt_qty:t.reqmt_qty, issued_qty:t.issued_qty, person:t.person,
-        expiry_date:t.expiry_date, remark:t.remark, created_at:t.created_at,
+        expiry_date:t.expiry_date, remark:t.remark,
+        created_at:localDateTime(t.created_at), device:t.device || '',
         voided:t.voided ? 'TRUE' : 'FALSE', void_reason:t.void_reason }));
     }
     function download(wb, name){
@@ -1089,7 +1105,7 @@ createApp({
     return {
       tab, dragOver, entity, materials, entities, bom, people, txns, toast, ready,
       matMap, activeMats, bomByPn, bomPns, entInfo,
-      descOf, unitOf, needExpOf, fmt, balOf,
+      descOf, unitOf, needExpOf, fmt, balOf, localTime, localDateTime,
       onDrop, onPick,
       inH, inLines, bomHint, qtyRefs, blankLine, fillLine, loadBom, nextQty,
       copyIssueToQty, lineClass, inReady, nInDiffIssue, nInDiffReq, saveIn,
