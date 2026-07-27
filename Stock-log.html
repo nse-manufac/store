@@ -648,9 +648,50 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       <button class="btn primary" @click="exportAll">ส่งออกข้อมูลทั้งหมด (.json)</button>
       <button class="btn" @click="$refs.restore.click()">กู้คืนจากไฟล์สำรอง</button>
       <input ref="restore" type="file" accept=".json" style="display:none" @change="restoreAll">
-      <div class="grow"></div>
-      <button class="btn danger" @click="clearTxns">ลบรายการเคลื่อนไหวทั้งหมด</button>
     </div>
+  </div>
+
+  <div class="card" style="border-color:#f0c4c4">
+    <h3 style="color:var(--bad)">ล้างข้อมูล</h3>
+    <div class="msg bad">
+      <b>ล้างเฉพาะในเครื่องไม่พอ</b> — ถ้าบน Google Sheets ยังมีอยู่ ข้อมูลจะไหลกลับตอนซิงค์รอบถัดไป
+      หน้านี้จึงล้างทั้งสองฝั่งพร้อมกัน · <b>ทะเบียนวัตถุดิบและ BOM ไม่ถูกแตะ</b>
+    </div>
+
+    <p style="margin:0 0 6px"><b>1 · สำรองข้อมูลก่อน</b></p>
+    <div class="row" style="margin-bottom:14px">
+      <button class="btn" :class="{primary:!wipe.backedUp}" @click="backupThenMark">
+        ส่งออกสำรอง (.json)</button>
+      <span v-if="wipe.backedUp" class="tag ok">สำรองแล้ว</span>
+      <span v-else class="hint">ยังไม่ได้สำรอง — กดปุ่มนี้ก่อนแนะนำอย่างยิ่ง</span>
+    </div>
+
+    <p style="margin:0 0 6px"><b>2 · เลือกสิ่งที่จะล้าง</b></p>
+    <div style="margin-bottom:14px">
+      <label style="display:block;margin-bottom:5px">
+        <input type="checkbox" v-model="wipe.txns"> รายการรับเข้า/จ่ายออก
+        <span class="hint">({{ txns.length.toLocaleString() }} รายการ ทุกนิติบุคคล)</span></label>
+      <label style="display:block;margin-bottom:5px">
+        <input type="checkbox" v-model="wipe.pos"> รายการ PO
+        <span class="hint">({{ poList.length.toLocaleString() }} รายการ)</span></label>
+      <label style="display:block;margin-bottom:5px">
+        <input type="checkbox" v-model="wipe.shorts"> ของขาด / รอส่ง
+        <span class="hint">({{ shorts.length.toLocaleString() }} รายการ)</span></label>
+      <label style="display:block;margin-top:10px">
+        <input type="checkbox" v-model="wipe.server"> <b>ล้างบน Google Sheets ด้วย</b>
+        <span class="hint">{{ sync.url ? '(แนะนำ — ไม่งั้นข้อมูลจะไหลกลับ)' : '(ยังไม่ได้เชื่อมต่อ จะล้างเฉพาะเครื่องนี้)' }}</span></label>
+    </div>
+
+    <p style="margin:0 0 6px"><b>3 · พิมพ์คำว่า <code style="background:#fdecec;padding:1px 6px;border-radius:4px">ล้างข้อมูล</code> เพื่อยืนยัน</b></p>
+    <div class="row">
+      <input v-model="wipe.word" placeholder="ล้างข้อมูล" style="width:180px">
+      <button class="btn danger" @click="doWipe" :disabled="!wipeReady"
+              :style="wipeReady ? 'background:var(--bad);color:#fff;border-color:var(--bad)' : ''">
+        {{ wipe.busy ? 'กำลังล้าง...' : 'ล้างข้อมูลเดี๋ยวนี้' }}</button>
+    </div>
+
+    <pre v-if="wipe.log" style="margin-top:14px;background:#f7fafd;border:1px solid var(--line);
+      border-radius:6px;padding:10px;font-size:12px;white-space:pre-wrap;font-family:ui-monospace,monospace">{{ wipe.log }}</pre>
   </div>
   <div class="card">
     <h3>ผู้เบิก / ผู้รับ ที่ใช้บ่อย</h3>
@@ -1242,11 +1283,46 @@ createApp({
       fr.readAsText(f);
       e.target.value = '';
     }
-    function clearTxns(){
-      if (!confirm('ลบรายการเคลื่อนไหวทั้งหมด? แนะนำให้ส่งออกสำรองก่อน')) return;
-      if (!confirm('ยืนยันอีกครั้ง — ข้อมูลจะหายถาวร')) return;
-      txns.value = []; persist(); flash('ลบแล้ว');
+    // ═══════════ ล้างข้อมูล ═══════════
+    // ⚠️ ล้างเฉพาะในเครื่องไม่พอ — ถ้าเซิร์ฟเวอร์ยังมีอยู่ ข้อมูลจะไหลกลับตอนซิงค์รอบถัดไป
+    // จึงต้องล้างทั้งสองฝั่ง แล้วรีเซ็ตตัวนับเวลาที่ใช้ดึงข้อมูลด้วย
+    const wipe = reactive({ txns:true, pos:false, shorts:false, server:true,
+                            word:'', backedUp:false, busy:false, log:'' });
+    const wipeReady = computed(() =>
+      wipe.word.trim() === 'ล้างข้อมูล' && (wipe.txns || wipe.pos || wipe.shorts) && !wipe.busy);
+
+    async function doWipe(){
+      if (!wipeReady.value) return;
+      const what = [wipe.txns && 'รายการเคลื่อนไหว', wipe.pos && 'รายการ PO',
+                    wipe.shorts && 'ของขาด'].filter(Boolean).join(' · ');
+      if (!confirm(`ล้าง ${what}\nของนิติบุคคลทุกแห่ง${wipe.server ? ' และบน Google Sheets ด้วย' : ' (เฉพาะเครื่องนี้)'}\n\nยืนยัน?`)) return;
+      wipe.busy = true; wipe.log = '';
+      const say = t => { wipe.log += (wipe.log ? '\n' : '') + t; };
+      try {
+        if (wipe.server && sync.url) {
+          for (const [on, table] of [[wipe.txns,'Transactions'], [wipe.pos,'POs'], [wipe.shorts,'Shortages']]) {
+            if (!on) continue;
+            const r = await api('clearTable', { table, confirm: table });
+            say(`เซิร์ฟเวอร์ · ${table}: ลบ ${r.removed} แถว`);
+          }
+        } else if (wipe.server && !sync.url) {
+          say('ยังไม่ได้เชื่อมต่อ Google Sheets — ล้างเฉพาะในเครื่อง');
+        }
+        if (wipe.txns)   { say(`เครื่องนี้ · รายการเคลื่อนไหว: ลบ ${txns.value.length} รายการ`); txns.value = []; }
+        if (wipe.pos)    { say(`เครื่องนี้ · รายการ PO: ลบ ${poList.value.length} รายการ`); poList.value = []; }
+        if (wipe.shorts) { say(`เครื่องนี้ · ของขาด: ลบ ${shorts.value.length} รายการ`); shorts.value = []; }
+        // รีเซ็ตตัวนับ ไม่งั้นรอบหน้าจะไม่ดึงของใหม่ หรือดึงของเก่ากลับมา
+        sync.lastPull = ''; sync.lastPullAux = '';
+        persist(); saveSyncCfg();
+        wipe.word = ''; wipe.backedUp = false;
+        say('เสร็จแล้ว — ทะเบียนวัตถุดิบและ BOM ไม่ถูกแตะ');
+        flash('ล้างข้อมูลเรียบร้อย');
+      } catch (e) {
+        say('ผิดพลาด: ' + e.message);
+        flash('ล้างไม่สำเร็จ: ' + e.message, true);
+      } finally { wipe.busy = false; }
     }
+    function backupThenMark(){ exportAll(); wipe.backedUp = true; }
 
     // ═══════════ นำเข้าไฟล์ PO รายวัน (จาก PC ของ Delta) ═══════════
     // ไฟล์นี้บอกว่าวันไหนจะปล่อย PO อะไรบ้าง ใช้เติมหน้าคีย์รับเข้าให้อัตโนมัติ
@@ -1688,12 +1764,13 @@ createApp({
       cardCode, cardRows,
       lq, lDir, lFrom, lTo, lShowVoid, listRows, claims,
       newPerson, addPerson, persist, storageBytes, storagePct,
+      wipe, wipeReady, doWipe, backupThenMark,
       sync, pending, syncLabel, syncColor, doSync, testConn, uploadSetup, downloadSetup,
       resetSyncClock, saveSyncCfg, connectAndPull, copySetupLink,
       poList, shorts, poImp, poOpt, onPoImport, applyPoImport, poQ, poFiltered,
       shortsOpen, toggleShort, poOptions, pickPo, poKeyed, todayStr, exportShorts,
       expBusy, expMsg, expProg, cardPlan, exportBinCards,
-      exportTxn, exportClaims, exportAll, restoreAll, clearTxns
+      exportTxn, exportClaims, exportAll, restoreAll
     };
   }
 }).mount('#app');
