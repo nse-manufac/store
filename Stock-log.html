@@ -108,6 +108,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
   <div class="grow"></div>
   <div class="tabs" v-if="ready">
     <button :class="{on:tab==='in'}"     @click="tab='in'">รับเข้า</button>
+    <button :class="{on:tab==='wk'}"     @click="tab='wk'">รับเข้ารวม</button>
     <button :class="{on:tab==='out'}"    @click="tab='out'">จ่ายออก</button>
     <button :class="{on:tab==='card'}"   @click="tab='card'">ดูการ์ด</button>
     <button :class="{on:tab==='po'}"     @click="tab='po'">รายการ PO</button>
@@ -206,7 +207,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
             <td><input v-model.trim="l.code" list="codelist" class="mono" @change="fillLine(l)"></td>
             <td class="hint" :title="l.desc">{{ l.desc || '—' }}</td>
             <td class="hint">{{ l.unit }}</td>
-            <td class="num mono hint">{{ fmt(l.reqmt) }}<span v-if="l.varies" class="tag bad" title="P/N นี้ใช้ปริมาณไม่คงที่ในแต่ละ PO">?</span></td>
+            <td class="num mono hint">{{ l.reqmt===null ? '—' : fmt(l.reqmt) }}<span v-if="l.varies" class="tag bad" title="P/N นี้ใช้ปริมาณไม่คงที่ในแต่ละ PO">?</span></td>
             <td><input v-model.number="l.issued" type="number" step="any" class="mono num"></td>
             <td><input v-model.number="l.qty" type="number" step="any" class="mono num"
                        :ref="el=>{ if(el) qtyRefs[i]=el }" @keydown.enter.prevent="nextQty(i)"></td>
@@ -223,6 +224,104 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       <span class="hint">จะบันทึก {{ inReady.length }} รายการ (เฉพาะที่กรอกนับจริงแล้ว)</span>
       <button class="btn primary" @click="saveIn" :disabled="!inReady.length">บันทึกรับเข้า</button>
     </div>
+  </div>
+</main>
+
+<!-- ════════ รับเข้ารวมรายสัปดาห์ ════════ -->
+<main v-if="tab==='wk'">
+  <div class="card">
+    <h3>รับเข้ารวมรายสัปดาห์ — Tube / Chemical / Copper foil / Solder</h3>
+    <p class="hint">
+      ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ · เอกสารเป็น <b>PDF สแกน</b>
+      (Work Order Material Kit List) จึงต้องคีย์มือ<br>
+      คีย์<b>กระจายตาม PO</b> ตามที่เอกสารแยกไว้ แล้วกรอกยอดรวมจากแถว <code>รหัส Total</code>
+      ให้ระบบเทียบให้ — กันคีย์ตกบรรทัด
+    </p>
+    <div class="row">
+      <div class="f"><label>วันที่เอกสาร</label><input v-model="wkH.date" type="date" style="width:145px"></div>
+      <div class="f"><label>เลขที่เอกสาร (Material Doc No.)</label>
+        <input v-model.trim="wkH.docNo" placeholder="0014 / WK27" style="width:180px" class="mono"></div>
+      <div class="f"><label>กลุ่ม</label><input v-model.trim="wkH.group" placeholder="H / U" style="width:80px"></div>
+      <div class="f"><label>ผู้รับ</label><input v-model.trim="wkH.person" list="people" style="width:150px"></div>
+      <div class="grow"></div>
+      <button class="btn" @click="wkAdd(false)">+ บรรทัดใหม่</button>
+      <button class="btn" @click="wkAdd(true)" :disabled="!wkLines.length">+ รหัสเดิม อีก PO</button>
+    </div>
+  </div>
+
+  <div class="card" v-if="wkLines.length">
+    <div class="msg warn" v-if="wkMismatch">
+      <b>{{ wkMismatch }} รหัส ยอดรวมไม่ตรงกับเอกสาร</b> — ดูตารางสรุปด้านล่าง อาจคีย์ตกบรรทัดหรือพิมพ์เลขผิด
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th style="width:34px"></th><th style="width:130px">รหัสวัตถุดิบ</th><th>คำอธิบาย</th>
+          <th style="width:140px">PO</th><th style="width:110px" class="num">Req Qty</th>
+          <th style="width:110px" class="num">S41 Qty</th><th style="width:110px" class="num">นับจริง</th>
+          <th style="width:52px">หน่วย</th><th style="width:130px">หมายเหตุ</th><th style="width:34px"></th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="(l,i) in wkLines" :key="l.k"
+              :class="{bad: l.qty!==null && l.s41!==null && l.qty!=='' && l.s41!=='' && +l.qty !== +l.s41}">
+            <td class="hint">{{ i+1 }}</td>
+            <td><input v-model.trim="l.code" list="codelist" class="mono" @change="wkFill(l)"
+                       :ref="el=>{ if(el) wkRefs[i]=el }"></td>
+            <td class="hint" :title="l.desc">{{ l.desc || '—' }}</td>
+            <td><input v-model.trim="l.po" list="polist" class="mono"></td>
+            <td><input v-model.number="l.req" type="number" step="any" class="mono num"></td>
+            <td><input v-model.number="l.s41" type="number" step="any" class="mono num"></td>
+            <td><input v-model.number="l.qty" type="number" step="any" class="mono num"
+                       @keydown.enter.prevent="i===wkLines.length-1 ? wkAdd(true) : null"></td>
+            <td class="hint">{{ l.unit }}</td>
+            <td><input v-model="l.remark"></td>
+            <td><button class="btn sm danger" @click="wkLines.splice(i,1)">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:8px">
+      กด <span class="kbd">Enter</span> ที่ช่องนับจริงของบรรทัดสุดท้าย = เพิ่มบรรทัดใหม่ด้วยรหัสเดิมทันที
+      (เอกสารเรียงตามรหัส หลาย PO ต่อรหัส)
+    </p>
+  </div>
+
+  <div class="card" v-if="wkSummary.length">
+    <h3>สรุปยอดรวมต่อรหัส — เทียบกับแถว Total ในเอกสาร</h3>
+    <table style="max-width:820px">
+      <thead><tr><th style="width:140px">รหัส</th><th>คำอธิบาย</th>
+        <th class="num" style="width:80px">บรรทัด</th>
+        <th class="num" style="width:120px">รวม S41</th>
+        <th class="num" style="width:140px">ยอดรวมตามเอกสาร</th>
+        <th class="num" style="width:120px">รวมนับจริง</th>
+        <th style="width:90px">ผล</th></tr></thead>
+      <tbody>
+        <tr v-for="s in wkSummary" :key="s.code" :class="{bad: s.match===false}">
+          <td class="mono">{{ s.code }}</td>
+          <td class="hint">{{ descOf(s.code) }}</td>
+          <td class="num mono">{{ s.n }}</td>
+          <td class="num mono">{{ fmt(s.s41) }}</td>
+          <td><input v-model="wkTotals[s.code]" type="number" step="any" class="mono num"
+                     placeholder="จากแถว Total"></td>
+          <td class="num mono"><b>{{ fmt(s.qty) }}</b></td>
+          <td>
+            <span v-if="s.match===true" class="tag ok">ตรง</span>
+            <span v-else-if="s.match===false" class="tag bad">ต่าง {{ fmt(Math.round((s.s41-s.doc)*1e5)/1e5) }}</span>
+            <span v-else class="hint">—</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="row" style="margin-top:14px">
+      <span class="hint">จะบันทึก {{ wkReady.length }} รายการ · แยกเป็นคนละบรรทัดตาม PO</span>
+      <div class="grow"></div>
+      <button class="btn primary" @click="saveWeekly" :disabled="!wkReady.length">บันทึกรับเข้ารวม</button>
+    </div>
+  </div>
+
+  <div class="card" v-if="!wkLines.length">
+    <p class="hint" style="margin:0">กด <b>+ บรรทัดใหม่</b> เพื่อเริ่มคีย์ — แนะนำให้คีย์ไล่ตามลำดับในเอกสาร
+      เพราะเอกสารเรียงตามรหัสวัตถุดิบอยู่แล้ว</p>
   </div>
 </main>
 
@@ -357,7 +456,48 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       นำเข้าแล้วหน้าคีย์รับเข้าจะเลือก PO จากรายการได้เลย ไม่ต้องพิมพ์ P/N กับจำนวนสั่งเอง</p>
     <p><input type="file" accept=".xlsx" @change="onPoImport"></p>
 
-    <div v-if="poImp" style="margin-top:12px">
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <h3>นำเข้า Kit List (ยอดที่ Delta จ่ายจริง)</h3>
+    <p class="hint">ไฟล์ <b>MATERIAL ISSUE PO SUBCONTRACT</b> เช่น <b>22-H.xls</b> —
+      นำเข้าแล้วหน้าคีย์รับเข้าจะ<b>เติมช่อง Issue ให้อัตโนมัติ</b> เหลือคีย์แค่ยอดนับจริง</p>
+    <p><input type="file" accept=".xls,.xlsx" @change="onKitFile"></p>
+
+    <div v-if="kitImp" style="margin-top:12px">
+      <div class="msg ok">
+        อ่าน <b>{{ kitImp.fileName }}</b> ได้ <b>{{ kitImp.rawLines }}</b> บรรทัด ·
+        {{ kitImp.pos.length }} PO · ลงวันที่ {{ kitImp.docDate || '—' }}
+        <span v-if="kitImp.group"> · กลุ่ม {{ kitImp.group }}</span><br>
+        <span class="hint">ข้ามหัวตารางที่พิมพ์ซ้ำ {{ kitImp.headers }} ครั้ง และแถวรวมย่อย {{ kitImp.subtotals }} แถว</span>
+      </div>
+      <div class="msg warn" v-if="kitImp.merged.length">
+        <b>รวมยอดให้แล้ว {{ kitImp.merged.length }} รายการ</b> — PO เดียวกันระบุรหัสเดียวกันหลายบรรทัด
+        (คนละขั้นตอนการผลิต) เช่น
+        {{ kitImp.merged.slice(0,2).map(m => m.code + ' (' + m.n + ' บรรทัด → ' + m.issue + ')').join(' · ') }}
+      </div>
+      <div class="msg warn" v-if="kitImp.codeNew.length">
+        พบรหัสที่ไม่มีในรายการวัตถุดิบที่ใช้งานอยู่ <b>{{ kitImp.codeNew.length }}</b> ตัว:
+        {{ kitImp.codeNew.slice(0,6).join(', ') }}{{ kitImp.codeNew.length>6 ? ' ...' : '' }}<br>
+        <span class="hint">นำเข้าได้ตามปกติ — ไปเพิ่มหรือตั้ง active ในโปรแกรมทะเบียนวัตถุดิบแล้วโหลดใหม่</span>
+      </div>
+      <div class="msg warn" v-if="kitImp.noPo.length">
+        มี <b>{{ kitImp.noPo.length }}</b> PO ที่ยังไม่มีในรายการ PO —
+        นำเข้าไฟล์ PO รายวันเพิ่มจะเลือกจากรายการได้สะดวกกว่า
+      </div>
+      <p style="margin-top:10px">
+        <button class="btn primary" @click="applyKitImport" :disabled="!kitImp.fresh.length">
+          ยืนยันนำเข้า {{ kitImp.fresh.length }} รายการ</button>
+        <span v-if="kitImp.dup" class="hint" style="margin-left:10px">ข้ามที่ซ้ำ {{ kitImp.dup }} รายการ</span>
+        <button class="btn" style="margin-left:8px" @click="kitImp=null">ยกเลิก</button>
+      </p>
+    </div>
+
+    <p class="hint" v-if="kits.length" style="margin-top:10px">
+      ตอนนี้มี Kit List อยู่ <b>{{ kits.length.toLocaleString() }}</b> บรรทัด ครอบคลุม <b>{{ kitPos.size }}</b> PO
+    </p>
+  </div>
+
+  <div class="card" v-if="poImp">
+    <div style="margin-top:0">
       <div class="msg ok">
         อ่าน <b>{{ poImp.fileName }}</b> ได้ {{ poImp.pos.length }} รายการ PO
         <span v-if="poImp.dates.length">· วันที่ {{ poImp.dates.join(' และ ') }}</span>
@@ -410,6 +550,8 @@ td input{width:100%;padding:3px 6px;font-size:12px}
             <td class="num mono">{{ fmt(p.qty) }}</td>
             <td><span class="tag" :class="bomByPn.has(p.pn)?'ok':'bad'">
               {{ bomByPn.has(p.pn) ? 'มี' : 'ไม่มี' }}</span></td>
+            <td><span class="tag" :class="kitPos.has(p.po)?'ok':'bad'">
+              {{ kitPos.has(p.po) ? 'มี' : 'ไม่มี' }}</span></td>
             <td><span class="tag" :class="poKeyed(p.po)?'ok':''">
               {{ poKeyed(p.po) ? 'แล้ว' : 'ยัง' }}</span></td>
             <td class="hint">{{ p.remark }}</td>
@@ -948,21 +1090,48 @@ createApp({
       l.unit = m ? m.unit : '';
       l.needExp = m ? m.requires_expiry === 'TRUE' : false;
     }
+    /**
+     * กางรายการวัตถุดิบของ PO
+     * ลำดับความน่าเชื่อถือ: Kit List (ของที่ Delta จ่ายมาจริง) > BOM (ยอดตามสูตร)
+     * ถ้ามี Kit List จะเติมช่อง Issue ให้เลย เหลือคีย์แค่ยอดนับจริง
+     */
     function loadBom(){
-      const list = bomByPn.value.get(String(inH.pn));
-      if (!list || !list.length) {
-        bomHint.value = `ไม่พบ BOM ของ P/N ${inH.pn} — กด "เพิ่มบรรทัดเอง" เพื่อคีย์รายการเอง`;
+      const kit = inH.po ? kitsOfPo(inH.po) : [];
+      const bomList = bomByPn.value.get(String(inH.pn)) || [];
+      const reqOf = new Map(bomList.map(b => [b.code, round5(b.usage * (inH.order || 0))]));
+      const variesOf = new Map(bomList.map(b => [b.code, b.varies]));
+
+      const mk = (code, opts) => {
+        const m = matMap.value.get(String(code)) || {};
+        return { k:'L'+(++lineSeq), code:String(code), desc:m.description || opts.desc || '',
+                 unit:m.unit || opts.unit || '', reqmt: opts.reqmt ?? null,
+                 issued: opts.issued ?? null, qty:null, expiry:'', remark:'',
+                 needExp: m.requires_expiry === 'TRUE', varies: !!opts.varies,
+                 fromKit: !!opts.fromKit };
+      };
+
+      if (kit.length) {
+        // ยึด Kit List เป็นหลัก แล้วเติม reqmt จาก BOM ถ้ามี
+        inLines.value = kit.map(k => mk(k.code, { desc:k.desc, unit:k.unit, issued:k.issue,
+          reqmt: reqOf.has(k.code) ? reqOf.get(k.code) : null,
+          varies: variesOf.get(k.code), fromKit:true }));
+        // วัตถุดิบที่ BOM บอกว่าต้องใช้ แต่ Kit List ไม่มี — แสดงไว้ให้เห็นว่า Delta ไม่ได้จ่ายมา
+        const inKit = new Set(kit.map(k => k.code));
+        const missing = bomList.filter(b => !inKit.has(b.code));
+        inLines.value.push(...missing.map(b => mk(b.code, { unit:b.unit,
+          reqmt: reqOf.get(b.code), varies:b.varies })));
+        bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมช่อง Issue ให้แล้ว)` +
+          (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้จ่ายมา` : '');
+      } else if (bomList.length) {
+        inLines.value = bomList.map(b => mk(b.code, { unit:b.unit,
+          reqmt: reqOf.get(b.code), varies:b.varies }));
+        const nv = inLines.value.filter(l => l.varies).length;
+        bomHint.value = `ดึงจาก BOM ${inLines.value.length} รายการ — ยังไม่มี Kit List ของ PO นี้ ต้องคีย์ช่อง Issue เอง` +
+          (nv ? ` · มี ${nv} รายการที่ปริมาณต่อชิ้นไม่คงที่ (เครื่องหมาย ?)` : '');
+      } else {
+        bomHint.value = `ไม่พบทั้ง Kit List ของ PO ${inH.po || '—'} และ BOM ของ P/N ${inH.pn || '—'} — กด "เพิ่มบรรทัดเอง"`;
         return;
       }
-      inLines.value = list.map(b => {
-        const m = matMap.value.get(b.code) || {};
-        return { k:'L'+(++lineSeq), code:b.code, desc:m.description || '', unit:m.unit || b.unit,
-                 reqmt: round5(b.usage * inH.order), issued:null, qty:null, expiry:'', remark:'',
-                 needExp: m.requires_expiry === 'TRUE', varies: b.varies };
-      });
-      const nv = inLines.value.filter(l => l.varies).length;
-      bomHint.value = `ดึงมา ${inLines.value.length} รายการ` +
-        (nv ? ` — มี ${nv} รายการที่ปริมาณต่อชิ้นไม่คงที่ (เครื่องหมาย ?) ต้องตรวจก่อน` : '');
       nextTick(() => qtyRefs[0] && qtyRefs[0].focus());
     }
     function nextQty(i){
@@ -1000,7 +1169,7 @@ createApp({
           qty: +l.qty,
           reqmt_qty: l.reqmt === null ? '' : +l.reqmt,
           issued_qty: (l.issued === null || l.issued === '') ? '' : +l.issued,
-          person: inH.person, expiry_date: l.expiry || '', remark: l.remark || '',
+          person: inH.person, expiry_date: l.expiry || '', remark: l.remark || '', batch:'',
           created_at: stamp, updated_at: stamp, voided:false, void_reason:'',
           device: sync.device, _dirty: true
         });
@@ -1009,6 +1178,84 @@ createApp({
       flash(`บันทึกรับเข้า ${inReady.value.length} รายการ · PO ${inH.po}`);
       inLines.value = []; bomHint.value = '';
       inH.po = ''; inH.pn = ''; inH.order = null;
+      persist(); doSync();
+    }
+
+    // ═══════════ รับเข้ารวมรายสัปดาห์ (Tube / Chemical / Copper foil / Solder) ═══════════
+    // ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบสัปดาห์ ไม่ได้ผูกกับ PO ทีละใบ
+    // เอกสารเป็น PDF สแกน (Work Order Material Kit List) จึงต้องคีย์มือ
+    // แต่ในเอกสารแยกยอดตาม PO ไว้แล้ว และมีแถว "รหัส Total" ปิดท้ายแต่ละรหัส
+    // จึงคีย์แบบกระจายตาม PO แล้วให้ระบบรวมยอดเทียบกับแถว Total ให้อัตโนมัติ
+    const wkH = reactive({ date: today(), docNo:'', group:'', person:'' });
+    const wkLines = ref([]);
+    const wkTotals = ref({});           // รหัส -> ยอดรวมตามเอกสาร (คีย์เอง)
+    let wkSeq = 0;
+    const wkRefs = {};
+
+    function wkAdd(copyCode){
+      const prev = wkLines.value[wkLines.value.length - 1];
+      wkLines.value.push({ k:'W'+(++wkSeq),
+        code: copyCode && prev ? prev.code : '',
+        po:'', req:null, s41:null, qty:null, remark:'' });
+      nextTick(() => { const i = wkLines.value.length - 1;
+        if (wkRefs[i]) wkRefs[i].focus(); });
+    }
+    function wkFill(l){
+      const m = matMap.value.get(String(l.code));
+      l.unit = m ? m.unit : '';
+      l.desc = m ? m.description : '(ไม่พบรหัสนี้ในทะเบียน)';
+    }
+    /** สรุปยอดต่อรหัส เทียบกับยอดรวมที่กรอกจากเอกสาร */
+    const wkSummary = computed(() => {
+      const g = new Map();
+      for (const l of wkLines.value) {
+        if (!l.code) continue;
+        const hit = g.get(l.code) || { code:l.code, n:0, s41:0, qty:0 };
+        hit.n++;
+        hit.s41 += +l.s41 || 0;
+        hit.qty += +l.qty || 0;
+        g.set(l.code, hit);
+      }
+      return [...g.values()].map(x => {
+        const doc = wkTotals.value[x.code];
+        const s41 = Math.round(x.s41 * 1e5) / 1e5;
+        const qty = Math.round(x.qty * 1e5) / 1e5;
+        return { ...x, s41, qty,
+          doc: doc === undefined || doc === '' ? null : +doc,
+          match: doc === undefined || doc === '' ? null : Math.abs(+doc - s41) < 1e-5 };
+      });
+    });
+    const wkMismatch = computed(() => wkSummary.value.filter(x => x.match === false).length);
+    const wkReady = computed(() => wkLines.value.filter(l => l.code && l.po && +l.qty > 0));
+
+    function saveWeekly(){
+      if (!wkH.docNo) { flash('ยังไม่ได้กรอกเลขที่เอกสาร', true); return; }
+      if (!wkReady.value.length) { flash('ยังไม่มีบรรทัดที่กรอกครบ', true); return; }
+      if (wkMismatch.value && !confirm(
+        `มี ${wkMismatch.value} รหัสที่ยอดรวมไม่ตรงกับเอกสาร — บันทึกต่อไหม?`)) return;
+      const unknown = wkReady.value.filter(l => !matMap.value.has(String(l.code)));
+      if (unknown.length && !confirm(`มี ${unknown.length} รหัสที่ไม่มีในทะเบียน จะบันทึกต่อไหม?`)) return;
+
+      const stamp = new Date().toISOString();
+      wkReady.value.forEach(l => {
+        txns.value.push({
+          id: 'T' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
+          entity: entity.value, direction:'IN', material_code:String(l.code),
+          doc_ref: l.po, part_no:'', date: wkH.date, time: nowHour(),
+          qty: +l.qty,
+          reqmt_qty: l.req === null || l.req === '' ? '' : +l.req,
+          issued_qty: l.s41 === null || l.s41 === '' ? '' : +l.s41,
+          person: wkH.person, expiry_date:'',
+          remark: [`รับรวมรายสัปดาห์ ${wkH.docNo}`, l.remark].filter(Boolean).join(' · '),
+          batch: wkH.docNo,
+          created_at: stamp, updated_at: stamp, voided:false, void_reason:'',
+          device: sync.device, _dirty: true
+        });
+      });
+      rememberPerson(wkH.person);
+      const n = wkReady.value.length;
+      flash(`บันทึกรับเข้ารวม ${n} รายการ · เอกสาร ${wkH.docNo}`);
+      wkLines.value = []; wkTotals.value = {}; wkH.docNo = '';
       persist(); doSync();
     }
 
@@ -1038,7 +1285,7 @@ createApp({
         id: 'T' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
         entity: entity.value, direction:'OUT', material_code:String(out.code),
         doc_ref: out.po || '', part_no:'', date: out.date, time: out.time, qty:+out.qty,
-        reqmt_qty:'', issued_qty:'', person: out.person, expiry_date:'', remark:'',
+        reqmt_qty:'', issued_qty:'', person: out.person, expiry_date:'', remark:'', batch:'',
         created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         voided:false, void_reason:'', device: sync.device, _dirty: true
       });
@@ -1110,7 +1357,7 @@ createApp({
         const setup = JSON.stringify({
           materials: materials.value.filter(m => m.active === 'TRUE'),
           entities: entities.value, bom: bom.value, people: people.value,
-          poList: poList.value, shorts: shorts.value });
+          poList: poList.value, shorts: shorts.value, kits: kits.value });
         const tx = JSON.stringify(txns.value);
         localStorage.setItem(K_SETUP, setup);
         localStorage.setItem(K_TXN, tx);
@@ -1136,7 +1383,7 @@ createApp({
         description:descOf(t.material_code), unit:unitOf(t.material_code),
         po:t.doc_ref, part_no:t.part_no, date:t.date, time:t.time, qty:t.qty,
         reqmt_qty:t.reqmt_qty, issued_qty:t.issued_qty, person:t.person,
-        expiry_date:t.expiry_date, remark:t.remark,
+        expiry_date:t.expiry_date, remark:t.remark, batch:t.batch || '',
         created_at:localDateTime(t.created_at), device:t.device || '',
         voided:t.voided ? 'TRUE' : 'FALSE', void_reason:t.void_reason }));
     }
@@ -1394,6 +1641,93 @@ createApp({
       return { pos, shorts };
     }
 
+    // ═══════════ นำเข้า Kit List (MATERIAL ISSUE PO SUBCONTRACT) ═══════════
+    // ไฟล์ .xls จาก Delta — บอกว่าแต่ละ PO Delta จ่ายวัตถุดิบอะไรมาบ้าง จำนวนเท่าไหร่
+    // ใช้เติมช่อง "Issue (Delta)" ในหน้าคีย์รับเข้าให้อัตโนมัติ เหลือคีย์แค่ยอดนับจริง
+    function parseKitList(wb){
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, blankrows:true });
+      let docDate = '', group = '';
+      for (const row of aoa.slice(0, 3)) {
+        if (!row) continue;
+        for (const v of row) {
+          if (typeof v === 'number' && v > 40000 && v < 60000 && !docDate) {
+            // วันที่แบบ serial ของ Excel — ฐานคือ 30 ธ.ค. 1899
+            const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
+            docDate = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+          }
+          if (typeof v === 'string' && /^SUB-/.test(v.trim())) group = v.trim();
+        }
+      }
+      // ⚠️ PO เดียวกันมีรหัสเดียวกันได้หลายบรรทัด (คนละขั้นตอนการผลิต) — ต้องรวมยอด
+      // เจอจริง 3 คู่ในไฟล์ 22-H เช่น TUBE PTFE 5.4 + 5.4 = 10.8
+      const agg = new Map(); let headers = 0, subtotals = 0, rawLines = 0;
+      for (const row of aoa) {
+        if (!row) continue;
+        const c3 = row[3];
+        // ข้ามหัวตารางที่พิมพ์ซ้ำทุกหน้า และแถวรวมย่อยของแต่ละรหัส
+        if (typeof c3 === 'string' && c3.trim().toUpperCase().startsWith('CODE')) { headers++; continue; }
+        if (typeof c3 === 'string' && /total/i.test(c3)) { subtotals++; continue; }
+        if (typeof c3 !== 'number' || !row[1]) continue;
+        rawLines++;
+        const code = String(Math.round(c3));
+        const po = String(row[1]).trim();
+        const id = 'K' + docDate + '-' + po + '-' + code;
+        const issue = typeof row[6] === 'number' ? row[6] : null;
+        const hit = agg.get(id);
+        if (hit) { hit.issue = Math.round(((hit.issue || 0) + (issue || 0)) * 1e6) / 1e6; hit.n++; }
+        else agg.set(id, { id, date: docDate, group, po,
+          pn: typeof row[2] === 'number' ? String(Math.round(row[2])) : String(row[2] || '').trim(),
+          code, desc: String(row[4] || '').trim(),
+          unit: String(row[5] || '').trim().toUpperCase(), issue, n: 1 });
+      }
+      const rows = [...agg.values()];
+      const merged = rows.filter(r => r.n > 1);
+      return { rows, docDate, group, headers, subtotals, rawLines, merged };
+    }
+
+    const kits    = ref([]);   // รายการที่ Delta จ่ายมาต่อ PO
+    const kitImp  = ref(null);
+
+    function onKitFile(e){
+      const f = e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+          const p = parseKitList(wb);
+          if (!p.rows.length) throw new Error('ไม่พบบรรทัดข้อมูลเลย — ตรวจว่าเป็นไฟล์ Kit List จริงไหม');
+          const have = new Set(kits.value.map(k => k.id));
+          const fresh = p.rows.filter(k => !have.has(k.id));
+          // เทียบกับรายการวัตถุดิบที่ใช้งานอยู่ (โปรแกรมนี้เก็บเฉพาะที่ active)
+          const codeNew = [...new Set(p.rows.map(k => k.code).filter(c => !matMap.value.has(c)))];
+          const pos = [...new Set(p.rows.map(k => k.po))];
+          const noPo = pos.filter(po => !poList.value.some(x => x.po === po));
+          kitImp.value = { fileName:f.name, ...p, fresh, dup:p.rows.length - fresh.length,
+                           codeNew, pos, noPo,
+                           totalIssue: p.rows.reduce((a, k) => a + (k.issue || 0), 0) };
+        } catch (err) { flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true); }
+      };
+      fr.readAsArrayBuffer(f);
+      e.target.value = '';
+    }
+
+    function applyKitImport(){
+      const p = kitImp.value; if (!p) return;
+      const now = new Date().toISOString();
+      p.fresh.forEach(k => { k.updated_at = now; k._dirty = true; });
+      kits.value.push(...p.fresh);
+      kitImp.value = null;
+      persist(); doSync();
+      flash(`นำเข้า Kit List ${p.fresh.length} รายการ · ${p.pos.length} PO`);
+    }
+
+    /** ดึงรายการที่ Delta จ่ายของ PO นี้ */
+    function kitsOfPo(po){
+      return kits.value.filter(k => k.po === po);
+    }
+    const kitPos = computed(() => new Set(kits.value.map(k => k.po)));
+
     const poList  = ref([]);   // รายการ PO ที่นำเข้ามา
     const shorts  = ref([]);   // ของขาด / รอส่ง
     const poImp   = ref(null);
@@ -1588,7 +1922,7 @@ createApp({
         let auxUp = 0, auxDown = 0;
         sync.needDeploy = false;
         try {
-          for (const [table, listRef] of [['POs', poList], ['Shortages', shorts]]) {
+          for (const [table, listRef] of [['POs', poList], ['Shortages', shorts], ['Kits', kits]]) {
             const dirtyRows = listRef.value.filter(x => x._dirty && x.id);
             if (dirtyRows.length) {
               const res = await api('pushRows', { table,
@@ -1633,7 +1967,7 @@ createApp({
         const d = await api('pushSetup', {
           materials: materials.value.filter(m => m.active === 'TRUE'),
           entities: entities.value, bom: bom.value, people: people.value,
-          poList: poList.value, shorts: shorts.value });
+          poList: poList.value, shorts: shorts.value, kits: kits.value });
         sync.state='ok';
         flash('อัปโหลดข้อมูลตั้งต้นแล้ว · เวอร์ชัน ' + String(d.setupVersion).slice(0,19));
       } catch (e) { sync.state='error'; sync.error=e.message; flash('อัปโหลดไม่สำเร็จ: '+e.message, true); }
@@ -1650,6 +1984,7 @@ createApp({
         if (d.people)                          people.value    = d.people;
         if (d.poList)                          poList.value    = d.poList;
         if (d.shorts)                          shorts.value    = d.shorts;
+        if (d.kits)                            kits.value      = d.kits;
         if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
         sync.state='ok'; persist();
         flash(`ดึงข้อมูลตั้งต้นแล้ว · วัตถุดิบ ${materials.value.length} · BOM ${bom.value.length}`);
@@ -1701,7 +2036,7 @@ createApp({
         const s = JSON.parse(localStorage.getItem(K_SETUP) || 'null');
         if (s) { materials.value=s.materials||[]; entities.value=s.entities||[];
                  bom.value=s.bom||[]; people.value=s.people||[];
-                 poList.value=s.poList||[]; shorts.value=s.shorts||[]; }
+                 poList.value=s.poList||[]; shorts.value=s.shorts||[]; kits.value=s.kits||[]; }
         // ข้อมูลที่นำเข้าก่อนเวอร์ชันนี้ยังไม่มี id — เติมให้ แล้วมาร์คส่งขึ้นเซิร์ฟเวอร์
         const stampNow = new Date().toISOString();
         poList.value.forEach(p => { if (!p.id) {
@@ -1758,6 +2093,7 @@ createApp({
       descOf, unitOf, needExpOf, fmt, balOf, localTime, localDateTime,
       onDrop, onPick,
       inH, inLines, bomHint, qtyRefs, blankLine, fillLine, loadBom, nextQty,
+      wkH, wkLines, wkTotals, wkRefs, wkAdd, wkFill, wkSummary, wkMismatch, wkReady, saveWeekly,
       copyIssueToQty, lineClass, inReady, nInDiffIssue, nInDiffReq, saveIn,
       out, outCode, outQty, outPerson, focusEl, outDesc, outUnit, outBal, outAfter,
       openPos, outPick, saveOut, resetOut, recent, voidTxn,
@@ -1768,6 +2104,7 @@ createApp({
       sync, pending, syncLabel, syncColor, doSync, testConn, uploadSetup, downloadSetup,
       resetSyncClock, saveSyncCfg, connectAndPull, copySetupLink,
       poList, shorts, poImp, poOpt, onPoImport, applyPoImport, poQ, poFiltered,
+      kits, kitImp, onKitFile, applyKitImport, kitPos, kitsOfPo,
       shortsOpen, toggleShort, poOptions, pickPo, poKeyed, todayStr, exportShorts,
       expBusy, expMsg, expProg, cardPlan, exportBinCards,
       exportTxn, exportClaims, exportAll, restoreAll
