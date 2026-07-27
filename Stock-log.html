@@ -1,370 +1,2484 @@
-/**
- * ระบบ Bin Card — Google Apps Script backend
- * ใช้คู่กับไฟล์ บันทึกสต็อก.html
- *
- * วิธีติดตั้งดูใน คู่มือติดตั้ง_GoogleSheets.md
- * แก้ TOKEN ด้านล่างเป็นรหัสของคุณเองก่อนใช้งานจริง
- */
-
-// ═══════════ ตั้งค่า ═══════════
-const TOKEN = 'CHANGE-ME-1234';   // ⚠️ ต้องเปลี่ยน และต้องตรงกับที่กรอกในโปรแกรม
-
-const TXN_COLS = ['id','entity','direction','material_code','doc_ref','po_item','part_no',
-  'date','time','qty','reqmt_qty','issued_qty','person','expiry_date','remark',
-  'created_at','updated_at','voided','void_reason','device','batch'];
-const MAT_COLS  = ['material_code','description','unit','category','requires_expiry','active'];
-const ENT_COLS  = ['entity_code','company_name','address','store_location','vendor_no'];
-const BOM_COLS  = ['pn','material_code','usage_per_pcs','unit','usage_varies'];
-// POs และ Shortages ใช้ระบบ upsert ราย record เหมือน Transactions
-// จึงต้องมีคอลัมน์ id กับ updated_at ด้วย ห้ามลบสองคอลัมน์นี้
-const PO_COLS   = ['id','date','sub','pn','po','qty','core','remark','updated_at'];
-const SHORT_COLS= ['id','date','po','code','type','qty','unit','eta','note','done','updated_at'];
-const KIT_COLS  = ['id','date','group','po','pn','code','desc','unit','issue','updated_at'];
-
-// ═══════════ จุดเข้า ═══════════
-function doGet(e)  { return handle(e, {}); }
-function doPost(e) {
-  var body = {};
-  try { body = JSON.parse(e.postData.contents); } catch (err) {}
-  return handle(e, body);
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --bg:#f4f6f9;--panel:#fff;--line:#dde3ea;--ink:#1c2733;--muted:#68778a;
+  --brand:#1f4e79;--soft:#e8f0f8;--ok:#1a7f4b;--okbg:#e6f5ed;
+  --warn:#b06d00;--warnbg:#fff6e0;--bad:#c02626;--badbg:#fdecec;
 }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-size:14px}
+#app{min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--brand);color:#fff;padding:9px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:600}
+header .sub{font-size:11px;opacity:.8}
+.grow{flex:1}
+header select{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.3);
+  padding:5px 9px;border-radius:6px;font-family:inherit;font-size:13px}
+header select option{color:#000}
+.tabs{display:flex;gap:3px;flex-wrap:wrap}
+.tabs button{background:rgba(255,255,255,.12);color:#fff;border:0;padding:7px 14px;
+  border-radius:6px 6px 0 0;cursor:pointer;font-size:13px;font-family:inherit}
+.tabs button.on{background:var(--bg);color:var(--brand);font-weight:600}
+.tabs button .badge{background:var(--bad);color:#fff;border-radius:99px;padding:0 6px;font-size:11px;margin-left:5px}
+.synced{display:flex;align-items:center;gap:7px;font-size:12px;background:rgba(255,255,255,.12);
+  padding:5px 11px;border-radius:99px;cursor:pointer;user-select:none}
+.synced:hover{background:rgba(255,255,255,.22)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
 
-function handle(e, body) {
-  var p = e && e.parameter ? e.parameter : {};
-  var action = body.action || p.action || 'ping';
-  var token  = body.token  || p.token  || '';
+main{flex:1;padding:14px 16px 80px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+.card h3{margin:0 0 12px;font-size:14px;color:var(--brand)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.f{display:flex;flex-direction:column;gap:3px}
+.f label{font-size:11px;color:var(--muted)}
+input,select,textarea{font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;color:var(--ink)}
+input:focus,select:focus{outline:2px solid var(--soft);border-color:var(--brand)}
+input:disabled{background:#f4f6f9;color:var(--muted)}
+.btn{font-family:inherit;font-size:13px;padding:7px 14px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;cursor:pointer}
+.btn:hover{background:#f0f4f8}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn.danger{color:var(--bad);border-color:#f0c4c4}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:3px 9px;font-size:12px}
 
-  if (token !== TOKEN) return json({ ok: false, error: 'token ไม่ถูกต้อง' });
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid var(--line);
+  font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap}
+td{padding:4px 8px;border-bottom:1px solid #f0f3f6;vertical-align:middle}
+tr.warn td{background:var(--warnbg)}
+tr.bad  td{background:var(--badbg)}
+tr.void td{opacity:.45;text-decoration:line-through}
+td input{width:100%;padding:3px 6px;font-size:12px}
+.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
+.num{text-align:right}
+.tag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;background:var(--soft);color:var(--brand)}
+.tag.bad{background:var(--badbg);color:var(--bad)}
+.tag.warn{background:var(--warnbg);color:var(--warn)}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.bignum{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.hint{font-size:12px;color:var(--muted)}
+.msg{padding:9px 12px;border-radius:6px;margin-bottom:12px;font-size:13px}
+.msg.bad{background:var(--badbg);color:var(--bad);border:1px solid #f0c4c4}
+.msg.warn{background:var(--warnbg);color:var(--warn);border:1px solid #f0d799}
+.msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
+.welcome{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin:26px auto;max-width:900px}
+.wcard{flex:1;min-width:330px;max-width:420px;position:relative;padding-top:26px}
+.wcard.over{border-color:var(--brand);background:var(--soft)}
+.wcard h2{margin:0 0 6px;font-size:18px;color:var(--brand)}
+.wcard .f input{width:100%}
+.wnum{position:absolute;top:-10px;left:14px;background:var(--brand);color:#fff;
+  font-size:11px;padding:2px 10px;border-radius:99px}
+.scroll{max-height:60vh;overflow:auto}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--ok);color:#fff;
+  padding:10px 20px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.22);font-size:14px;z-index:99}
+.toast.bad{background:var(--bad)}
+.kbd{display:inline-block;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+  padding:0 5px;font-size:11px;background:#fafbfc;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<div id="app">
 
-  try {
-    switch (action) {
-      case 'ping':      return json(doPing());
-      case 'pullTxns':  return json(doPullTxns(body.since || p.since || ''));
-      case 'pushTxns':  return json(doPushTxns(body.rows || [], body.device || ''));
-      case 'pullSetup': return json(doPullSetup());
-      case 'pushSetup': return json(doPushSetup(body));
-      case 'pullRows':  return json(doPullRows(body.table || p.table, body.since || p.since || ''));
-      case 'pushRows':  return json(doPushRows(body.table, body.rows || [], body.device || ''));
-      case 'clearTable': return json(doClearTable(body.table, body.confirm));
-      default:          return json({ ok: false, error: 'ไม่รู้จักคำสั่ง: ' + action });
+<header>
+  <div>
+    <h1>บันทึกสต็อกวัตถุดิบ</h1>
+    <div class="sub">ระบบ Bin Card — Phase 2</div>
+  </div>
+  <select v-if="ready" v-model="entity" title="นิติบุคคล / โรงงาน">
+    <option v-for="e in entities" :key="e.entity_code" :value="e.entity_code">{{ e.entity_code }}</option>
+  </select>
+  <div v-if="ready" class="synced" @click="doSync(false)"
+       :title="(sync.error||'กดเพื่อซิงค์เดี๋ยวนี้') + ' · เครื่อง: ' + sync.device">
+    <span class="dot" :style="{background:syncColor}"></span>{{ syncLabel }}
+    <span style="opacity:.65">· {{ sync.device }}</span>
+  </div>
+  <div class="grow"></div>
+  <div class="tabs" v-if="ready">
+    <button :class="{on:tab==='in'}"     @click="tab='in'">รับเข้า</button>
+    <button :class="{on:tab==='wk'}"     @click="tab='wk'">รับเข้ารวม</button>
+    <button :class="{on:tab==='out'}"    @click="tab='out'">จ่ายออก</button>
+    <button :class="{on:tab==='card'}"   @click="tab='card'">ดูการ์ด</button>
+    <button :class="{on:tab==='po'}"     @click="tab='po'">รายการ PO</button>
+    <button :class="{on:tab==='short'}"  @click="tab='short'">ของขาด
+      <span class="badge" v-if="shortsOpen.length">{{ shortsOpen.length }}</span></button>
+    <button :class="{on:tab==='list'}"   @click="tab='list'">ค้นหา / แก้ไข</button>
+    <button :class="{on:tab==='out2'}"   @click="tab='out2'">ออก Bin Card</button>
+    <button :class="{on:tab==='claim'}"  @click="tab='claim'">คิวเคลม
+      <span class="badge" v-if="claims.length">{{ claims.length }}</span></button>
+    <button :class="{on:tab==='setup'}"  @click="tab='setup'">ตั้งค่า</button>
+  </div>
+</header>
+
+<!-- ════════ ยังไม่มีข้อมูลตั้งต้น ════════ -->
+<main v-if="!ready" @dragover.prevent="dragOver=true" @dragleave="dragOver=false" @drop.prevent="onDrop">
+  <div class="welcome">
+    <div class="card wcard" :class="{over:dragOver}">
+      <div class="wnum">วิธีที่ 1</div>
+      <h2>เชื่อมต่อ Google Sheets</h2>
+      <p class="hint">แนะนำวิธีนี้ — <b>ไม่ต้องมีไฟล์ในเครื่อง</b> กรอกครั้งเดียวแล้วจำไว้ตลอด</p>
+      <div class="f" style="margin-top:14px"><label>URL ของ Web App</label>
+        <input v-model.trim="sync.url" placeholder="https://script.google.com/macros/s/..../exec"></div>
+      <div class="f" style="margin-top:8px"><label>รหัสผ่าน (TOKEN)</label>
+        <input v-model.trim="sync.token"></div>
+      <div class="f" style="margin-top:8px"><label>ชื่อเครื่องนี้</label>
+        <input v-model.trim="sync.device" placeholder="เช่น ธุรการ-2"></div>
+      <button class="btn primary" style="margin-top:14px;width:100%"
+              @click="connectAndPull" :disabled="!sync.url||!sync.token">
+        เชื่อมต่อและดึงข้อมูลลงมา</button>
+      <p class="hint" style="margin-top:10px">ขอ URL กับรหัสผ่านจากคนที่ติดตั้งระบบไว้</p>
+      <div class="msg bad" v-if="sync.error" style="margin-top:10px">{{ sync.error }}</div>
+    </div>
+
+    <div class="card wcard" :class="{over:dragOver}">
+      <div class="wnum">วิธีที่ 2</div>
+      <h2>ลากไฟล์ Excel มาวาง</h2>
+      <p class="hint">ใช้ตอนตั้งเครื่องแรก หรือตอนยังไม่ได้ติดตั้ง Google Sheets</p>
+      <p style="margin-top:14px"><b>ทะเบียนวัตถุดิบ_2026-07-26.xlsx</b><br>
+        <span class="hint">ชีต Materials + Entities</span></p>
+      <p><b>BOM_2026-07-26.xlsx</b><br><span class="hint">ชีต BOM</span></p>
+      <p style="margin-top:16px"><input type="file" accept=".xlsx" multiple @change="onPick"></p>
+      <p class="hint" style="margin-top:10px">
+        โหลดแล้ว: วัตถุดิบ {{ materials.length }} · นิติบุคคล {{ entities.length }} · BOM {{ bom.length }}
+      </p>
+      <p class="hint">ลากไฟล์มาวางตรงไหนของหน้าก็ได้</p>
+    </div>
+  </div>
+</main>
+
+<template v-else>
+<!-- ════════ รับเข้า ════════ -->
+<main v-if="tab==='in'">
+  <div class="card">
+    <h3>1 · ข้อมูลหัวเอกสาร (จาก Subcontract Issue Document)</h3>
+    <div class="row">
+      <div class="f"><label>PO No.</label>
+        <input v-model.trim="inH.po" list="polist" placeholder="TM4267H001" style="width:160px" class="mono"
+               @change="pickPo(inH.po)">
+        <datalist id="polist"><option v-for="p in poOptions" :key="p.po" :value="p.po">
+          {{ p.pn }} · {{ p.qty }}</option></datalist></div>
+      <div class="f"><label>P/N (สินค้า)</label>
+        <input v-model.trim="inH.pn" list="pnlist" placeholder="2877669000" style="width:150px" class="mono">
+        <datalist id="pnlist"><option v-for="p in bomPns" :key="p" :value="p"></option></datalist></div>
+      <div class="f"><label>จำนวนสั่ง (PO Qty)</label>
+        <input v-model.number="inH.order" type="number" min="0" style="width:120px" class="mono num"></div>
+      <div class="f"><label>วันที่</label><input v-model="inH.date" type="date" style="width:145px"></div>
+      <div class="f"><label>เวลา</label>
+        <input v-model.number="inH.time" type="number" min="0" max="23" style="width:70px" class="mono num"></div>
+      <div class="f"><label>ผู้รับ</label>
+        <input v-model.trim="inH.person" list="people" style="width:150px"></div>
+      <button class="btn primary" @click="loadBom" :disabled="!inH.pn||!inH.order">ดึงรายการจาก BOM</button>
+      <button class="btn" @click="inLines.push(blankLine())">+ เพิ่มบรรทัดเอง</button>
+    </div>
+    <p class="hint" v-if="bomHint" style="margin:10px 0 0">{{ bomHint }}</p>
+  </div>
+
+  <div class="card" v-if="inLines.length">
+    <h3>2 · กรอกตัวเลข — ช่องที่ต้องคีย์คือ <span style="color:var(--bad)">นับจริง</span> เท่านั้น</h3>
+    <div class="msg warn" v-if="nInDiffIssue||nInDiffReq">
+      <b v-if="nInDiffIssue">{{ nInDiffIssue }} รายการ นับจริงไม่ตรงกับที่ Delta แจ้ง</b>
+      <span v-if="nInDiffIssue&&nInDiffReq"> · </span>
+      <b v-if="nInDiffReq">{{ nInDiffReq }} รายการ Delta จ่ายไม่ตรงสูตร</b>
+      — ตรวจอีกรอบก่อนบันทึก ระบบจะบันทึกไว้ให้ไล่เคลมได้
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th style="width:34px"></th><th style="width:112px">รหัส</th><th>คำอธิบาย</th>
+          <th style="width:52px">หน่วย</th><th style="width:104px" class="num">Reqmt (สูตร)</th>
+          <th style="width:104px" class="num">Issue (Delta)</th><th style="width:104px" class="num">นับจริง</th>
+          <th style="width:132px">วันหมดอายุ</th><th style="width:130px">หมายเหตุ</th><th style="width:34px"></th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="(l,i) in inLines" :key="l.k" :class="lineClass(l)">
+            <td class="hint">{{ i+1 }}</td>
+            <td><input v-model.trim="l.code" list="codelist" class="mono" @change="fillLine(l)"></td>
+            <td class="hint" :title="l.desc">{{ l.desc || '—' }}</td>
+            <td class="hint">{{ l.unit }}</td>
+            <td class="num mono hint">{{ l.reqmt===null ? '—' : fmt(l.reqmt) }}<span v-if="l.varies" class="tag bad" title="P/N นี้ใช้ปริมาณไม่คงที่ในแต่ละ PO">?</span></td>
+            <td><input v-model.number="l.issued" type="number" step="any" class="mono num"></td>
+            <td><input v-model.number="l.qty" type="number" step="any" class="mono num"
+                       :ref="el=>{ if(el) qtyRefs[i]=el }" @keydown.enter.prevent="nextQty(i)"></td>
+            <td><input v-if="l.needExp" v-model="l.expiry" type="date"><span v-else class="hint">—</span></td>
+            <td><input v-model="l.remark"></td>
+            <td><button class="btn sm danger" @click="inLines.splice(i,1)">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" @click="copyIssueToQty">คัดลอก Issue → นับจริง ทั้งหมด</button>
+      <div class="grow"></div>
+      <span class="hint">จะบันทึก {{ inReady.length }} รายการ (เฉพาะที่กรอกนับจริงแล้ว)</span>
+      <button class="btn primary" @click="saveIn" :disabled="!inReady.length">บันทึกรับเข้า</button>
+    </div>
+  </div>
+</main>
+
+<!-- ════════ รับเข้ารวมรายสัปดาห์ ════════ -->
+<main v-if="tab==='wk'">
+  <div class="card">
+    <h3>รับเข้ารวมรายสัปดาห์ — Tube / Chemical / Copper foil / Solder</h3>
+    <p class="hint">
+      ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ<br>
+      <b>ถ้ามีไฟล์ Excel ของ Kit List</b> ให้นำเข้าด้านล่าง ระบบกางรายการ + เติม P/N และยอด 541 ให้ครบ
+      เหลือคีย์แค่ช่องนับจริง · ถ้ามีแต่ PDF ให้คีย์มือกระจายตาม PO แล้วกรอกยอดรวมจากแถว
+      <code>Total</code> ให้ระบบเทียบ — กันคีย์ตกบรรทัด
+    </p>
+    <div class="row">
+      <div class="f"><label>วันที่เอกสาร</label><input v-model="wkH.date" type="date" style="width:145px"></div>
+      <div class="f"><label>เลขที่เอกสาร (Material Doc No.)</label>
+        <input v-model.trim="wkH.docNo" placeholder="0014 / WK27" style="width:180px" class="mono"></div>
+      <div class="f"><label>กลุ่ม</label><input v-model.trim="wkH.group" placeholder="H / U" style="width:80px"></div>
+      <div class="f"><label>บังคับนิติบุคคลทั้งใบ</label>
+        <select v-model="wkH.entity" style="width:170px">
+          <option value="">— แยกตาม PO แต่ละบรรทัด —</option>
+          <option v-for="e in entities" :key="e.entity_code" :value="e.entity_code">{{ e.entity_code }}</option>
+        </select></div>
+      <div class="f"><label>ผู้รับ</label><input v-model.trim="wkH.person" list="people" style="width:150px"></div>
+      <div class="grow"></div>
+      <button class="btn" @click="wkAdd(false)">+ บรรทัดใหม่</button>
+      <button class="btn" @click="wkAdd(true)" :disabled="!wkLines.length">+ รหัสเดิม อีก PO</button>
+    </div>
+  </div>
+
+  <!-- ── นำเข้าไฟล์ Kit List กลุ่มจ่ายรวม ── -->
+  <div class="card">
+    <h3>นำเข้าไฟล์ Kit List (Excel) — กลุ่มจ่ายรวม</h3>
+    <p class="hint" style="margin-top:0">
+      ไฟล์ที่ Delta ส่งมา เช่น <code>4020600700-4020241300.xlsx</code> ·
+      อ่านทุกชีตที่มองเห็น · ชีตเดียวมีหลายรหัสได้ · <b>รวมยอด PO+รหัสที่ซ้ำให้อัตโนมัติ</b> ·
+      เทียบยอดรวมกับแถว Total ในเอกสารให้ด้วย
+    </p>
+    <input type="file" accept=".xls,.xlsx" @change="onChemFile">
+    <span class="hint" v-if="chemKits.length" style="margin-left:12px">
+      มีอยู่แล้ว {{ chemKits.length.toLocaleString() }} บรรทัด
+      <template v-if="chemDates.length"> · ล่าสุด {{ chemDates[0] }}
+        <button class="btn sm" style="margin-left:6px" @click="loadChem(chemDates[0])">กางรายการวันนี้</button>
+      </template>
+    </span>
+
+    <div v-if="chemImp" style="margin-top:14px">
+      <div class="msg ok">
+        อ่าน <b>{{ chemImp.fileName }}</b> ได้ <b>{{ chemImp.rawLines }}</b> บรรทัด →
+        <b>{{ chemImp.rows.length }}</b> รายการ · {{ chemImp.codes.length }} รหัส ·
+        {{ chemImp.pos.length }} PO · ลงวันที่ {{ chemImp.docDate || '—' }}<br>
+        <span class="hint">
+          ชีตที่อ่าน: {{ chemImp.sheets.map(s => s.name.trim() + ' (' + s.rows + ')').join(' · ') }}
+          <template v-if="chemImp.skipped.length">
+            · ข้าม: {{ chemImp.skipped.map(s => s.name.trim() + ' — ' + s.why).join(' · ') }}</template>
+        </span>
+      </div>
+
+      <!-- เทียบยอดรวมกับแถว Total ในเอกสาร -->
+      <table style="max-width:760px;margin-bottom:12px">
+        <thead><tr><th>ชีต</th><th style="width:120px">รหัส</th><th class="num" style="width:80px">บรรทัด</th>
+          <th class="num" style="width:110px">ผลบวก 541</th><th class="num" style="width:120px">แถว Total</th>
+          <th style="width:70px">ผล</th></tr></thead>
+        <tbody><tr v-for="(b,i) in chemImp.blocks" :key="i" :class="{bad:b.match===false}">
+          <td class="hint">{{ b.sheet.trim() }}</td><td class="mono">{{ b.code }}</td>
+          <td class="num mono">{{ b.lines }}</td><td class="num mono">{{ fmt(b.calc) }}</td>
+          <td class="num mono">{{ b.docTotal === null ? '—' : fmt(b.docTotal) }}</td>
+          <td><span v-if="b.match===true" class="tag ok">ตรง</span>
+              <span v-else-if="b.match===false" class="tag bad">ต่าง {{ fmt(round5(b.docTotal-b.calc)) }}</span>
+              <span v-else class="hint">ไม่มีแถวรวม</span></td>
+        </tr></tbody>
+      </table>
+
+      <div class="msg warn" v-if="chemImp.merged.length">
+        <b>รวมยอดให้แล้ว {{ chemImp.merged.length }} รายการ</b> — PO เดียวกันระบุรหัสเดียวกันหลายบรรทัด<br>
+        <span class="hint">{{ chemImp.merged.slice(0,3).map(m => m.po + '/' + m.code + ' ' + m.n + ' บรรทัด → ' + m.issue).join(' · ') }}</span>
+      </div>
+      <div class="msg bad" v-if="chemImp.gaps.length">
+        <b>เลข Item กระโดด — บรรทัดอาจหายตอน export</b><br>
+        <span v-for="(g,i) in chemImp.gaps" :key="i">
+          {{ g.sheet.trim() }} รหัส {{ g.code }}: หลังข้อ {{ g.after }} หายข้อ {{ g.missing.join(', ') }}<br></span>
+        <span class="hint">ควรขอไฟล์ใหม่จาก Delta ก่อนนำเข้า</span>
+      </div>
+      <div class="msg warn" v-if="chemImp.claim.length">
+        <b>Req ≠ 541 อยู่ {{ chemImp.claim.length }} รายการ</b> — จ่ายไม่ตรงยอดที่ขอ (เข้าคิวเคลม)<br>
+        <span class="hint">{{ chemImp.claim.slice(0,4).map(r => r.po + '/' + r.code + ' ' + r.req + '→' + r.issue).join(' · ') }}</span>
+      </div>
+      <div class="msg warn" v-if="chemImp.offBom.length">
+        <b>ต่างจาก BOM เกิน 10% อยู่ {{ chemImp.offBom.length }} รายการ</b> — อาจเป็นการทยอยจ่าย หรือยอดผิด<br>
+        <span class="hint">{{ chemImp.offBom.slice(0,4).map(r => r.po + '/' + r.code + ' ' + (r.req===null?r.issue:r.req) + ' vs BOM ' + r.bomQty + ' (' + (r.pct>0?'+':'') + r.pct + '%)').join(' · ') }}</span>
+      </div>
+      <div class="msg warn" v-if="chemImp.noBom.length">
+        เทียบ BOM ไม่ได้ <b>{{ chemImp.noBom.length }}</b> รายการ — ยังไม่มี BOM ของ P/N นั้น
+      </div>
+      <div class="msg warn" v-if="chemImp.codeNew.length">
+        รหัสที่ไม่มีในทะเบียนที่ใช้งานอยู่ <b>{{ chemImp.codeNew.length }}</b> ตัว:
+        {{ chemImp.codeNew.join(', ') }}
+        <br><span class="hint">เพิ่มในโปรแกรมทะเบียนวัตถุดิบก่อน ไม่งั้นจะไม่รู้หน่วยและคำอธิบาย</span>
+      </div>
+      <div class="msg warn" v-if="chemImp.noPo.length">
+        มี <b>{{ chemImp.noPo.length }}</b> PO ที่ยังไม่มีในรายการ PO — ใช้ P/N และยอดสั่งจากไฟล์ Kit List แทน
+      </div>
+
+      <div class="row">
+        <button class="btn primary" @click="applyChemImport" :disabled="!chemImp.fresh.length">
+          ยืนยันนำเข้า {{ chemImp.fresh.length }} รายการ แล้วกางลงตาราง</button>
+        <span v-if="chemImp.dup" class="hint">ข้ามที่นำเข้าไปแล้ว {{ chemImp.dup }} รายการ</span>
+        <button class="btn" @click="chemImp=null">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" v-if="wkLines.length">
+    <div class="msg warn" v-if="!wkH.entity && wkEntities.length > 1">
+      <b>เอกสารใบนี้มีของ {{ wkEntities.length }} นิติบุคคลปนกัน — {{ wkEntities.join(' · ') }}</b><br>
+      ระบบแยกให้ตามเลข PO ของแต่ละบรรทัดแล้ว (ยอดคงเหลือห้ามข้ามนิติบุคคล)
+    </div>
+    <div class="msg bad" v-if="wkNoEntity">
+      <b>{{ wkNoEntity }} บรรทัดยังไม่รู้นิติบุคคล</b> — เลข PO ไม่เข้ารูปแบบที่รู้จัก
+      ให้เลือก "บังคับนิติบุคคลทั้งใบ" ด้านบน
+    </div>
+    <div class="msg warn" v-if="wkMismatch">
+      <b>{{ wkMismatch }} รหัส ยอดรวมไม่ตรงกับเอกสาร</b> — ดูตารางสรุปด้านล่าง อาจคีย์ตกบรรทัดหรือพิมพ์เลขผิด
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th style="width:34px"></th><th style="width:118px">รหัสวัตถุดิบ</th><th>คำอธิบาย</th>
+          <th style="width:126px">PO</th><th style="width:74px">นิติฯ</th><th style="width:104px">P/N</th>
+          <th style="width:80px" class="num">ยอดสั่ง</th>
+          <th style="width:92px" class="num">Req</th>
+          <th style="width:92px" class="num">541</th><th style="width:96px" class="num">นับจริง</th>
+          <th style="width:46px">หน่วย</th>
+          <th style="width:92px" class="num">ตาม BOM</th><th style="width:70px" class="num">%ต่าง</th>
+          <th style="width:110px">หมายเหตุ</th><th style="width:34px"></th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="(l,i) in wkLines" :key="l.k"
+              :class="{bad: l.qty!==null && l.s41!==null && l.qty!=='' && l.s41!=='' && +l.qty !== +l.s41}">
+            <td class="hint">{{ i+1 }}</td>
+            <td><input v-model.trim="l.code" list="codelist" class="mono" @change="wkFill(l)"
+                       :ref="el=>{ if(el) wkRefs[i]=el }"></td>
+            <td class="hint" :title="l.desc">{{ l.desc || '—' }}</td>
+            <td><input v-model.trim="l.po" list="polist" class="mono" @change="wkPo(l)"
+                       :style="l.poFound===false ? 'background:var(--warnbg)' : ''"
+                       :title="l.poFound===false ? 'ไม่พบ PO นี้ในรายการ PO ที่นำเข้าไว้' : ''"></td>
+            <td class="mono hint" :class="{bad: !(wkH.entity || l.entity)}"
+                :title="wkH.entity ? 'บังคับทั้งใบ' : 'เดาจากเลข PO'">
+              {{ wkH.entity || l.entity || '—' }}</td>
+            <td><input v-model.trim="l.pn" list="pnlist" class="mono"></td>
+            <td><input v-model.number="l.orderQty" type="number" step="any" class="mono num"></td>
+            <td><input v-model.number="l.req" type="number" step="any" class="mono num"></td>
+            <td><input v-model.number="l.s41" type="number" step="any" class="mono num"></td>
+            <td><input v-model.number="l.qty" type="number" step="any" class="mono num"
+                       @keydown.enter.prevent="i===wkLines.length-1 ? wkAdd(true) : null"></td>
+            <td class="hint">{{ l.unit }}</td>
+            <td class="num mono hint">{{ wkBom(l) === null ? '—' : fmt(wkBom(l)) }}</td>
+            <td class="num mono hint" :title="'ยอดในเอกสารเทียบกับ usage × ยอดสั่ง'">
+              {{ wkPct(l) === null ? '—' : (wkPct(l) > 0 ? '+' : '') + wkPct(l) + '%' }}</td>
+            <td><input v-model="l.remark"></td>
+            <td><button class="btn sm danger" @click="wkLines.splice(i,1)">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <p class="hint" style="margin:0;flex:1">
+        กด <span class="kbd">Enter</span> ที่ช่องนับจริงของบรรทัดสุดท้าย = เพิ่มบรรทัดใหม่ด้วยรหัสเดิมทันที ·
+        ช่อง PO พื้นเหลือง = ไม่พบใน<b>รายการ PO</b> (ยังบันทึกได้) ·
+        <b>%ต่าง</b> เป็นสัญญาณเตือนเท่านั้น ไม่ใช่คำตัดสิน — BOM บางตัวปัดเศษหรือเป็นการทยอยจ่าย
+      </p>
+      <button class="btn" @click="wkLines.forEach(l => { if (l.qty===null||l.qty==='') l.qty = l.s41 })">
+        เติมนับจริง = 541 (เฉพาะช่องที่ยังว่าง)</button>
+    </div>
+  </div>
+
+  <div class="card" v-if="wkSummary.length">
+    <h3>สรุปยอดรวมต่อรหัส — เทียบกับแถว Total ในเอกสาร</h3>
+    <table style="max-width:820px">
+      <thead><tr><th style="width:140px">รหัส</th><th>คำอธิบาย</th>
+        <th class="num" style="width:80px">บรรทัด</th>
+        <th class="num" style="width:120px">รวม S41</th>
+        <th class="num" style="width:140px">ยอดรวมตามเอกสาร</th>
+        <th class="num" style="width:120px">รวมนับจริง</th>
+        <th style="width:90px">ผล</th></tr></thead>
+      <tbody>
+        <tr v-for="s in wkSummary" :key="s.code" :class="{bad: s.match===false}">
+          <td class="mono">{{ s.code }}</td>
+          <td class="hint">{{ descOf(s.code) }}</td>
+          <td class="num mono">{{ s.n }}</td>
+          <td class="num mono">{{ fmt(s.s41) }}</td>
+          <td><input v-model="wkTotals[s.code]" type="number" step="any" class="mono num"
+                     placeholder="จากแถว Total"></td>
+          <td class="num mono"><b>{{ fmt(s.qty) }}</b></td>
+          <td>
+            <span v-if="s.match===true" class="tag ok">ตรง</span>
+            <span v-else-if="s.match===false" class="tag bad">ต่าง {{ fmt(Math.round((s.s41-s.doc)*1e5)/1e5) }}</span>
+            <span v-else class="hint">—</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="row" style="margin-top:14px">
+      <span class="hint">จะบันทึก {{ wkReady.length }} รายการ · แยกเป็นคนละบรรทัดตาม PO</span>
+      <div class="grow"></div>
+      <button class="btn primary" @click="saveWeekly" :disabled="!wkReady.length">บันทึกรับเข้ารวม</button>
+    </div>
+  </div>
+
+  <div class="card" v-if="!wkLines.length">
+    <p class="hint" style="margin:0">กด <b>+ บรรทัดใหม่</b> เพื่อเริ่มคีย์ — แนะนำให้คีย์ไล่ตามลำดับในเอกสาร
+      เพราะเอกสารเรียงตามรหัสวัตถุดิบอยู่แล้ว</p>
+  </div>
+</main>
+
+<!-- ════════ จ่ายออก ════════ -->
+<main v-if="tab==='out'">
+  <div class="row" style="align-items:flex-start">
+    <div class="card" style="flex:1;min-width:340px">
+      <h3>คีย์จ่ายออก — <span class="kbd">Enter</span> เลื่อนช่อง · ช่องสุดท้ายบันทึกแล้ววนกลับ</h3>
+      <div class="row">
+        <div class="f" style="flex:1"><label>รหัสวัตถุดิบ</label>
+          <input ref="outCode" v-model.trim="out.code" list="codelist" class="mono"
+                 @change="outPick" @keydown.enter.prevent="focusEl('outQty')" placeholder="พิมพ์ 3-4 ตัวแล้วเลือก"></div>
+      </div>
+      <p class="hint" style="margin:6px 0 12px">{{ outDesc || '—' }}</p>
+      <div class="row">
+        <div class="f"><label>จำนวน</label>
+          <input ref="outQty" v-model.number="out.qty" type="number" step="any" class="mono num" style="width:130px"
+                 @keydown.enter.prevent="focusEl('outPerson')"></div>
+        <div class="f"><label>หน่วย</label><input :value="outUnit" disabled style="width:66px"></div>
+        <div class="f"><label>ผู้เบิก</label>
+          <input ref="outPerson" v-model.trim="out.person" list="people" style="width:150px"
+                 @keydown.enter.prevent="saveOut"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="f"><label>PO อ้างอิง</label>
+          <select v-model="out.po" style="width:170px">
+            <option value="">— ไม่ระบุ —</option>
+            <option v-for="p in openPos" :key="p" :value="p">{{ p }}</option>
+          </select></div>
+        <div class="f"><label>วันที่</label><input v-model="out.date" type="date" style="width:145px"></div>
+        <div class="f"><label>เวลา</label>
+          <input v-model.number="out.time" type="number" min="0" max="23" class="mono num" style="width:70px"></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" @click="saveOut" :disabled="!out.code||!(out.qty>0)">บันทึกจ่ายออก</button>
+        <button class="btn" @click="resetOut">ล้างฟอร์ม</button>
+      </div>
+    </div>
+
+    <div class="card" style="width:280px">
+      <h3>ยอดคงเหลือหลังเบิก</h3>
+      <div class="bignum" :style="{color: outAfter<0 ? 'var(--bad)' : 'var(--ok)'}">
+        {{ out.code ? fmt(outAfter) : '—' }}
+      </div>
+      <div class="hint">{{ outUnit }}</div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+      <div class="hint">คงเหลือปัจจุบัน</div>
+      <div class="mono" style="font-size:17px">{{ out.code ? fmt(outBal) : '—' }}</div>
+      <div class="msg bad" v-if="out.code && outAfter<0" style="margin-top:12px">
+        ยอดจะติดลบ — ตรวจว่าคีย์รับเข้าครบหรือยัง
+      </div>
+    </div>
+  </div>
+
+  <div class="card" v-if="recent.length">
+    <h3>10 รายการล่าสุด</h3>
+    <table>
+      <thead><tr><th>เวลาบันทึก</th><th>ทิศทาง</th><th>รหัส</th><th>คำอธิบาย</th>
+        <th class="num">จำนวน</th><th>ผู้เบิก/ผู้รับ</th><th>PO</th><th style="width:80px"></th></tr></thead>
+      <tbody>
+        <tr v-for="t in recent" :key="t.id" :class="{void:t.voided}">
+          <td class="hint mono">{{ localTime(t.created_at) }}</td>
+          <td><span class="tag" :class="t.direction==='IN'?'ok':''">{{ t.direction==='IN'?'รับ':'จ่าย' }}</span></td>
+          <td class="mono">{{ t.material_code }}</td>
+          <td class="hint">{{ descOf(t.material_code) }}</td>
+          <td class="num mono">{{ fmt(t.qty) }}</td>
+          <td>{{ t.person }}</td><td class="mono hint">{{ t.doc_ref }}</td>
+          <td><button v-if="!t.voided" class="btn sm danger" @click="voidTxn(t)">ยกเลิก</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<!-- ════════ ดูการ์ด ════════ -->
+<main v-if="tab==='card'">
+  <div class="card">
+    <div class="row">
+      <div class="f" style="flex:1"><label>เลือกรหัสวัตถุดิบ</label>
+        <input v-model.trim="cardCode" list="codelist" class="mono" placeholder="พิมพ์รหัสหรือคำอธิบาย"></div>
+      <div class="f"><label>&nbsp;</label><span class="hint">{{ descOf(cardCode) || '—' }}</span></div>
+    </div>
+  </div>
+  <div class="card" v-if="cardRows.length">
+    <h3>Bin Card · {{ entity }} · {{ cardCode }}</h3>
+    <div class="hint" style="margin-bottom:10px">
+      Store Location {{ entInfo.store_location || '—' }} · Subcontract Name {{ entity }} ·
+      คงเหลือปัจจุบัน <b class="mono">{{ fmt(balOf(cardCode)) }} {{ unitOf(cardCode) }}</b>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th rowspan="2" style="width:34px">No</th><th rowspan="2" style="width:110px">Ref Doc / PO</th>
+            <th rowspan="2" style="width:104px">P/N</th><th colspan="3">Receive mat'l</th>
+            <th colspan="3">Issue Mat'l</th><th rowspan="2" style="width:48px">Units</th>
+            <th rowspan="2" class="num" style="width:96px">Balance</th>
+            <th rowspan="2" style="width:110px">ผู้เบิก/ผู้รับ</th>
+            <th rowspan="2" style="width:100px">วันหมดอายุ</th><th rowspan="2">Remark</th></tr>
+          <tr><th style="width:92px">Date</th><th style="width:44px">Time</th><th class="num" style="width:92px">Q'ty</th>
+              <th style="width:92px">Date</th><th style="width:44px">Time</th><th class="num" style="width:92px">Q'ty</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(r,i) in cardRows" :key="r.id" :class="{void:r.voided}">
+            <td class="hint">{{ i+1 }}</td><td class="mono">{{ r.doc_ref }}</td><td class="mono">{{ r.part_no }}</td>
+            <td class="mono">{{ r.direction==='IN'?r.date:'' }}</td>
+            <td class="mono">{{ r.direction==='IN'?r.time:'' }}</td>
+            <td class="mono num">{{ r.direction==='IN'?fmt(r.qty):'' }}</td>
+            <td class="mono">{{ r.direction==='OUT'?r.date:'' }}</td>
+            <td class="mono">{{ r.direction==='OUT'?r.time:'' }}</td>
+            <td class="mono num">{{ r.direction==='OUT'?fmt(r.qty):'' }}</td>
+            <td class="hint">{{ unitOf(cardCode) }}</td>
+            <td class="mono num"><b>{{ fmt(r._bal) }}</b></td>
+            <td>{{ r.person }}</td><td class="mono hint">{{ r.expiry_date||'' }}</td>
+            <td class="hint">{{ r.remark }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:10px">
+      1 หน้าของ Bin Card จริงใส่ได้ 18 บรรทัด — การ์ดใบนี้จะกลายเป็น
+      <b>{{ Math.max(1, Math.ceil(cardRows.filter(r=>!r.voided).length/18)) }} หน้า</b> ตอนออกไฟล์ใน Phase 3
+    </p>
+  </div>
+  <div class="card" v-else-if="cardCode"><p class="hint">ยังไม่มีรายการเคลื่อนไหวของรหัสนี้ในนิติบุคคล {{ entity }}</p></div>
+</main>
+
+<!-- ════════ รายการ PO ════════ -->
+<main v-if="tab==='po'">
+  <div class="card">
+    <h3>นำเข้าไฟล์ PO รายวัน</h3>
+    <p class="hint">ไฟล์จาก PC ของ Delta เช่น <b>PO 3M5 ON 28-29 JULY 2026.xlsx</b> —
+      นำเข้าแล้วหน้าคีย์รับเข้าจะเลือก PO จากรายการได้เลย ไม่ต้องพิมพ์ P/N กับจำนวนสั่งเอง</p>
+    <p><input type="file" accept=".xlsx" @change="onPoImport"></p>
+
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <h3>นำเข้า Kit List (ยอดที่ Delta จ่ายจริง)</h3>
+    <p class="hint">ไฟล์ <b>MATERIAL ISSUE PO SUBCONTRACT</b> เช่น <b>22-H.xls</b> —
+      นำเข้าแล้วหน้าคีย์รับเข้าจะ<b>เติมช่อง Issue ให้อัตโนมัติ</b> เหลือคีย์แค่ยอดนับจริง</p>
+    <p><input type="file" accept=".xls,.xlsx" @change="onKitFile"></p>
+
+    <div v-if="kitImp" style="margin-top:12px">
+      <div class="msg ok">
+        อ่าน <b>{{ kitImp.fileName }}</b> ได้ <b>{{ kitImp.rawLines }}</b> บรรทัด ·
+        {{ kitImp.pos.length }} PO · ลงวันที่ {{ kitImp.docDate || '—' }}
+        <span v-if="kitImp.group"> · กลุ่ม {{ kitImp.group }}</span><br>
+        <span class="hint">ข้ามหัวตารางที่พิมพ์ซ้ำ {{ kitImp.headers }} ครั้ง และแถวรวมย่อย {{ kitImp.subtotals }} แถว</span>
+      </div>
+      <div class="msg warn" v-if="kitImp.merged.length">
+        <b>รวมยอดให้แล้ว {{ kitImp.merged.length }} รายการ</b> — PO เดียวกันระบุรหัสเดียวกันหลายบรรทัด
+        (คนละขั้นตอนการผลิต) เช่น
+        {{ kitImp.merged.slice(0,2).map(m => m.code + ' (' + m.n + ' บรรทัด → ' + m.issue + ')').join(' · ') }}
+      </div>
+      <div class="msg warn" v-if="kitImp.codeNew.length">
+        พบรหัสที่ไม่มีในรายการวัตถุดิบที่ใช้งานอยู่ <b>{{ kitImp.codeNew.length }}</b> ตัว:
+        {{ kitImp.codeNew.slice(0,6).join(', ') }}{{ kitImp.codeNew.length>6 ? ' ...' : '' }}<br>
+        <span class="hint">นำเข้าได้ตามปกติ — ไปเพิ่มหรือตั้ง active ในโปรแกรมทะเบียนวัตถุดิบแล้วโหลดใหม่</span>
+      </div>
+      <div class="msg warn" v-if="kitImp.noPo.length">
+        มี <b>{{ kitImp.noPo.length }}</b> PO ที่ยังไม่มีในรายการ PO —
+        นำเข้าไฟล์ PO รายวันเพิ่มจะเลือกจากรายการได้สะดวกกว่า
+      </div>
+      <p style="margin-top:10px">
+        <button class="btn primary" @click="applyKitImport" :disabled="!kitImp.fresh.length">
+          ยืนยันนำเข้า {{ kitImp.fresh.length }} รายการ</button>
+        <span v-if="kitImp.dup" class="hint" style="margin-left:10px">ข้ามที่ซ้ำ {{ kitImp.dup }} รายการ</span>
+        <button class="btn" style="margin-left:8px" @click="kitImp=null">ยกเลิก</button>
+      </p>
+    </div>
+
+    <p class="hint" v-if="kits.length" style="margin-top:10px">
+      ตอนนี้มี Kit List อยู่ <b>{{ kits.length.toLocaleString() }}</b> บรรทัด ครอบคลุม <b>{{ kitPos.size }}</b> PO
+    </p>
+  </div>
+
+  <div class="card" v-if="poImp">
+    <div style="margin-top:0">
+      <div class="msg ok">
+        อ่าน <b>{{ poImp.fileName }}</b> ได้ {{ poImp.pos.length }} รายการ PO
+        <span v-if="poImp.dates.length">· วันที่ {{ poImp.dates.join(' และ ') }}</span>
+      </div>
+      <div class="msg bad" v-if="poImp.pnNoBom.length">
+        <b>พบ P/N ใหม่ที่ยังไม่มี BOM {{ poImp.pnNoBom.length }} รายการ</b> —
+        {{ poImp.pnNoBom.join(', ') }}<br>
+        ต้องขอ BOM จาก Delta แล้วเพิ่มเข้าระบบก่อน ไม่งั้นหน้าคีย์รับเข้าจะกางรายการวัตถุดิบให้ไม่ได้
+      </div>
+      <div class="msg warn" v-if="poImp.codeNew.length">
+        พบรหัสวัตถุดิบในหมายเหตุที่ยังไม่มีในทะเบียน: <b>{{ poImp.codeNew.join(', ') }}</b> —
+        ไปเพิ่มในโปรแกรมทะเบียนวัตถุดิบก่อน
+      </div>
+      <table class="plain" style="max-width:620px">
+        <thead><tr><th style="width:44px">รับ</th><th>สิ่งที่จะเพิ่ม</th><th style="width:80px" class="num">จำนวน</th></tr></thead>
+        <tbody>
+          <tr><td><input type="checkbox" v-model="poOpt.pos" :disabled="!poImp.newPos.length"></td>
+            <td><b>รายการ PO</b>
+              <span class="hint" v-if="poImp.dupPos"> · ข้ามที่ซ้ำ {{ poImp.dupPos }} รายการ</span></td>
+            <td class="num mono">{{ poImp.newPos.length }}</td></tr>
+          <tr><td><input type="checkbox" v-model="poOpt.shorts" :disabled="!poImp.newSh.length"></td>
+            <td><b>รายการของขาด / รอส่ง</b><br><span class="hint">แกะจากหมายเหตุเป็นฟิลด์ให้แล้ว</span></td>
+            <td class="num mono">{{ poImp.newSh.length }}</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:12px">
+        <button class="btn primary" @click="applyPoImport">ยืนยันนำเข้า</button>
+        <button class="btn" style="margin-left:8px" @click="poImp=null">ยกเลิก</button>
+      </p>
+    </div>
+  </div>
+
+  <div class="card" v-if="poList.length">
+    <div class="row" style="margin-bottom:10px">
+      <h3 style="margin:0">รายการ PO ทั้งหมด</h3>
+      <div class="grow"></div>
+      <input v-model.trim="poQ" placeholder="ค้นหา PO / P/N / วันที่" style="width:240px">
+      <span class="hint">{{ poFiltered.length }} รายการ</span>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:100px">วันที่</th><th style="width:100px">โรงงาน</th>
+          <th style="width:120px">PO</th><th style="width:110px">P/N</th>
+          <th class="num" style="width:100px">จำนวนสั่ง</th><th style="width:70px">มี BOM</th>
+          <th style="width:100px">คีย์รับแล้ว</th><th>หมายเหตุ</th></tr></thead>
+        <tbody>
+          <tr v-for="(p,i) in poFiltered.slice(0,300)" :key="i">
+            <td class="mono">{{ p.date }}</td><td>{{ p.sub }}</td>
+            <td class="mono">{{ p.po }}</td><td class="mono">{{ p.pn }}</td>
+            <td class="num mono">{{ fmt(p.qty) }}</td>
+            <td><span class="tag" :class="bomByPn.has(p.pn)?'ok':'bad'">
+              {{ bomByPn.has(p.pn) ? 'มี' : 'ไม่มี' }}</span></td>
+            <td><span class="tag" :class="kitPos.has(p.po)?'ok':'bad'">
+              {{ kitPos.has(p.po) ? 'มี' : 'ไม่มี' }}</span></td>
+            <td><span class="tag" :class="poKeyed(p.po)?'ok':''">
+              {{ poKeyed(p.po) ? 'แล้ว' : 'ยัง' }}</span></td>
+            <td class="hint">{{ p.remark }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<!-- ════════ ของขาด ════════ -->
+<main v-if="tab==='short'">
+  <div class="msg" :class="shortsOpen.length?'warn':'ok'">
+    <span v-if="shortsOpen.length"><b>{{ shortsOpen.length }} รายการ</b> ที่ Delta แจ้งว่าของขาดหรือยังไม่ส่ง —
+      ติ๊กช่องซ้ายเมื่อของมาครบแล้ว</span>
+    <span v-else>ไม่มีรายการของขาดค้างอยู่</span>
+  </div>
+  <div class="card" v-if="shorts.length">
+    <table>
+      <thead><tr><th style="width:44px">มาแล้ว</th><th style="width:100px">วันที่แจ้ง</th>
+        <th style="width:120px">PO</th><th style="width:120px">รหัส</th><th>คำอธิบาย</th>
+        <th style="width:70px">ประเภท</th><th class="num" style="width:110px">จำนวนที่ขาด</th>
+        <th style="width:60px">หน่วย</th><th style="width:100px">ETA</th><th style="width:90px">เลย ETA</th></tr></thead>
+      <tbody>
+        <tr v-for="(s,i) in shorts" :key="i" :class="{void:s.done, bad:!s.done && s.eta && s.eta < todayStr}">
+          <td class="chk"><input type="checkbox" :checked="s.done" @change="toggleShort(s)"></td>
+          <td class="mono">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
+          <td class="mono">{{ s.code }}</td><td class="hint">{{ descOf(s.code) }}</td>
+          <td><span class="tag" :class="s.type==='ขาด'?'bad':''">{{ s.type }}</span></td>
+          <td class="num mono">{{ s.qty ? fmt(s.qty) : '—' }}</td>
+          <td class="hint">{{ s.unit }}</td><td class="mono">{{ s.eta || '—' }}</td>
+          <td><span v-if="!s.done && s.eta && s.eta < todayStr" class="tag bad">เลยแล้ว</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px"><button class="btn" @click="exportShorts">ส่งออกตารางของขาด .xlsx</button></p>
+  </div>
+</main>
+
+<!-- ════════ ค้นหา / แก้ไข ════════ -->
+<main v-if="tab==='list'">
+  <div class="card">
+    <div class="row">
+      <div class="f"><label>ค้นหา</label><input v-model.trim="lq" placeholder="รหัส / PO / ชื่อคน" style="width:230px"></div>
+      <div class="f"><label>ทิศทาง</label><select v-model="lDir">
+        <option value="">ทั้งหมด</option><option value="IN">รับเข้า</option><option value="OUT">จ่ายออก</option></select></div>
+      <div class="f"><label>ตั้งแต่</label><input v-model="lFrom" type="date"></div>
+      <div class="f"><label>ถึง</label><input v-model="lTo" type="date"></div>
+      <div class="f"><label>&nbsp;</label><label style="font-size:13px"><input type="checkbox" v-model="lShowVoid"> แสดงที่ยกเลิกแล้ว</label></div>
+      <div class="grow"></div>
+      <button class="btn" @click="exportTxn">ส่งออกรายการ .xlsx</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>พบ {{ listRows.length.toLocaleString() }} รายการ</h3>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>วันที่</th><th>เวลา</th><th>ทิศทาง</th><th>รหัส</th><th>คำอธิบาย</th>
+          <th class="num">จำนวน</th><th>PO</th><th>ผู้เบิก/ผู้รับ</th><th>หมายเหตุ</th><th style="width:80px"></th></tr></thead>
+        <tbody>
+          <tr v-for="t in listRows.slice(0,400)" :key="t.id" :class="{void:t.voided}">
+            <td class="mono">{{ t.date }}</td><td class="mono">{{ t.time }}</td>
+            <td><span class="tag" :class="t.direction==='IN'?'ok':''">{{ t.direction==='IN'?'รับ':'จ่าย' }}</span></td>
+            <td class="mono">{{ t.material_code }}</td><td class="hint">{{ descOf(t.material_code) }}</td>
+            <td class="num mono">{{ fmt(t.qty) }}</td><td class="mono hint">{{ t.doc_ref }}</td>
+            <td>{{ t.person }}</td><td class="hint">{{ t.remark }}{{ t.voided ? ' · ยกเลิก: '+t.void_reason : '' }}</td>
+            <td><button v-if="!t.voided" class="btn sm danger" @click="voidTxn(t)">ยกเลิก</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" v-if="listRows.length>400">แสดง 400 รายการแรก — ใช้ตัวกรองเพื่อดูรายการอื่น</p>
+  </div>
+</main>
+
+<!-- ════════ ออก Bin Card ════════ -->
+<main v-if="tab==='out2'">
+  <div class="card">
+    <h3>ออก Bin Card เป็น Excel — {{ entity }}</h3>
+    <p class="hint">
+      ใช้ layout เดียวกับไฟล์เดิมทุกจุด (ฟอนต์ Tahoma · สีหัวตาราง · เส้นตาราง · แนวนอน A4 ย่อ 71%)
+      · หน้าละ 18 บรรทัด เกินแล้วขึ้นหน้าใหม่ให้เอง · แยกไฟล์ตามชนิดวัสดุแล้วบีบเป็น zip ไฟล์เดียว
+    </p>
+    <div class="row" style="margin:14px 0">
+      <div class="card" style="margin:0;padding:10px 16px;background:var(--soft);border:0">
+        <div class="hint">จะได้ทั้งหมด</div>
+        <div class="bignum" style="color:var(--brand)">{{ cardPlan.cards.toLocaleString() }}</div>
+        <div class="hint">การ์ด · {{ cardPlan.pages.toLocaleString() }} หน้า · {{ cardPlan.groups.length }} ไฟล์</div>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn primary" style="padding:14px 26px;font-size:15px"
+              @click="exportBinCards" :disabled="expBusy || !cardPlan.cards">
+        {{ expBusy ? 'กำลังสร้าง...' : 'สร้างไฟล์ Bin Card' }}</button>
+    </div>
+    <div v-if="expBusy || expMsg">
+      <div style="background:#eef2f7;border-radius:99px;height:12px;overflow:hidden;max-width:520px">
+        <div :style="{width:expProg+'%',height:'100%',background:'var(--ok)',transition:'width .2s'}"></div>
+      </div>
+      <p class="hint" style="margin-top:6px">{{ expMsg }}</p>
+    </div>
+  </div>
+
+  <div class="card" v-if="cardPlan.groups.length">
+    <h3>แยกตามชนิดวัสดุ</h3>
+    <table style="max-width:560px">
+      <thead><tr><th>ไฟล์</th><th class="num" style="width:100px">การ์ด</th>
+        <th class="num" style="width:100px">หน้า</th><th class="num" style="width:120px">บรรทัด</th></tr></thead>
+      <tbody>
+        <tr v-for="g in cardPlan.groups" :key="g.cat">
+          <td class="mono">{{ g.cat }}.xlsx</td>
+          <td class="num mono">{{ g.cards.toLocaleString() }}</td>
+          <td class="num mono">{{ g.pages.toLocaleString() }}</td>
+          <td class="num mono">{{ g.lines.toLocaleString() }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="hint" style="margin-top:10px">
+      การ์ดที่เกิน 18 บรรทัดจะถูกแบ่งเป็นหลายชีต ตั้งชื่อ <b>รหัส-1</b>, <b>รหัส-2</b>
+      และเขียนเลขหน้าไว้ในช่อง No. Doc ให้ด้วย
+    </p>
+  </div>
+</main>
+
+<!-- ════════ คิวเคลม ════════ -->
+<main v-if="tab==='claim'">
+  <div class="msg" :class="claims.length?'bad':'ok'">
+    <span v-if="claims.length"><b>{{ claims.length }} รายการ</b> ที่ยอดนับจริงไม่ตรงกับที่ Delta แจ้งใน Issue — ควรแจ้ง Delta</span>
+    <span v-else>ยอดนับจริงตรงกับที่ Delta แจ้งทุกรายการ</span>
+  </div>
+  <div class="card" v-if="claims.length">
+    <table>
+      <thead><tr><th>วันที่</th><th>PO</th><th>รหัส</th><th>คำอธิบาย</th>
+        <th class="num">Reqmt (สูตร)</th><th class="num">Issue (Delta)</th><th class="num">นับจริง</th>
+        <th class="num">ส่วนต่าง</th><th>ผู้รับ</th></tr></thead>
+      <tbody>
+        <tr v-for="t in claims" :key="t.id" class="bad">
+          <td class="mono">{{ t.date }}</td><td class="mono">{{ t.doc_ref }}</td>
+          <td class="mono">{{ t.material_code }}</td><td class="hint">{{ descOf(t.material_code) }}</td>
+          <td class="num mono hint">{{ fmt(t.reqmt_qty) }}</td>
+          <td class="num mono">{{ fmt(t.issued_qty) }}</td>
+          <td class="num mono"><b>{{ fmt(t.qty) }}</b></td>
+          <td class="num mono" style="color:var(--bad)"><b>{{ (t.qty-t.issued_qty>0?'+':'') + fmt(t.qty-t.issued_qty) }}</b></td>
+          <td>{{ t.person }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px"><button class="btn" @click="exportClaims">ส่งออกคิวเคลม .xlsx</button></p>
+  </div>
+</main>
+
+<!-- ════════ ตั้งค่า ════════ -->
+<main v-if="tab==='setup'">
+  <div class="card">
+    <h3>ข้อมูลตั้งต้น</h3>
+    <table style="width:auto">
+      <tr><td>วัตถุดิบ</td><td class="mono"><b>{{ materials.length.toLocaleString() }}</b> รายการ
+        (ใช้งานอยู่ {{ activeMats.length.toLocaleString() }})</td></tr>
+      <tr><td>นิติบุคคล</td><td class="mono"><b>{{ entities.length }}</b></td></tr>
+      <tr><td>BOM</td><td class="mono"><b>{{ bom.length.toLocaleString() }}</b> คู่ ครอบคลุม {{ bomPns.length }} P/N</td></tr>
+      <tr><td>รายการเคลื่อนไหว</td><td class="mono"><b>{{ txns.length.toLocaleString() }}</b>
+        (ยกเลิกแล้ว {{ txns.filter(t=>t.voided).length }})</td></tr>
+    </table>
+    <p style="margin-top:12px">
+      <input type="file" accept=".xlsx" multiple @change="onPick"> <span class="hint">โหลดไฟล์ตั้งต้นใหม่ทับของเดิม</span>
+    </p>
+  </div>
+  <div class="card">
+    <h3>เชื่อมต่อ Google Sheets (ใช้ร่วมกันหลายคน)</h3>
+    <div class="msg bad" v-if="sync.needDeploy">
+      <b>สคริปต์บน Google Sheets เป็นเวอร์ชันเก่า</b> — รายการรับเข้า/จ่ายออกยังซิงค์ได้ปกติ
+      แต่<b>รายการ PO และของขาดจะยังไม่ขึ้น</b><br>
+      วิธีแก้: เปิด Apps Script → วางโค้ดจากไฟล์ <b>google-apps-script.gs</b> ทับของเดิม →
+      <b>Deploy → Manage deployments → ✏️ → Version: New version → Deploy</b> →
+      กลับมาที่ Google Sheet กดเมนู <b>ระบบ Bin Card → สร้างชีตที่จำเป็นทั้งหมด</b>
+    </div>
+    <div class="msg" :class="sync.state==='error'?'bad':(sync.url?'ok':'warn')">
+      <span v-if="!sync.url">ยังไม่ได้เชื่อมต่อ — ข้อมูลอยู่ในเครื่องนี้เครื่องเดียว ดูขั้นตอนในไฟล์
+        <b>คู่มือติดตั้ง_GoogleSheets.md</b></span>
+      <span v-else-if="sync.state==='error'">เชื่อมต่อไม่ได้: {{ sync.error }} —
+        <b>ยังคีย์งานต่อได้ตามปกติ</b> ระบบจะส่งขึ้นให้เองเมื่อเน็ตกลับมา</span>
+      <span v-else>เชื่อมต่อแล้ว · รอส่ง {{ pending }} รายการ ·
+        ซิงค์ล่าสุด {{ localTime(sync.lastOkAt) || '—' }}</span>
+    </div>
+    <div class="row">
+      <div class="f" style="flex:1;min-width:340px"><label>URL ของ Web App</label>
+        <input v-model.trim="sync.url" @change="saveSyncCfg"
+               placeholder="https://script.google.com/macros/s/..../exec"></div>
+      <div class="f"><label>รหัสผ่าน (TOKEN)</label>
+        <input v-model.trim="sync.token" @change="saveSyncCfg" style="width:170px"></div>
+      <div class="f"><label>ชื่อเครื่องนี้</label>
+        <input v-model.trim="sync.device" @change="saveSyncCfg" style="width:130px"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" @click="testConn">ทดสอบการเชื่อมต่อ</button>
+      <button class="btn" @click="doSync(false)" :disabled="!sync.url">ซิงค์เดี๋ยวนี้</button>
+      <label style="font-size:13px;display:flex;align-items:center;gap:5px">
+        <input type="checkbox" v-model="sync.auto" @change="saveSyncCfg"> ซิงค์อัตโนมัติทุก 20 วินาที</label>
+      <button class="btn" @click="copySetupLink" :disabled="!sync.url">คัดลอกลิงก์ตั้งค่าให้เครื่องอื่น</button>
+      <div class="grow"></div>
+      <button class="btn" @click="resetSyncClock" :disabled="!sync.url">ดึงใหม่ทั้งหมด</button>
+    </div>
+    <p class="hint" style="margin-top:8px">
+      ลิงก์ตั้งค่าใช้เปิดที่เครื่องใหม่แล้วตั้งค่าให้เองทันที ไม่ต้องกรอก URL/รหัสเอง —
+      <b>ส่งทางแชทภายในเท่านั้น เพราะมีรหัสผ่านอยู่ในลิงก์</b>
+    </p>
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <h3>ข้อมูลตั้งต้นบนเซิร์ฟเวอร์</h3>
+    <p class="hint">อัปโหลดจาก <b>เครื่องเดียวพอ</b> เครื่องอื่นกดดึงลงมา จะได้ทะเบียนและ BOM ชุดเดียวกันทุกเครื่อง</p>
+    <div class="row">
+      <button class="btn" @click="uploadSetup" :disabled="!sync.url">อัปโหลดทะเบียน + BOM ขึ้นเซิร์ฟเวอร์</button>
+      <button class="btn" @click="downloadSetup" :disabled="!sync.url">ดึงทะเบียน + BOM ลงเครื่องนี้</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>พื้นที่เก็บข้อมูล</h3>
+    <div style="background:#eef2f7;border-radius:99px;height:14px;overflow:hidden;max-width:420px">
+      <div :style="{width:storagePct+'%',height:'100%',
+        background: storagePct>80 ? 'var(--bad)' : storagePct>60 ? 'var(--warn)' : 'var(--ok)'}"></div>
+    </div>
+    <p class="hint" style="margin-top:8px">
+      ใช้ไป <b>{{ (storageBytes/1048576).toFixed(2) }} MB</b> จากประมาณ 5 MB ({{ storagePct }}%)
+    </p>
+    <div class="msg bad" v-if="storagePct>80" style="margin-top:10px">
+      ใกล้เต็มแล้ว — ส่งออกสำรองเก็บไว้ แล้วเร่งขึ้น Google Sheets ใน Phase 2.5
+    </div>
+    <p class="hint">
+      เก็บลงเครื่องเฉพาะวัตถุดิบที่ตั้งค่า <b>active</b> ไว้ ({{ activeMats.length.toLocaleString() }} รายการ)
+      เพื่อประหยัดพื้นที่ — ถ้าต้องใช้รหัสอื่น ให้ไปตั้ง active ในโปรแกรมทะเบียนวัตถุดิบแล้วโหลดไฟล์ใหม่
+    </p>
+  </div>
+  <div class="card">
+    <h3>สำรองและกู้คืน</h3>
+    <p class="hint">ข้อมูลเก็บอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น <b>ควรส่งออกเก็บไว้ทุกสิ้นวัน</b>
+      จนกว่าจะต่อ Google Sheets ใน Phase 2.5</p>
+    <div class="row">
+      <button class="btn primary" @click="exportAll">ส่งออกข้อมูลทั้งหมด (.json)</button>
+      <button class="btn" @click="$refs.restore.click()">กู้คืนจากไฟล์สำรอง</button>
+      <input ref="restore" type="file" accept=".json" style="display:none" @change="restoreAll">
+    </div>
+  </div>
+
+  <div class="card" style="border-color:#f0c4c4">
+    <h3 style="color:var(--bad)">ล้างข้อมูล</h3>
+    <div class="msg bad">
+      <b>ล้างเฉพาะในเครื่องไม่พอ</b> — ถ้าบน Google Sheets ยังมีอยู่ ข้อมูลจะไหลกลับตอนซิงค์รอบถัดไป
+      หน้านี้จึงล้างทั้งสองฝั่งพร้อมกัน · <b>ทะเบียนวัตถุดิบและ BOM ไม่ถูกแตะ</b>
+    </div>
+
+    <p style="margin:0 0 6px"><b>1 · สำรองข้อมูลก่อน</b></p>
+    <div class="row" style="margin-bottom:14px">
+      <button class="btn" :class="{primary:!wipe.backedUp}" @click="backupThenMark">
+        ส่งออกสำรอง (.json)</button>
+      <span v-if="wipe.backedUp" class="tag ok">สำรองแล้ว</span>
+      <span v-else class="hint">ยังไม่ได้สำรอง — กดปุ่มนี้ก่อนแนะนำอย่างยิ่ง</span>
+    </div>
+
+    <p style="margin:0 0 6px"><b>2 · เลือกสิ่งที่จะล้าง</b></p>
+    <div style="margin-bottom:14px">
+      <label style="display:block;margin-bottom:5px">
+        <input type="checkbox" v-model="wipe.txns"> รายการรับเข้า/จ่ายออก
+        <span class="hint">({{ txns.length.toLocaleString() }} รายการ ทุกนิติบุคคล)</span></label>
+      <label style="display:block;margin-bottom:5px">
+        <input type="checkbox" v-model="wipe.pos"> รายการ PO
+        <span class="hint">({{ poList.length.toLocaleString() }} รายการ)</span></label>
+      <label style="display:block;margin-bottom:5px">
+        <input type="checkbox" v-model="wipe.shorts"> ของขาด / รอส่ง
+        <span class="hint">({{ shorts.length.toLocaleString() }} รายการ)</span></label>
+      <label style="display:block;margin-top:10px">
+        <input type="checkbox" v-model="wipe.server"> <b>ล้างบน Google Sheets ด้วย</b>
+        <span class="hint">{{ sync.url ? '(แนะนำ — ไม่งั้นข้อมูลจะไหลกลับ)' : '(ยังไม่ได้เชื่อมต่อ จะล้างเฉพาะเครื่องนี้)' }}</span></label>
+    </div>
+
+    <p style="margin:0 0 6px"><b>3 · พิมพ์คำว่า <code style="background:#fdecec;padding:1px 6px;border-radius:4px">ล้างข้อมูล</code> เพื่อยืนยัน</b></p>
+    <div class="row">
+      <input v-model="wipe.word" placeholder="ล้างข้อมูล" style="width:180px">
+      <button class="btn danger" @click="doWipe" :disabled="!wipeReady"
+              :style="wipeReady ? 'background:var(--bad);color:#fff;border-color:var(--bad)' : ''">
+        {{ wipe.busy ? 'กำลังล้าง...' : 'ล้างข้อมูลเดี๋ยวนี้' }}</button>
+    </div>
+
+    <pre v-if="wipe.log" style="margin-top:14px;background:#f7fafd;border:1px solid var(--line);
+      border-radius:6px;padding:10px;font-size:12px;white-space:pre-wrap;font-family:ui-monospace,monospace">{{ wipe.log }}</pre>
+  </div>
+  <div class="card">
+    <h3>ผู้เบิก / ผู้รับ ที่ใช้บ่อย</h3>
+    <div class="row">
+      <input v-model.trim="newPerson" placeholder="ชื่อ" style="width:200px" @keydown.enter="addPerson">
+      <button class="btn" @click="addPerson">เพิ่ม</button>
+    </div>
+    <p style="margin-top:10px">
+      <span v-for="(p,i) in people" :key="p" class="tag" style="margin:0 6px 6px 0;display:inline-block">
+        {{ p }} <a href="#" @click.prevent="people.splice(i,1);persist()" style="color:var(--bad);text-decoration:none">✕</a>
+      </span>
+      <span v-if="!people.length" class="hint">ยังไม่มี — ชื่อจะถูกจำอัตโนมัติเมื่อคีย์ครั้งแรก</span>
+    </p>
+  </div>
+</main>
+</template>
+
+<datalist id="codelist"><option v-for="m in activeMats" :key="m.material_code"
+  :value="String(m.material_code)">{{ m.description }}</option></datalist>
+<datalist id="people"><option v-for="p in people" :key="p" :value="p"></option></datalist>
+
+<div class="toast" :class="toast.bad?'bad':''" v-if="toast.show">{{ toast.text }}</div>
+</div>
+
+<script>
+// ═══════════ Phase 3: ออก Bin Card เป็น Excel ตาม template เดิม ═══════════
+// สไตล์ทุกช่องถอดมาจากไฟล์ Wire.xlsx ของจริง (เส้นตาราง ฟอนต์ Tahoma สีหัวตาราง
+// merged cell ความกว้างคอลัมน์ การตั้งค่าหน้ากระดาษ) จึงได้หน้าตาเหมือนเดิมทุกจุด
+const BINCARD_TPL = {"style":{"B2":{"f":["Tahoma",24.0,1]},"C2":{"f":["Tahoma",24.0,1]},"D2":{"f":["Tahoma",24.0,1]},"B8":{"a":["center","",0]},"C8":{"a":["center","",0]},"D8":{"a":["center","",0]},"E8":{"a":["center","",0]},"F8":{"a":["center","",0]},"G8":{"a":["center","",0]},"H8":{"a":["center","",0]},"I8":{"a":["center","",0]},"J8":{"a":["center","",0]},"K8":{"a":["center","",0]},"L8":{"a":["center","",0]},"M8":{"a":["center","",0]},"N8":{"a":["center","",0]},"O8":{"a":["center","",0]},"P8":{"a":["center","",0]},"B9":{"f":["Tahoma",11.0,1],"b":"t-tt","a":["center","center",0],"fill":"FF00B0F0"},"C9":{"f":["Tahoma",8.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"D9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"E9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","",0],"fill":"FF00B0F0"},"F9":{"b":"--tt"},"G9":{"b":"--tt"},"H9":{"b":"-ttt"},"I9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","",0],"fill":"FF00B0F0"},"J9":{"b":"--tt"},"K9":{"b":"-ttt"},"L9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"M9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"N9":{"f":["Tahoma",9.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"O9":{"f":["Tahoma",9.0,1],"b":"tttt","a":["center","center",1],"fill":"FF00B0F0"},"P9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"B10":{"b":"t--t"},"C10":{"b":"tt-t"},"D10":{"b":"tt-t"},"E10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"F10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"G10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"H10":{"f":["Tahoma",11.0,1],"b":"ttt-","a":["center","center",0],"fill":"FF00B0F0"},"I10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"J10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"K10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"L10":{"b":"tt-t"},"M10":{"b":"tt-t"},"N10":{"b":"tt-t"},"O10":{"b":"tt-t"},"P10":{"b":"tt-t"},"B11":{"b":"t--t","a":["center","",0]},"C11":{"b":"t--t","a":["center","",0]},"D11":{"b":"tttt","a":["center","",0]},"E11":{"b":"-ttt","a":["center","",0]},"F11":{"b":"tttt","a":["center","",0]},"G11":{"b":"tttt","a":["center","",0]},"H11":{"b":"tttt","a":["center","",0]},"I11":{"b":"tttt","a":["center","",0]},"J11":{"b":"tttt","a":["center","",0]},"K11":{"b":"tttt","a":["center","",0]},"L11":{"b":"tttt","a":["center","",0]},"M11":{"b":"-t-t","a":["center","",0]},"N11":{"b":"tt-t","a":["center","",0]},"O11":{"b":"tt-t","a":["center","",0]},"P11":{"b":"tt-t","a":["left","",0]},"B12":{"b":"tttt","a":["center","",0]},"D12":{"b":"tttt","a":["center","",0]},"E12":{"b":"-t-t","a":["center","",0]},"F12":{"b":"tt-t","a":["center","",0]},"G12":{"b":"tt-t","a":["center","",0]},"H12":{"b":"tt-t","a":["center","",0]},"I12":{"b":"tt-t","a":["center","",0]},"J12":{"b":"tt-t","a":["center","",0]},"K12":{"b":"tt-t","a":["center","",0]},"L12":{"b":"tttt","a":["center","",0]},"M12":{"b":"-t-t","a":["center","",0]},"N12":{"b":"tt-t","a":["center","",0]},"O12":{"b":"tttt","a":["center","",0]},"P12":{"b":"tttt","a":["left","",0]},"B13":{"b":"tttt","a":["center","",0]},"C13":{"b":"tttt","a":["center","",0]},"D13":{"b":"tt-t","a":["center","",0]},"E13":{"b":"tttt","a":["center","",0]},"F13":{"b":"tttt","a":["center","",0]},"G13":{"b":"tttt","a":["center","",0]},"H13":{"b":"tttt","a":["center","",0]},"I13":{"b":"tttt","a":["center","",0]},"J13":{"b":"tttt","a":["center","",0]},"K13":{"b":"tttt","a":["center","",0]},"L13":{"b":"tttt","a":["center","",0]},"M13":{"b":"-t-t","a":["center","",0]},"N13":{"b":"tt-t","a":["center","",0]},"O13":{"b":"tttt","a":["center","",0]},"P13":{"b":"tttt","a":["left","",0]},"B14":{"b":"tttt","a":["center","",0]},"C14":{"b":"tttt","a":["center","",0]},"D14":{"b":"tttt","a":["center","",0]},"E14":{"b":"tttt","a":["center","",0]},"F14":{"b":"tttt","a":["center","",0]},"G14":{"b":"tttt","a":["center","",0]},"H14":{"b":"tttt","a":["center","",0]},"I14":{"b":"tttt","a":["center","",0]},"J14":{"b":"tttt","a":["center","",0]},"K14":{"b":"tttt","a":["center","",0]},"L14":{"b":"tttt","a":["center","",0]},"M14":{"b":"-t-t","a":["center","",0]},"N14":{"b":"tt-t","a":["center","",0]},"O14":{"b":"tttt","a":["center","",0]},"P14":{"b":"tttt","a":["left","",0]},"B15":{"b":"tttt","a":["center","",0]},"C15":{"b":"tttt","a":["center","",0]},"D15":{"b":"tttt","a":["center","",0]},"E15":{"b":"tttt","a":["center","",0]},"F15":{"b":"tttt","a":["center","",0]},"G15":{"b":"tttt","a":["center","",0]},"H15":{"b":"tttt","a":["center","",0]},"I15":{"b":"tttt","a":["center","",0]},"J15":{"b":"tttt","a":["center","",0]},"K15":{"b":"tttt","a":["center","",0]},"L15":{"b":"tttt","a":["center","",0]},"M15":{"b":"-t-t","a":["center","",0]},"N15":{"b":"tt-t","a":["center","",0]},"O15":{"b":"tttt","a":["center","",0]},"P15":{"b":"tttt","a":["left","",0]},"B16":{"b":"tttt","a":["center","",0]},"C16":{"b":"tttt","a":["center","",0]},"D16":{"b":"tttt","a":["center","",0]},"E16":{"b":"tttt","a":["center","",0]},"F16":{"b":"tttt","a":["center","",0]},"G16":{"b":"tttt","a":["center","",0]},"H16":{"b":"tttt","a":["center","",0]},"I16":{"b":"tttt","a":["center","",0]},"J16":{"b":"tttt","a":["center","",0]},"K16":{"b":"tttt","a":["center","",0]},"L16":{"b":"tttt","a":["center","",0]},"M16":{"b":"-t-t","a":["center","",0]},"N16":{"b":"tt-t","a":["center","",0]},"O16":{"b":"tttt","a":["center","",0]},"P16":{"b":"tttt","a":["left","",0]},"B17":{"b":"tttt","a":["center","",0]},"C17":{"b":"tttt","a":["center","",0]},"D17":{"b":"tttt","a":["center","",0]},"E17":{"b":"tttt","a":["center","",0]},"F17":{"b":"tttt","a":["center","",0]},"G17":{"b":"tttt","a":["center","",0]},"H17":{"b":"tttt","a":["center","",0]},"I17":{"b":"tttt","a":["center","",0]},"J17":{"b":"tttt","a":["center","",0]},"K17":{"b":"tttt","a":["center","",0]},"L17":{"b":"tttt","a":["center","",0]},"M17":{"b":"-t-t","a":["center","",0]},"N17":{"b":"tt-t","a":["center","",0]},"O17":{"b":"tttt","a":["center","",0]},"P17":{"b":"tttt","a":["left","",0]},"B18":{"b":"tttt","a":["center","",0]},"C18":{"b":"tttt","a":["center","",0]},"D18":{"b":"tttt","a":["center","",0]},"E18":{"b":"tttt","a":["center","",0]},"F18":{"b":"tttt","a":["center","",0]},"G18":{"b":"tttt","a":["center","",0]},"H18":{"b":"tttt","a":["center","",0]},"I18":{"b":"tttt","a":["center","",0]},"J18":{"b":"tttt","a":["center","",0]},"K18":{"b":"tttt","a":["center","",0]},"L18":{"b":"tttt","a":["center","",0]},"M18":{"b":"-t-t","a":["center","",0]},"N18":{"b":"tt-t","a":["center","",0]},"O18":{"b":"tttt","a":["center","",0]},"P18":{"b":"tttt","a":["left","",0]},"B19":{"b":"tttt","a":["center","",0]},"C19":{"b":"tttt","a":["center","",0]},"D19":{"b":"tttt","a":["center","",0]},"E19":{"b":"tttt","a":["center","",0]},"F19":{"b":"tttt","a":["center","",0]},"G19":{"b":"tttt","a":["center","",0]},"H19":{"b":"tttt","a":["center","",0]},"I19":{"b":"tttt","a":["center","",0]},"J19":{"b":"tttt","a":["center","",0]},"K19":{"b":"tttt","a":["center","",0]},"L19":{"b":"tttt","a":["center","",0]},"M19":{"b":"-t-t","a":["center","",0]},"N19":{"b":"tttt","a":["center","",0]},"O19":{"b":"tttt","a":["center","",0]},"P19":{"b":"tttt","a":["left","",0]},"B20":{"b":"tttt","a":["center","",0]},"C20":{"b":"tttt","a":["center","",0]},"D20":{"b":"tttt","a":["center","",0]},"E20":{"b":"tttt","a":["center","",0]},"F20":{"b":"tttt","a":["center","",0]},"G20":{"b":"tttt","a":["center","",0]},"H20":{"b":"tttt","a":["center","",0]},"I20":{"b":"tttt","a":["center","",0]},"J20":{"b":"tttt","a":["center","",0]},"K20":{"b":"tttt","a":["center","",0]},"L20":{"b":"tttt","a":["center","",0]},"M20":{"b":"-t-t","a":["center","",0]},"N20":{"b":"tttt","a":["center","",0]},"O20":{"b":"tttt","a":["center","",0]},"P20":{"b":"tttt","a":["left","",0]},"B21":{"b":"tttt","a":["center","",0]},"C21":{"b":"tttt","a":["center","",0]},"D21":{"b":"tttt","a":["center","",0]},"E21":{"b":"tttt","a":["center","",0]},"F21":{"b":"tttt","a":["center","",0]},"G21":{"b":"tttt","a":["center","",0]},"H21":{"b":"tttt","a":["center","",0]},"I21":{"b":"tttt","a":["center","",0]},"J21":{"b":"tttt","a":["center","",0]},"K21":{"b":"tttt","a":["center","",0]},"L21":{"b":"tttt","a":["center","",0]},"M21":{"b":"-t-t","a":["center","",0]},"N21":{"b":"tttt","a":["center","",0]},"O21":{"b":"tttt","a":["center","",0]},"P21":{"b":"tttt","a":["left","",0]},"B22":{"b":"tttt","a":["center","",0]},"C22":{"b":"tttt","a":["center","",0]},"D22":{"b":"tttt","a":["center","",0]},"E22":{"b":"tttt","a":["center","",0]},"F22":{"b":"tttt","a":["center","",0]},"G22":{"b":"tttt","a":["center","",0]},"H22":{"b":"tttt","a":["center","",0]},"I22":{"b":"tttt","a":["center","",0]},"J22":{"b":"tttt","a":["center","",0]},"K22":{"b":"tttt","a":["center","",0]},"L22":{"b":"tttt","a":["center","",0]},"M22":{"b":"-t-t","a":["center","",0]},"N22":{"b":"tttt","a":["center","",0]},"O22":{"b":"tttt","a":["center","",0]},"P22":{"b":"tttt","a":["left","",0]},"B23":{"b":"tttt","a":["center","",0]},"C23":{"b":"tttt","a":["center","",0]},"D23":{"b":"tttt","a":["center","",0]},"E23":{"b":"tttt","a":["center","",0]},"F23":{"b":"tttt","a":["center","",0]},"G23":{"b":"tttt","a":["center","",0]},"H23":{"b":"tttt","a":["center","",0]},"I23":{"b":"tttt","a":["center","",0]},"J23":{"b":"tttt","a":["center","",0]},"K23":{"b":"tttt","a":["center","",0]},"L23":{"b":"tttt","a":["center","",0]},"M23":{"b":"-t-t","a":["center","",0]},"N23":{"b":"tttt","a":["center","",0]},"O23":{"b":"tttt","a":["center","",0]},"P23":{"b":"tttt","a":["left","",0]},"B24":{"b":"tttt","a":["center","",0]},"C24":{"b":"tttt","a":["center","",0]},"D24":{"b":"tttt","a":["center","",0]},"E24":{"b":"tttt","a":["center","",0]},"F24":{"b":"tttt","a":["center","",0]},"G24":{"b":"tttt","a":["center","",0]},"H24":{"b":"tttt","a":["center","",0]},"I24":{"b":"tttt","a":["center","",0]},"J24":{"b":"tttt","a":["center","",0]},"K24":{"b":"tttt","a":["center","",0]},"L24":{"b":"tttt","a":["center","",0]},"M24":{"b":"-t-t","a":["center","",0]},"N24":{"b":"tttt","a":["center","",0]},"O24":{"b":"tttt","a":["center","",0]},"P24":{"b":"tttt","a":["left","",0]},"B25":{"b":"tttt","a":["center","",0]},"C25":{"b":"tttt","a":["center","",0]},"D25":{"b":"tttt","a":["center","",0]},"E25":{"b":"tttt","a":["center","",0]},"F25":{"b":"tttt","a":["center","",0]},"G25":{"b":"tttt","a":["center","",0]},"H25":{"b":"tttt","a":["center","",0]},"I25":{"b":"tttt","a":["center","",0]},"J25":{"b":"tttt","a":["center","",0]},"K25":{"b":"tttt","a":["center","",0]},"L25":{"b":"tttt","a":["center","",0]},"M25":{"b":"-t-t","a":["center","",0]},"N25":{"b":"tttt","a":["center","",0]},"O25":{"b":"tttt","a":["center","",0]},"P25":{"b":"tttt","a":["left","",0]},"B26":{"b":"tttt","a":["center","",0]},"C26":{"b":"tttt","a":["center","",0]},"D26":{"b":"tttt","a":["center","",0]},"E26":{"b":"tttt","a":["center","",0]},"F26":{"b":"tttt","a":["center","",0]},"G26":{"b":"tttt","a":["center","",0]},"H26":{"b":"tttt","a":["center","",0]},"I26":{"b":"tttt","a":["center","",0]},"J26":{"b":"tttt","a":["center","",0]},"K26":{"b":"tttt","a":["center","",0]},"L26":{"b":"tttt","a":["center","",0]},"M26":{"b":"-t-t","a":["center","",0]},"N26":{"b":"tttt","a":["center","",0]},"O26":{"b":"tttt","a":["center","",0]},"P26":{"b":"tttt","a":["left","",0]},"B27":{"b":"tttt","a":["center","",0]},"C27":{"b":"tttt","a":["center","",0]},"D27":{"b":"tttt","a":["center","",0]},"E27":{"b":"tttt","a":["center","",0]},"F27":{"b":"tttt","a":["center","",0]},"G27":{"b":"tttt","a":["center","",0]},"H27":{"b":"tttt","a":["center","",0]},"I27":{"b":"tttt","a":["center","",0]},"J27":{"b":"tttt","a":["center","",0]},"K27":{"b":"tttt","a":["center","",0]},"L27":{"b":"tttt","a":["center","",0]},"M27":{"b":"-t-t","a":["center","",0]},"N27":{"b":"tttt","a":["center","",0]},"O27":{"b":"tttt","a":["center","",0]},"P27":{"b":"tttt","a":["left","",0]},"B28":{"b":"tttt","a":["center","",0]},"C28":{"b":"tttt","a":["center","",0]},"D28":{"b":"tttt","a":["center","",0]},"E28":{"b":"tttt","a":["center","",0]},"F28":{"b":"tttt","a":["center","",0]},"G28":{"b":"tttt","a":["center","",0]},"H28":{"b":"tttt","a":["center","",0]},"I28":{"b":"tttt","a":["center","",0]},"J28":{"b":"tttt","a":["center","",0]},"K28":{"b":"tttt","a":["center","",0]},"L28":{"b":"tttt","a":["center","",0]},"M28":{"b":"-t-t","a":["center","",0]},"N28":{"b":"tttt","a":["center","",0]},"O28":{"b":"tttt","a":["center","",0]},"P28":{"b":"tttt","a":["left","",0]}},"widths":{"A":7.38,"B":5.5,"C":13.75,"D":11.5,"E":9.12,"L":7.12,"M":11.88,"N":12.5,"O":12.62,"P":39.38,"Q":7.62},"heights":{"2":30.0},"merges":["B9:B10","C9:C10","D9:D10","E9:H9","I9:K9","L9:L10","M9:M10","N9:N10","O9:O10","P9:P10"],"page":{"orientation":"landscape","paper":9,"scale":71,"margins":[0.25,0.25,0.75,0.75],"printArea":"A1:Q32","zoom":70},"labels":{"B2":"Bin Card ","P2":"No. Doc…..................................","B4p":"Material code ….....","B5p":"Description…..","B6p":"Store Location…..","B7p":"Subcontract Name….","nums":{"B8":1,"C8":2,"E8":3,"F8":4,"G8":5,"H8":6,"I8":7,"J8":8,"K8":9,"L8":10,"M8":11,"N8":12,"O8":13,"P8":14},"head":{"B9":"No","C9":"Ref Doc No./SB PO DET","D9":"P/N","E9":"Receive mat'l","I9":"Issue Mat'l","L9":"Units","M9":"Balance","N9":"ผู้เบิก/ผู้รับ","O9":"วันหมดอายุ Raw Material","P9":"Remark","E10":"Date","F10":"Time ","G10":"Q'ty /PO","H10":"Units","I10":"Date","J10":"Time ","K10":"Q'ty"}},"firstRow":11,"lastRow":28,"totalRow":29};
+
+/** ใส่สไตล์จาก template ลงในชีต ExcelJS */
+function applyTpl(ws){
+  const T = BINCARD_TPL;
+  for (const [addr, d] of Object.entries(T.style)) {
+    const c = ws.getCell(addr);
+    const [fn, fs, fb] = d.f || ['Tahoma', 11, 0];
+    c.font = { name:fn, size:fs, bold:!!fb };
+    if (d.b) {
+      const map = { t:{ style:'thin' }, '-':undefined };
+      c.border = { left:map[d.b[0]], right:map[d.b[1]], top:map[d.b[2]], bottom:map[d.b[3]] };
     }
-  } catch (err) {
-    return json({ ok: false, error: String(err && err.message ? err.message : err) });
+    if (d.a) c.alignment = { horizontal:d.a[0] || undefined, vertical:d.a[1] || undefined, wrapText:!!d.a[2] };
+    if (d.fill) c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:d.fill } };
   }
+  // ช่องที่ไม่มีสไตล์พิเศษ ก็ยังต้องเป็น Tahoma 11 ให้เหมือนต้นฉบับ
+  for (let r = 1; r <= 32; r++)
+    for (const col of 'ABCDEFGHIJKLMNOPQ') {
+      const c = ws.getCell(col + r);
+      if (!c.font) c.font = { name:'Tahoma', size:11 };
+    }
+  for (const [col, w] of Object.entries(T.widths)) ws.getColumn(col).width = w;
+  for (const [r, h] of Object.entries(T.heights)) ws.getRow(+r).height = h;
+  for (const m of T.merges) ws.mergeCells(m);
+  ws.pageSetup = {
+    orientation:T.page.orientation, paperSize:T.page.paper, scale:T.page.scale,
+    margins:{ left:T.page.margins[0], right:T.page.margins[1], top:T.page.margins[2],
+              bottom:T.page.margins[3], header:0.3, footer:0.3 },
+    printArea:T.page.printArea };
+  ws.views = [{ zoomScale:T.page.zoom }];
+  const L = T.labels;
+  ws.getCell('B2').value = L.B2;
+  ws.getCell('P2').value = L.P2;
+  for (const [a, v] of Object.entries(L.nums)) ws.getCell(a).value = v;
+  for (const [a, v] of Object.entries(L.head)) ws.getCell(a).value = v;
 }
 
-function json(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+/** สร้าง 1 หน้าของ Bin Card (18 บรรทัด) */
+function writeCardPage(ws, info, pageRows, pageNo, pageCount){
+  applyTpl(ws);
+  const dots = (label, val, n) => label + String(val ?? '') + '.'.repeat(Math.max(4, n));
+  ws.getCell('B4').value = dots(BINCARD_TPL.labels.B4p, info.code, 30);
+  ws.getCell('B5').value = dots(BINCARD_TPL.labels.B5p, info.description, 20);
+  ws.getCell('B6').value = dots(BINCARD_TPL.labels.B6p, info.store, 30);
+  ws.getCell('B7').value = dots(BINCARD_TPL.labels.B7p, info.entity, 30);
+  if (pageCount > 1) ws.getCell('P2').value = `No. Doc…...${info.code}-${pageNo}/${pageCount}...`;
 
-// ═══════════ ตัวช่วยจัดการชีต ═══════════
-function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
-
-function sheetOf(name, cols) {
-  var s = ss().getSheetByName(name);
-  if (!s) {
-    s = ss().insertSheet(name);
-    s.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold');
-    s.setFrozenRows(1);
-    return s;
+  let r = BINCARD_TPL.firstRow;
+  let sumIn = 0, sumOut = 0;
+  for (const x of pageRows) {
+    ws.getCell('B' + r).value = x.no;
+    ws.getCell('C' + r).value = x.doc_ref || '';
+    ws.getCell('D' + r).value = x.part_no || '';
+    if (x.direction === 'IN') {
+      ws.getCell('E' + r).value = x.date;
+      ws.getCell('F' + r).value = x.time;
+      ws.getCell('G' + r).value = x.qty;
+      ws.getCell('H' + r).value = info.unit;
+      sumIn += +x.qty || 0;
+    } else {
+      ws.getCell('I' + r).value = x.date;
+      ws.getCell('J' + r).value = x.time;
+      ws.getCell('K' + r).value = x.qty;
+      sumOut += +x.qty || 0;
+    }
+    ws.getCell('L' + r).value = info.unit;
+    ws.getCell('M' + r).value = x.bal;
+    ws.getCell('N' + r).value = x.person || '';
+    ws.getCell('O' + r).value = x.expiry_date || '';
+    ws.getCell('P' + r).value = x.remark || '';
+    r++;
   }
-  // ชีตมีอยู่แล้วแต่หัวคอลัมน์อาจเก่ากว่าเวอร์ชันนี้ — เติมคอลัมน์ที่ขาดต่อท้ายให้
-  var w = Math.max(1, s.getLastColumn());
-  var head = s.getRange(1, 1, 1, w).getValues()[0].map(String);
-  var missing = cols.filter(function (c) { return head.indexOf(c) < 0; });
-  if (missing.length) {
-    var start = head.filter(String).length + 1;
-    s.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight('bold');
-    s.setFrozenRows(1);
+  // แถวรวม: นับเฉพาะคอลัมน์จำนวน — ต้นฉบับเดิมรวมคอลัมน์ Time มาด้วยซึ่งไม่มีความหมาย
+  const t = BINCARD_TPL.totalRow;
+  ws.getCell('G' + t).value = Math.round(sumIn  * 1e5) / 1e5;
+  ws.getCell('K' + t).value = Math.round(sumOut * 1e5) / 1e5;
+}
+
+/** แบ่งรายการของ 1 material code ออกเป็นหน้า ๆ ละ 18 บรรทัด */
+function paginate(list){
+  const per = BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1;   // 18
+  const pages = [];
+  for (let i = 0; i < list.length; i += per) pages.push(list.slice(i, i + per));
+  return pages.length ? pages : [[]];
+}
+
+const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+
+const K_SETUP = 'bincard.setup.v1';   // materials / entities / bom / people
+const K_TXN   = 'bincard.txns.v1';    // รายการเคลื่อนไหว
+const K_SYNC  = 'bincard.sync.v1';    // การตั้งค่าเชื่อมต่อ Google Sheets
+
+// ⚠️ ห้ามใช้ toISOString() ทำวันที่ เพราะให้เวลา UTC ซึ่งช้ากว่าไทย 7 ชั่วโมง
+// ถ้าใช้ จะได้วันที่ของ "เมื่อวาน" ทุกครั้งที่คีย์ก่อน 07:00 น.
+const pad = n => String(n).padStart(2, '0');
+const today = (d = new Date()) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const nowHour = () => new Date().getHours();
+
+/** แปลงเวลา ISO (UTC) ที่เก็บไว้ ให้เป็นเวลาไทยสำหรับแสดงผล */
+function localTime(iso){
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+function localDateTime(iso){
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : today(d) + ' ' + localTime(iso);
+}
+
+createApp({
+  setup() {
+    // ───────── state ─────────
+    const tab      = ref('in');
+    const dragOver = ref(false);
+    const entity   = ref('');
+    const materials= ref([]);
+    const entities = ref([]);
+    const bom      = ref([]);
+    const people   = ref([]);
+    const txns     = ref([]);
+    const toast    = reactive({ show:false, text:'', bad:false });
+
+    const ready = computed(() => materials.value.length > 0 && entities.value.length > 0);
+
+    // ───────── ดัชนีเพื่อความเร็ว ─────────
+    const matMap = computed(() => {
+      const m = new Map();
+      for (const x of materials.value) m.set(String(x.material_code), x);
+      return m;
+    });
+    const activeMats = computed(() => materials.value.filter(m => m.active === 'TRUE'));
+    const bomByPn = computed(() => {
+      const m = new Map();
+      for (const b of bom.value) {
+        const k = String(b.pn);
+        if (!m.has(k)) m.set(k, []);
+        m.get(k).push(b);
+      }
+      return m;
+    });
+    const bomPns = computed(() => [...bomByPn.value.keys()].sort());
+    const entInfo = computed(() => entities.value.find(e => e.entity_code === entity.value) || {});
+
+    function descOf(c){ return (matMap.value.get(String(c)) || {}).description || ''; }
+    function unitOf(c){ return (matMap.value.get(String(c)) || {}).unit || ''; }
+    function needExpOf(c){ return (matMap.value.get(String(c)) || {}).requires_expiry === 'TRUE'; }
+    function fmt(n){
+      if (n === '' || n === null || n === undefined || isNaN(n)) return '';
+      const v = +n;
+      return Number.isInteger(v) ? v.toLocaleString()
+        : v.toLocaleString(undefined, { minimumFractionDigits:0, maximumFractionDigits:5 });
+    }
+
+    // ───────── ยอดคงเหลือ ─────────
+    // เรียงตาม วันที่ + เวลา + ลำดับที่บันทึก แล้วสะสม (ไม่เก็บ balance ลงฐานข้อมูล)
+    const liveTxns = computed(() => txns.value.filter(t => !t.voided && t.entity === entity.value));
+    const balMap = computed(() => {
+      const m = new Map();
+      for (const t of liveTxns.value) {
+        const k = String(t.material_code);
+        m.set(k, (m.get(k) || 0) + (t.direction === 'IN' ? +t.qty : -+t.qty));
+      }
+      return m;
+    });
+    function balOf(c){ return round5(balMap.value.get(String(c)) || 0); }
+    function round5(n){ return Math.round(n * 1e5) / 1e5; }
+
+    // ───────── โหลดไฟล์ตั้งต้น ─────────
+    function onDrop(e){ dragOver.value=false; handleFiles([...e.dataTransfer.files]); }
+    function onPick(e){ handleFiles([...e.target.files]); e.target.value=''; }
+
+    function handleFiles(files){
+      let pending = files.length;
+      if (!pending) return;
+      files.forEach(f => {
+        const fr = new FileReader();
+        fr.onload = ev => {
+          try {
+            const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+            if (wb.SheetNames.includes('Materials')) {
+              materials.value = XLSX.utils.sheet_to_json(wb.Sheets['Materials'], { defval:'' })
+                .map(r => ({ material_code:String(r.material_code), description:String(r.description??''),
+                  unit:String(r.unit??''), category:String(r.category??''),
+                  requires_expiry:String(r.requires_expiry??'FALSE').toUpperCase(),
+                  active:String(r.active??'FALSE').toUpperCase() }));
+            }
+            if (wb.SheetNames.includes('Entities')) {
+              entities.value = XLSX.utils.sheet_to_json(wb.Sheets['Entities'], { defval:'' })
+                .filter(e => e.entity_code)
+                .map(e => ({ entity_code:String(e.entity_code), company_name:String(e.company_name??''),
+                  store_location:String(e.store_location??''), vendor_no:String(e.vendor_no??'') }));
+            }
+            if (wb.SheetNames.includes('BOM')) {
+              bom.value = XLSX.utils.sheet_to_json(wb.Sheets['BOM'], { defval:'' })
+                .map(r => ({ pn:String(r.pn), code:String(r.material_code),
+                  usage:+r.usage_per_pcs || 0, unit:String(r.unit??''),
+                  varies:String(r.usage_varies??'FALSE').toUpperCase()==='TRUE' }));
+            }
+          } catch (err) { flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true); }
+          if (--pending === 0) {
+            if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
+            persist();
+            flash(`โหลดแล้ว: วัตถุดิบ ${materials.value.length} · BOM ${bom.value.length}`);
+          }
+        };
+        fr.readAsArrayBuffer(f);
+      });
+    }
+
+    // ───────── หน้ารับเข้า ─────────
+    const inH = reactive({ po:'', pn:'', order:null, date:today(), time:nowHour(), person:'' });
+    const inLines = ref([]);
+    const bomHint = ref('');
+    const qtyRefs = {};
+    let lineSeq = 0;
+
+    function blankLine(){
+      return { k:'L'+(++lineSeq), code:'', desc:'', unit:'', reqmt:null,
+               issued:null, qty:null, expiry:'', remark:'', needExp:false, varies:false };
+    }
+    function fillLine(l){
+      const m = matMap.value.get(String(l.code));
+      l.desc = m ? m.description : '(ไม่พบรหัสนี้ในทะเบียน)';
+      l.unit = m ? m.unit : '';
+      l.needExp = m ? m.requires_expiry === 'TRUE' : false;
+    }
+    /**
+     * กางรายการวัตถุดิบของ PO
+     * ลำดับความน่าเชื่อถือ: Kit List (ของที่ Delta จ่ายมาจริง) > BOM (ยอดตามสูตร)
+     * ถ้ามี Kit List จะเติมช่อง Issue ให้เลย เหลือคีย์แค่ยอดนับจริง
+     */
+    function loadBom(){
+      const kit = inH.po ? kitsOfPo(inH.po) : [];
+      const bomList = bomByPn.value.get(String(inH.pn)) || [];
+      const reqOf = new Map(bomList.map(b => [b.code, round5(b.usage * (inH.order || 0))]));
+      const variesOf = new Map(bomList.map(b => [b.code, b.varies]));
+
+      const mk = (code, opts) => {
+        const m = matMap.value.get(String(code)) || {};
+        return { k:'L'+(++lineSeq), code:String(code), desc:m.description || opts.desc || '',
+                 unit:m.unit || opts.unit || '', reqmt: opts.reqmt ?? null,
+                 issued: opts.issued ?? null, qty:null, expiry:'', remark:'',
+                 needExp: m.requires_expiry === 'TRUE', varies: !!opts.varies,
+                 fromKit: !!opts.fromKit };
+      };
+
+      if (kit.length) {
+        // ยึด Kit List เป็นหลัก แล้วเติม reqmt จาก BOM ถ้ามี
+        inLines.value = kit.map(k => mk(k.code, { desc:k.desc, unit:k.unit, issued:k.issue,
+          reqmt: reqOf.has(k.code) ? reqOf.get(k.code) : null,
+          varies: variesOf.get(k.code), fromKit:true }));
+        // วัตถุดิบที่ BOM บอกว่าต้องใช้ แต่ Kit List ไม่มี — แสดงไว้ให้เห็นว่า Delta ไม่ได้จ่ายมา
+        const inKit = new Set(kit.map(k => k.code));
+        const missing = bomList.filter(b => !inKit.has(b.code));
+        inLines.value.push(...missing.map(b => mk(b.code, { unit:b.unit,
+          reqmt: reqOf.get(b.code), varies:b.varies })));
+        bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมช่อง Issue ให้แล้ว)` +
+          (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้จ่ายมา` : '');
+      } else if (bomList.length) {
+        inLines.value = bomList.map(b => mk(b.code, { unit:b.unit,
+          reqmt: reqOf.get(b.code), varies:b.varies }));
+        const nv = inLines.value.filter(l => l.varies).length;
+        bomHint.value = `ดึงจาก BOM ${inLines.value.length} รายการ — ยังไม่มี Kit List ของ PO นี้ ต้องคีย์ช่อง Issue เอง` +
+          (nv ? ` · มี ${nv} รายการที่ปริมาณต่อชิ้นไม่คงที่ (เครื่องหมาย ?)` : '');
+      } else {
+        bomHint.value = `ไม่พบทั้ง Kit List ของ PO ${inH.po || '—'} และ BOM ของ P/N ${inH.pn || '—'} — กด "เพิ่มบรรทัดเอง"`;
+        return;
+      }
+      nextTick(() => qtyRefs[0] && qtyRefs[0].focus());
+    }
+    function nextQty(i){
+      const el = qtyRefs[i+1];
+      if (el) el.focus(); else document.activeElement.blur();
+    }
+    function copyIssueToQty(){
+      inLines.value.forEach(l => { if (l.issued !== null && l.issued !== '') l.qty = l.issued; });
+    }
+    function lineClass(l){
+      if (l.qty === null || l.qty === '') return '';
+      if (l.issued !== null && l.issued !== '' && round5(l.qty) !== round5(l.issued)) return 'bad';
+      if (l.issued !== null && l.reqmt !== null && round5(l.issued) !== round5(l.reqmt)) return 'warn';
+      return '';
+    }
+    const inReady = computed(() => inLines.value.filter(l => l.code && +l.qty > 0));
+    const nInDiffIssue = computed(() => inReady.value.filter(l =>
+      l.issued !== null && l.issued !== '' && round5(l.qty) !== round5(l.issued)).length);
+    const nInDiffReq = computed(() => inReady.value.filter(l =>
+      l.issued !== null && l.issued !== '' && l.reqmt !== null && round5(l.issued) !== round5(l.reqmt)).length);
+
+    function saveIn(){
+      if (!inH.po) { flash('ยังไม่ได้กรอกเลข PO', true); return; }
+      const bad = inReady.value.filter(l => l.needExp && !l.expiry);
+      if (bad.length) { flash(`ต้องกรอกวันหมดอายุอีก ${bad.length} รายการ`, true); return; }
+      const unknown = inReady.value.filter(l => !matMap.value.has(String(l.code)));
+      if (unknown.length && !confirm(`มี ${unknown.length} รหัสที่ไม่มีในทะเบียน จะบันทึกต่อไหม?`)) return;
+
+      const stamp = new Date().toISOString();
+      inReady.value.forEach(l => {
+        txns.value.push({
+          id: 'T' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
+          entity: entity.value, direction:'IN', material_code:String(l.code),
+          doc_ref: inH.po, part_no: inH.pn, date: inH.date, time: inH.time,
+          qty: +l.qty,
+          reqmt_qty: l.reqmt === null ? '' : +l.reqmt,
+          issued_qty: (l.issued === null || l.issued === '') ? '' : +l.issued,
+          person: inH.person, expiry_date: l.expiry || '', remark: l.remark || '', batch:'',
+          created_at: stamp, updated_at: stamp, voided:false, void_reason:'',
+          device: sync.device, _dirty: true
+        });
+      });
+      rememberPerson(inH.person);
+      flash(`บันทึกรับเข้า ${inReady.value.length} รายการ · PO ${inH.po}`);
+      inLines.value = []; bomHint.value = '';
+      inH.po = ''; inH.pn = ''; inH.order = null;
+      persist(); doSync();
+    }
+
+    // ═══════════ รับเข้ารวมรายสัปดาห์ (Tube / Chemical / Copper foil / Solder) ═══════════
+    // ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบสัปดาห์ ไม่ได้ผูกกับ PO ทีละใบ
+    // เอกสารเป็น PDF สแกน (Work Order Material Kit List) จึงต้องคีย์มือ
+    // แต่ในเอกสารแยกยอดตาม PO ไว้แล้ว และมีแถว "รหัส Total" ปิดท้ายแต่ละรหัส
+    // จึงคีย์แบบกระจายตาม PO แล้วให้ระบบรวมยอดเทียบกับแถว Total ให้อัตโนมัติ
+    const wkH = reactive({ date: today(), docNo:'', group:'', person:'', entity:'' });
+    const wkLines = ref([]);
+    const wkTotals = ref({});           // รหัส -> ยอดรวมตามเอกสาร (คีย์เอง)
+    let wkSeq = 0;
+    const wkRefs = {};
+
+    function wkAdd(copyCode){
+      const prev = wkLines.value[wkLines.value.length - 1];
+      const l = { k:'W'+(++wkSeq),
+        code: copyCode && prev ? prev.code : '',
+        po:'', pn:'', entity:'', orderQty:null, req:null, s41:null, qty:null, remark:'' };
+      if (copyCode && prev) wkFill(l);
+      wkLines.value.push(l);
+      nextTick(() => { const i = wkLines.value.length - 1;
+        if (wkRefs[i]) wkRefs[i].focus(); });
+    }
+    function wkFill(l){
+      const m = matMap.value.get(String(l.code));
+      l.unit = m ? m.unit : '';
+      l.desc = m ? m.description : '(ไม่พบรหัสนี้ในทะเบียน)';
+    }
+    /** กรอก PO แล้วดึง P/N + ยอดสั่ง จากรายการ PO ที่นำเข้าไว้
+     *  keep = อย่าทับ P/N ที่มากับ Kit List (Kit List น่าเชื่อถือกว่า เพราะเป็นเอกสารใบเดียวกัน) */
+    function wkPo(l, keep){
+      const hit = poList.value.find(p => p.po === l.po);
+      l.poFound = !!hit;
+      // ⚠️ เอกสารใบเดียวมีของทั้ง TUE-H และ TUE-U ปนกันได้ (เจอจริงในไฟล์ 25 ก.ค.)
+      // จึงต้องเก็บนิติบุคคล "รายบรรทัด" ไม่ใช่ทั้งเอกสาร ไม่งั้นยอดข้ามโรงงานกัน
+      const e = hit && hit.sub ? hit.sub : entityOfPo(l.po);
+      if (e && entities.value.some(x => x.entity_code === e)) l.entity = e;
+      if (!hit) return;
+      if (!keep || !l.pn)       l.pn = hit.pn;
+      if (!keep || !l.orderQty) l.orderQty = hit.qty;
+    }
+    /** เดานิติบุคคลจากเลข PO — ตัวอักษรตำแหน่งที่ 7 คือตัวท้ายของรหัสนิติบุคคล
+     *  ตรวจกับ Po Balance 27 ก.ค. แล้วครบทั้ง 747 ใบ ไม่มีข้อยกเว้น
+     *  (TM5266H177 → TUE-H · TM4267U025 → TUE-U · TM....A... → TUE-A) */
+    function entityOfPo(po){
+      const m = /^TM\w{4}([A-Z])/i.exec(String(po || '').trim());
+      return m ? 'TUE-' + m[1].toUpperCase() : '';
+    }
+    /** ยอดที่ BOM คำนวณได้ = usage ต่อชิ้น × ยอดสั่งของ PO นั้น */
+    function wkBom(l){
+      if (!l.pn || !l.code || !l.orderQty) return null;
+      const b = (bomByPn.value.get(String(l.pn)) || []).find(x => x.code === String(l.code));
+      return b ? round5(b.usage * l.orderQty) : null;
+    }
+    /** %ต่างระหว่างยอดในเอกสาร (541 ถ้าไม่มีใช้ Req) กับยอดตาม BOM */
+    function wkPct(l){
+      const exp = wkBom(l);
+      const base = l.s41 === null || l.s41 === '' ? l.req : l.s41;
+      if (exp === null || !exp || base === null || base === '') return null;
+      return Math.round((+base - exp) / exp * 1000) / 10;
+    }
+    /** สรุปยอดต่อรหัส เทียบกับยอดรวมที่กรอกจากเอกสาร */
+    const wkSummary = computed(() => {
+      const g = new Map();
+      for (const l of wkLines.value) {
+        if (!l.code) continue;
+        const hit = g.get(l.code) || { code:l.code, n:0, s41:0, qty:0 };
+        hit.n++;
+        hit.s41 += +l.s41 || 0;
+        hit.qty += +l.qty || 0;
+        g.set(l.code, hit);
+      }
+      return [...g.values()].map(x => {
+        const doc = wkTotals.value[x.code];
+        const s41 = Math.round(x.s41 * 1e5) / 1e5;
+        const qty = Math.round(x.qty * 1e5) / 1e5;
+        return { ...x, s41, qty,
+          doc: doc === undefined || doc === '' ? null : +doc,
+          match: doc === undefined || doc === '' ? null : Math.abs(+doc - s41) < 1e-5 };
+      });
+    });
+    const wkMismatch = computed(() => wkSummary.value.filter(x => x.match === false).length);
+    const wkEntities = computed(() =>
+      [...new Set(wkLines.value.map(l => l.entity).filter(Boolean))].sort());
+    const wkNoEntity = computed(() => wkH.entity ? 0
+      : wkLines.value.filter(l => l.code && l.po && !l.entity).length);
+    const wkReady = computed(() => wkLines.value.filter(l => l.code && l.po && +l.qty > 0));
+
+    function saveWeekly(){
+      if (!wkH.docNo) { flash('ยังไม่ได้กรอกเลขที่เอกสาร', true); return; }
+      if (!wkReady.value.length) { flash('ยังไม่มีบรรทัดที่กรอกครบ', true); return; }
+      if (wkMismatch.value && !confirm(
+        `มี ${wkMismatch.value} รหัสที่ยอดรวมไม่ตรงกับเอกสาร — บันทึกต่อไหม?`)) return;
+      const unknown = wkReady.value.filter(l => !matMap.value.has(String(l.code)));
+      if (unknown.length && !confirm(`มี ${unknown.length} รหัสที่ไม่มีในทะเบียน จะบันทึกต่อไหม?`)) return;
+
+      const stamp = new Date().toISOString();
+      wkReady.value.forEach(l => {
+        txns.value.push({
+          id: 'T' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
+          // นิติบุคคลรายบรรทัด — เอกสารใบเดียวมี H และ U ปนกันได้
+          entity: wkH.entity || l.entity || entity.value,
+          direction:'IN', material_code:String(l.code),
+          // ⚠️ ต้องเก็บ part_no ด้วย — Bin Card ดึงช่อง P/N (คอลัมน์ D) จากฟิลด์นี้
+          doc_ref: l.po, part_no: l.pn || '', date: wkH.date, time: nowHour(),
+          qty: +l.qty,
+          reqmt_qty: l.req === null || l.req === '' ? '' : +l.req,
+          issued_qty: l.s41 === null || l.s41 === '' ? '' : +l.s41,
+          person: wkH.person, expiry_date:'',
+          remark: [`รับรวมรายสัปดาห์ ${wkH.docNo}`, l.remark].filter(Boolean).join(' · '),
+          batch: wkH.docNo,
+          created_at: stamp, updated_at: stamp, voided:false, void_reason:'',
+          device: sync.device, _dirty: true
+        });
+      });
+      rememberPerson(wkH.person);
+      const n = wkReady.value.length;
+      flash(`บันทึกรับเข้ารวม ${n} รายการ · เอกสาร ${wkH.docNo}`);
+      wkLines.value = []; wkTotals.value = {}; wkH.docNo = '';
+      persist(); doSync();
+    }
+
+    // ───────── หน้าจ่ายออก ─────────
+    const out = reactive({ code:'', qty:null, person:'', po:'', date:today(), time:nowHour() });
+    const outCode = ref(null), outQty = ref(null), outPerson = ref(null);
+    const refsMap = { outCode, outQty, outPerson };
+    function focusEl(name){ const r = refsMap[name]; if (r && r.value) r.value.focus(); }
+
+    const outDesc = computed(() => descOf(out.code));
+    const outUnit = computed(() => unitOf(out.code));
+    const outBal  = computed(() => balOf(out.code));
+    const outAfter= computed(() => round5(outBal.value - (+out.qty || 0)));
+    const openPos = computed(() => {
+      const s = new Set();
+      for (const t of liveTxns.value)
+        if (t.direction === 'IN' && String(t.material_code) === String(out.code) && t.doc_ref) s.add(t.doc_ref);
+      return [...s].sort().reverse();
+    });
+    function outPick(){ if (openPos.value.length === 1) out.po = openPos.value[0]; }
+
+    function saveOut(){
+      if (!out.code || !(+out.qty > 0)) { flash('ยังกรอกไม่ครบ', true); return; }
+      if (!matMap.value.has(String(out.code))) { flash('ไม่พบรหัสนี้ในทะเบียนวัตถุดิบ', true); return; }
+      if (outAfter.value < 0 && !confirm(`ยอดจะติดลบเป็น ${fmt(outAfter.value)} — ยืนยันบันทึก?`)) return;
+      txns.value.push({
+        id: 'T' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
+        entity: entity.value, direction:'OUT', material_code:String(out.code),
+        doc_ref: out.po || '', part_no:'', date: out.date, time: out.time, qty:+out.qty,
+        reqmt_qty:'', issued_qty:'', person: out.person, expiry_date:'', remark:'', batch:'',
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        voided:false, void_reason:'', device: sync.device, _dirty: true
+      });
+      rememberPerson(out.person);
+      flash(`จ่าย ${fmt(out.qty)} ${outUnit.value} · คงเหลือ ${fmt(balOf(out.code))}`);
+      out.code = ''; out.qty = null; out.po = '';
+      persist(); doSync();
+      nextTick(() => focusEl('outCode'));
+    }
+    function resetOut(){ out.code=''; out.qty=null; out.po=''; nextTick(()=>focusEl('outCode')); }
+
+    const recent = computed(() =>
+      txns.value.filter(t => t.entity === entity.value).slice(-10).reverse());
+
+    function voidTxn(t){
+      const why = prompt('เหตุผลที่ยกเลิกรายการนี้:');
+      if (why === null) return;
+      t.voided = true;
+      t.void_reason = why || '(ไม่ระบุ)';
+      t.updated_at = new Date().toISOString();
+      t._dirty = true;
+      persist(); doSync();
+      flash('ยกเลิกรายการแล้ว (ข้อมูลยังเก็บไว้เป็นหลักฐาน)');
+    }
+
+    // ───────── ดูการ์ด ─────────
+    const cardCode = ref('');
+    const cardRows = computed(() => {
+      const list = txns.value
+        .filter(t => t.entity === entity.value && String(t.material_code) === String(cardCode.value))
+        .sort((a,b) => (a.date+String(a.time).padStart(2,'0')+a.created_at)
+                     < (b.date+String(b.time).padStart(2,'0')+b.created_at) ? -1 : 1);
+      let bal = 0;
+      return list.map(t => {
+        if (!t.voided) bal = round5(bal + (t.direction === 'IN' ? +t.qty : -+t.qty));
+        return { ...t, _bal: bal };
+      });
+    });
+
+    // ───────── ค้นหา / แก้ไข ─────────
+    const lq = ref(''), lDir = ref(''), lFrom = ref(''), lTo = ref(''), lShowVoid = ref(false);
+    const listRows = computed(() => {
+      const term = lq.value.toLowerCase();
+      return txns.value.filter(t => {
+        if (t.entity !== entity.value) return false;
+        if (!lShowVoid.value && t.voided) return false;
+        if (lDir.value && t.direction !== lDir.value) return false;
+        if (lFrom.value && t.date < lFrom.value) return false;
+        if (lTo.value && t.date > lTo.value) return false;
+        if (term) {
+          const hay = (t.material_code + ' ' + t.doc_ref + ' ' + t.person + ' ' + descOf(t.material_code)).toLowerCase();
+          if (!hay.includes(term)) return false;
+        }
+        return true;
+      }).sort((a,b) => a.created_at < b.created_at ? 1 : -1);
+    });
+
+    // ───────── คิวเคลม ─────────
+    const claims = computed(() => txns.value.filter(t =>
+      !t.voided && t.entity === entity.value && t.direction === 'IN' &&
+      t.issued_qty !== '' && t.issued_qty !== null && round5(+t.qty) !== round5(+t.issued_qty)));
+
+    // ───────── บันทึก / ส่งออก ─────────
+    // พื้นที่ localStorage มีจำกัด ~5 MB — ทะเบียนวัตถุดิบเต็ม 12,259 รายการกินไป ~2.5 MB
+    // จึงเก็บลงเครื่องเฉพาะรายการที่ active เพื่อเหลือที่ให้รายการเคลื่อนไหว
+    const storageBytes = ref(0);
+    function persist(){
+      try {
+        const setup = JSON.stringify({
+          materials: materials.value.filter(m => m.active === 'TRUE'),
+          entities: entities.value, bom: bom.value, people: people.value,
+          poList: poList.value, shorts: shorts.value, kits: kits.value });
+        const tx = JSON.stringify(txns.value);
+        localStorage.setItem(K_SETUP, setup);
+        localStorage.setItem(K_TXN, tx);
+        storageBytes.value = setup.length + tx.length;
+      } catch (e) {
+        flash('พื้นที่เก็บข้อมูลเต็ม — ส่งออกสำรองแล้วลบรายการเก่าออกด่วน', true);
+      }
+    }
+    const storagePct = computed(() => Math.min(100, Math.round(storageBytes.value / 5e6 * 100)));
+    function rememberPerson(p){
+      if (p && !people.value.includes(p)) { people.value.push(p); }
+    }
+    const newPerson = ref('');
+    function addPerson(){
+      const p = newPerson.value.trim();
+      if (p && !people.value.includes(p)) { people.value.push(p); persist(); }
+      newPerson.value = '';
+    }
+
+    function sheetFromTxns(list){
+      return list.map(t => ({
+        entity:t.entity, direction:t.direction, material_code:t.material_code,
+        description:descOf(t.material_code), unit:unitOf(t.material_code),
+        po:t.doc_ref, part_no:t.part_no, date:t.date, time:t.time, qty:t.qty,
+        reqmt_qty:t.reqmt_qty, issued_qty:t.issued_qty, person:t.person,
+        expiry_date:t.expiry_date, remark:t.remark, batch:t.batch || '',
+        created_at:localDateTime(t.created_at), device:t.device || '',
+        voided:t.voided ? 'TRUE' : 'FALSE', void_reason:t.void_reason }));
+    }
+    function download(wb, name){
+      const d = new Date();
+      const s = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      XLSX.writeFile(wb, `${name}_${s}.xlsx`);
+    }
+    function exportTxn(){
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetFromTxns(listRows.value)), 'Transactions');
+      download(wb, 'รายการเคลื่อนไหว');
+    }
+    function exportClaims(){
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+        claims.value.map(t => ({ ...sheetFromTxns([t])[0], diff: round5(+t.qty - +t.issued_qty) }))), 'Claims');
+      download(wb, 'คิวเคลม');
+    }
+    // ═══════════ ออก Bin Card ═══════════
+    const expBusy = ref(false);
+    const expMsg  = ref('');
+    const expProg = ref(0);
+
+    /** สรุปว่าจะได้กี่การ์ด กี่หน้า แยกตามชนิดวัสดุ */
+    const cardPlan = computed(() => {
+      const byCode = new Map();
+      for (const t of txns.value) {
+        if (t.voided || t.entity !== entity.value) continue;
+        const k = String(t.material_code);
+        if (!byCode.has(k)) byCode.set(k, []);
+        byCode.get(k).push(t);
+      }
+      const groups = new Map();
+      let cards = 0, pages = 0;
+      for (const [code, list] of byCode) {
+        const m = matMap.value.get(code) || {};
+        const cat = m.category || 'OTHER';
+        const pg = Math.max(1, Math.ceil(list.length / 18));
+        cards++; pages += pg;
+        if (!groups.has(cat)) groups.set(cat, { cat, cards:0, pages:0, lines:0 });
+        const g = groups.get(cat);
+        g.cards++; g.pages += pg; g.lines += list.length;
+      }
+      return { cards, pages, groups:[...groups.values()].sort((a,b) => b.cards - a.cards), byCode };
+    });
+
+    async function exportBinCards(){
+      if (!cardPlan.value.cards) { flash('ยังไม่มีรายการเคลื่อนไหวให้ออกการ์ด', true); return; }
+      expBusy.value = true; expProg.value = 0;
+      try {
+        const zip = new JSZip();
+        const byCat = new Map();
+        for (const [code, list] of cardPlan.value.byCode) {
+          const m = matMap.value.get(code) || {};
+          const cat = (m.category || 'OTHER').replace(/[\\/:*?"<>|]/g, '-');
+          if (!byCat.has(cat)) byCat.set(cat, []);
+          byCat.get(cat).push({ code, list, m });
+        }
+        const total = cardPlan.value.cards;
+        let done = 0;
+
+        for (const [cat, items] of byCat) {
+          const out = new ExcelJS.Workbook();
+          out.creator = 'ระบบ Bin Card';
+          items.sort((a, b) => a.code < b.code ? -1 : 1);
+          for (const { code, list, m } of items) {
+            // เรียงตามวันที่+เวลา แล้วคิดยอดสะสม (ไม่เก็บ balance ในฐานข้อมูล)
+            const sorted = list.slice().sort((a, b) =>
+              (a.date + String(a.time).padStart(2,'0') + a.created_at) <
+              (b.date + String(b.time).padStart(2,'0') + b.created_at) ? -1 : 1);
+            let bal = 0, no = 0;
+            const rows = sorted.map(t => {
+              bal = Math.round((bal + (t.direction === 'IN' ? +t.qty : -+t.qty)) * 1e5) / 1e5;
+              return { ...t, no: ++no, bal };
+            });
+            const pages = paginate(rows);
+            const info = { code, description:m.description || '', unit:m.unit || '',
+                           store:entInfo.value.store_location || '', entity:entity.value };
+            pages.forEach((pg, i) => {
+              // ชื่อชีตห้ามเกิน 31 ตัวและห้ามมีอักขระต้องห้าม
+              let nm = pages.length > 1 ? `${code}-${i + 1}` : String(code);
+              out.addWorksheet(nm.slice(0, 31));
+              writeCardPage(out.getWorksheet(nm.slice(0, 31)), info, pg, i + 1, pages.length);
+            });
+            done++;
+            if (done % 20 === 0) {
+              expProg.value = Math.round(done / total * 100);
+              expMsg.value = `กำลังสร้าง ${done} / ${total} การ์ด...`;
+              await new Promise(r => setTimeout(r, 0));   // ปล่อยให้หน้าจออัปเดต
+            }
+          }
+          const buf = await out.xlsx.writeBuffer();
+          zip.file(`${cat}.xlsx`, buf);
+        }
+        expMsg.value = 'กำลังบีบไฟล์...';
+        const blob = await zip.generateAsync({ type:'blob' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `BinCard_${entity.value}_${today()}.zip`;
+        a.click();
+        expProg.value = 100;
+        expMsg.value = `เสร็จแล้ว · ${cardPlan.value.cards} การ์ด · ${cardPlan.value.pages} หน้า · ${byCat.size} ไฟล์`;
+        flash('ออก Bin Card เรียบร้อย');
+      } catch (e) {
+        expMsg.value = 'ผิดพลาด: ' + e.message;
+        flash('ออกไฟล์ไม่สำเร็จ: ' + e.message, true);
+      } finally { expBusy.value = false; }
+    }
+
+    function exportShorts(){
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(shorts.value.map(s => ({
+        วันที่แจ้ง:s.date, PO:s.po, รหัส:s.code, คำอธิบาย:descOf(s.code), ประเภท:s.type,
+        จำนวนที่ขาด:s.qty, หน่วย:s.unit, ETA:s.eta,
+        สถานะ: s.done ? 'มาแล้ว' : (s.eta && s.eta < todayStr.value ? 'เลย ETA' : 'รออยู่'),
+        หมายเหตุเดิม:s.note }))), 'Shortages');
+      download(wb, 'ตารางของขาด');
+    }
+
+    function exportAll(){
+      const blob = new Blob([JSON.stringify({
+        version:1, exportedAt:new Date().toISOString(),
+        materials:materials.value, entities:entities.value, bom:bom.value,
+        people:people.value, txns:txns.value }, null, 1)], { type:'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'สำรองข้อมูล_' + today() + '.json';
+      a.click();
+    }
+    function restoreAll(e){
+      const f = e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          const d = JSON.parse(ev.target.result);
+          if (!confirm(`กู้คืนข้อมูล ${(d.txns||[]).length} รายการ ทับของเดิมทั้งหมด?`)) return;
+          materials.value = d.materials || []; entities.value = d.entities || [];
+          bom.value = d.bom || []; people.value = d.people || []; txns.value = d.txns || [];
+          if (entities.value.length) entity.value = entities.value[0].entity_code;
+          persist(); flash('กู้คืนข้อมูลแล้ว');
+        } catch (err) { flash('ไฟล์สำรองเสียหาย: ' + err.message, true); }
+      };
+      fr.readAsText(f);
+      e.target.value = '';
+    }
+    // ═══════════ ล้างข้อมูล ═══════════
+    // ⚠️ ล้างเฉพาะในเครื่องไม่พอ — ถ้าเซิร์ฟเวอร์ยังมีอยู่ ข้อมูลจะไหลกลับตอนซิงค์รอบถัดไป
+    // จึงต้องล้างทั้งสองฝั่ง แล้วรีเซ็ตตัวนับเวลาที่ใช้ดึงข้อมูลด้วย
+    const wipe = reactive({ txns:true, pos:false, shorts:false, server:true,
+                            word:'', backedUp:false, busy:false, log:'' });
+    const wipeReady = computed(() =>
+      wipe.word.trim() === 'ล้างข้อมูล' && (wipe.txns || wipe.pos || wipe.shorts) && !wipe.busy);
+
+    async function doWipe(){
+      if (!wipeReady.value) return;
+      const what = [wipe.txns && 'รายการเคลื่อนไหว', wipe.pos && 'รายการ PO',
+                    wipe.shorts && 'ของขาด'].filter(Boolean).join(' · ');
+      if (!confirm(`ล้าง ${what}\nของนิติบุคคลทุกแห่ง${wipe.server ? ' และบน Google Sheets ด้วย' : ' (เฉพาะเครื่องนี้)'}\n\nยืนยัน?`)) return;
+      wipe.busy = true; wipe.log = '';
+      const say = t => { wipe.log += (wipe.log ? '\n' : '') + t; };
+      try {
+        if (wipe.server && sync.url) {
+          for (const [on, table] of [[wipe.txns,'Transactions'], [wipe.pos,'POs'], [wipe.shorts,'Shortages']]) {
+            if (!on) continue;
+            const r = await api('clearTable', { table, confirm: table });
+            say(`เซิร์ฟเวอร์ · ${table}: ลบ ${r.removed} แถว`);
+          }
+        } else if (wipe.server && !sync.url) {
+          say('ยังไม่ได้เชื่อมต่อ Google Sheets — ล้างเฉพาะในเครื่อง');
+        }
+        if (wipe.txns)   { say(`เครื่องนี้ · รายการเคลื่อนไหว: ลบ ${txns.value.length} รายการ`); txns.value = []; }
+        if (wipe.pos)    { say(`เครื่องนี้ · รายการ PO: ลบ ${poList.value.length} รายการ`); poList.value = []; }
+        if (wipe.shorts) { say(`เครื่องนี้ · ของขาด: ลบ ${shorts.value.length} รายการ`); shorts.value = []; }
+        // รีเซ็ตตัวนับ ไม่งั้นรอบหน้าจะไม่ดึงของใหม่ หรือดึงของเก่ากลับมา
+        sync.lastPull = ''; sync.lastPullAux = '';
+        persist(); saveSyncCfg();
+        wipe.word = ''; wipe.backedUp = false;
+        say('เสร็จแล้ว — ทะเบียนวัตถุดิบและ BOM ไม่ถูกแตะ');
+        flash('ล้างข้อมูลเรียบร้อย');
+      } catch (e) {
+        say('ผิดพลาด: ' + e.message);
+        flash('ล้างไม่สำเร็จ: ' + e.message, true);
+      } finally { wipe.busy = false; }
+    }
+    function backupThenMark(){ exportAll(); wipe.backedUp = true; }
+
+    // ═══════════ นำเข้าไฟล์ PO รายวัน (จาก PC ของ Delta) ═══════════
+    // ไฟล์นี้บอกว่าวันไหนจะปล่อย PO อะไรบ้าง ใช้เติมหน้าคีย์รับเข้าให้อัตโนมัติ
+    // ⚠️ ไฟล์นี้ไม่มีรายการวัตถุดิบต่อ PO — วัตถุดิบโผล่เฉพาะในหมายเหตุแจ้งของขาด
+    const THAI_MONTH = { 'มกร':1,'กุม':2,'มีน':3,'เมษ':4,'พฤษ':5,'มิถ':6,
+                         'กรก':7,'สิง':8,'กัน':9,'ตุล':10,'พฤศ':11,'ธัน':12 };
+    const EN_MONTH = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+
+    /** "วัน อังคาร ที่ 28 กรกฏาคม พ.ศ.2569" → "2026-07-28"  (รองรับสะกด กรกฏ/กรกฎ) */
+    function parseThaiDate(s){
+      const m = String(s).match(/ที่\s*(\d{1,2})\s*([ก-๙]+)\s*พ\.?ศ\.?\s*(\d{4})/);
+      if (!m) return '';
+      const mo = THAI_MONTH[m[2].slice(0,3)];
+      if (!mo) return '';
+      return (+m[3] - 543) + '-' + pad(mo) + '-' + pad(+m[1]);
+    }
+    /** "ETA 29 July 2026" → "2026-07-29" */
+    function parseEnDate(s){
+      const m = String(s).match(/(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})/);
+      if (!m) return '';
+      const mo = EN_MONTH[m[2].slice(0,3).toLowerCase()];
+      return mo ? m[3] + '-' + pad(mo) + '-' + pad(+m[1]) : '';
+    }
+
+    function parsePoFile(wb){
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, blankrows:true });
+      const pos = [], shorts = [];
+      let curDate = '', lastPo = '';
+      for (const row of aoa) {
+        if (!row) continue;
+        const a = row[0];
+        if (typeof a === 'string' && a.includes('subcontract')) {
+          const d = parseThaiDate(a);
+          if (d) curDate = d;
+          continue;
+        }
+        // แถวข้อมูล PO: คอลัมน์ A เป็นเลขลำดับ และคอลัมน์ D มีเลข PO
+        if (typeof a === 'number' && row[3]) {
+          const po = String(row[3]).trim();
+          lastPo = po;
+          pos.push({
+            id: 'P' + curDate + '-' + po,
+            date: curDate, sub: String(row[1] || '').trim(),
+            pn: row[2] != null ? String(Math.round(Number(row[2]) || 0)) : '',
+            po, qty: Number(row[5]) || 0,
+            core: String(row[9] || '').trim(), remark: String(row[16] || '').trim()
+          });
+        }
+        // คอลัมน์ L (ดัชนี 11) เก็บหมายเหตุของขาด/ETA แบบข้อความอิสระ
+        const note = row[11];
+        if (typeof note === 'string' && /\d{10}/.test(note)) {
+          const code = (note.match(/\b([345]\d{9})\b/) || [])[1] || '';
+          const sh = note.match(/[Ss]hort\s*([\d,\.]+)\s*([A-Za-z]+)?/);
+          const eta = note.match(/ETA\s+(.+)$/i);
+          // id ต้องมี PO ด้วย เพราะหมายเหตุข้อความเดียวกันโผล่ได้หลาย PO ในวันเดียวกัน
+          // (เช่น "4037010105 ETA 29 July 2026" โผล่ 3 PO) ถ้าไม่ใส่ PO จะยุบเหลือรายการเดียว
+          shorts.push({
+            id: 'S' + curDate + '-' + lastPo + '-' + code + '-' + hash(note),
+            date: curDate, po: lastPo, code,
+            type: sh ? 'ขาด' : 'รอส่ง',
+            qty: sh ? Number(String(sh[1]).replace(/[,\.]$/,'').replace(/,/g,'')) || 0 : 0,
+            unit: sh && sh[2] ? sh[2].toUpperCase() : '',
+            eta: eta ? parseEnDate(eta[1]) : '',
+            note: note.trim(), done: false
+          });
+        }
+      }
+      return { pos, shorts };
+    }
+
+    // ═══════════ นำเข้า Kit List (MATERIAL ISSUE PO SUBCONTRACT) ═══════════
+    // ไฟล์ .xls จาก Delta — บอกว่าแต่ละ PO Delta จ่ายวัตถุดิบอะไรมาบ้าง จำนวนเท่าไหร่
+    // ใช้เติมช่อง "Issue (Delta)" ในหน้าคีย์รับเข้าให้อัตโนมัติ เหลือคีย์แค่ยอดนับจริง
+    function parseKitList(wb){
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, blankrows:true });
+      let docDate = '', group = '';
+      for (const row of aoa.slice(0, 3)) {
+        if (!row) continue;
+        for (const v of row) {
+          if (typeof v === 'number' && v > 40000 && v < 60000 && !docDate) {
+            // วันที่แบบ serial ของ Excel — ฐานคือ 30 ธ.ค. 1899
+            const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
+            docDate = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+          }
+          if (typeof v === 'string' && /^SUB-/.test(v.trim())) group = v.trim();
+        }
+      }
+      // ⚠️ PO เดียวกันมีรหัสเดียวกันได้หลายบรรทัด (คนละขั้นตอนการผลิต) — ต้องรวมยอด
+      // เจอจริง 3 คู่ในไฟล์ 22-H เช่น TUBE PTFE 5.4 + 5.4 = 10.8
+      const agg = new Map(); let headers = 0, subtotals = 0, rawLines = 0;
+      for (const row of aoa) {
+        if (!row) continue;
+        const c3 = row[3];
+        // ข้ามหัวตารางที่พิมพ์ซ้ำทุกหน้า และแถวรวมย่อยของแต่ละรหัส
+        if (typeof c3 === 'string' && c3.trim().toUpperCase().startsWith('CODE')) { headers++; continue; }
+        if (typeof c3 === 'string' && /total/i.test(c3)) { subtotals++; continue; }
+        if (typeof c3 !== 'number' || !row[1]) continue;
+        rawLines++;
+        const code = String(Math.round(c3));
+        const po = String(row[1]).trim();
+        const id = 'K' + docDate + '-' + po + '-' + code;
+        const issue = typeof row[6] === 'number' ? row[6] : null;
+        const hit = agg.get(id);
+        if (hit) { hit.issue = Math.round(((hit.issue || 0) + (issue || 0)) * 1e6) / 1e6; hit.n++; }
+        else agg.set(id, { id, date: docDate, group, po,
+          pn: typeof row[2] === 'number' ? String(Math.round(row[2])) : String(row[2] || '').trim(),
+          code, desc: String(row[4] || '').trim(),
+          unit: String(row[5] || '').trim().toUpperCase(), issue, n: 1 });
+      }
+      const rows = [...agg.values()];
+      const merged = rows.filter(r => r.n > 1);
+      return { rows, docDate, group, headers, subtotals, rawLines, merged };
+    }
+
+    // ═══════════ นำเข้า Kit List กลุ่มจ่ายรวม (Tube · Chemical · Copper foil · Solder) ═══════════
+    // ต่างจาก Kit List รายวัน (22-H) 3 อย่าง:
+    //   1. ไฟล์เดียวมีหลายชีต (แยกตามกลุ่มโรงงาน H / U) และมีชีตซ่อนที่ไม่ใช่ข้อมูล
+    //   2. ชีตเดียวมีได้หลายรหัสวัตถุดิบ คั่นด้วยแถวรวมยอด — ห้ามเชื่อชื่อชีต ต้องอ่านรายบรรทัด
+    //   3. มีคอลัมน์ Order Q'TY และ Model (P/N) ให้ด้วย → เทียบ BOM ได้เลย
+    function parseKitChem(wb){
+      const hidden = new Set();
+      ((wb.Workbook && wb.Workbook.Sheets) || []).forEach(s => { if (s.Hidden) hidden.add(s.name); });
+      const norm  = v => String(v == null ? '' : v).replace(/\s+/g, '').toUpperCase();
+      const numOf = v => typeof v === 'number' ? v
+                       : (v == null || v === '' ? null : (isNaN(+v) ? null : +v));
+      const codeOf= v => typeof v === 'number' ? String(Math.round(v))
+                       : String(v == null ? '' : v).trim();
+      const r6 = n => Math.round(n * 1e6) / 1e6;
+
+      const agg = new Map(), sheets = [], skipped = [], gaps = [], blocks = [];
+      let rawLines = 0, docDate = '';
+
+      for (const name of wb.SheetNames) {
+        if (hidden.has(name)) { skipped.push({ name, why:'ชีตซ่อน' }); continue; }
+        const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name],
+                      { header:1, defval:null, blankrows:true });
+
+        // หาแถวหัวตาราง — ห้าม hard-code ตำแหน่ง (บทเรียนจากไฟล์ Rawmat ที่หัวตารางวาง 7 แบบ)
+        let h = -1, col = null;
+        for (let i = 0; i < Math.min(aoa.length, 40); i++) {
+          const n = (aoa[i] || []).map(norm);
+          const iPo = n.indexOf('PONO.'), iMat = n.indexOf('MATERIAL');
+          if (iPo < 0 || iMat < 0) continue;
+          h = i;
+          col = { item:n.indexOf('ITEM'), po:iPo, group:iPo + 1, pn:n.indexOf('MODEL'),
+                  order:n.findIndex(x => x.startsWith('ORDERQ')), code:iMat,
+                  desc:n.indexOf('DESCRIPTION'),
+                  req:n.findIndex(x => x.startsWith('REQQTY')),
+                  s41:n.findIndex(x => x.startsWith('541QTY')),
+                  rem:n.indexOf('REMARK') };
+          break;
+        }
+        if (h < 0) { skipped.push({ name, why:'ไม่พบหัวตาราง — ไม่ใช่ชีต Kit List' }); continue; }
+
+        // วันที่ออกเอกสาร — ต้นฉบับสะกด "Documet Issue Date" (ตกตัว n) จึงจับแค่ ISSUEDATE
+        let sheetDate = '';
+        for (let i = 0; i < h && !sheetDate; i++) {
+          const row = aoa[i] || [];
+          for (let c = 0; c < row.length && !sheetDate; c++) {
+            if (typeof row[c] !== 'string' || !/ISSUEDATE/.test(norm(row[c]))) continue;
+            for (let k = c + 1; k < row.length; k++) {
+              const v = row[k];
+              if (typeof v === 'number' && v > 40000 && v < 60000) {
+                const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
+                sheetDate = d.getUTCFullYear() + '-' + pad(d.getUTCMonth()+1) + '-' + pad(d.getUTCDate());
+                break;
+              }
+              if (v instanceof Date) {
+                sheetDate = v.getFullYear() + '-' + pad(v.getMonth()+1) + '-' + pad(v.getDate()); break;
+              }
+              if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v.trim())) {
+                sheetDate = v.trim().slice(0, 10); break;
+              }
+            }
+          }
+        }
+        if (sheetDate && !docDate) docDate = sheetDate;
+
+        let blk = null, nSheet = 0, prevItem = null, blockStart = false;
+        const closeBlock = docTotal => {
+          if (!blk || !blk.n) { blk = null; return; }
+          blocks.push({ sheet:name, code:blk.code, lines:blk.n, calc:r6(blk.sum),
+            docTotal: docTotal === null ? null : r6(docTotal),
+            // ยอมให้ต่างได้ไม่เกินครึ่งของหลักทศนิยมสุดท้ายที่เอกสารใช้ (3 ตำแหน่ง)
+            match: docTotal === null ? null : Math.abs(docTotal - blk.sum) < 5e-4 });
+          blk = null;
+        };
+
+        for (let r = h + 1; r < aoa.length; r++) {
+          const row  = aoa[r] || [];
+          const po   = String(row[col.po] == null ? '' : row[col.po]).trim();
+          const code = codeOf(row[col.code]);
+          if (!po || !code) {
+            const t = numOf(row[col.s41]);
+            if (t !== null) { closeBlock(t); blockStart = true; }  // แถวรวมยอดปิดบล็อก
+            continue;
+          }
+          rawLines++; nSheet++;
+          if (!blk) blk = { code, n:0, sum:0 };
+
+          // เลข Item ต้องเดินทีละ 1 ถ้ากระโดดแปลว่าบรรทัดหายตอน export
+          // ⚠️ สองชีตในไฟล์เดียวกันนับคนละแบบ — ชีต H รีเซ็ตเป็น 1 เมื่อขึ้นรหัสใหม่
+          // แต่ชีต U นับต่อเนื่องข้ามรหัส จึงต้องรองรับทั้งสองแบบ
+          const it = numOf(row[col.item]);
+          if (it !== null) {
+            const restart = blockStart && it === 1;         // ขึ้นรหัสใหม่แล้วนับ 1 ใหม่ = ปกติ
+            if (!restart && prevItem !== null && it > prevItem + 1) {
+              const miss = [];
+              for (let v = prevItem + 1; v < it; v++) miss.push(v);
+              gaps.push({ sheet:name, code, after:prevItem, missing:miss });
+            }
+            prevItem = it;
+          }
+          blockStart = false;
+
+          const req = numOf(row[col.req]), s41 = numOf(row[col.s41]);
+          blk.n++; blk.sum += s41 || 0;
+          if (blk.code !== code) blk.code = '(ปนกัน)';
+
+          // ⚠️ PO เดียวกัน + รหัสเดียวกัน โผล่ได้หลายบรรทัด — ต้องรวมยอดก่อนเทียบ BOM
+          // เจอจริง 3 คู่ในไฟล์ 4020600700-4020241300 เช่น TM5267H332 0.539 + 0.231 = 0.770
+          const key = po + '|' + code, hit = agg.get(key);
+          if (hit) {
+            hit.req   = (req === null && hit.req   === null) ? null : r6((hit.req  ||0) + (req||0));
+            hit.issue = (s41 === null && hit.issue === null) ? null : r6((hit.issue||0) + (s41||0));
+            hit.n++;
+          } else agg.set(key, {
+            id: 'C' + (sheetDate || docDate) + '-' + po + '-' + code, src:'chem',
+            date: sheetDate || docDate,
+            group: String(row[col.group] == null ? '' : row[col.group]).trim().toUpperCase(),
+            po, code, pn: codeOf(row[col.pn]), orderQty: numOf(row[col.order]),
+            desc: String(row[col.desc] == null ? '' : row[col.desc]).trim(), unit:'',
+            req, issue: s41,
+            remark: col.rem >= 0 ? String(row[col.rem] == null ? '' : row[col.rem]).trim() : '',
+            n: 1
+          });
+        }
+        closeBlock(null);
+        sheets.push({ name, rows:nSheet, date:sheetDate });
+      }
+
+      const rows = [...agg.values()];
+      return { rows, docDate, sheets, skipped, gaps, blocks, rawLines,
+               merged: rows.filter(r => r.n > 1),
+               codes: [...new Set(rows.map(r => r.code))],
+               pos:   [...new Set(rows.map(r => r.po))] };
+    }
+
+    const kits    = ref([]);   // รายการที่ Delta จ่ายมาต่อ PO
+    const kitImp  = ref(null);
+
+    function onKitFile(e){
+      const f = e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+          const p = parseKitList(wb);
+          if (!p.rows.length) throw new Error('ไม่พบบรรทัดข้อมูลเลย — ตรวจว่าเป็นไฟล์ Kit List จริงไหม');
+          const have = new Set(kits.value.map(k => k.id));
+          const fresh = p.rows.filter(k => !have.has(k.id));
+          // เทียบกับรายการวัตถุดิบที่ใช้งานอยู่ (โปรแกรมนี้เก็บเฉพาะที่ active)
+          const codeNew = [...new Set(p.rows.map(k => k.code).filter(c => !matMap.value.has(c)))];
+          const pos = [...new Set(p.rows.map(k => k.po))];
+          const noPo = pos.filter(po => !poList.value.some(x => x.po === po));
+          kitImp.value = { fileName:f.name, ...p, fresh, dup:p.rows.length - fresh.length,
+                           codeNew, pos, noPo,
+                           totalIssue: p.rows.reduce((a, k) => a + (k.issue || 0), 0) };
+        } catch (err) { flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true); }
+      };
+      fr.readAsArrayBuffer(f);
+      e.target.value = '';
+    }
+
+    function applyKitImport(){
+      const p = kitImp.value; if (!p) return;
+      const now = new Date().toISOString();
+      p.fresh.forEach(k => { k.updated_at = now; k._dirty = true; });
+      kits.value.push(...p.fresh);
+      kitImp.value = null;
+      persist(); doSync();
+      flash(`นำเข้า Kit List ${p.fresh.length} รายการ · ${p.pos.length} PO`);
+    }
+
+    /** ดึงรายการที่ Delta จ่ายของ PO นี้
+     *  ไม่รวมกลุ่มจ่ายรวมรายสัปดาห์ (src='chem') เพราะของกลุ่มนั้นไม่ได้มาพร้อม PO
+     *  ถ้ารวมเข้ามา หน้าคีย์รับเข้าปกติจะกางเคมีขึ้นมาให้คีย์ทั้งที่ยังไม่ได้ของ */
+    function kitsOfPo(po){
+      return kits.value.filter(k => k.po === po && k.src !== 'chem');
+    }
+    const kitPos = computed(() => new Set(kits.value.filter(k => k.src !== 'chem').map(k => k.po)));
+    /** รายการกลุ่มจ่ายรวมของเอกสารวันนั้น */
+    const chemKits = computed(() => kits.value.filter(k => k.src === 'chem'));
+    const chemDates = computed(() =>
+      [...new Set(chemKits.value.map(k => k.date).filter(Boolean))].sort().reverse());
+
+    // ── นำเข้าไฟล์ Kit List กลุ่มจ่ายรวม
+    const chemImp = ref(null);
+    function onChemFile(e){
+      const f = e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+          const p = parseKitChem(wb);
+          if (!p.rows.length)
+            throw new Error('ไม่พบบรรทัดข้อมูลเลย — ไฟล์นี้อาจไม่ใช่ Kit List กลุ่มจ่ายรวม');
+          const have = new Set(kits.value.map(k => k.id));
+          const fresh = p.rows.filter(r => !have.has(r.id));
+          // เทียบกับ BOM เพื่อหาบรรทัดที่ยอดผิดปกติ
+          const check = p.rows.map(r => {
+            const b = (bomByPn.value.get(String(r.pn)) || []).find(x => x.code === r.code);
+            const exp = b && r.orderQty ? round5(b.usage * r.orderQty) : null;
+            const base = r.req === null ? r.issue : r.req;
+            const pct  = exp !== null && base ? Math.round((base - exp) / exp * 1000) / 10 : null;
+            return { ...r, bomQty: exp, pct };
+          });
+          chemImp.value = { fileName:f.name, ...p, rows:check, fresh,
+            dup: p.rows.length - fresh.length,
+            codeNew: [...new Set(p.rows.map(r => r.code).filter(c => !matMap.value.has(c)))],
+            noPo:    [...new Set(p.pos.filter(po => !poList.value.some(x => x.po === po)))],
+            claim:   check.filter(r => r.req !== null && r.issue !== null
+                                    && Math.abs(r.req - r.issue) > 1e-9),
+            offBom:  check.filter(r => r.pct !== null && Math.abs(r.pct) >= 10),
+            noBom:   check.filter(r => r.bomQty === null),
+            badBlock: p.blocks.filter(b => b.match === false) };
+        } catch (err) { flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true); }
+      };
+      fr.readAsArrayBuffer(f);
+      e.target.value = '';
+    }
+
+    function applyChemImport(){
+      const p = chemImp.value; if (!p) return;
+      if (p.badBlock.length && !confirm(
+        `มี ${p.badBlock.length} บล็อกที่ยอดรวมไม่ตรงกับแถว Total ในเอกสาร — นำเข้าต่อไหม?`)) return;
+      const now = new Date().toISOString();
+      p.fresh.forEach(k => { k.updated_at = now; k._dirty = true; });
+      kits.value.push(...p.fresh);
+      const date = p.docDate;
+      chemImp.value = null;
+      persist(); doSync();
+      flash(`นำเข้า Kit List กลุ่มจ่ายรวม ${p.fresh.length} รายการ · ${p.codes.length} รหัส · ${p.pos.length} PO`);
+      if (date) { wkH.date = date; wkH.docNo = wkH.docNo || ''; loadChem(date); }
+    }
+
+    /** เติมตารางรับเข้ารวมจาก Kit List ที่นำเข้าไว้ */
+    function loadChem(date){
+      const list = chemKits.value.filter(k => !date || k.date === date);
+      if (!list.length) { flash('ยังไม่มี Kit List กลุ่มจ่ายรวมของวันที่นี้', true); return; }
+      wkLines.value = list
+        .slice().sort((a,b) => (a.code + a.po) < (b.code + b.po) ? -1 : 1)
+        .map(k => {
+          const l = { k:'W' + (++wkSeq), code:k.code, po:k.po, pn:k.pn,
+                      orderQty:k.orderQty, req:k.req, s41:k.issue, qty:null,
+                      remark:k.remark || '' };
+          wkFill(l); wkPo(l, true);
+          return l;
+        });
+      // เติมยอดรวมตามเอกสารให้อัตโนมัติจากผลบวก 541 ของแต่ละรหัส
+      const t = {};
+      for (const l of wkLines.value) t[l.code] = round5((t[l.code] || 0) + (+l.s41 || 0));
+      wkTotals.value = t;
+      flash(`กางรายการจาก Kit List ${wkLines.value.length} บรรทัด — เหลือคีย์ช่องนับจริง`);
+    }
+
+    const poList  = ref([]);   // รายการ PO ที่นำเข้ามา
+    const shorts  = ref([]);   // ของขาด / รอส่ง
+    const poImp   = ref(null);
+    const poOpt   = reactive({ pos:true, shorts:true });
+
+    function onPoImport(e){
+      const f = e.target.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+          const { pos, shorts:sh } = parsePoFile(wb);
+          const have = new Set(poList.value.map(p => p.id));
+          const newPos = pos.filter(p => !have.has(p.id));
+          const dupPos = pos.length - newPos.length;
+          const bomPn = new Set(bom.value.map(b => String(b.pn)));
+          const pnNoBom = [...new Set(pos.map(p => p.pn).filter(pn => pn && !bomPn.has(pn)))];
+          const haveSh = new Set(shorts.value.map(s => s.id));
+          const newSh = sh.filter(s => !haveSh.has(s.id));
+          const codeNew = [...new Set(sh.map(s => s.code)
+            .filter(c => c && !matMap.value.has(c)))];
+          const dates = [...new Set(pos.map(p => p.date).filter(Boolean))].sort();
+          poImp.value = { fileName:f.name, pos, newPos, dupPos, pnNoBom, sh, newSh, codeNew, dates };
+        } catch (err) { flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true); }
+      };
+      fr.readAsArrayBuffer(f);
+      e.target.value = '';
+    }
+
+    function applyPoImport(){
+      const p = poImp.value; if (!p) return;
+      let n = 0;
+      const now = new Date().toISOString();
+      if (poOpt.pos) {
+        p.newPos.forEach(r => { r.updated_at = now; r._dirty = true; });
+        poList.value.push(...p.newPos); n += p.newPos.length;
+      }
+      if (poOpt.shorts) {
+        p.newSh.forEach(r => { r.updated_at = now; r._dirty = true; });
+        shorts.value.push(...p.newSh); n += p.newSh.length;
+      }
+      poList.value.sort((a,b) => (a.date + a.po) < (b.date + b.po) ? 1 : -1);
+      poImp.value = null;
+      persist(); doSync();
+      flash(`นำเข้าแล้ว ${n} รายการ · กำลังส่งขึ้นเซิร์ฟเวอร์`);
+    }
+    /** สร้างรหัสสั้นจากข้อความ ใช้ทำ id ให้คงที่ทุกเครื่อง */
+    function hash(s){
+      let h = 0;
+      for (let i = 0; i < String(s).length; i++) h = (h * 31 + String(s).charCodeAt(i)) | 0;
+      return Math.abs(h).toString(36);
+    }
+
+    const todayStr = computed(() => today());
+    /** PO นี้เคยคีย์รับเข้าไปแล้วหรือยัง */
+    function poKeyed(po){
+      return txns.value.some(t => !t.voided && t.direction === 'IN' && t.doc_ref === po);
+    }
+
+    const poQ = ref('');
+    const poFiltered = computed(() => {
+      const t = poQ.value.trim().toLowerCase();
+      return poList.value.filter(p => !t ||
+        (p.po + ' ' + p.pn + ' ' + p.sub + ' ' + p.date).toLowerCase().includes(t));
+    });
+    const shortsOpen = computed(() => shorts.value.filter(s => !s.done));
+    function toggleShort(s){
+      s.done = !s.done;
+      s.updated_at = new Date().toISOString();
+      s._dirty = true;
+      persist(); doSync();
+    }
+
+    /** PO ที่เลือกได้ในหน้าคีย์รับเข้า — เรียงล่าสุดขึ้นก่อน */
+    const poOptions = computed(() => {
+      const seen = new Set(); const out = [];
+      for (const p of poList.value) {
+        if (seen.has(p.po)) continue;
+        seen.add(p.po); out.push(p);
+      }
+      return out;
+    });
+    function pickPo(po){
+      const hit = poList.value.find(p => p.po === po);
+      if (!hit) return;
+      inH.pn = hit.pn; inH.order = hit.qty;
+      if (hit.date) inH.date = hit.date;
+      // SUB ในไฟล์ เช่น TUE-TPP ตรงกับรหัสนิติบุคคล
+      if (hit.sub && entities.value.some(e => e.entity_code === hit.sub)) entity.value = hit.sub;
+      if (inH.pn && inH.order) loadBom();
+    }
+
+    // ═══════════ เชื่อมต่อ Google Sheets (offline-first) ═══════════
+    // หลักการ: คีย์ลงเครื่องก่อนเสมอ ไม่ว่าเน็ตจะเป็นยังไง
+    // แล้วค่อยส่งขึ้นเบื้องหลัง — เน็ตหลุดก็ยังคีย์ต่อได้ ไม่มีวันเสียข้อมูลจากการกดบันทึก
+    const sync = reactive({
+      url:'', token:'', device:'', auto:true,
+      lastPull:'', lastPullAux:'', lastPullAuxNext:'',
+      lastOkAt:'', state:'off', error:'', needDeploy:false   // state: off|ok|busy|error
+    });
+    const pending = computed(() => txns.value.filter(t => t._dirty).length);
+    const syncLabel = computed(() => {
+      if (!sync.url) return 'ยังไม่เชื่อมต่อ';
+      if (sync.state === 'busy')  return 'กำลังซิงค์...';
+      if (sync.state === 'error') return 'เชื่อมต่อไม่ได้' + (pending.value ? ` · ค้าง ${pending.value}` : '');
+      if (pending.value)          return `รอส่ง ${pending.value}`;
+      return 'ซิงค์แล้ว';
+    });
+    const syncColor = computed(() => {
+      if (!sync.url) return '#8fa6bd';
+      if (sync.state === 'error') return '#ff8a8a';
+      if (sync.state === 'busy' || pending.value) return '#ffd166';
+      return '#7ee2a8';
+    });
+
+    function saveSyncCfg(){
+      localStorage.setItem(K_SYNC, JSON.stringify({
+        url:sync.url, token:sync.token, device:sync.device, auto:sync.auto,
+        lastPull:sync.lastPull, lastPullAux:sync.lastPullAux }));
+    }
+
+    // ใช้ text/plain เพื่อไม่ให้เบราว์เซอร์ยิง preflight ซึ่ง Apps Script ไม่รองรับ
+    async function api(action, body = {}){
+      if (!sync.url) throw new Error('ยังไม่ได้ตั้งค่า URL');
+      const res = await fetch(sync.url, {
+        method:'POST', redirect:'follow',
+        headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, token: sync.token, device: sync.device, ...body })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error || 'เซิร์ฟเวอร์ตอบกลับผิดพลาด');
+      return d;
+    }
+
+    function cleanTxn(t){
+      const o = { ...t };
+      delete o._dirty;
+      return o;
+    }
+
+    /** รวมรายการที่ดึงมา — ใครแก้ทีหลังชนะ แต่ห้ามทับของที่เรายังส่งไม่สำเร็จ */
+    function mergeIncoming(rows){
+      const byId = new Map(txns.value.map(t => [t.id, t]));
+      let added = 0, updated = 0;
+      for (const r of rows) {
+        const local = byId.get(r.id);
+        if (!local) { txns.value.push({ ...r, _dirty:false }); added++; continue; }
+        if (local._dirty) continue;                       // ของเรายังไม่ได้ส่ง อย่าเพิ่งทับ
+        if (String(r.updated_at || '') > String(local.updated_at || '')) {
+          Object.assign(local, r, { _dirty:false }); updated++;
+        }
+      }
+      return { added, updated };
+    }
+
+    /** รวมข้อมูลที่ดึงมาเข้ากับ list ในเครื่อง — ใช้ได้กับทั้ง POs และ Shortages */
+    function mergeList(listRef, rows){
+      const byId = new Map(listRef.value.map(x => [x.id, x]));
+      let n = 0;
+      for (const r of rows) {
+        const local = byId.get(r.id);
+        if (!local) { listRef.value.push({ ...r, _dirty:false }); n++; continue; }
+        if (local._dirty) continue;
+        if (String(r.updated_at || '') > String(local.updated_at || '')) {
+          Object.assign(local, r, { _dirty:false }); n++;
+        }
+      }
+      return n;
+    }
+
+    let syncing = false;
+    async function doSync(silent = true){
+      if (!sync.url || syncing) return;
+      syncing = true; sync.state = 'busy'; sync.error = '';
+      try {
+        // ── รายการเคลื่อนไหว ──
+        // หลังส่งขึ้นสำเร็จ ต้องรับเวลาของเซิร์ฟเวอร์มาเขียนทับเวลาในเครื่อง
+        // ไม่งั้นถ้านาฬิกาเครื่องเดินเร็วกว่าเซิร์ฟเวอร์ การแก้ไขจากเครื่องอื่นจะถูกมองข้ามตลอด
+        const dirty = txns.value.filter(t => t._dirty);
+        if (dirty.length) {
+          const res = await api('pushTxns', { rows: dirty.map(cleanTxn) });
+          dirty.forEach(t => { t._dirty = false; if (res.serverTime) t.updated_at = res.serverTime; });
+        }
+        const d = await api('pullTxns', { since: sync.lastPull });
+        const r = mergeIncoming(d.rows || []);
+        sync.lastPull = d.serverTime;
+
+        // ── รายการ PO และของขาด (upsert ราย record เหมือนกัน) ──
+        // ห่อ try/catch แยก เพราะถ้า Apps Script บนเซิร์ฟเวอร์ยังเป็นเวอร์ชันเก่าที่ไม่มีคำสั่งนี้
+        // รายการรับเข้า-จ่ายออกต้องยังซิงค์ได้ตามปกติ ไม่ใช่พังทั้งระบบ
+        let auxUp = 0, auxDown = 0;
+        sync.needDeploy = false;
+        try {
+          for (const [table, listRef] of [['POs', poList], ['Shortages', shorts], ['Kits', kits]]) {
+            const dirtyRows = listRef.value.filter(x => x._dirty && x.id);
+            if (dirtyRows.length) {
+              const res = await api('pushRows', { table,
+                rows: dirtyRows.map(x => { const o = { ...x }; delete o._dirty; return o; }) });
+              dirtyRows.forEach(x => { x._dirty = false; if (res.serverTime) x.updated_at = res.serverTime; });
+              auxUp += dirtyRows.length;
+            }
+            const dd = await api('pullRows', { table, since: sync.lastPullAux });
+            auxDown += mergeList(listRef, dd.rows || []);
+            sync.lastPullAuxNext = dd.serverTime;
+          }
+          if (sync.lastPullAuxNext) { sync.lastPullAux = sync.lastPullAuxNext; sync.lastPullAuxNext = ''; }
+        } catch (e) {
+          if (/ไม่รู้จัก(คำสั่ง|ตาราง)/.test(e.message)) sync.needDeploy = true;
+          else throw e;
+        }
+
+        sync.lastOkAt = new Date().toISOString();
+        sync.state = 'ok';
+        persist(); saveSyncCfg();
+        if (!silent) flash(`ซิงค์แล้ว · ส่งขึ้น ${dirty.length + auxUp} · รับมา ${r.added + r.updated + auxDown}`);
+      } catch (e) {
+        sync.state = 'error'; sync.error = e.message;
+        if (!silent) flash('ซิงค์ไม่สำเร็จ: ' + e.message, true);
+      } finally { syncing = false; }
+    }
+
+    async function testConn(){
+      try {
+        sync.state = 'busy';
+        const d = await api('ping');
+        sync.state = 'ok'; sync.error = '';
+        saveSyncCfg();
+        flash(`เชื่อมต่อได้ · ${d.spreadsheet} · มี ${d.txnCount} รายการบนเซิร์ฟเวอร์`);
+      } catch (e) { sync.state='error'; sync.error=e.message; flash('เชื่อมต่อไม่ได้: '+e.message, true); }
+    }
+
+    async function uploadSetup(){
+      if (!confirm('อัปโหลดทะเบียนวัตถุดิบ/BOM ขึ้น Google Sheets ทับของเดิม?\n(ทำจากเครื่องเดียวพอ เครื่องอื่นค่อยกดดึงลงมา)')) return;
+      try {
+        sync.state = 'busy';
+        const d = await api('pushSetup', {
+          materials: materials.value.filter(m => m.active === 'TRUE'),
+          entities: entities.value, bom: bom.value, people: people.value,
+          poList: poList.value, shorts: shorts.value, kits: kits.value });
+        sync.state='ok';
+        flash('อัปโหลดข้อมูลตั้งต้นแล้ว · เวอร์ชัน ' + String(d.setupVersion).slice(0,19));
+      } catch (e) { sync.state='error'; sync.error=e.message; flash('อัปโหลดไม่สำเร็จ: '+e.message, true); }
+    }
+
+    async function downloadSetup(ask = true){
+      if (ask && !confirm('ดึงทะเบียนวัตถุดิบ/BOM จาก Google Sheets มาทับของในเครื่องนี้?')) return;
+      try {
+        sync.state = 'busy';
+        const d = await api('pullSetup');
+        if (d.materials && d.materials.length) materials.value = d.materials;
+        if (d.entities && d.entities.length)   entities.value  = d.entities;
+        if (d.bom)                             bom.value       = d.bom;
+        if (d.people)                          people.value    = d.people;
+        if (d.poList)                          poList.value    = d.poList;
+        if (d.shorts)                          shorts.value    = d.shorts;
+        if (d.kits)                            kits.value      = d.kits;
+        if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
+        sync.state='ok'; persist();
+        flash(`ดึงข้อมูลตั้งต้นแล้ว · วัตถุดิบ ${materials.value.length} · BOM ${bom.value.length}`);
+      } catch (e) { sync.state='error'; sync.error=e.message; flash('ดึงไม่สำเร็จ: '+e.message, true); }
+    }
+
+    /** ตั้งเครื่องใหม่จากศูนย์ — ไม่ต้องมีไฟล์ Excel ในเครื่องเลย */
+    async function connectAndPull(){
+      if (!sync.device) sync.device = 'เครื่อง-' + Math.random().toString(36).slice(2,6);
+      sync.error = '';
+      try {
+        await api('ping');                 // เช็ค URL กับ token ก่อน จะได้บอกสาเหตุที่ชัด
+      } catch (e) {
+        sync.state = 'error'; sync.error = 'เชื่อมต่อไม่ได้: ' + e.message; return;
+      }
+      saveSyncCfg();
+      await downloadSetup(false);          // ดึงทะเบียน + BOM
+      if (!materials.value.length) {
+        sync.error = 'เชื่อมต่อได้ แต่บนเซิร์ฟเวอร์ยังไม่มีทะเบียนวัตถุดิบ — '
+                   + 'ให้เครื่องที่มีไฟล์กด "อัปโหลดทะเบียน + BOM ขึ้นเซิร์ฟเวอร์" ก่อน';
+        return;
+      }
+      await doSync(false);                 // ดึงรายการเคลื่อนไหวตามมา
+    }
+
+    function copySetupLink(){
+      const link = location.origin + location.pathname + '#url=' + encodeURIComponent(sync.url)
+                 + '&token=' + encodeURIComponent(sync.token);
+      navigator.clipboard.writeText(link)
+        .then(() => flash('คัดลอกลิงก์แล้ว — เปิดลิงก์นี้ที่เครื่องใหม่ได้เลย'))
+        .catch(() => prompt('คัดลอกลิงก์นี้ไปเปิดที่เครื่องใหม่:', link));
+    }
+
+    function resetSyncClock(){
+      if (!confirm('ดึงรายการทั้งหมดใหม่ตั้งแต่ต้น? ใช้เมื่อสงสัยว่าข้อมูลไม่ครบ')) return;
+      sync.lastPull = ''; saveSyncCfg(); doSync(false);
+    }
+
+    let toastTimer = null;
+    function flash(text, bad = false){
+      toast.text = text; toast.bad = bad; toast.show = true;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.show = false, 3200);
+    }
+
+    // ───────── เริ่มต้น ─────────
+    onMounted(() => {
+      try {
+        const s = JSON.parse(localStorage.getItem(K_SETUP) || 'null');
+        if (s) { materials.value=s.materials||[]; entities.value=s.entities||[];
+                 bom.value=s.bom||[]; people.value=s.people||[];
+                 poList.value=s.poList||[]; shorts.value=s.shorts||[]; kits.value=s.kits||[]; }
+        // ข้อมูลที่นำเข้าก่อนเวอร์ชันนี้ยังไม่มี id — เติมให้ แล้วมาร์คส่งขึ้นเซิร์ฟเวอร์
+        const stampNow = new Date().toISOString();
+        poList.value.forEach(p => { if (!p.id) {
+          p.id = 'P' + p.date + '-' + p.po; p.updated_at = stampNow; p._dirty = true; } });
+        shorts.value.forEach(x => { if (!x.id) {
+          x.id = 'S' + x.date + '-' + x.po + '-' + x.code + '-' + hash(x.note);
+          x.updated_at = stampNow; x._dirty = true; } });
+        txns.value = JSON.parse(localStorage.getItem(K_TXN) || '[]');
+      } catch (e) { /* ข้อมูลเสีย เริ่มใหม่ */ }
+      if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
+      storageBytes.value = (localStorage.getItem(K_SETUP)||'').length + (localStorage.getItem(K_TXN)||'').length;
+      try {
+        const c = JSON.parse(localStorage.getItem(K_SYNC) || 'null');
+        if (c) Object.assign(sync, c);
+      } catch (e) { /* ข้ามไป */ }
+      // รับค่าตั้งค่าจากลิงก์ได้ เช่น  บันทึกสต็อก.html#url=...&token=...&device=ธุรการ-2
+      // ทำให้แจกเป็นบุ๊กมาร์กเดียวแล้วทุกเครื่องเปิดใช้ได้เลย ไม่ต้องกรอกเอง
+      if (location.hash.length > 1) {
+        const h = new URLSearchParams(location.hash.slice(1));
+        if (h.get('url'))    sync.url    = h.get('url');
+        if (h.get('token'))  sync.token  = h.get('token');
+        if (h.get('device')) sync.device = h.get('device');
+        if (h.get('url')) { saveSyncCfg(); history.replaceState(null, '', location.pathname); }
+      }
+      if (!sync.device) sync.device = 'เครื่อง-' + Math.random().toString(36).slice(2,6);
+      // เครื่องใหม่ที่ยังไม่มีทะเบียนแต่ตั้งค่าไว้แล้ว → ดึงข้อมูลตั้งต้นให้เองเลย
+      if (sync.url && !materials.value.length) downloadSetup(false).then(() => doSync());
+      else if (sync.url) doSync();
+      setInterval(() => { if (sync.auto && sync.url) doSync(); }, 20000);
+      // เปิดโปรแกรมหลายแท็บบนเครื่องเดียวกันจะใช้ localStorage ถังเดียวกัน
+      // ถ้าแท็บอื่นบันทึกรายการใหม่ ให้แท็บนี้ดึงมาต่อทันที กันเขียนทับกันเอง
+      window.addEventListener('storage', ev => {
+        if (ev.key !== K_TXN || !ev.newValue) return;
+        try {
+          const incoming = JSON.parse(ev.newValue);
+          const byId = new Map(txns.value.map(t => [t.id, t]));
+          let n = 0;
+          for (const r of incoming) {
+            const local = byId.get(r.id);
+            if (!local) { txns.value.push(r); n++; }
+            else if (String(r.updated_at||'') > String(local.updated_at||'')) { Object.assign(local, r); n++; }
+          }
+          if (n) flash(`รับ ${n} รายการจากแท็บอื่นบนเครื่องนี้`);
+        } catch (e) { /* ข้ามไป */ }
+      });
+      window.addEventListener('online',  () => { if (sync.url) doSync(); });
+      window.addEventListener('offline', () => { sync.state = 'error'; sync.error = 'ไม่มีอินเทอร์เน็ต'; });
+    });
+    watch(tab, t => { if (t === 'out') nextTick(() => focusEl('outCode')); });
+
+    return {
+      tab, dragOver, entity, materials, entities, bom, people, txns, toast, ready,
+      matMap, activeMats, bomByPn, bomPns, entInfo,
+      descOf, unitOf, needExpOf, fmt, balOf, localTime, localDateTime,
+      onDrop, onPick,
+      inH, inLines, bomHint, qtyRefs, blankLine, fillLine, loadBom, nextQty,
+      wkH, wkLines, wkTotals, wkRefs, wkAdd, wkFill, wkPo, wkBom, wkPct,
+      wkSummary, wkMismatch, wkEntities, wkNoEntity, wkReady, saveWeekly,
+      chemImp, onChemFile, applyChemImport, chemKits, chemDates, loadChem, round5,
+      copyIssueToQty, lineClass, inReady, nInDiffIssue, nInDiffReq, saveIn,
+      out, outCode, outQty, outPerson, focusEl, outDesc, outUnit, outBal, outAfter,
+      openPos, outPick, saveOut, resetOut, recent, voidTxn,
+      cardCode, cardRows,
+      lq, lDir, lFrom, lTo, lShowVoid, listRows, claims,
+      newPerson, addPerson, persist, storageBytes, storagePct,
+      wipe, wipeReady, doWipe, backupThenMark,
+      sync, pending, syncLabel, syncColor, doSync, testConn, uploadSetup, downloadSetup,
+      resetSyncClock, saveSyncCfg, connectAndPull, copySetupLink,
+      poList, shorts, poImp, poOpt, onPoImport, applyPoImport, poQ, poFiltered,
+      kits, kitImp, onKitFile, applyKitImport, kitPos, kitsOfPo,
+      shortsOpen, toggleShort, poOptions, pickPo, poKeyed, todayStr, exportShorts,
+      expBusy, expMsg, expProg, cardPlan, exportBinCards,
+      exportTxn, exportClaims, exportAll, restoreAll
+    };
   }
-  return s;
-}
-
-/** อ่านทั้งชีตเป็น array ของ object โดยอิงหัวคอลัมน์แถวแรก */
-function readObjects(sheet) {
-  var last = sheet.getLastRow();
-  if (last < 2) return [];
-  var w = sheet.getLastColumn();
-  var vals = sheet.getRange(1, 1, last, w).getValues();
-  var head = vals[0].map(String);
-  var out = [];
-  for (var i = 1; i < vals.length; i++) {
-    var o = {}, empty = true;
-    for (var c = 0; c < head.length; c++) {
-      var v = vals[i][c];
-      if (v !== '' && v !== null) empty = false;
-      o[head[c]] = v;
-    }
-    if (!empty) { o._row = i + 1; out.push(o); }
-  }
-  return out;
-}
-
-function toRow(obj, cols) {
-  return cols.map(function (c) {
-    var v = obj[c];
-    return (v === undefined || v === null) ? '' : v;
-  });
-}
-
-/** เขียนทับทั้งชีต (ใช้กับข้อมูลตั้งต้นเท่านั้น ไม่ใช้กับรายการเคลื่อนไหว) */
-function replaceAll(sheet, cols, rows) {
-  sheet.clear();
-  sheet.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold');
-  sheet.setFrozenRows(1);
-  if (rows.length) {
-    sheet.getRange(2, 1, rows.length, cols.length)
-      .setValues(rows.map(function (r) { return toRow(r, cols); }));
-  }
-}
-
-function nowIso() { return new Date().toISOString(); }
-
-function meta(key, value) {
-  var s = sheetOf('Meta', ['key', 'value']);
-  var rows = readObjects(s);
-  var hit = null;
-  for (var i = 0; i < rows.length; i++) if (String(rows[i].key) === key) hit = rows[i];
-  if (value === undefined) return hit ? String(hit.value) : '';
-  if (hit) s.getRange(hit._row, 2).setValue(value);
-  else s.appendRow([key, value]);
-  return value;
-}
-
-// ═══════════ คำสั่ง ═══════════
-function doPing() {
-  var t = sheetOf('Transactions', TXN_COLS);
-  return {
-    ok: true,
-    serverTime: nowIso(),
-    txnCount: Math.max(0, t.getLastRow() - 1),
-    setupVersion: meta('setupVersion'),
-    spreadsheet: ss().getName()
-  };
-}
-
-/** ดึงรายการที่เปลี่ยนแปลงหลังเวลา since (ISO string) */
-function doPullTxns(since) {
-  var rows = readObjects(sheetOf('Transactions', TXN_COLS));
-  var out = [];
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    var u = String(r.updated_at || '');
-    if (!since || u > since) {
-      delete r._row;
-      r.voided = (String(r.voided).toUpperCase() === 'TRUE');
-      out.push(r);
-    }
-  }
-  return { ok: true, serverTime: nowIso(), rows: out };
-}
-
-/** เพิ่มหรืออัปเดตรายการ — อิง id เป็นหลัก ใครแก้ทีหลังชนะ */
-function doPushTxns(rows, device) {
-  if (!rows.length) return { ok: true, serverTime: nowIso(), saved: 0 };
-
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(25000)) return { ok: false, error: 'ระบบกำลังถูกใช้งาน ลองใหม่อีกครั้ง' };
-
-  try {
-    var sheet = sheetOf('Transactions', TXN_COLS);
-    var last = sheet.getLastRow();
-
-    // ทำดัชนี id -> เลขแถว ครั้งเดียว
-    var index = {};
-    if (last >= 2) {
-      var ids = sheet.getRange(2, 1, last - 1, 1).getValues();
-      for (var i = 0; i < ids.length; i++) index[String(ids[i][0])] = i + 2;
-    }
-
-    var stamp = nowIso();
-    var appends = [];
-    for (var k = 0; k < rows.length; k++) {
-      var r = rows[k];
-      if (!r.id) continue;
-      r.updated_at = stamp;
-      r.device = r.device || device || '';
-      r.voided = r.voided ? 'TRUE' : 'FALSE';
-      var at = index[String(r.id)];
-      if (at) sheet.getRange(at, 1, 1, TXN_COLS.length).setValues([toRow(r, TXN_COLS)]);
-      else appends.push(toRow(r, TXN_COLS));
-    }
-    if (appends.length) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, appends.length, TXN_COLS.length).setValues(appends);
-    }
-    SpreadsheetApp.flush();
-    return { ok: true, serverTime: stamp, saved: rows.length, added: appends.length };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-// ═══════════ ตารางที่ upsert ราย record ได้ (POs / Shortages) ═══════════
-var ROW_TABLES = { POs: PO_COLS, Shortages: SHORT_COLS, Kits: KIT_COLS };
-
-function doPullRows(table, since) {
-  var cols = ROW_TABLES[table];
-  if (!cols) return { ok: false, error: 'ไม่รู้จักตาราง: ' + table };
-  var rows = readObjects(sheetOf(table, cols));
-  var out = [];
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    if (!since || String(r.updated_at || '') > since) {
-      delete r._row;
-      if (table === 'Shortages') r.done = (String(r.done).toUpperCase() === 'TRUE');
-      out.push(r);
-    }
-  }
-  return { ok: true, serverTime: nowIso(), rows: out };
-}
-
-function doPushRows(table, rows, device) {
-  var cols = ROW_TABLES[table];
-  if (!cols) return { ok: false, error: 'ไม่รู้จักตาราง: ' + table };
-  if (!rows.length) return { ok: true, serverTime: nowIso(), saved: 0 };
-
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(25000)) return { ok: false, error: 'ระบบกำลังถูกใช้งาน ลองใหม่อีกครั้ง' };
-  try {
-    var sheet = sheetOf(table, cols);
-    var last = sheet.getLastRow();
-    var index = {};
-    if (last >= 2) {
-      var ids = sheet.getRange(2, 1, last - 1, 1).getValues();
-      for (var i = 0; i < ids.length; i++) index[String(ids[i][0])] = i + 2;
-    }
-    var stamp = nowIso();
-    var appends = [];
-    for (var k = 0; k < rows.length; k++) {
-      var r = rows[k];
-      if (!r.id) continue;
-      r.updated_at = stamp;
-      if (table === 'Shortages') r.done = r.done ? 'TRUE' : 'FALSE';
-      var at = index[String(r.id)];
-      if (at) sheet.getRange(at, 1, 1, cols.length).setValues([toRow(r, cols)]);
-      else appends.push(toRow(r, cols));
-    }
-    if (appends.length) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, appends.length, cols.length).setValues(appends);
-    }
-    SpreadsheetApp.flush();
-    return { ok: true, serverTime: stamp, saved: rows.length, added: appends.length };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-/**
- * ล้างข้อมูลในชีต (เหลือแถวหัวตาราง)
- * ต้องส่ง confirm มาให้ตรงกับชื่อตาราง เพื่อกันเรียกพลาด
- * ล้างได้เฉพาะตารางที่เป็น "รายการเคลื่อนไหว" — ทะเบียนวัตถุดิบกับ BOM ล้างไม่ได้
- */
-function doClearTable(table, confirm) {
-  var allowed = { Transactions: TXN_COLS, POs: PO_COLS, Shortages: SHORT_COLS, Kits: KIT_COLS };
-  var cols = allowed[table];
-  if (!cols) return { ok: false, error: 'ล้างตารางนี้ไม่ได้: ' + table };
-  if (confirm !== table) return { ok: false, error: 'confirm ไม่ตรงกับชื่อตาราง' };
-
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(25000)) return { ok: false, error: 'ระบบกำลังถูกใช้งาน ลองใหม่อีกครั้ง' };
-  try {
-    var sheet = sheetOf(table, cols);
-    var last = sheet.getLastRow();
-    var removed = Math.max(0, last - 1);
-    if (removed > 0) sheet.deleteRows(2, removed);
-    SpreadsheetApp.flush();
-    return { ok: true, serverTime: nowIso(), table: table, removed: removed };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-function doPullSetup() {
-  return {
-    ok: true,
-    setupVersion: meta('setupVersion'),
-    materials: readObjects(sheetOf('Materials', MAT_COLS)).map(function (r) {
-      return { material_code: String(r.material_code), description: String(r.description || ''),
-               unit: String(r.unit || ''), category: String(r.category || ''),
-               requires_expiry: String(r.requires_expiry || 'FALSE').toUpperCase(),
-               active: String(r.active || 'TRUE').toUpperCase() };
-    }),
-    entities: readObjects(sheetOf('Entities', ENT_COLS)).map(function (r) {
-      return { entity_code: String(r.entity_code), company_name: String(r.company_name || ''),
-               store_location: String(r.store_location || ''), vendor_no: String(r.vendor_no || '') };
-    }),
-    bom: readObjects(sheetOf('BOM', BOM_COLS)).map(function (r) {
-      return { pn: String(r.pn), code: String(r.material_code),
-               usage: Number(r.usage_per_pcs) || 0, unit: String(r.unit || ''),
-               varies: String(r.usage_varies).toUpperCase() === 'TRUE' };
-    }),
-    people: readObjects(sheetOf('People', ['name']))
-      .map(function (r) { return String(r.name); }).filter(String),
-    poList: doPullRows('POs', '').rows,
-    shorts: doPullRows('Shortages', '').rows,
-    kits:   doPullRows('Kits', '').rows
-  };
-}
-
-/** อัปโหลดข้อมูลตั้งต้นจากเครื่องหนึ่ง แล้วเครื่องอื่นดึงไปใช้ */
-function doPushSetup(body) {
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(25000)) return { ok: false, error: 'ระบบกำลังถูกใช้งาน ลองใหม่อีกครั้ง' };
-  try {
-    if (body.materials) {
-      replaceAll(sheetOf('Materials', MAT_COLS), MAT_COLS,
-        body.materials.filter(function (m) { return String(m.active).toUpperCase() === 'TRUE'; }));
-    }
-    if (body.entities) replaceAll(sheetOf('Entities', ENT_COLS), ENT_COLS, body.entities);
-    if (body.bom) {
-      replaceAll(sheetOf('BOM', BOM_COLS), BOM_COLS, body.bom.map(function (b) {
-        return { pn: b.pn, material_code: b.code, usage_per_pcs: b.usage,
-                 unit: b.unit, usage_varies: b.varies ? 'TRUE' : 'FALSE' };
-      }));
-    }
-    if (body.people) {
-      replaceAll(sheetOf('People', ['name']), ['name'],
-        body.people.map(function (p) { return { name: p }; }));
-    }
-    // POs / Shortages ไม่เขียนทับทั้งก้อนแล้ว — ใช้ upsert เพื่อไม่ให้ทับงานเครื่องอื่น
-    if (body.poList) doPushRows('POs', body.poList, '');
-    if (body.shorts) doPushRows('Shortages', body.shorts, '');
-    if (body.kits)   doPushRows('Kits', body.kits, '');
-    var v = nowIso();
-    meta('setupVersion', v);
-    SpreadsheetApp.flush();
-    return { ok: true, setupVersion: v };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-// ═══════════ เมนูช่วยเหลือในสเปรดชีต ═══════════
-function onOpen() {
-  SpreadsheetApp.getUi().createMenu('ระบบ Bin Card')
-    .addItem('สร้างชีตที่จำเป็นทั้งหมด', 'setupSheets')
-    .addItem('ตรวจสอบสถานะ', 'showStatus')
-    .addToUi();
-}
-
-function setupSheets() {
-  sheetOf('Transactions', TXN_COLS);
-  sheetOf('Materials', MAT_COLS);
-  sheetOf('Entities', ENT_COLS);
-  sheetOf('BOM', BOM_COLS);
-  sheetOf('People', ['name']);
-  sheetOf('POs', PO_COLS);
-  sheetOf('Shortages', SHORT_COLS);
-  sheetOf('Kits', KIT_COLS);
-  sheetOf('Meta', ['key', 'value']);
-  SpreadsheetApp.getUi().alert('สร้างชีตครบแล้ว');
-}
-
-function showStatus() {
-  var s = doPing();
-  SpreadsheetApp.getUi().alert(
-    'รายการเคลื่อนไหว: ' + s.txnCount + '\n' +
-    'ข้อมูลตั้งต้นอัปเดตล่าสุด: ' + (s.setupVersion || 'ยังไม่มี') + '\n' +
-    'เวลาเซิร์ฟเวอร์: ' + s.serverTime);
-}
+}).mount('#app');
+</script>
+</body>
+</html>
