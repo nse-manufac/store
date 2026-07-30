@@ -35,6 +35,25 @@ header select option{color:#000}
 .synced:hover{background:rgba(255,255,255,.22)}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
 
+.subtabs{background:var(--panel);border-bottom:1px solid var(--line);
+  padding:7px 16px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.subtabs .subgrp{font-size:11px;color:var(--muted);margin-right:4px}
+.subtabs button{font-family:inherit;font-size:13px;padding:5px 13px;border:1px solid var(--line);
+  border-radius:99px;background:#fff;cursor:pointer;color:var(--ink)}
+.subtabs button:hover{background:var(--soft)}
+.subtabs button.on{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+.subtabs button .badge{background:var(--bad);color:#fff;border-radius:99px;padding:0 6px;font-size:11px;margin-left:4px}
+.step{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0f3f6}
+.step:last-child{border-bottom:0}
+.stepnum{background:var(--brand);color:#fff;border-radius:50%;width:26px;height:26px;flex:none;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.step.done .stepnum{background:var(--ok)}
+.homegrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:900px){.homegrid{grid-template-columns:1fr}}
+.dropzone{border:2px dashed var(--line);border-radius:10px;padding:26px;text-align:center;color:var(--muted);
+  cursor:pointer;transition:.15s}
+.dropzone.over{border-color:var(--brand);background:var(--soft);color:var(--brand)}
+
 main{flex:1;padding:14px 16px 80px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
 .card h3{margin:0 0 12px;font-size:14px;color:var(--brand)}
@@ -107,20 +126,34 @@ td input{width:100%;padding:3px 6px;font-size:12px}
   </div>
   <div class="grow"></div>
   <div class="tabs" v-if="ready">
-    <button :class="{on:tab==='in'}"     @click="tab='in'">รับเข้า</button>
-    <button :class="{on:tab==='wk'}"     @click="tab='wk'">รับเข้ารวม</button>
-    <button :class="{on:tab==='out'}"    @click="tab='out'">จ่ายออก</button>
-    <button :class="{on:tab==='card'}"   @click="tab='card'">ดูการ์ด</button>
-    <button :class="{on:tab==='po'}"     @click="tab='po'">รายการ PO</button>
-    <button :class="{on:tab==='short'}"  @click="tab='short'">ของขาด
-      <span class="badge" v-if="shortsOpen.length">{{ shortsOpen.length }}</span></button>
-    <button :class="{on:tab==='list'}"   @click="tab='list'">ค้นหา / แก้ไข</button>
-    <button :class="{on:tab==='out2'}"   @click="tab='out2'">ออก Bin Card</button>
-    <button :class="{on:tab==='claim'}"  @click="tab='claim'">คิวเคลม
-      <span class="badge" v-if="claims.length">{{ claims.length }}</span></button>
-    <button :class="{on:tab==='setup'}"  @click="tab='setup'">ตั้งค่า</button>
+    <button :class="{on:tab==='home'}" @click="tab='home'">หน้าแรก</button>
+    <button :class="{on:['in','wk','out'].includes(tab)}" @click="tab='in'">งานประจำวัน</button>
+    <button :class="{on:tab==='imp'}" @click="tab='imp'">นำเข้าไฟล์</button>
+    <button :class="{on:['card','po','list','short','over','claim'].includes(tab)}" @click="tab='card'">ตรวจสอบ/รายงาน
+      <span class="badge" v-if="shortsOpen.length+overShort.length+claims.length">{{ shortsOpen.length+overShort.length+claims.length }}</span></button>
+    <button :class="{on:tab==='out2'}" @click="tab='out2'">ออก Bin Card</button>
+    <button :class="{on:tab==='setup'}" @click="tab='setup'">ตั้งค่า</button>
   </div>
 </header>
+
+<div class="subtabs" v-if="ready && ['in','wk','out'].includes(tab)">
+  <span class="subgrp">งานประจำวัน:</span>
+  <button :class="{on:tab==='in'}"  @click="tab='in'">รับเข้า</button>
+  <button :class="{on:tab==='wk'}"  @click="tab='wk'">รับเข้ารวม</button>
+  <button :class="{on:tab==='out'}" @click="tab='out'">จ่ายออก</button>
+</div>
+<div class="subtabs" v-if="ready && ['card','po','list','short','over','claim'].includes(tab)">
+  <span class="subgrp">ตรวจสอบ/รายงาน:</span>
+  <button :class="{on:tab==='card'}"  @click="tab='card'">ดูการ์ด</button>
+  <button :class="{on:tab==='po'}"    @click="tab='po'">รายการ PO</button>
+  <button :class="{on:tab==='list'}"  @click="tab='list'">ค้นหา / แก้ไข</button>
+  <button :class="{on:tab==='short'}" @click="tab='short'">ของขาด
+    <span class="badge" v-if="shortsOpen.length">{{ shortsOpen.length }}</span></button>
+  <button :class="{on:tab==='over'}"  @click="tab='over'">ของเกิน BOM
+    <span class="badge" v-if="overShort.length">{{ overShort.length }}</span></button>
+  <button :class="{on:tab==='claim'}" @click="tab='claim'">คิวเคลม
+    <span class="badge" v-if="claims.length">{{ claims.length }}</span></button>
+</div>
 
 <!-- ════════ ยังไม่มีข้อมูลตั้งต้น ════════ -->
 <main v-if="!ready" @dragover.prevent="dragOver=true" @dragleave="dragOver=false" @drop.prevent="onDrop">
@@ -159,6 +192,287 @@ td input{width:100%;padding:3px 6px;font-size:12px}
 </main>
 
 <template v-else>
+<!-- ════════ หน้าแรก ════════ -->
+<main v-if="tab==='home'">
+  <div class="homegrid">
+    <div>
+      <div class="card">
+        <h3>สถานะข้อมูลตั้งต้น</h3>
+        <div class="row" style="gap:22px">
+          <div class="f"><label>ทะเบียนวัตถุดิบ</label>
+            <span class="tag" :class="activeMats.length?'ok':'bad'">{{ activeMats.length.toLocaleString() }} รหัส</span></div>
+          <div class="f"><label>BOM</label>
+            <span class="tag" :class="bom.length?'ok':'bad'">{{ bom.length.toLocaleString() }} บรรทัด</span></div>
+          <div class="f"><label>Google Sheets</label>
+            <span class="tag" :class="sync.url?'ok':'warn'">
+              <span class="dot" :style="{background:syncColor,width:'8px',height:'8px',display:'inline-block',marginRight:'4px'}"></span>{{ syncLabel }}</span></div>
+          <div class="grow"></div>
+          <button class="btn sm" @click="tab='setup'">ไปตั้งค่า</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>งานประจำวันนี้ ({{ todayStr }})</h3>
+        <div class="step" :class="{done:homePoTodayN>0}">
+          <div class="stepnum">1</div>
+          <div class="grow">
+            <b>นำเข้าไฟล์ PO วันนี้</b>
+            <div class="hint">{{ homePoTodayN>0 ? ('พบ '+homePoTodayN+' PO ของวันนี้แล้ว') : 'ยังไม่พบไฟล์ PO ของวันนี้' }}</div>
+          </div>
+          <button class="btn sm" @click="tab='imp'">ไปนำเข้าไฟล์</button>
+        </div>
+        <div class="step" :class="{done:homeKitToday}">
+          <div class="stepnum">2</div>
+          <div class="grow">
+            <b>นำเข้า Kit List (22-H)</b>
+            <div class="hint">{{ homeKitToday ? 'นำเข้าของวันนี้แล้ว' : 'ยังไม่พบ Kit List ของวันนี้' }}</div>
+          </div>
+          <button class="btn sm" @click="tab='imp'">ไปนำเข้าไฟล์</button>
+        </div>
+        <div class="step" :class="{done:homePoTodayN>0 && homePoKeyed===homePoTodayN}">
+          <div class="stepnum">3</div>
+          <div class="grow">
+            <b>คีย์รับเข้า</b>
+            <div class="hint">คีย์แล้ว {{ homePoKeyed }} จาก {{ homePoTodayN }} PO ของวันนี้</div>
+          </div>
+          <button class="btn sm" @click="tab='in'">ไปรับเข้า</button>
+        </div>
+        <div class="step" :class="{done:homeOutToday>0}">
+          <div class="stepnum">4</div>
+          <div class="grow">
+            <b>คีย์จ่ายออก</b>
+            <div class="hint">วันนี้จ่ายแล้ว {{ homeOutToday }} รายการ</div>
+          </div>
+          <button class="btn sm" @click="tab='out'">ไปจ่ายออก</button>
+        </div>
+        <div class="step">
+          <div class="stepnum">✓</div>
+          <div class="grow">
+            <b>งานรายรอบ — รับเข้ารวม (Tube/Chemical/Copper foil/Solder)</b>
+            <div class="hint">Kit List กลุ่มจ่ายรวมล่าสุด: {{ chemDates[0] || 'ยังไม่มี' }}</div>
+          </div>
+          <button class="btn sm" @click="tab='wk'">ไปรับเข้ารวม</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h3>เรื่องที่ต้องตาม</h3>
+        <p class="hint" style="margin-top:-8px">นับเฉพาะนิติบุคคล {{ entity }}</p>
+        <div v-if="!shortsOpen.length && !overShort.length && !claims.length" class="msg ok">ไม่มีเรื่องค้าง 🎉</div>
+        <div class="row" v-if="shortsOpen.length" style="justify-content:space-between">
+          <span>ของขาด <b>{{ shortsOpen.length }}</b> รายการ</span>
+          <button class="btn sm" @click="tab='short'">ดู</button>
+        </div>
+        <div class="row" v-if="overShort.length" style="justify-content:space-between">
+          <span>เบิกเกิน BOM <b>{{ overShort.length }}</b> รหัส</span>
+          <button class="btn sm" @click="tab='over'">ดู</button>
+        </div>
+        <div class="row" v-if="claims.length" style="justify-content:space-between">
+          <span>คิวเคลม <b>{{ claims.length }}</b> รายการ</span>
+          <button class="btn sm" @click="tab='claim'">ดู</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>งานรายเดือน</h3>
+        <div class="row" style="justify-content:space-between">
+          <span>ออก Bin Card — พร้อมออก {{ cardPlan.cards.toLocaleString() }} การ์ด · {{ cardPlan.lines.toLocaleString() }} บรรทัด</span>
+          <button class="btn primary sm" @click="tab='out2'">ไปออก Bin Card</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>เพิ่ม/แก้รหัสวัตถุดิบ หรือ BOM</h3>
+        <p class="hint">ต้องทำในโปรแกรม <b>ทะเบียนวัตถุดิบ</b> ก่อน แล้วส่งออกเป็นไฟล์ .xlsx
+          แล้วค่อยกลับมานำเข้าที่แท็บ "นำเข้าไฟล์" ของโปรแกรมนี้</p>
+        <a href="ทะเบียนวัตถุดิบ.html" target="_blank"><button class="btn sm">เปิดโปรแกรมทะเบียนวัตถุดิบ</button></a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ════════ นำเข้าไฟล์ (รวมทุกชนิด) ════════ -->
+<main v-if="tab==='imp'">
+  <div class="card">
+    <h3>นำเข้าไฟล์</h3>
+    <p class="hint" style="margin-top:0">วางไฟล์อะไรก็ได้ที่นี่ — ระบบดูเองว่าเป็นไฟล์ชนิดไหน (ดูตารางชนิดไฟล์ที่รองรับด้านล่าง)</p>
+    <div class="dropzone" :class="{over:impDragOver}"
+         @dragover.prevent="impDragOver=true" @dragleave="impDragOver=false" @drop.prevent="onImpDrop">
+      <div style="font-size:15px;margin-bottom:8px">📂 ลากไฟล์มาวางตรงนี้ หรือ</div>
+      <input type="file" accept=".xls,.xlsx,.json" multiple @change="onImpPick">
+    </div>
+    <div v-if="impInfo" class="msg" :class="impInfo.error?'bad':'ok'" style="margin-top:12px">
+      <template v-if="impInfo.error">
+        ไม่รู้จักไฟล์ "{{ impInfo.name }}" — เลือกชนิดไฟล์เองด้านล่าง หรือดูตารางว่าไฟล์ต้องมีอะไรบ้าง
+        <div class="row" style="margin-top:8px">
+          <button class="btn sm" @click="forceImp('setup')">ทะเบียน/BOM</button>
+          <button class="btn sm" @click="forceImp('chem')">Kit List กลุ่มจ่ายรวม</button>
+          <button class="btn sm" @click="forceImp('po')">PO รายวัน</button>
+          <button class="btn sm" @click="forceImp('kit')">Kit List 22-H</button>
+          <button class="btn sm" @click="forceImp('json')">ไฟล์สำรอง .json</button>
+        </div>
+      </template>
+      <template v-else>ตรวจได้ว่าเป็นไฟล์: <b>{{ impInfo.label }}</b> ({{ impInfo.name }})</template>
+    </div>
+  </div>
+
+  <!-- พรีวิว: ทะเบียน/BOM ไม่มีพรีวิว โหลดเลยทันที (behavior เดิม) -->
+
+  <!-- พรีวิว: Kit List 22-H -->
+  <div class="card" v-if="kitImp">
+    <h3>พรีวิว — Kit List (22-H)</h3>
+    <div class="msg ok">
+      อ่าน <b>{{ kitImp.fileName }}</b> ได้ <b>{{ kitImp.rawLines }}</b> บรรทัด ·
+      {{ kitImp.pos.length }} PO · ลงวันที่ {{ kitImp.docDate || '—' }}
+      <span v-if="kitImp.group"> · กลุ่ม {{ kitImp.group }}</span><br>
+      <span class="hint">ข้ามหัวตารางที่พิมพ์ซ้ำ {{ kitImp.headers }} ครั้ง และแถวรวมย่อย {{ kitImp.subtotals }} แถว</span>
+    </div>
+    <div class="msg warn" v-if="kitImp.merged.length">
+      <b>รวมยอดให้แล้ว {{ kitImp.merged.length }} รายการ</b> — PO เดียวกันระบุรหัสเดียวกันหลายบรรทัด
+      (คนละขั้นตอนการผลิต) เช่น
+      {{ kitImp.merged.slice(0,2).map(m => m.code + ' (' + m.n + ' บรรทัด → ' + m.issue + ')').join(' · ') }}
+    </div>
+    <div class="msg warn" v-if="kitImp.codeNew.length">
+      พบรหัสที่ไม่มีในรายการวัตถุดิบที่ใช้งานอยู่ <b>{{ kitImp.codeNew.length }}</b> ตัว:
+      {{ kitImp.codeNew.slice(0,6).join(', ') }}{{ kitImp.codeNew.length>6 ? ' ...' : '' }}<br>
+      <span class="hint">นำเข้าได้ตามปกติ — ไปเพิ่มหรือตั้ง active ในโปรแกรมทะเบียนวัตถุดิบแล้วโหลดใหม่</span>
+    </div>
+    <div class="msg warn" v-if="kitImp.noPo.length">
+      มี <b>{{ kitImp.noPo.length }}</b> PO ที่ยังไม่มีในรายการ PO —
+      นำเข้าไฟล์ PO รายวันเพิ่มจะเลือกจากรายการได้สะดวกกว่า
+    </div>
+    <p style="margin-top:10px">
+      <button class="btn primary" @click="applyKitImport" :disabled="!kitImp.fresh.length">
+        ยืนยันนำเข้า {{ kitImp.fresh.length }} รายการ</button>
+      <span v-if="kitImp.dup" class="hint" style="margin-left:10px">ข้ามที่ซ้ำ {{ kitImp.dup }} รายการ</span>
+      <button class="btn" style="margin-left:8px" @click="kitImp=null">ยกเลิก</button>
+    </p>
+  </div>
+
+  <!-- พรีวิว: PO รายวัน -->
+  <div class="card" v-if="poImp">
+    <h3>พรีวิว — PO รายวัน</h3>
+    <div class="msg ok">
+      อ่าน <b>{{ poImp.fileName }}</b> ได้ {{ poImp.pos.length }} รายการ PO
+      <span v-if="poImp.dates.length">· วันที่ {{ poImp.dates.join(' และ ') }}</span>
+    </div>
+    <div class="msg bad" v-if="poImp.pnNoBom.length">
+      <b>พบ P/N ใหม่ที่ยังไม่มี BOM {{ poImp.pnNoBom.length }} รายการ</b> —
+      {{ poImp.pnNoBom.join(', ') }}<br>
+      ต้องขอ BOM จาก Delta แล้วเพิ่มเข้าระบบก่อน ไม่งั้นหน้าคีย์รับเข้าจะกางรายการวัตถุดิบให้ไม่ได้
+    </div>
+    <div class="msg warn" v-if="poImp.codeNew.length">
+      พบรหัสวัตถุดิบในหมายเหตุที่ยังไม่มีในทะเบียน: <b>{{ poImp.codeNew.join(', ') }}</b> —
+      ไปเพิ่มในโปรแกรมทะเบียนวัตถุดิบก่อน
+    </div>
+    <table class="plain" style="max-width:620px">
+      <thead><tr><th style="width:44px">รับ</th><th>สิ่งที่จะเพิ่ม</th><th style="width:80px" class="num">จำนวน</th></tr></thead>
+      <tbody>
+        <tr><td><input type="checkbox" v-model="poOpt.pos" :disabled="!poImp.newPos.length"></td>
+          <td><b>รายการ PO</b>
+            <span class="hint" v-if="poImp.dupPos"> · ข้ามที่ซ้ำ {{ poImp.dupPos }} รายการ</span></td>
+          <td class="num mono">{{ poImp.newPos.length }}</td></tr>
+        <tr><td><input type="checkbox" v-model="poOpt.shorts" :disabled="!poImp.newSh.length"></td>
+          <td><b>รายการของขาด / รอส่ง</b><br><span class="hint">แกะจากหมายเหตุเป็นฟิลด์ให้แล้ว</span></td>
+          <td class="num mono">{{ poImp.newSh.length }}</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px">
+      <button class="btn primary" @click="applyPoImport">ยืนยันนำเข้า</button>
+      <button class="btn" style="margin-left:8px" @click="poImp=null">ยกเลิก</button>
+    </p>
+  </div>
+
+  <!-- พรีวิว: Kit List กลุ่มจ่ายรวม -->
+  <div class="card" v-if="chemImp">
+    <h3>พรีวิว — Kit List กลุ่มจ่ายรวม</h3>
+    <div class="msg ok">
+      อ่าน <b>{{ chemImp.fileName }}</b> ได้ <b>{{ chemImp.rawLines }}</b> บรรทัด →
+      <b>{{ chemImp.rows.length }}</b> รายการ · {{ chemImp.codes.length }} รหัส ·
+      {{ chemImp.pos.length }} PO · ลงวันที่ {{ chemImp.docDate || '—' }}<br>
+      <span class="hint">
+        ชีตที่อ่าน: {{ chemImp.sheets.map(s => s.name.trim() + ' (' + s.rows + ')').join(' · ') }}
+        <template v-if="chemImp.skipped.length">
+          · ข้าม: {{ chemImp.skipped.map(s => s.name.trim() + ' — ' + s.why).join(' · ') }}</template>
+      </span>
+    </div>
+
+    <table style="max-width:760px;margin-bottom:12px">
+      <thead><tr><th>ชีต</th><th style="width:120px">รหัส</th><th class="num" style="width:80px">บรรทัด</th>
+        <th class="num" style="width:110px">ผลบวก 541</th><th class="num" style="width:120px">แถว Total</th>
+        <th style="width:70px">ผล</th></tr></thead>
+      <tbody><tr v-for="(b,i) in chemImp.blocks" :key="i" :class="{bad:b.match===false}">
+        <td class="hint">{{ b.sheet.trim() }}</td><td class="mono">{{ b.code }}</td>
+        <td class="num mono">{{ b.lines }}</td><td class="num mono">{{ fmt(b.calc) }}</td>
+        <td class="num mono">{{ b.docTotal === null ? '—' : fmt(b.docTotal) }}</td>
+        <td><span v-if="b.match===true" class="tag ok">ตรง</span>
+            <span v-else-if="b.match===false" class="tag bad">ต่าง {{ fmt(round5(b.docTotal-b.calc)) }}</span>
+            <span v-else class="hint">ไม่มีแถวรวม</span></td>
+      </tr></tbody>
+    </table>
+
+    <div class="msg warn" v-if="chemImp.merged.length">
+      <b>รวมยอดให้แล้ว {{ chemImp.merged.length }} รายการ</b> — PO เดียวกันระบุรหัสเดียวกันหลายบรรทัด<br>
+      <span class="hint">{{ chemImp.merged.slice(0,3).map(m => m.po + '/' + m.code + ' ' + m.n + ' บรรทัด → ' + m.issue).join(' · ') }}</span>
+    </div>
+    <div class="msg bad" v-if="chemImp.gaps.length">
+      <b>เลข Item กระโดด — บรรทัดอาจหายตอน export</b><br>
+      <span v-for="(g,i) in chemImp.gaps" :key="i">
+        {{ g.sheet.trim() }} รหัส {{ g.code }}: หลังข้อ {{ g.after }} หายข้อ {{ g.missing.join(', ') }}<br></span>
+      <span class="hint">ควรขอไฟล์ใหม่จาก Delta ก่อนนำเข้า</span>
+    </div>
+    <div class="msg warn" v-if="chemImp.claim.length">
+      <b>Req ≠ 541 อยู่ {{ chemImp.claim.length }} รายการ</b> —
+      Delta จ่ายไม่ตรงกับยอดที่เอกสารขอไว้<br>
+      <span class="hint">{{ chemImp.claim.slice(0,4).map(r => r.po + '/' + r.code + ' ขอ ' + r.req + ' → จ่าย ' + r.issue).join(' · ') }}</span><br>
+      <span class="hint">
+        <b>ไม่ใช่คิวเคลม</b> — คิวเคลมดูจาก <b>ยอดนับจริง ≠ 541</b> (เรานับได้ไม่ตรงกับที่ Delta แจ้ง)
+        ส่วนตรงนี้คือ Delta จ่ายไม่ตรงสูตร ซึ่งปกติเป็นการทยอยจ่ายข้ามรอบ ไม่ต้องเคลม
+      </span>
+    </div>
+    <div class="msg warn" v-if="chemImp.offBom.length">
+      <b>ต่างจาก BOM เกิน 10% อยู่ {{ chemImp.offBom.length }} รายการ</b> — อาจเป็นการทยอยจ่าย หรือยอดผิด<br>
+      <span class="hint">{{ chemImp.offBom.slice(0,4).map(r => r.po + '/' + r.code + ' ' + (r.req===null?r.issue:r.req) + ' vs BOM ' + r.bomQty + ' (' + (r.pct>0?'+':'') + r.pct + '%)').join(' · ') }}</span>
+    </div>
+    <div class="msg warn" v-if="chemImp.noBom.length">
+      เทียบ BOM ไม่ได้ <b>{{ chemImp.noBom.length }}</b> รายการ — ยังไม่มี BOM ของ P/N นั้น
+    </div>
+    <div class="msg warn" v-if="chemImp.codeNew.length">
+      รหัสที่ไม่มีในทะเบียนที่ใช้งานอยู่ <b>{{ chemImp.codeNew.length }}</b> ตัว:
+      {{ chemImp.codeNew.join(', ') }}
+      <br><span class="hint">เพิ่มในโปรแกรมทะเบียนวัตถุดิบก่อน ไม่งั้นจะไม่รู้หน่วยและคำอธิบาย</span>
+    </div>
+    <div class="msg warn" v-if="chemImp.noPo.length">
+      มี <b>{{ chemImp.noPo.length }}</b> PO ที่ยังไม่มีในรายการ PO — ใช้ P/N และยอดสั่งจากไฟล์ Kit List แทน
+    </div>
+
+    <div class="row">
+      <button class="btn primary" @click="applyChemImportGo" :disabled="!chemImp.fresh.length">
+        ยืนยันนำเข้า {{ chemImp.fresh.length }} รายการ แล้วกางลงตาราง</button>
+      <span v-if="chemImp.dup" class="hint">ข้ามที่นำเข้าไปแล้ว {{ chemImp.dup }} รายการ</span>
+      <button class="btn" @click="chemImp=null">ยกเลิก</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>ชนิดไฟล์ที่รองรับ</h3>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>ชนิดไฟล์</th><th>ตัวอย่างชื่อไฟล์</th><th>ใช้ทำอะไร</th></tr></thead>
+        <tbody>
+          <tr><td>ทะเบียนวัตถุดิบ / BOM</td><td class="mono">ทะเบียนวัตถุดิบ_xxx.xlsx, BOM_xxx.xlsx</td><td>ข้อมูลตั้งต้น (ชีต Materials/Entities/BOM)</td></tr>
+          <tr><td>PO รายวัน</td><td class="mono">PO 3M5 ON ....xlsx</td><td>รายการ PO + ของขาด</td></tr>
+          <tr><td>Kit List (22-H)</td><td class="mono">22-H.xls</td><td>เติมช่อง Issue ในหน้ารับเข้า</td></tr>
+          <tr><td>Kit List กลุ่มจ่ายรวม</td><td class="mono">4020600700-4020241300.xlsx</td><td>กางรายการหน้ารับเข้ารวม</td></tr>
+          <tr><td>ไฟล์สำรอง</td><td class="mono">สำรองข้อมูล_xxx.json</td><td>กู้คืนข้อมูลทั้งหมด</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
 <!-- ════════ รับเข้า ════════ -->
 <main v-if="tab==='in'">
   <div class="card">
@@ -168,7 +482,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
         <input v-model.trim="inH.po" list="polist" placeholder="TM4267H001" style="width:160px" class="mono"
                @change="pickPo(inH.po)">
         <datalist id="polist"><option v-for="p in poOptions" :key="p.po" :value="p.po">
-          {{ p.pn }} · {{ p.qty }}</option></datalist></div>
+          {{ p.pn }} · {{ p.qty }}{{ poKeyed(p.po) ? ' · เคยรับแล้วบางส่วน' : '' }}</option></datalist></div>
       <div class="f"><label>P/N (สินค้า)</label>
         <input v-model.trim="inH.pn" list="pnlist" placeholder="2877669000" style="width:150px" class="mono">
         <datalist id="pnlist"><option v-for="p in bomPns" :key="p" :value="p"></option></datalist></div>
@@ -198,6 +512,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
         <thead><tr>
           <th style="width:34px"></th><th style="width:112px">รหัส</th><th>คำอธิบาย</th>
           <th style="width:52px">หน่วย</th><th style="width:104px" class="num">Reqmt (สูตร)</th>
+          <th style="width:96px" class="num">รับแล้ว</th>
           <th style="width:104px" class="num">Issue (Delta)</th><th style="width:104px" class="num">นับจริง</th>
           <th style="width:132px">วันหมดอายุ</th><th style="width:130px">หมายเหตุ</th><th style="width:34px"></th>
         </tr></thead>
@@ -208,6 +523,9 @@ td input{width:100%;padding:3px 6px;font-size:12px}
             <td class="hint" :title="l.desc">{{ l.desc || '—' }}</td>
             <td class="hint">{{ l.unit }}</td>
             <td class="num mono hint">{{ l.reqmt===null ? '—' : fmt(l.reqmt) }}<span v-if="l.varies" class="tag bad" title="P/N นี้ใช้ปริมาณไม่คงที่ในแต่ละ PO">?</span></td>
+            <td class="num mono hint" :title="l.recvInfo">
+              <span v-if="l.recv" class="tag ok">{{ fmt(l.recv) }}</span><span v-else>—</span>
+            </td>
             <td><input v-model.number="l.issued" type="number" step="any" class="mono num"></td>
             <td><input v-model.number="l.qty" type="number" step="any" class="mono num"
                        :ref="el=>{ if(el) qtyRefs[i]=el }" @keydown.enter.prevent="nextQty(i)"></td>
@@ -233,7 +551,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <h3>รับเข้ารวมรายสัปดาห์ — Tube / Chemical / Copper foil / Solder</h3>
     <p class="hint">
       ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ<br>
-      <b>ถ้ามีไฟล์ Excel ของ Kit List</b> ให้นำเข้าด้านล่าง ระบบกางรายการ + เติม P/N และยอด 541 ให้ครบ
+      <b>ถ้ามีไฟล์ Excel ของ Kit List</b> ให้นำเข้าที่แท็บ "นำเข้าไฟล์" ระบบกางรายการ + เติม P/N และยอด 541 ให้ครบ
       เหลือคีย์แค่ช่องนับจริง · ถ้ามีแต่ PDF ให้คีย์มือกระจายตาม PO แล้วกรอกยอดรวมจากแถว
       <code>Total</code> ให้ระบบเทียบ — กันคีย์ตกบรรทัด
     </p>
@@ -254,85 +572,17 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     </div>
   </div>
 
-  <!-- ── นำเข้าไฟล์ Kit List กลุ่มจ่ายรวม ── -->
-  <div class="card">
-    <h3>นำเข้าไฟล์ Kit List (Excel) — กลุ่มจ่ายรวม</h3>
-    <p class="hint" style="margin-top:0">
-      ไฟล์ที่ Delta ส่งมา เช่น <code>4020600700-4020241300.xlsx</code> ·
-      อ่านทุกชีตที่มองเห็น · ชีตเดียวมีหลายรหัสได้ · <b>รวมยอด PO+รหัสที่ซ้ำให้อัตโนมัติ</b> ·
-      เทียบยอดรวมกับแถว Total ในเอกสารให้ด้วย
-    </p>
-    <input type="file" accept=".xls,.xlsx" @change="onChemFile">
-    <span class="hint" v-if="chemKits.length" style="margin-left:12px">
-      มีอยู่แล้ว {{ chemKits.length.toLocaleString() }} บรรทัด
-      <template v-if="chemDates.length"> · ล่าสุด {{ chemDates[0] }}
-        <button class="btn sm" style="margin-left:6px" @click="loadChem(chemDates[0])">กางรายการวันนี้</button>
+  <!-- ── Kit List กลุ่มจ่ายรวม — นำเข้าจริงย้ายไปแท็บ "นำเข้าไฟล์" แล้ว ── -->
+  <div class="card" v-if="chemKits.length || chemImp">
+    <h3>Kit List กลุ่มจ่ายรวม</h3>
+    <p class="hint" style="margin-top:0">มีอยู่แล้ว {{ chemKits.length.toLocaleString() }} บรรทัด</p>
+    <div class="row">
+      <template v-if="chemDates.length">
+        <span class="hint">ล่าสุด {{ chemDates[0] }}</span>
+        <button class="btn sm" @click="loadChem(chemDates[0])">กางรายการวันนี้</button>
       </template>
-    </span>
-
-    <div v-if="chemImp" style="margin-top:14px">
-      <div class="msg ok">
-        อ่าน <b>{{ chemImp.fileName }}</b> ได้ <b>{{ chemImp.rawLines }}</b> บรรทัด →
-        <b>{{ chemImp.rows.length }}</b> รายการ · {{ chemImp.codes.length }} รหัส ·
-        {{ chemImp.pos.length }} PO · ลงวันที่ {{ chemImp.docDate || '—' }}<br>
-        <span class="hint">
-          ชีตที่อ่าน: {{ chemImp.sheets.map(s => s.name.trim() + ' (' + s.rows + ')').join(' · ') }}
-          <template v-if="chemImp.skipped.length">
-            · ข้าม: {{ chemImp.skipped.map(s => s.name.trim() + ' — ' + s.why).join(' · ') }}</template>
-        </span>
-      </div>
-
-      <!-- เทียบยอดรวมกับแถว Total ในเอกสาร -->
-      <table style="max-width:760px;margin-bottom:12px">
-        <thead><tr><th>ชีต</th><th style="width:120px">รหัส</th><th class="num" style="width:80px">บรรทัด</th>
-          <th class="num" style="width:110px">ผลบวก 541</th><th class="num" style="width:120px">แถว Total</th>
-          <th style="width:70px">ผล</th></tr></thead>
-        <tbody><tr v-for="(b,i) in chemImp.blocks" :key="i" :class="{bad:b.match===false}">
-          <td class="hint">{{ b.sheet.trim() }}</td><td class="mono">{{ b.code }}</td>
-          <td class="num mono">{{ b.lines }}</td><td class="num mono">{{ fmt(b.calc) }}</td>
-          <td class="num mono">{{ b.docTotal === null ? '—' : fmt(b.docTotal) }}</td>
-          <td><span v-if="b.match===true" class="tag ok">ตรง</span>
-              <span v-else-if="b.match===false" class="tag bad">ต่าง {{ fmt(round5(b.docTotal-b.calc)) }}</span>
-              <span v-else class="hint">ไม่มีแถวรวม</span></td>
-        </tr></tbody>
-      </table>
-
-      <div class="msg warn" v-if="chemImp.merged.length">
-        <b>รวมยอดให้แล้ว {{ chemImp.merged.length }} รายการ</b> — PO เดียวกันระบุรหัสเดียวกันหลายบรรทัด<br>
-        <span class="hint">{{ chemImp.merged.slice(0,3).map(m => m.po + '/' + m.code + ' ' + m.n + ' บรรทัด → ' + m.issue).join(' · ') }}</span>
-      </div>
-      <div class="msg bad" v-if="chemImp.gaps.length">
-        <b>เลข Item กระโดด — บรรทัดอาจหายตอน export</b><br>
-        <span v-for="(g,i) in chemImp.gaps" :key="i">
-          {{ g.sheet.trim() }} รหัส {{ g.code }}: หลังข้อ {{ g.after }} หายข้อ {{ g.missing.join(', ') }}<br></span>
-        <span class="hint">ควรขอไฟล์ใหม่จาก Delta ก่อนนำเข้า</span>
-      </div>
-      <div class="msg warn" v-if="chemImp.claim.length">
-        <b>Req ≠ 541 อยู่ {{ chemImp.claim.length }} รายการ</b> — จ่ายไม่ตรงยอดที่ขอ (เข้าคิวเคลม)<br>
-        <span class="hint">{{ chemImp.claim.slice(0,4).map(r => r.po + '/' + r.code + ' ' + r.req + '→' + r.issue).join(' · ') }}</span>
-      </div>
-      <div class="msg warn" v-if="chemImp.offBom.length">
-        <b>ต่างจาก BOM เกิน 10% อยู่ {{ chemImp.offBom.length }} รายการ</b> — อาจเป็นการทยอยจ่าย หรือยอดผิด<br>
-        <span class="hint">{{ chemImp.offBom.slice(0,4).map(r => r.po + '/' + r.code + ' ' + (r.req===null?r.issue:r.req) + ' vs BOM ' + r.bomQty + ' (' + (r.pct>0?'+':'') + r.pct + '%)').join(' · ') }}</span>
-      </div>
-      <div class="msg warn" v-if="chemImp.noBom.length">
-        เทียบ BOM ไม่ได้ <b>{{ chemImp.noBom.length }}</b> รายการ — ยังไม่มี BOM ของ P/N นั้น
-      </div>
-      <div class="msg warn" v-if="chemImp.codeNew.length">
-        รหัสที่ไม่มีในทะเบียนที่ใช้งานอยู่ <b>{{ chemImp.codeNew.length }}</b> ตัว:
-        {{ chemImp.codeNew.join(', ') }}
-        <br><span class="hint">เพิ่มในโปรแกรมทะเบียนวัตถุดิบก่อน ไม่งั้นจะไม่รู้หน่วยและคำอธิบาย</span>
-      </div>
-      <div class="msg warn" v-if="chemImp.noPo.length">
-        มี <b>{{ chemImp.noPo.length }}</b> PO ที่ยังไม่มีในรายการ PO — ใช้ P/N และยอดสั่งจากไฟล์ Kit List แทน
-      </div>
-
-      <div class="row">
-        <button class="btn primary" @click="applyChemImport" :disabled="!chemImp.fresh.length">
-          ยืนยันนำเข้า {{ chemImp.fresh.length }} รายการ แล้วกางลงตาราง</button>
-        <span v-if="chemImp.dup" class="hint">ข้ามที่นำเข้าไปแล้ว {{ chemImp.dup }} รายการ</span>
-        <button class="btn" @click="chemImp=null">ยกเลิก</button>
-      </div>
+      <div class="grow"></div>
+      <button class="btn" @click="tab='imp'">นำเข้าไฟล์ใหม่ → ไปแท็บ "นำเข้าไฟล์"</button>
     </div>
   </div>
 
@@ -395,7 +645,8 @@ td input{width:100%;padding:3px 6px;font-size:12px}
         ช่อง PO พื้นเหลือง = ไม่พบใน<b>รายการ PO</b> (ยังบันทึกได้) ·
         <b>%ต่าง</b> เป็นสัญญาณเตือนเท่านั้น ไม่ใช่คำตัดสิน — BOM บางตัวปัดเศษหรือเป็นการทยอยจ่าย
       </p>
-      <button class="btn" @click="wkLines.forEach(l => { if (l.qty===null||l.qty==='') l.qty = l.s41 })">
+      <button class="btn" @click="wkLines.forEach(l => { if (l.qty===null||l.qty==='') l.qty = l.s41 })"
+              title="ใช้เมื่อนับของครบแล้วตรงกับเอกสารทุกบรรทัด — ถ้ากดทั้งที่ยังไม่ได้นับ คิวเคลมจะไม่จับส่วนต่างให้">
         เติมนับจริง = 541 (เฉพาะช่องที่ยังว่าง)</button>
     </div>
   </div>
@@ -484,8 +735,44 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
       <div class="hint">คงเหลือปัจจุบัน</div>
       <div class="mono" style="font-size:17px">{{ out.code ? fmt(outBal) : '—' }}</div>
+
+      <!-- ── ของเกิน BOM ── -->
+      <template v-if="out.code && outOver">
+        <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+        <table style="font-size:12px">
+          <tbody>
+            <tr><td class="hint" style="padding:3px 0">ต้องใช้ตามสูตร (BOM × ยอดสั่ง)</td>
+                <td class="num mono">{{ fmt(outOver.bomQty) }}</td></tr>
+            <tr><td class="hint" style="padding:3px 0">จ่ายออกไปแล้ว</td>
+                <td class="num mono">{{ fmt(outOver.out) }}</td></tr>
+            <tr><td class="hint" style="padding:3px 0">กันไว้ให้ PO ที่ยังจ่ายไม่ครบ</td>
+                <td class="num mono">{{ fmt(outOver.reserved) }}</td></tr>
+            <tr style="border-top:1px solid var(--line)">
+                <td style="padding:6px 0"><b>ของเกิน BOM ที่ Delta ให้มา</b></td>
+                <td class="num mono"><b :style="{color: outOver.over > 0 ? 'var(--ok)' : 'var(--muted)'}">
+                  {{ (outOver.over > 0 ? '+' : '') + fmt(outOver.over) }}</b></td></tr>
+          </tbody>
+        </table>
+        <div class="hint" style="margin-top:10px">เบิกได้อีกก่อนกินของที่กันไว้</div>
+        <div class="mono" style="font-size:19px"
+             :style="{color: outFree < 0 ? 'var(--bad)' : 'var(--ok)'}">
+          {{ (outFree > 0 ? '+' : '') + fmt(outFree) }}</div>
+        <div class="hint" v-if="!outOver.exact" style="margin-top:8px;color:var(--warn)">
+          ⚠️ คำนวณไม่ครบ — ไม่มี BOM {{ outOver.noBom }} · ไม่รู้ยอดสั่ง {{ outOver.noOrder }} บรรทัด
+          ตัวเลขนี้ต่ำกว่าความจริง
+        </div>
+      </template>
+
       <div class="msg bad" v-if="out.code && outAfter<0" style="margin-top:12px">
         ยอดจะติดลบ — ตรวจว่าคีย์รับเข้าครบหรือยัง
+      </div>
+      <div class="msg bad" v-else-if="out.code && outOver && outFree < 0" style="margin-top:12px">
+        <b>เบิกกินของที่กันไว้แล้ว {{ fmt(-outFree) }} {{ outUnit }}</b><br>
+        PO ที่รับของมาแล้วแต่ยังจ่ายไม่ครบตามสูตร จะมีของไม่พอ — ยังบันทึกได้ แต่ควรตรวจก่อน
+      </div>
+      <div class="msg warn" v-else-if="out.code && outOver && +out.qty > 0 && outFree - (+out.qty) < 0"
+           style="margin-top:12px">
+        <b>ถ้าเบิกจำนวนนี้จะเริ่มกินของที่กันไว้</b> — เกินไป {{ fmt(+out.qty - outFree) }} {{ outUnit }}
       </div>
     </div>
   </div>
@@ -517,6 +804,9 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       <div class="f" style="flex:1"><label>เลือกรหัสวัตถุดิบ</label>
         <input v-model.trim="cardCode" list="codelist" class="mono" placeholder="พิมพ์รหัสหรือคำอธิบาย"></div>
       <div class="f"><label>&nbsp;</label><span class="hint">{{ descOf(cardCode) || '—' }}</span></div>
+      <div class="grow"></div>
+      <div class="f"><label>&nbsp;</label>
+        <button class="btn primary" @click="exportCard" :disabled="!cardRows.filter(r=>!r.voided).length">เซฟเป็น Excel</button></div>
     </div>
   </div>
   <div class="card" v-if="cardRows.length">
@@ -524,6 +814,18 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <div class="hint" style="margin-bottom:10px">
       Store Location {{ entInfo.store_location || '—' }} · Subcontract Name {{ entity }} ·
       คงเหลือปัจจุบัน <b class="mono">{{ fmt(balOf(cardCode)) }} {{ unitOf(cardCode) }}</b>
+    </div>
+    <div class="msg" v-if="cardOver"
+         :class="cardOver.free < 0 ? 'bad' : (cardOver.over > 0 ? 'ok' : 'warn')"
+         style="margin-bottom:12px">
+      <b>รับเข้าสะสม {{ fmt(cardOver.inQty) }}</b> ·
+      จ่ายออกแล้ว {{ fmt(cardOver.out) }} ·
+      ต้องใช้ตามสูตร <b>{{ fmt(cardOver.bomQty) }}</b> ·
+      <b>ของเกิน BOM {{ (cardOver.over > 0 ? '+' : '') + fmt(cardOver.over) }}</b> ·
+      กันไว้ {{ fmt(cardOver.reserved) }} ·
+      <b>เบิกได้อีก {{ fmt(cardOver.free) }} {{ unitOf(cardCode) }}</b>
+      <span v-if="!cardOver.exact"><br><span class="hint">
+        ⚠️ คำนวณไม่ครบ — ไม่มี BOM {{ cardOver.noBom }} · ไม่รู้ยอดสั่ง {{ cardOver.noOrder }} บรรทัด</span></span>
     </div>
     <div class="scroll">
       <table>
@@ -555,8 +857,8 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
-      1 หน้าของ Bin Card จริงใส่ได้ 18 บรรทัด — การ์ดใบนี้จะกลายเป็น
-      <b>{{ Math.max(1, Math.ceil(cardRows.filter(r=>!r.voided).length/18)) }} หน้า</b> ตอนออกไฟล์ใน Phase 3
+      กด "เซฟเป็น Excel" ด้านบนเพื่อออกการ์ดใบนี้เป็นไฟล์ .xlsx ใบเดียว —
+      รายการทั้ง <b>{{ cardRows.filter(r=>!r.voided).length }} บรรทัด</b> เรียงต่อเนื่องในชีตเดียว ไม่ตัดหน้า 18 บรรทัด
     </p>
   </div>
   <div class="card" v-else-if="cardCode"><p class="hint">ยังไม่มีรายการเคลื่อนไหวของรหัสนี้ในนิติบุคคล {{ entity }}</p></div>
@@ -565,83 +867,9 @@ td input{width:100%;padding:3px 6px;font-size:12px}
 <!-- ════════ รายการ PO ════════ -->
 <main v-if="tab==='po'">
   <div class="card">
-    <h3>นำเข้าไฟล์ PO รายวัน</h3>
-    <p class="hint">ไฟล์จาก PC ของ Delta เช่น <b>PO 3M5 ON 28-29 JULY 2026.xlsx</b> —
-      นำเข้าแล้วหน้าคีย์รับเข้าจะเลือก PO จากรายการได้เลย ไม่ต้องพิมพ์ P/N กับจำนวนสั่งเอง</p>
-    <p><input type="file" accept=".xlsx" @change="onPoImport"></p>
-
-    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
-    <h3>นำเข้า Kit List (ยอดที่ Delta จ่ายจริง)</h3>
-    <p class="hint">ไฟล์ <b>MATERIAL ISSUE PO SUBCONTRACT</b> เช่น <b>22-H.xls</b> —
-      นำเข้าแล้วหน้าคีย์รับเข้าจะ<b>เติมช่อง Issue ให้อัตโนมัติ</b> เหลือคีย์แค่ยอดนับจริง</p>
-    <p><input type="file" accept=".xls,.xlsx" @change="onKitFile"></p>
-
-    <div v-if="kitImp" style="margin-top:12px">
-      <div class="msg ok">
-        อ่าน <b>{{ kitImp.fileName }}</b> ได้ <b>{{ kitImp.rawLines }}</b> บรรทัด ·
-        {{ kitImp.pos.length }} PO · ลงวันที่ {{ kitImp.docDate || '—' }}
-        <span v-if="kitImp.group"> · กลุ่ม {{ kitImp.group }}</span><br>
-        <span class="hint">ข้ามหัวตารางที่พิมพ์ซ้ำ {{ kitImp.headers }} ครั้ง และแถวรวมย่อย {{ kitImp.subtotals }} แถว</span>
-      </div>
-      <div class="msg warn" v-if="kitImp.merged.length">
-        <b>รวมยอดให้แล้ว {{ kitImp.merged.length }} รายการ</b> — PO เดียวกันระบุรหัสเดียวกันหลายบรรทัด
-        (คนละขั้นตอนการผลิต) เช่น
-        {{ kitImp.merged.slice(0,2).map(m => m.code + ' (' + m.n + ' บรรทัด → ' + m.issue + ')').join(' · ') }}
-      </div>
-      <div class="msg warn" v-if="kitImp.codeNew.length">
-        พบรหัสที่ไม่มีในรายการวัตถุดิบที่ใช้งานอยู่ <b>{{ kitImp.codeNew.length }}</b> ตัว:
-        {{ kitImp.codeNew.slice(0,6).join(', ') }}{{ kitImp.codeNew.length>6 ? ' ...' : '' }}<br>
-        <span class="hint">นำเข้าได้ตามปกติ — ไปเพิ่มหรือตั้ง active ในโปรแกรมทะเบียนวัตถุดิบแล้วโหลดใหม่</span>
-      </div>
-      <div class="msg warn" v-if="kitImp.noPo.length">
-        มี <b>{{ kitImp.noPo.length }}</b> PO ที่ยังไม่มีในรายการ PO —
-        นำเข้าไฟล์ PO รายวันเพิ่มจะเลือกจากรายการได้สะดวกกว่า
-      </div>
-      <p style="margin-top:10px">
-        <button class="btn primary" @click="applyKitImport" :disabled="!kitImp.fresh.length">
-          ยืนยันนำเข้า {{ kitImp.fresh.length }} รายการ</button>
-        <span v-if="kitImp.dup" class="hint" style="margin-left:10px">ข้ามที่ซ้ำ {{ kitImp.dup }} รายการ</span>
-        <button class="btn" style="margin-left:8px" @click="kitImp=null">ยกเลิก</button>
-      </p>
-    </div>
-
-    <p class="hint" v-if="kits.length" style="margin-top:10px">
-      ตอนนี้มี Kit List อยู่ <b>{{ kits.length.toLocaleString() }}</b> บรรทัด ครอบคลุม <b>{{ kitPos.size }}</b> PO
-    </p>
-  </div>
-
-  <div class="card" v-if="poImp">
-    <div style="margin-top:0">
-      <div class="msg ok">
-        อ่าน <b>{{ poImp.fileName }}</b> ได้ {{ poImp.pos.length }} รายการ PO
-        <span v-if="poImp.dates.length">· วันที่ {{ poImp.dates.join(' และ ') }}</span>
-      </div>
-      <div class="msg bad" v-if="poImp.pnNoBom.length">
-        <b>พบ P/N ใหม่ที่ยังไม่มี BOM {{ poImp.pnNoBom.length }} รายการ</b> —
-        {{ poImp.pnNoBom.join(', ') }}<br>
-        ต้องขอ BOM จาก Delta แล้วเพิ่มเข้าระบบก่อน ไม่งั้นหน้าคีย์รับเข้าจะกางรายการวัตถุดิบให้ไม่ได้
-      </div>
-      <div class="msg warn" v-if="poImp.codeNew.length">
-        พบรหัสวัตถุดิบในหมายเหตุที่ยังไม่มีในทะเบียน: <b>{{ poImp.codeNew.join(', ') }}</b> —
-        ไปเพิ่มในโปรแกรมทะเบียนวัตถุดิบก่อน
-      </div>
-      <table class="plain" style="max-width:620px">
-        <thead><tr><th style="width:44px">รับ</th><th>สิ่งที่จะเพิ่ม</th><th style="width:80px" class="num">จำนวน</th></tr></thead>
-        <tbody>
-          <tr><td><input type="checkbox" v-model="poOpt.pos" :disabled="!poImp.newPos.length"></td>
-            <td><b>รายการ PO</b>
-              <span class="hint" v-if="poImp.dupPos"> · ข้ามที่ซ้ำ {{ poImp.dupPos }} รายการ</span></td>
-            <td class="num mono">{{ poImp.newPos.length }}</td></tr>
-          <tr><td><input type="checkbox" v-model="poOpt.shorts" :disabled="!poImp.newSh.length"></td>
-            <td><b>รายการของขาด / รอส่ง</b><br><span class="hint">แกะจากหมายเหตุเป็นฟิลด์ให้แล้ว</span></td>
-            <td class="num mono">{{ poImp.newSh.length }}</td></tr>
-        </tbody>
-      </table>
-      <p style="margin-top:12px">
-        <button class="btn primary" @click="applyPoImport">ยืนยันนำเข้า</button>
-        <button class="btn" style="margin-left:8px" @click="poImp=null">ยกเลิก</button>
-      </p>
-    </div>
+    <p class="hint">นำเข้าไฟล์ PO รายวันหรือ Kit List เพิ่มได้ที่แท็บ <b>"นำเข้าไฟล์"</b></p>
+    <p class="hint" v-if="kits.length">ตอนนี้มี Kit List อยู่ <b>{{ kits.length.toLocaleString() }}</b> บรรทัด ครอบคลุม <b>{{ kitPos.size }}</b> PO</p>
+    <button class="btn" @click="tab='imp'">ไปแท็บ "นำเข้าไฟล์"</button>
   </div>
 
   <div class="card" v-if="poList.length">
@@ -747,13 +975,13 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <h3>ออก Bin Card เป็น Excel — {{ entity }}</h3>
     <p class="hint">
       ใช้ layout เดียวกับไฟล์เดิมทุกจุด (ฟอนต์ Tahoma · สีหัวตาราง · เส้นตาราง · แนวนอน A4 ย่อ 71%)
-      · หน้าละ 18 บรรทัด เกินแล้วขึ้นหน้าใหม่ให้เอง · แยกไฟล์ตามชนิดวัสดุแล้วบีบเป็น zip ไฟล์เดียว
+      · 1 รหัส = 1 ชีต รายการเรียงต่อเนื่องยาวไปเรื่อย ๆ ไม่ตัดหน้า 18 บรรทัดแล้ว · แยกไฟล์ตามชนิดวัสดุแล้วบีบเป็น zip ไฟล์เดียว
     </p>
     <div class="row" style="margin:14px 0">
       <div class="card" style="margin:0;padding:10px 16px;background:var(--soft);border:0">
         <div class="hint">จะได้ทั้งหมด</div>
         <div class="bignum" style="color:var(--brand)">{{ cardPlan.cards.toLocaleString() }}</div>
-        <div class="hint">การ์ด · {{ cardPlan.pages.toLocaleString() }} หน้า · {{ cardPlan.groups.length }} ไฟล์</div>
+        <div class="hint">การ์ด · {{ cardPlan.lines.toLocaleString() }} บรรทัด · {{ cardPlan.groups.length }} ไฟล์</div>
       </div>
       <div style="flex:1"></div>
       <button class="btn primary" style="padding:14px 26px;font-size:15px"
@@ -772,20 +1000,114 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <h3>แยกตามชนิดวัสดุ</h3>
     <table style="max-width:560px">
       <thead><tr><th>ไฟล์</th><th class="num" style="width:100px">การ์ด</th>
-        <th class="num" style="width:100px">หน้า</th><th class="num" style="width:120px">บรรทัด</th></tr></thead>
+        <th class="num" style="width:120px">บรรทัด</th></tr></thead>
       <tbody>
         <tr v-for="g in cardPlan.groups" :key="g.cat">
           <td class="mono">{{ g.cat }}.xlsx</td>
           <td class="num mono">{{ g.cards.toLocaleString() }}</td>
-          <td class="num mono">{{ g.pages.toLocaleString() }}</td>
           <td class="num mono">{{ g.lines.toLocaleString() }}</td>
         </tr>
       </tbody>
     </table>
     <p class="hint" style="margin-top:10px">
-      การ์ดที่เกิน 18 บรรทัดจะถูกแบ่งเป็นหลายชีต ตั้งชื่อ <b>รหัส-1</b>, <b>รหัส-2</b>
-      และเขียนเลขหน้าไว้ในช่อง No. Doc ให้ด้วย
+      1 รหัสวัตถุดิบ = 1 ชีตเสมอ ไม่ว่าจะมีกี่บรรทัด — ตารางเปล่าขั้นต่ำ 18 แถวเท่าฟอร์มเดิม
+      ยาวกว่านั้นก็แค่ต่อแถวลงไปเรื่อย ๆ ในชีตเดียวกัน
     </p>
+  </div>
+</main>
+
+<!-- ════════ ของเกิน BOM ════════ -->
+<main v-if="tab==='over'">
+  <div class="card">
+    <h3>ของเกิน BOM — {{ entity }}</h3>
+    <p class="hint" style="margin-top:0">
+      <code>ของเกิน = Σ Req Qty (ที่ Delta ระบุในเอกสาร) − Σ (BOM usage × ยอดสั่งของ PO นั้น)</code><br>
+      ตอบคำถามว่า <b>Delta ให้ของมามากกว่าที่สูตรต้องใช้เท่าไหร่</b> ·
+      ส่วน <b>เบิกได้อีก</b> คือคงเหลือ ลบด้วยยอดที่ต้องกันไว้ให้ PO ที่รับของมาแล้วแต่ยังจ่ายไม่ครบ<br>
+      <b style="color:var(--bad)">แถวสีแดง = เบิกกินของที่กันไว้ไปแล้ว</b> — PO ที่ค้างอยู่จะมีของไม่พอ
+    </p>
+    <div class="row">
+      <input v-model.trim="overQ" placeholder="ค้นหารหัสหรือคำอธิบาย"
+             style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;width:260px">
+      <label class="chk" style="display:flex;align-items:center;gap:6px;font-size:13px">
+        <input type="checkbox" v-model="overOnlyIssue"> แสดงเฉพาะที่ต้องดู (เบิกเกิน หรือ คำนวณไม่ครบ)</label>
+      <div class="grow"></div>
+      <span class="hint">{{ overShown.length }} รหัส</span>
+      <button class="btn" @click="exportOver" :disabled="!overShown.length">ส่งออก .xlsx</button>
+    </div>
+  </div>
+
+  <div class="card" v-if="overShown.length">
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th style="width:34px"></th><th style="width:118px">รหัส</th><th>คำอธิบาย</th>
+          <th class="num" style="width:96px">รับเข้า</th>
+          <th class="num" style="width:96px">จ่ายออก</th>
+          <th class="num" style="width:96px">คงเหลือ</th>
+          <th class="num" style="width:104px">ตามสูตร BOM</th>
+          <th class="num" style="width:104px">ของเกิน BOM</th>
+          <th class="num" style="width:96px">กันไว้</th>
+          <th class="num" style="width:104px">เบิกได้อีก</th>
+          <th style="width:52px">หน่วย</th><th style="width:120px">สถานะ</th>
+        </tr></thead>
+        <tbody>
+          <template v-for="r in overShown" :key="r.code">
+            <tr :class="{bad: r.free < 0}">
+              <td><button class="btn sm" @click="overOpen = overOpen===r.code ? '' : r.code"
+                          :title="'ดูรายบรรทัด ' + r.lines.length + ' รายการ'">
+                {{ overOpen===r.code ? '−' : '+' }}</button></td>
+              <td class="mono">{{ r.code }}</td>
+              <td class="hint">{{ descOf(r.code) }}</td>
+              <td class="num mono">{{ fmt(r.inQty) }}</td>
+              <td class="num mono">{{ fmt(r.out) }}</td>
+              <td class="num mono">{{ fmt(r.bal) }}</td>
+              <td class="num mono">{{ fmt(r.bomQty) }}</td>
+              <td class="num mono"><b :style="{color: r.over > 0 ? 'var(--ok)' : (r.over < 0 ? 'var(--warn)' : '')}">
+                {{ (r.over > 0 ? '+' : '') + fmt(r.over) }}</b></td>
+              <td class="num mono">{{ fmt(r.reserved) }}</td>
+              <td class="num mono"><b :style="{color: r.free < 0 ? 'var(--bad)' : ''}">{{ fmt(r.free) }}</b></td>
+              <td class="hint">{{ unitOf(r.code) }}</td>
+              <td>
+                <span v-if="r.free < 0" class="tag bad">เบิกเกิน</span>
+                <span v-else-if="!r.exact" class="tag warn">คำนวณไม่ครบ</span>
+                <span v-else-if="r.over > 0" class="tag ok">มีของเกิน</span>
+                <span v-else class="hint">พอดี</span>
+              </td>
+            </tr>
+            <tr v-if="overOpen===r.code">
+              <td colspan="12" style="background:#f7f9fc;padding:10px 14px">
+                <div class="hint" style="margin-bottom:6px" v-if="!r.exact">
+                  ⚠️ ไม่มี BOM {{ r.noBom }} บรรทัด · ไม่รู้ยอดสั่ง {{ r.noOrder }} บรรทัด —
+                  บรรทัดเหล่านั้นไม่ถูกนับเข้ายอด "ตามสูตร BOM" ทำให้ของเกินดูสูงกว่าความจริง
+                </div>
+                <table style="background:#fff">
+                  <thead><tr><th style="width:100px">วันที่</th><th style="width:120px">PO</th>
+                    <th style="width:110px">P/N</th><th class="num" style="width:90px">ยอดสั่ง</th>
+                    <th class="num" style="width:90px">Req</th><th class="num" style="width:90px">541</th>
+                    <th class="num" style="width:90px">นับจริง</th>
+                    <th class="num" style="width:100px">ตามสูตร</th>
+                    <th class="num" style="width:100px">ของเกิน</th></tr></thead>
+                  <tbody><tr v-for="l in r.lines" :key="l.id">
+                    <td class="mono">{{ l.date }}</td><td class="mono">{{ l.po || '—' }}</td>
+                    <td class="mono">{{ l.pn || '—' }}</td>
+                    <td class="num mono" :class="{bad: l.order===null}">{{ l.order === null ? 'ไม่รู้' : fmt(l.order) }}</td>
+                    <td class="num mono">{{ l.req === null ? '—' : fmt(l.req) }}</td>
+                    <td class="num mono">{{ l.issued === null ? '—' : fmt(l.issued) }}</td>
+                    <td class="num mono">{{ fmt(l.qty) }}</td>
+                    <td class="num mono" :class="{bad: l.bomQty===null}">{{ l.bomQty === null ? 'ไม่มี BOM' : fmt(l.bomQty) }}</td>
+                    <td class="num mono"><b>{{ l.over === null ? '—' : (l.over > 0 ? '+' : '') + fmt(l.over) }}</b></td>
+                  </tr></tbody>
+                </table>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card" v-else>
+    <p class="hint" style="margin:0">ยังไม่มีรายการรับเข้าของนิติบุคคลนี้ — หรือกรองจนไม่เหลือ</p>
   </div>
 </main>
 
@@ -794,6 +1116,14 @@ td input{width:100%;padding:3px 6px;font-size:12px}
   <div class="msg" :class="claims.length?'bad':'ok'">
     <span v-if="claims.length"><b>{{ claims.length }} รายการ</b> ที่ยอดนับจริงไม่ตรงกับที่ Delta แจ้งใน Issue — ควรแจ้ง Delta</span>
     <span v-else>ยอดนับจริงตรงกับที่ Delta แจ้งทุกรายการ</span>
+  </div>
+  <div class="msg" style="background:#f4f6f9;color:var(--muted);border:1px solid var(--line)">
+    <b>หน้านี้นับจากอะไร:</b> <code>ยอดนับจริง ≠ 541/Issue</code> —
+    คือ<b>เรานับของแล้วได้ไม่เท่ากับที่ Delta เขียนมาในใบ</b> จึงมีเรื่องต้องเคลม<br>
+    ถ้าตอนคีย์กด <b>"เติมนับจริง = 541"</b> ทุกบรรทัด หน้านี้จะว่างเสมอ เพราะสองค่าเท่ากันพอดี —
+    ต้องคีย์ยอดที่นับได้จริงถึงจะจับส่วนต่างได้<br>
+    <span style="color:var(--warn)">คนละเรื่องกับ <b>Req ≠ 541</b> ที่เตือนตอนนำเข้า Kit List</span> —
+    อันนั้นคือ Delta จ่ายไม่ตรงสูตร (ปกติเป็นการทยอยจ่ายข้ามรอบ) ไม่ใช่เรื่องที่ต้องเคลม
   </div>
   <div class="card" v-if="claims.length">
     <table>
@@ -978,11 +1308,14 @@ td input{width:100%;padding:3px 6px;font-size:12px}
 // merged cell ความกว้างคอลัมน์ การตั้งค่าหน้ากระดาษ) จึงได้หน้าตาเหมือนเดิมทุกจุด
 const BINCARD_TPL = {"style":{"B2":{"f":["Tahoma",24.0,1]},"C2":{"f":["Tahoma",24.0,1]},"D2":{"f":["Tahoma",24.0,1]},"B8":{"a":["center","",0]},"C8":{"a":["center","",0]},"D8":{"a":["center","",0]},"E8":{"a":["center","",0]},"F8":{"a":["center","",0]},"G8":{"a":["center","",0]},"H8":{"a":["center","",0]},"I8":{"a":["center","",0]},"J8":{"a":["center","",0]},"K8":{"a":["center","",0]},"L8":{"a":["center","",0]},"M8":{"a":["center","",0]},"N8":{"a":["center","",0]},"O8":{"a":["center","",0]},"P8":{"a":["center","",0]},"B9":{"f":["Tahoma",11.0,1],"b":"t-tt","a":["center","center",0],"fill":"FF00B0F0"},"C9":{"f":["Tahoma",8.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"D9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"E9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","",0],"fill":"FF00B0F0"},"F9":{"b":"--tt"},"G9":{"b":"--tt"},"H9":{"b":"-ttt"},"I9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","",0],"fill":"FF00B0F0"},"J9":{"b":"--tt"},"K9":{"b":"-ttt"},"L9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"M9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"N9":{"f":["Tahoma",9.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"O9":{"f":["Tahoma",9.0,1],"b":"tttt","a":["center","center",1],"fill":"FF00B0F0"},"P9":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"B10":{"b":"t--t"},"C10":{"b":"tt-t"},"D10":{"b":"tt-t"},"E10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"F10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"G10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"H10":{"f":["Tahoma",11.0,1],"b":"ttt-","a":["center","center",0],"fill":"FF00B0F0"},"I10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"J10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"K10":{"f":["Tahoma",11.0,1],"b":"tttt","a":["center","center",0],"fill":"FF00B0F0"},"L10":{"b":"tt-t"},"M10":{"b":"tt-t"},"N10":{"b":"tt-t"},"O10":{"b":"tt-t"},"P10":{"b":"tt-t"},"B11":{"b":"t--t","a":["center","",0]},"C11":{"b":"t--t","a":["center","",0]},"D11":{"b":"tttt","a":["center","",0]},"E11":{"b":"-ttt","a":["center","",0]},"F11":{"b":"tttt","a":["center","",0]},"G11":{"b":"tttt","a":["center","",0]},"H11":{"b":"tttt","a":["center","",0]},"I11":{"b":"tttt","a":["center","",0]},"J11":{"b":"tttt","a":["center","",0]},"K11":{"b":"tttt","a":["center","",0]},"L11":{"b":"tttt","a":["center","",0]},"M11":{"b":"-t-t","a":["center","",0]},"N11":{"b":"tt-t","a":["center","",0]},"O11":{"b":"tt-t","a":["center","",0]},"P11":{"b":"tt-t","a":["left","",0]},"B12":{"b":"tttt","a":["center","",0]},"D12":{"b":"tttt","a":["center","",0]},"E12":{"b":"-t-t","a":["center","",0]},"F12":{"b":"tt-t","a":["center","",0]},"G12":{"b":"tt-t","a":["center","",0]},"H12":{"b":"tt-t","a":["center","",0]},"I12":{"b":"tt-t","a":["center","",0]},"J12":{"b":"tt-t","a":["center","",0]},"K12":{"b":"tt-t","a":["center","",0]},"L12":{"b":"tttt","a":["center","",0]},"M12":{"b":"-t-t","a":["center","",0]},"N12":{"b":"tt-t","a":["center","",0]},"O12":{"b":"tttt","a":["center","",0]},"P12":{"b":"tttt","a":["left","",0]},"B13":{"b":"tttt","a":["center","",0]},"C13":{"b":"tttt","a":["center","",0]},"D13":{"b":"tt-t","a":["center","",0]},"E13":{"b":"tttt","a":["center","",0]},"F13":{"b":"tttt","a":["center","",0]},"G13":{"b":"tttt","a":["center","",0]},"H13":{"b":"tttt","a":["center","",0]},"I13":{"b":"tttt","a":["center","",0]},"J13":{"b":"tttt","a":["center","",0]},"K13":{"b":"tttt","a":["center","",0]},"L13":{"b":"tttt","a":["center","",0]},"M13":{"b":"-t-t","a":["center","",0]},"N13":{"b":"tt-t","a":["center","",0]},"O13":{"b":"tttt","a":["center","",0]},"P13":{"b":"tttt","a":["left","",0]},"B14":{"b":"tttt","a":["center","",0]},"C14":{"b":"tttt","a":["center","",0]},"D14":{"b":"tttt","a":["center","",0]},"E14":{"b":"tttt","a":["center","",0]},"F14":{"b":"tttt","a":["center","",0]},"G14":{"b":"tttt","a":["center","",0]},"H14":{"b":"tttt","a":["center","",0]},"I14":{"b":"tttt","a":["center","",0]},"J14":{"b":"tttt","a":["center","",0]},"K14":{"b":"tttt","a":["center","",0]},"L14":{"b":"tttt","a":["center","",0]},"M14":{"b":"-t-t","a":["center","",0]},"N14":{"b":"tt-t","a":["center","",0]},"O14":{"b":"tttt","a":["center","",0]},"P14":{"b":"tttt","a":["left","",0]},"B15":{"b":"tttt","a":["center","",0]},"C15":{"b":"tttt","a":["center","",0]},"D15":{"b":"tttt","a":["center","",0]},"E15":{"b":"tttt","a":["center","",0]},"F15":{"b":"tttt","a":["center","",0]},"G15":{"b":"tttt","a":["center","",0]},"H15":{"b":"tttt","a":["center","",0]},"I15":{"b":"tttt","a":["center","",0]},"J15":{"b":"tttt","a":["center","",0]},"K15":{"b":"tttt","a":["center","",0]},"L15":{"b":"tttt","a":["center","",0]},"M15":{"b":"-t-t","a":["center","",0]},"N15":{"b":"tt-t","a":["center","",0]},"O15":{"b":"tttt","a":["center","",0]},"P15":{"b":"tttt","a":["left","",0]},"B16":{"b":"tttt","a":["center","",0]},"C16":{"b":"tttt","a":["center","",0]},"D16":{"b":"tttt","a":["center","",0]},"E16":{"b":"tttt","a":["center","",0]},"F16":{"b":"tttt","a":["center","",0]},"G16":{"b":"tttt","a":["center","",0]},"H16":{"b":"tttt","a":["center","",0]},"I16":{"b":"tttt","a":["center","",0]},"J16":{"b":"tttt","a":["center","",0]},"K16":{"b":"tttt","a":["center","",0]},"L16":{"b":"tttt","a":["center","",0]},"M16":{"b":"-t-t","a":["center","",0]},"N16":{"b":"tt-t","a":["center","",0]},"O16":{"b":"tttt","a":["center","",0]},"P16":{"b":"tttt","a":["left","",0]},"B17":{"b":"tttt","a":["center","",0]},"C17":{"b":"tttt","a":["center","",0]},"D17":{"b":"tttt","a":["center","",0]},"E17":{"b":"tttt","a":["center","",0]},"F17":{"b":"tttt","a":["center","",0]},"G17":{"b":"tttt","a":["center","",0]},"H17":{"b":"tttt","a":["center","",0]},"I17":{"b":"tttt","a":["center","",0]},"J17":{"b":"tttt","a":["center","",0]},"K17":{"b":"tttt","a":["center","",0]},"L17":{"b":"tttt","a":["center","",0]},"M17":{"b":"-t-t","a":["center","",0]},"N17":{"b":"tt-t","a":["center","",0]},"O17":{"b":"tttt","a":["center","",0]},"P17":{"b":"tttt","a":["left","",0]},"B18":{"b":"tttt","a":["center","",0]},"C18":{"b":"tttt","a":["center","",0]},"D18":{"b":"tttt","a":["center","",0]},"E18":{"b":"tttt","a":["center","",0]},"F18":{"b":"tttt","a":["center","",0]},"G18":{"b":"tttt","a":["center","",0]},"H18":{"b":"tttt","a":["center","",0]},"I18":{"b":"tttt","a":["center","",0]},"J18":{"b":"tttt","a":["center","",0]},"K18":{"b":"tttt","a":["center","",0]},"L18":{"b":"tttt","a":["center","",0]},"M18":{"b":"-t-t","a":["center","",0]},"N18":{"b":"tt-t","a":["center","",0]},"O18":{"b":"tttt","a":["center","",0]},"P18":{"b":"tttt","a":["left","",0]},"B19":{"b":"tttt","a":["center","",0]},"C19":{"b":"tttt","a":["center","",0]},"D19":{"b":"tttt","a":["center","",0]},"E19":{"b":"tttt","a":["center","",0]},"F19":{"b":"tttt","a":["center","",0]},"G19":{"b":"tttt","a":["center","",0]},"H19":{"b":"tttt","a":["center","",0]},"I19":{"b":"tttt","a":["center","",0]},"J19":{"b":"tttt","a":["center","",0]},"K19":{"b":"tttt","a":["center","",0]},"L19":{"b":"tttt","a":["center","",0]},"M19":{"b":"-t-t","a":["center","",0]},"N19":{"b":"tttt","a":["center","",0]},"O19":{"b":"tttt","a":["center","",0]},"P19":{"b":"tttt","a":["left","",0]},"B20":{"b":"tttt","a":["center","",0]},"C20":{"b":"tttt","a":["center","",0]},"D20":{"b":"tttt","a":["center","",0]},"E20":{"b":"tttt","a":["center","",0]},"F20":{"b":"tttt","a":["center","",0]},"G20":{"b":"tttt","a":["center","",0]},"H20":{"b":"tttt","a":["center","",0]},"I20":{"b":"tttt","a":["center","",0]},"J20":{"b":"tttt","a":["center","",0]},"K20":{"b":"tttt","a":["center","",0]},"L20":{"b":"tttt","a":["center","",0]},"M20":{"b":"-t-t","a":["center","",0]},"N20":{"b":"tttt","a":["center","",0]},"O20":{"b":"tttt","a":["center","",0]},"P20":{"b":"tttt","a":["left","",0]},"B21":{"b":"tttt","a":["center","",0]},"C21":{"b":"tttt","a":["center","",0]},"D21":{"b":"tttt","a":["center","",0]},"E21":{"b":"tttt","a":["center","",0]},"F21":{"b":"tttt","a":["center","",0]},"G21":{"b":"tttt","a":["center","",0]},"H21":{"b":"tttt","a":["center","",0]},"I21":{"b":"tttt","a":["center","",0]},"J21":{"b":"tttt","a":["center","",0]},"K21":{"b":"tttt","a":["center","",0]},"L21":{"b":"tttt","a":["center","",0]},"M21":{"b":"-t-t","a":["center","",0]},"N21":{"b":"tttt","a":["center","",0]},"O21":{"b":"tttt","a":["center","",0]},"P21":{"b":"tttt","a":["left","",0]},"B22":{"b":"tttt","a":["center","",0]},"C22":{"b":"tttt","a":["center","",0]},"D22":{"b":"tttt","a":["center","",0]},"E22":{"b":"tttt","a":["center","",0]},"F22":{"b":"tttt","a":["center","",0]},"G22":{"b":"tttt","a":["center","",0]},"H22":{"b":"tttt","a":["center","",0]},"I22":{"b":"tttt","a":["center","",0]},"J22":{"b":"tttt","a":["center","",0]},"K22":{"b":"tttt","a":["center","",0]},"L22":{"b":"tttt","a":["center","",0]},"M22":{"b":"-t-t","a":["center","",0]},"N22":{"b":"tttt","a":["center","",0]},"O22":{"b":"tttt","a":["center","",0]},"P22":{"b":"tttt","a":["left","",0]},"B23":{"b":"tttt","a":["center","",0]},"C23":{"b":"tttt","a":["center","",0]},"D23":{"b":"tttt","a":["center","",0]},"E23":{"b":"tttt","a":["center","",0]},"F23":{"b":"tttt","a":["center","",0]},"G23":{"b":"tttt","a":["center","",0]},"H23":{"b":"tttt","a":["center","",0]},"I23":{"b":"tttt","a":["center","",0]},"J23":{"b":"tttt","a":["center","",0]},"K23":{"b":"tttt","a":["center","",0]},"L23":{"b":"tttt","a":["center","",0]},"M23":{"b":"-t-t","a":["center","",0]},"N23":{"b":"tttt","a":["center","",0]},"O23":{"b":"tttt","a":["center","",0]},"P23":{"b":"tttt","a":["left","",0]},"B24":{"b":"tttt","a":["center","",0]},"C24":{"b":"tttt","a":["center","",0]},"D24":{"b":"tttt","a":["center","",0]},"E24":{"b":"tttt","a":["center","",0]},"F24":{"b":"tttt","a":["center","",0]},"G24":{"b":"tttt","a":["center","",0]},"H24":{"b":"tttt","a":["center","",0]},"I24":{"b":"tttt","a":["center","",0]},"J24":{"b":"tttt","a":["center","",0]},"K24":{"b":"tttt","a":["center","",0]},"L24":{"b":"tttt","a":["center","",0]},"M24":{"b":"-t-t","a":["center","",0]},"N24":{"b":"tttt","a":["center","",0]},"O24":{"b":"tttt","a":["center","",0]},"P24":{"b":"tttt","a":["left","",0]},"B25":{"b":"tttt","a":["center","",0]},"C25":{"b":"tttt","a":["center","",0]},"D25":{"b":"tttt","a":["center","",0]},"E25":{"b":"tttt","a":["center","",0]},"F25":{"b":"tttt","a":["center","",0]},"G25":{"b":"tttt","a":["center","",0]},"H25":{"b":"tttt","a":["center","",0]},"I25":{"b":"tttt","a":["center","",0]},"J25":{"b":"tttt","a":["center","",0]},"K25":{"b":"tttt","a":["center","",0]},"L25":{"b":"tttt","a":["center","",0]},"M25":{"b":"-t-t","a":["center","",0]},"N25":{"b":"tttt","a":["center","",0]},"O25":{"b":"tttt","a":["center","",0]},"P25":{"b":"tttt","a":["left","",0]},"B26":{"b":"tttt","a":["center","",0]},"C26":{"b":"tttt","a":["center","",0]},"D26":{"b":"tttt","a":["center","",0]},"E26":{"b":"tttt","a":["center","",0]},"F26":{"b":"tttt","a":["center","",0]},"G26":{"b":"tttt","a":["center","",0]},"H26":{"b":"tttt","a":["center","",0]},"I26":{"b":"tttt","a":["center","",0]},"J26":{"b":"tttt","a":["center","",0]},"K26":{"b":"tttt","a":["center","",0]},"L26":{"b":"tttt","a":["center","",0]},"M26":{"b":"-t-t","a":["center","",0]},"N26":{"b":"tttt","a":["center","",0]},"O26":{"b":"tttt","a":["center","",0]},"P26":{"b":"tttt","a":["left","",0]},"B27":{"b":"tttt","a":["center","",0]},"C27":{"b":"tttt","a":["center","",0]},"D27":{"b":"tttt","a":["center","",0]},"E27":{"b":"tttt","a":["center","",0]},"F27":{"b":"tttt","a":["center","",0]},"G27":{"b":"tttt","a":["center","",0]},"H27":{"b":"tttt","a":["center","",0]},"I27":{"b":"tttt","a":["center","",0]},"J27":{"b":"tttt","a":["center","",0]},"K27":{"b":"tttt","a":["center","",0]},"L27":{"b":"tttt","a":["center","",0]},"M27":{"b":"-t-t","a":["center","",0]},"N27":{"b":"tttt","a":["center","",0]},"O27":{"b":"tttt","a":["center","",0]},"P27":{"b":"tttt","a":["left","",0]},"B28":{"b":"tttt","a":["center","",0]},"C28":{"b":"tttt","a":["center","",0]},"D28":{"b":"tttt","a":["center","",0]},"E28":{"b":"tttt","a":["center","",0]},"F28":{"b":"tttt","a":["center","",0]},"G28":{"b":"tttt","a":["center","",0]},"H28":{"b":"tttt","a":["center","",0]},"I28":{"b":"tttt","a":["center","",0]},"J28":{"b":"tttt","a":["center","",0]},"K28":{"b":"tttt","a":["center","",0]},"L28":{"b":"tttt","a":["center","",0]},"M28":{"b":"-t-t","a":["center","",0]},"N28":{"b":"tttt","a":["center","",0]},"O28":{"b":"tttt","a":["center","",0]},"P28":{"b":"tttt","a":["left","",0]}},"widths":{"A":7.38,"B":5.5,"C":13.75,"D":11.5,"E":9.12,"L":7.12,"M":11.88,"N":12.5,"O":12.62,"P":39.38,"Q":7.62},"heights":{"2":30.0},"merges":["B9:B10","C9:C10","D9:D10","E9:H9","I9:K9","L9:L10","M9:M10","N9:N10","O9:O10","P9:P10"],"page":{"orientation":"landscape","paper":9,"scale":71,"margins":[0.25,0.25,0.75,0.75],"printArea":"A1:Q32","zoom":70},"labels":{"B2":"Bin Card ","P2":"No. Doc…..................................","B4p":"Material code ….....","B5p":"Description…..","B6p":"Store Location…..","B7p":"Subcontract Name….","nums":{"B8":1,"C8":2,"E8":3,"F8":4,"G8":5,"H8":6,"I8":7,"J8":8,"K8":9,"L8":10,"M8":11,"N8":12,"O8":13,"P8":14},"head":{"B9":"No","C9":"Ref Doc No./SB PO DET","D9":"P/N","E9":"Receive mat'l","I9":"Issue Mat'l","L9":"Units","M9":"Balance","N9":"ผู้เบิก/ผู้รับ","O9":"วันหมดอายุ Raw Material","P9":"Remark","E10":"Date","F10":"Time ","G10":"Q'ty /PO","H10":"Units","I10":"Date","J10":"Time ","K10":"Q'ty"}},"firstRow":11,"lastRow":28,"totalRow":29};
 
-/** ใส่สไตล์จาก template ลงในชีต ExcelJS */
-function applyTpl(ws){
+/** ใส่สไตล์จาก template ลงในชีต ExcelJS
+ *  dataRows = จำนวนแถวข้อมูลที่จะใช้จริง (ขั้นต่ำ 18 เท่าฟอร์มเดิม แต่ยาวกว่านั้นได้ไม่จำกัด
+ *  — แถวเกิน 28 ไม่มีสไตล์ต้นฉบับให้ใช้ จึงลอกสไตล์ของแถว 28 ซึ่งเป็นแถวข้อมูล "กลาง" ทั่วไปมาซ้ำ) */
+function applyTpl(ws, dataRows = 18){
   const T = BINCARD_TPL;
-  for (const [addr, d] of Object.entries(T.style)) {
-    const c = ws.getCell(addr);
+  const lastData = 10 + dataRows;     // แถวข้อมูลแถวสุดท้าย (แถวแรกคือ 11)
+  const totalRow = lastData + 1;
+  const cloneStyle = (c, d) => {
     const [fn, fs, fb] = d.f || ['Tahoma', 11, 0];
     c.font = { name:fn, size:fs, bold:!!fb };
     if (d.b) {
@@ -991,9 +1324,18 @@ function applyTpl(ws){
     }
     if (d.a) c.alignment = { horizontal:d.a[0] || undefined, vertical:d.a[1] || undefined, wrapText:!!d.a[2] };
     if (d.fill) c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:d.fill } };
+  };
+  for (const [addr, d] of Object.entries(T.style)) cloneStyle(ws.getCell(addr), d);
+  // แถวข้อมูลที่ยาวเกินฟอร์มเดิม (เกินแถว 28) — ลอกสไตล์แถว 28 มาซ้ำให้ทุกแถวถัดไป
+  if (lastData > T.lastRow) {
+    for (let r = T.lastRow + 1; r <= lastData; r++)
+      for (const col of 'BCDEFGHIJKLMNOP') {
+        const src = T.style[col + T.lastRow];
+        if (src) cloneStyle(ws.getCell(col + r), src);
+      }
   }
   // ช่องที่ไม่มีสไตล์พิเศษ ก็ยังต้องเป็น Tahoma 11 ให้เหมือนต้นฉบับ
-  for (let r = 1; r <= 32; r++)
+  for (let r = 1; r <= totalRow + 3; r++)
     for (const col of 'ABCDEFGHIJKLMNOPQ') {
       const c = ws.getCell(col + r);
       if (!c.font) c.font = { name:'Tahoma', size:11 };
@@ -1005,7 +1347,7 @@ function applyTpl(ws){
     orientation:T.page.orientation, paperSize:T.page.paper, scale:T.page.scale,
     margins:{ left:T.page.margins[0], right:T.page.margins[1], top:T.page.margins[2],
               bottom:T.page.margins[3], header:0.3, footer:0.3 },
-    printArea:T.page.printArea };
+    printArea:`A1:Q${totalRow + 3}` };
   ws.views = [{ zoomScale:T.page.zoom }];
   const L = T.labels;
   ws.getCell('B2').value = L.B2;
@@ -1014,19 +1356,20 @@ function applyTpl(ws){
   for (const [a, v] of Object.entries(L.head)) ws.getCell(a).value = v;
 }
 
-/** สร้าง 1 หน้าของ Bin Card (18 บรรทัด) */
-function writeCardPage(ws, info, pageRows, pageNo, pageCount){
-  applyTpl(ws);
+/** สร้าง Bin Card 1 ใบเป็นชีตเดียว — รายการเรียงต่อเนื่องยาวไปเรื่อย ๆ ไม่ตัดหน้า 18 บรรทัดอีกต่อไป
+ *  (การ์ดสั้นก็ยังได้ตารางเปล่าขั้นต่ำ 18 แถวเท่าฟอร์มเดิม ไม่ให้หน้าตาห้วนกว่าเดิม) */
+function writeCard(ws, info, rows){
+  const R = Math.max(rows.length, BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1);
+  applyTpl(ws, R);
   const dots = (label, val, n) => label + String(val ?? '') + '.'.repeat(Math.max(4, n));
   ws.getCell('B4').value = dots(BINCARD_TPL.labels.B4p, info.code, 30);
   ws.getCell('B5').value = dots(BINCARD_TPL.labels.B5p, info.description, 20);
   ws.getCell('B6').value = dots(BINCARD_TPL.labels.B6p, info.store, 30);
   ws.getCell('B7').value = dots(BINCARD_TPL.labels.B7p, info.entity, 30);
-  if (pageCount > 1) ws.getCell('P2').value = `No. Doc…...${info.code}-${pageNo}/${pageCount}...`;
 
   let r = BINCARD_TPL.firstRow;
   let sumIn = 0, sumOut = 0;
-  for (const x of pageRows) {
+  for (const x of rows) {
     ws.getCell('B' + r).value = x.no;
     ws.getCell('C' + r).value = x.doc_ref || '';
     ws.getCell('D' + r).value = x.part_no || '';
@@ -1050,17 +1393,9 @@ function writeCardPage(ws, info, pageRows, pageNo, pageCount){
     r++;
   }
   // แถวรวม: นับเฉพาะคอลัมน์จำนวน — ต้นฉบับเดิมรวมคอลัมน์ Time มาด้วยซึ่งไม่มีความหมาย
-  const t = BINCARD_TPL.totalRow;
+  const t = BINCARD_TPL.firstRow + R;
   ws.getCell('G' + t).value = Math.round(sumIn  * 1e5) / 1e5;
   ws.getCell('K' + t).value = Math.round(sumOut * 1e5) / 1e5;
-}
-
-/** แบ่งรายการของ 1 material code ออกเป็นหน้า ๆ ละ 18 บรรทัด */
-function paginate(list){
-  const per = BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1;   // 18
-  const pages = [];
-  for (let i = 0; i < list.length; i += per) pages.push(list.slice(i, i + per));
-  return pages.length ? pages : [[]];
 }
 
 const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
@@ -1090,7 +1425,7 @@ function localDateTime(iso){
 createApp({
   setup() {
     // ───────── state ─────────
-    const tab      = ref('in');
+    const tab      = ref('home');
     const dragOver = ref(false);
     const entity   = ref('');
     const materials= ref([]);
@@ -1144,6 +1479,117 @@ createApp({
     });
     function balOf(c){ return round5(balMap.value.get(String(c)) || 0); }
     function round5(n){ return Math.round(n * 1e5) / 1e5; }
+
+    // ───────── ของเกิน BOM (over) ─────────
+    // นิยามที่ตกลงกับผู้ใช้ 27 ก.ค. 2026:
+    //     over = Σ Req Qty (ที่ Delta ระบุในเอกสาร) − Σ (BOM usage × ยอดสั่งของ PO นั้น)
+    // ใช้ตอบคำถาม "Delta ให้ของมาเกินกว่าที่สูตรต้องใช้เท่าไหร่" เพื่อกันการเบิกกินของที่ต้องกันไว้
+    //
+    // ⚠️ txn ไม่ได้เก็บยอดสั่งไว้ ต้องไปหาตอนคำนวณ — PO ที่หาไม่เจอจะนับเป็น "คำนวณไม่ได้"
+    //    ห้ามเดาเป็น 0 เพราะจะทำให้ over ดูสูงเกินจริง
+    const orderQtyMap = computed(() => {
+      const m = new Map();
+      for (const k of kits.value) if (k.orderQty) m.set(k.po, +k.orderQty);
+      for (const p of poList.value) if (p.qty) m.set(p.po, +p.qty);  // รายการ PO เชื่อถือกว่า
+      return m;
+    });
+
+    /** สรุปของเกิน BOM ต่อรหัส — คิดเฉพาะรายการรับเข้าที่ยังไม่ถูกยกเลิก ของนิติบุคคลที่เลือกอยู่ */
+    const overMap = computed(() => {
+      const m = new Map();
+      const get = c => {
+        let h = m.get(c);
+        if (!h) m.set(c, h = { code:c, req:0, bomQty:0, inQty:0,
+                               lines:[], noBom:0, noOrder:0 });
+        return h;
+      };
+      for (const t of liveTxns.value) {
+        if (t.direction !== 'IN') continue;
+        const code = String(t.material_code), h = get(code);
+        const req = t.reqmt_qty === '' || t.reqmt_qty === null ? null : +t.reqmt_qty;
+        const order = orderQtyMap.value.get(t.doc_ref);
+        const b = t.part_no
+          ? (bomByPn.value.get(String(t.part_no)) || []).find(x => x.code === code)
+          : null;
+        const bomQty = (b && order) ? round5(b.usage * order) : null;
+
+        h.inQty += +t.qty || 0;
+        if (req !== null) h.req += req;
+        if (bomQty === null) { if (!b) h.noBom++; else h.noOrder++; }
+        else h.bomQty += bomQty;
+
+        h.lines.push({ id:t.id, date:t.date, po:t.doc_ref, pn:t.part_no,
+                       order: order === undefined ? null : order,
+                       req, issued: t.issued_qty === '' ? null : +t.issued_qty,
+                       qty:+t.qty, bomQty,
+                       over: (req !== null && bomQty !== null) ? round5(req - bomQty) : null });
+      }
+      for (const h of m.values()) {
+        h.req = round5(h.req); h.bomQty = round5(h.bomQty); h.inQty = round5(h.inQty);
+        h.over = round5(h.req - h.bomQty);
+        h.exact = !h.noBom && !h.noOrder;          // คำนวณได้ครบทุกบรรทัดไหม
+        h.out = round5(h.inQty - balOf(h.code));   // จ่ายออกไปแล้วเท่าไหร่
+        h.bal = balOf(h.code);
+        // ยอดที่ยังต้องกันไว้ให้ PO ที่รับของมาแล้วแต่ยังจ่ายไม่ครบตามสูตร
+        h.reserved = round5(Math.max(0, h.bomQty - h.out));
+        // เบิกได้อีกก่อนจะกินของที่กันไว้ (ติดลบ = เบิกเกินไปแล้ว)
+        h.free = round5(h.bal - h.reserved);
+      }
+      return m;
+    });
+    function overOf(c){ return overMap.value.get(String(c)) || null; }
+    /** ทุกรหัสที่มีรายการรับเข้า เรียงของเกินมาก → น้อย */
+    const overRows = computed(() =>
+      [...overMap.value.values()].sort((a,b) => b.over - a.over));
+    /** รหัสที่ต้องดู — เบิกกินของที่กันไว้ หรือคำนวณไม่ครบ (ใช้เป็นตัวเลขบนแท็บ) */
+    const overShort = computed(() => overRows.value.filter(r => r.free < 0));
+
+    const overQ = ref(''), overOnlyIssue = ref(false), overOpen = ref('');
+    const overShown = computed(() => {
+      const t = overQ.value.toLowerCase();
+      return overRows.value.filter(r =>
+        (!overOnlyIssue.value || r.free < 0 || !r.exact) &&
+        (!t || (r.code + ' ' + descOf(r.code)).toLowerCase().includes(t)));
+    });
+
+    async function exportOver(){
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('ของเกิน BOM');
+      const wl = wb.addWorksheet('รายบรรทัด');
+      ws.addRow(['รหัส','คำอธิบาย','หน่วย','รับเข้า','จ่ายออก','คงเหลือ',
+                 'ตามสูตร BOM','ของเกิน BOM','กันไว้','เบิกได้อีก',
+                 'ไม่มี BOM (บรรทัด)','ไม่รู้ยอดสั่ง (บรรทัด)','สถานะ']);
+      wl.addRow(['รหัส','วันที่','PO','P/N','ยอดสั่ง','Req','541','นับจริง','ตามสูตร','ของเกิน']);
+      for (const r of overShown.value) {
+        ws.addRow([r.code, descOf(r.code), unitOf(r.code), r.inQty, r.out, r.bal,
+                   r.bomQty, r.over, r.reserved, r.free, r.noBom, r.noOrder,
+                   r.free < 0 ? 'เบิกเกิน' : (!r.exact ? 'คำนวณไม่ครบ' : (r.over > 0 ? 'มีของเกิน' : 'พอดี'))]);
+        for (const l of r.lines)
+          wl.addRow([r.code, l.date, l.po || '', l.pn || '',
+                     l.order === null ? 'ไม่รู้' : l.order,
+                     l.req === null ? '' : l.req, l.issued === null ? '' : l.issued, l.qty,
+                     l.bomQty === null ? 'ไม่มี BOM' : l.bomQty,
+                     l.over === null ? '' : l.over]);
+      }
+      for (const [sheet, widths] of [[ws,[14,42,8,12,12,12,14,14,12,14,16,18,14]],
+                                     [wl,[14,12,14,14,12,12,12,12,14,12]]]) {
+        sheet.getRow(1).eachCell(c => {
+          c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F4E79' } };
+          c.font = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+          c.alignment = { horizontal:'center', wrapText:true };
+        });
+        widths.forEach((w,i) => sheet.getColumn(i+1).width = w);
+        sheet.views = [{ state:'frozen', ySplit:1 }];
+        sheet.autoFilter = { from:{row:1,column:1}, to:{row:1,column:sheet.columnCount} };
+      }
+      const buf = await wb.xlsx.writeBuffer();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buf],
+        { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      a.download = `ของเกินBOM_${entity.value}_${today()}.xlsx`;
+      a.click(); URL.revokeObjectURL(a.href);
+      flash(`ส่งออก ${overShown.value.length} รหัสแล้ว`);
+    }
 
     // ───────── โหลดไฟล์ตั้งต้น ─────────
     function onDrop(e){ dragOver.value=false; handleFiles([...e.dataTransfer.files]); }
@@ -1214,14 +1660,19 @@ createApp({
       const bomList = bomByPn.value.get(String(inH.pn)) || [];
       const reqOf = new Map(bomList.map(b => [b.code, round5(b.usage * (inH.order || 0))]));
       const variesOf = new Map(bomList.map(b => [b.code, b.varies]));
+      // PO มาไม่พร้อมกันทีเดียวได้ — เช็คว่าเคยคีย์รับ PO นี้ไปแล้วบ้างไหม จะได้ไม่ลืม/รับซ้ำ
+      const recvMap = inH.po ? recvOfPo(inH.po) : new Map();
 
       const mk = (code, opts) => {
         const m = matMap.value.get(String(code)) || {};
+        const r = recvMap.get(String(code));
         return { k:'L'+(++lineSeq), code:String(code), desc:m.description || opts.desc || '',
                  unit:m.unit || opts.unit || '', reqmt: opts.reqmt ?? null,
                  issued: opts.issued ?? null, qty:null, expiry:'', remark:'',
                  needExp: m.requires_expiry === 'TRUE', varies: !!opts.varies,
-                 fromKit: !!opts.fromKit };
+                 fromKit: !!opts.fromKit,
+                 recv: r ? r.qty : 0,
+                 recvInfo: r ? ('รับไปแล้ว ' + r.n + ' ครั้ง: ' + [...r.dates].sort().join(', ')) : '' };
       };
 
       if (kit.length) {
@@ -1242,10 +1693,27 @@ createApp({
         const nv = inLines.value.filter(l => l.varies).length;
         bomHint.value = `ดึงจาก BOM ${inLines.value.length} รายการ — ยังไม่มี Kit List ของ PO นี้ ต้องคีย์ช่อง Issue เอง` +
           (nv ? ` · มี ${nv} รายการที่ปริมาณต่อชิ้นไม่คงที่ (เครื่องหมาย ?)` : '');
-      } else {
+      } else if (!recvMap.size) {
         bomHint.value = `ไม่พบทั้ง Kit List ของ PO ${inH.po || '—'} และ BOM ของ P/N ${inH.pn || '—'} — กด "เพิ่มบรรทัดเอง"`;
         return;
+      } else {
+        inLines.value = [];
+        bomHint.value = `ไม่พบ Kit List หรือ BOM ของ PO/P·N นี้ — แต่เคยคีย์รับไปแล้วบางรายการ (ดูด้านล่าง)`;
       }
+
+      // รหัสที่เคยคีย์รับไปแล้ว แต่ไม่อยู่ทั้งใน Kit List และ BOM (เช่นเคย "เพิ่มบรรทัดเอง" ไว้ก่อนหน้า)
+      const shown = new Set(inLines.value.map(l => l.code));
+      const extra = [...recvMap.keys()].filter(c => !shown.has(c));
+      if (extra.length) inLines.value.push(...extra.map(c => mk(c, {})));
+
+      if (recvMap.size) {
+        const allDates = new Set();
+        recvMap.forEach(r => r.dates.forEach(d => allDates.add(d)));
+        const sorted = [...allDates].sort();
+        bomHint.value = `⚠ PO นี้เคยคีย์รับแล้ว ${sorted.length} ครั้ง (ล่าสุด ${sorted[sorted.length-1]}) — คอลัมน์ "รับแล้ว" คือยอดสะสมเดิม จากรอบก่อนหน้า` +
+          (bomHint.value ? ' · ' + bomHint.value : '');
+      }
+
       nextTick(() => qtyRefs[0] && qtyRefs[0].focus());
     }
     function nextQty(i){
@@ -1425,6 +1893,9 @@ createApp({
     const outUnit = computed(() => unitOf(out.code));
     const outBal  = computed(() => balOf(out.code));
     const outAfter= computed(() => round5(outBal.value - (+out.qty || 0)));
+    const outOver = computed(() => overOf(out.code));
+    /** เบิกได้อีกเท่าไหร่ก่อนจะกินของที่กันไว้ให้ PO อื่น */
+    const outFree = computed(() => outOver.value ? outOver.value.free : 0);
     const openPos = computed(() => {
       const s = new Set();
       for (const t of liveTxns.value)
@@ -1469,6 +1940,7 @@ createApp({
 
     // ───────── ดูการ์ด ─────────
     const cardCode = ref('');
+    const cardOver = computed(() => overOf(cardCode.value));
     const cardRows = computed(() => {
       const list = txns.value
         .filter(t => t.entity === entity.value && String(t.material_code) === String(cardCode.value))
@@ -1574,17 +2046,16 @@ createApp({
         byCode.get(k).push(t);
       }
       const groups = new Map();
-      let cards = 0, pages = 0;
+      let cards = 0, lines = 0;
       for (const [code, list] of byCode) {
         const m = matMap.value.get(code) || {};
         const cat = m.category || 'OTHER';
-        const pg = Math.max(1, Math.ceil(list.length / 18));
-        cards++; pages += pg;
-        if (!groups.has(cat)) groups.set(cat, { cat, cards:0, pages:0, lines:0 });
+        cards++; lines += list.length;
+        if (!groups.has(cat)) groups.set(cat, { cat, cards:0, lines:0 });
         const g = groups.get(cat);
-        g.cards++; g.pages += pg; g.lines += list.length;
+        g.cards++; g.lines += list.length;
       }
-      return { cards, pages, groups:[...groups.values()].sort((a,b) => b.cards - a.cards), byCode };
+      return { cards, lines, groups:[...groups.values()].sort((a,b) => b.cards - a.cards), byCode };
     });
 
     async function exportBinCards(){
@@ -1616,15 +2087,12 @@ createApp({
               bal = Math.round((bal + (t.direction === 'IN' ? +t.qty : -+t.qty)) * 1e5) / 1e5;
               return { ...t, no: ++no, bal };
             });
-            const pages = paginate(rows);
             const info = { code, description:m.description || '', unit:m.unit || '',
                            store:entInfo.value.store_location || '', entity:entity.value };
-            pages.forEach((pg, i) => {
-              // ชื่อชีตห้ามเกิน 31 ตัวและห้ามมีอักขระต้องห้าม
-              let nm = pages.length > 1 ? `${code}-${i + 1}` : String(code);
-              out.addWorksheet(nm.slice(0, 31));
-              writeCardPage(out.getWorksheet(nm.slice(0, 31)), info, pg, i + 1, pages.length);
-            });
+            // ชื่อชีตห้ามเกิน 31 ตัวและห้ามมีอักขระต้องห้าม — 1 code = 1 ชีตเสมอ เรียงต่อเนื่องยาวได้ไม่จำกัด
+            const nm = String(code).slice(0, 31);
+            out.addWorksheet(nm);
+            writeCard(out.getWorksheet(nm), info, rows);
             done++;
             if (done % 20 === 0) {
               expProg.value = Math.round(done / total * 100);
@@ -1642,12 +2110,35 @@ createApp({
         a.download = `BinCard_${entity.value}_${today()}.zip`;
         a.click();
         expProg.value = 100;
-        expMsg.value = `เสร็จแล้ว · ${cardPlan.value.cards} การ์ด · ${cardPlan.value.pages} หน้า · ${byCat.size} ไฟล์`;
+        expMsg.value = `เสร็จแล้ว · ${cardPlan.value.cards} การ์ด · ${cardPlan.value.lines} บรรทัด · ${byCat.size} ไฟล์`;
         flash('ออก Bin Card เรียบร้อย');
       } catch (e) {
         expMsg.value = 'ผิดพลาด: ' + e.message;
         flash('ออกไฟล์ไม่สำเร็จ: ' + e.message, true);
       } finally { expBusy.value = false; }
+    }
+
+    /** เซฟการ์ดที่กำลังดูอยู่ในหน้า "ดูการ์ด" ออกเป็นไฟล์ .xlsx ใบเดียว (ไม่รวมรายการที่ยกเลิก) */
+    function exportCard(){
+      const rows = cardRows.value.filter(r => !r.voided);
+      if (!rows.length) { flash('ยังไม่มีรายการเคลื่อนไหวของรหัสนี้', true); return; }
+      let no = 0;
+      const data = rows.map(r => ({ ...r, no: ++no, bal: r._bal }));
+      const info = { code: cardCode.value, description: descOf(cardCode.value), unit: unitOf(cardCode.value),
+                     store: entInfo.value.store_location || '', entity: entity.value };
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'ระบบ Bin Card';
+      const nm = String(cardCode.value).slice(0, 31);
+      wb.addWorksheet(nm);
+      writeCard(wb.getWorksheet(nm), info, data);
+      wb.xlsx.writeBuffer().then(buf => {
+        const blob = new Blob([buf], { type:'application/octet-stream' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `BinCard_${cardCode.value}_${today()}.xlsx`;
+        a.click();
+        flash('เซฟการ์ดเรียบร้อย');
+      }).catch(e => flash('ออกไฟล์ไม่สำเร็จ: ' + e.message, true));
     }
 
     function exportShorts(){
@@ -2152,6 +2643,27 @@ createApp({
     function poKeyed(po){
       return txns.value.some(t => !t.voided && t.direction === 'IN' && t.doc_ref === po);
     }
+    /** ยอดที่เคยคีย์รับเข้าไปแล้วของ PO นี้ แยกตามรหัสวัตถุดิบ
+     *  ใช้ในหน้ารับเข้าให้เห็นว่าเคยรับอะไรไปแล้วบ้าง เพราะของมาไม่พร้อมกันทีเดียว คีย์รับหลายรอบได้ */
+    function recvOfPo(po){
+      const m = new Map();
+      txns.value.filter(t => !t.voided && t.direction === 'IN' && t.doc_ref === po)
+        .forEach(t => {
+          const code = String(t.material_code);
+          const hit = m.get(code);
+          if (hit) { hit.qty = round5(hit.qty + (+t.qty || 0)); hit.n++; hit.dates.add(t.date); }
+          else m.set(code, { qty: +t.qty || 0, n: 1, dates: new Set([t.date]) });
+        });
+      return m;
+    }
+
+    // ═══════════ สรุปสถานะสำหรับหน้าแรก ═══════════
+    const homePoToday  = computed(() => poList.value.filter(p => p.date === todayStr.value));
+    const homePoTodayN = computed(() => homePoToday.value.length);
+    const homePoKeyed  = computed(() => homePoToday.value.filter(p => poKeyed(p.po)).length);
+    const homeKitToday = computed(() => kits.value.some(k => k.src !== 'chem' && k.date === todayStr.value));
+    const homeOutToday = computed(() => txns.value.filter(t => !t.voided && t.entity === entity.value
+      && t.direction === 'OUT' && t.date === todayStr.value).length);
 
     const poQ = ref('');
     const poFiltered = computed(() => {
@@ -2184,6 +2696,133 @@ createApp({
       // SUB ในไฟล์ เช่น TUE-TPP ตรงกับรหัสนิติบุคคล
       if (hit.sub && entities.value.some(e => e.entity_code === hit.sub)) entity.value = hit.sub;
       if (inH.pn && inH.order) loadBom();
+    }
+
+    // ═══════════ นำเข้าไฟล์ — จุดเดียว เดาชนิดไฟล์เอง ═══════════
+    // ไม่แตะ parser เดิมเลย — แค่อ่านไฟล์คร่าวๆ เพื่อเดาว่าเป็นชนิดไหน แล้วยิง event ปลอมเข้า handler เดิม
+    const impDragOver = ref(false);
+    const impInfo = ref(null);   // { name, label } หรือ { name, error:true }
+    let impLastFile = null;
+
+    function synthEv(f){ return { target: { files:[f], value:'' } }; }
+    function normCell(v){ return String(v ?? '').replace(/\s+/g,'').toUpperCase(); }
+
+    function sniffIsSetup(f){
+      return new Promise(resolve => {
+        const fr = new FileReader();
+        fr.onload = ev => {
+          try {
+            const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+            resolve(wb.SheetNames.some(n => ['Materials','Entities','BOM'].includes(n)));
+          } catch (e) { resolve(false); }
+        };
+        fr.readAsArrayBuffer(f);
+      });
+    }
+
+    function sniffAndRoute(f){
+      impLastFile = f;
+      const name = f.name || '';
+      if (/\.json$/i.test(name)) {
+        impInfo.value = { name, label:'ไฟล์สำรอง (.json)' };
+        restoreAll(synthEv(f));
+        return;
+      }
+      const fr = new FileReader();
+      fr.onload = ev => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type:'array' });
+          const sheetNames = wb.SheetNames;
+
+          if (sheetNames.some(n => ['Materials','Entities','BOM'].includes(n))) {
+            impInfo.value = { name, label:'ทะเบียนวัตถุดิบ / BOM' };
+            handleFiles([f]);
+            return;
+          }
+
+          // Kit List กลุ่มจ่ายรวม — ชีต visible ใดๆ 40 แถวแรก มีทั้ง PONO. และ MATERIAL ในแถวเดียวกัน
+          let isChem = false;
+          for (const sn of sheetNames) {
+            const meta = wb.Workbook && wb.Workbook.Sheets && wb.Workbook.Sheets.find(s => s.name === sn);
+            if (meta && meta.Hidden) continue;
+            const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header:1, defval:null, blankrows:true }).slice(0,40);
+            for (const row of aoa) {
+              if (!row) continue;
+              const norm = row.map(normCell);
+              if (norm.some(c => c.includes('PONO.')) && norm.some(c => c.includes('MATERIAL'))) { isChem = true; break; }
+            }
+            if (isChem) break;
+          }
+          if (isChem) {
+            impInfo.value = { name, label:'Kit List กลุ่มจ่ายรวม' };
+            onChemFile(synthEv(f));
+            return;
+          }
+
+          const aoa0 = XLSX.utils.sheet_to_json(wb.Sheets[sheetNames[0]], { header:1, defval:null, blankrows:true });
+
+          // PO รายวัน — ชีตแรก คอลัมน์ A มีคำว่า subcontract
+          const isPoDaily = aoa0.some(row => row && typeof row[0] === 'string' && row[0].toLowerCase().includes('subcontract'));
+          if (isPoDaily) {
+            impInfo.value = { name, label:'PO รายวัน' };
+            onPoImport(synthEv(f));
+            return;
+          }
+
+          // Kit List 22-H — ชีตแรก คอลัมน์ D มีหัวตาราง CODE และมีแถวที่คอลัมน์ D เป็นตัวเลข
+          const hasCodeHeader = aoa0.some(row => row && typeof row[3] === 'string' && row[3].trim().toUpperCase().startsWith('CODE'));
+          const hasNumRow = aoa0.some(row => row && typeof row[3] === 'number' && row[1]);
+          if (hasCodeHeader && hasNumRow) {
+            impInfo.value = { name, label:'Kit List (22-H)' };
+            onKitFile(synthEv(f));
+            return;
+          }
+
+          impInfo.value = { name, error:true };
+        } catch (err) {
+          impInfo.value = { name, error:true };
+          flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true);
+        }
+      };
+      fr.readAsArrayBuffer(f);
+    }
+
+    function processImpFiles(files){
+      if (!files.length) return;
+      if (files.length > 1) {
+        Promise.all(files.map(sniffIsSetup)).then(results => {
+          if (results.every(Boolean)) {
+            impLastFile = files[0];
+            impInfo.value = { name: files.map(f => f.name).join(' · '), label:`ทะเบียนวัตถุดิบ / BOM (${files.length} ไฟล์)` };
+            handleFiles(files);
+          } else {
+            sniffAndRoute(files[0]);
+            if (files.length > 1) flash('นำเข้าได้ทีละไฟล์ — จะนำเข้าเฉพาะ ' + files[0].name, true);
+          }
+        });
+        return;
+      }
+      sniffAndRoute(files[0]);
+    }
+    function onImpPick(e){ processImpFiles([...e.target.files]); e.target.value = ''; }
+    function onImpDrop(e){ impDragOver.value = false; processImpFiles([...e.dataTransfer.files]); }
+
+    /** ปุ่ม override เมื่อเดาไม่ถูก — ผู้ใช้เลือกชนิดไฟล์เอง */
+    function forceImp(kind){
+      const f = impLastFile; if (!f) return;
+      if (kind === 'setup') handleFiles([f]);
+      else if (kind === 'chem') onChemFile(synthEv(f));
+      else if (kind === 'po')   onPoImport(synthEv(f));
+      else if (kind === 'kit')  onKitFile(synthEv(f));
+      else if (kind === 'json') restoreAll(synthEv(f));
+      impInfo.value = null;
+    }
+
+    /** ยืนยันนำเข้า Kit List กลุ่มจ่ายรวมแล้วพาไปแท็บรับเข้ารวมเลย จะได้เห็นว่าข้อมูลไปลงที่ไหน */
+    function applyChemImportGo(){
+      const had = !!chemImp.value;
+      applyChemImport();
+      if (had && !chemImp.value) tab.value = 'wk';
     }
 
     // ═══════════ เชื่อมต่อ Google Sheets (offline-first) ═══════════
@@ -2464,8 +3103,9 @@ createApp({
       chemImp, onChemFile, applyChemImport, chemKits, chemDates, loadChem, round5,
       copyIssueToQty, lineClass, inReady, nInDiffIssue, nInDiffReq, saveIn,
       out, outCode, outQty, outPerson, focusEl, outDesc, outUnit, outBal, outAfter,
+      outOver, outFree, overOf, overRows, overShort, overShown, overQ, overOnlyIssue, overOpen, exportOver,
       openPos, outPick, saveOut, resetOut, recent, voidTxn,
-      cardCode, cardRows,
+      cardCode, cardRows, cardOver, exportCard,
       lq, lDir, lFrom, lTo, lShowVoid, listRows, claims,
       newPerson, addPerson, persist, storageBytes, storagePct,
       wipe, wipeReady, doWipe, backupThenMark,
@@ -2475,7 +3115,9 @@ createApp({
       kits, kitImp, onKitFile, applyKitImport, kitPos, kitsOfPo,
       shortsOpen, toggleShort, poOptions, pickPo, poKeyed, todayStr, exportShorts,
       expBusy, expMsg, expProg, cardPlan, exportBinCards,
-      exportTxn, exportClaims, exportAll, restoreAll
+      exportTxn, exportClaims, exportAll, restoreAll,
+      recvOfPo, homePoToday, homePoTodayN, homePoKeyed, homeKitToday, homeOutToday,
+      impDragOver, impInfo, onImpPick, onImpDrop, forceImp, applyChemImportGo
     };
   }
 }).mount('#app');
