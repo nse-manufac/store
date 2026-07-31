@@ -1,0 +1,8 @@
+# This repo is PUBLIC (GitHub Pages). Only the deployed app files are tracked.
+# Business data (BOM/registry xlsx, design docs, tests, backups) stays local-only.
+# Ignore everything by default, then explicitly allow the deploy files.
+/*
+!/.gitignore
+!/Stock-log.html
+!/ทะเบียนวัตถุดิบ.html
+!/google-apps-script.gs

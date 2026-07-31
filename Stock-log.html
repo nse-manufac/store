@@ -3057,7 +3057,7 @@ createApp({
         const c = JSON.parse(localStorage.getItem(K_SYNC) || 'null');
         if (c) Object.assign(sync, c);
       } catch (e) { /* ข้ามไป */ }
-      // รับค่าตั้งค่าจากลิงก์ได้ เช่น  บันทึกสต็อก.html#url=...&token=...&device=ธุรการ-2
+      // รับค่าตั้งค่าจากลิงก์ได้ เช่น  Stock-log.html#url=...&token=...&device=ธุรการ-2
       // ทำให้แจกเป็นบุ๊กมาร์กเดียวแล้วทุกเครื่องเปิดใช้ได้เลย ไม่ต้องกรอกเอง
       if (location.hash.length > 1) {
         const h = new URLSearchParams(location.hash.slice(1));
