@@ -23,6 +23,9 @@ const SHORT_COLS= ['id','date','po','code','type','qty','unit','eta','note','don
 // orderQty / req มีเฉพาะกลุ่ม chem — ใช้เทียบกับ BOM
 const KIT_COLS  = ['id','date','group','po','pn','code','desc','unit','issue',
                    'src','orderQty','req','remark','updated_at'];
+// ปิดยอด PO — กันคีย์รับ/จ่าย/ยกเลิกรายการของ PO ที่ตรวจกระทบยอดจบแล้ว
+// voided=TRUE คือยกเลิกการปิด (ประวัติเก็บไว้ ไม่ลบแถว)
+const CLOSE_COLS = ['id','po','closed_at','device','note','voided','void_reason','updated_at'];
 
 // ═══════════ จุดเข้า ═══════════
 function doGet(e)  { return handle(e, {}); }
@@ -204,7 +207,7 @@ function doPushTxns(rows, device) {
 }
 
 // ═══════════ ตารางที่ upsert ราย record ได้ (POs / Shortages) ═══════════
-var ROW_TABLES = { POs: PO_COLS, Shortages: SHORT_COLS, Kits: KIT_COLS };
+var ROW_TABLES = { POs: PO_COLS, Shortages: SHORT_COLS, Kits: KIT_COLS, Closes: CLOSE_COLS };
 
 function doPullRows(table, since) {
   var cols = ROW_TABLES[table];
@@ -216,6 +219,7 @@ function doPullRows(table, since) {
     if (!since || String(r.updated_at || '') > since) {
       delete r._row;
       if (table === 'Shortages') r.done = (String(r.done).toUpperCase() === 'TRUE');
+      if (table === 'Closes') r.voided = (String(r.voided).toUpperCase() === 'TRUE');
       out.push(r);
     }
   }
@@ -244,6 +248,7 @@ function doPushRows(table, rows, device) {
       if (!r.id) continue;
       r.updated_at = stamp;
       if (table === 'Shortages') r.done = r.done ? 'TRUE' : 'FALSE';
+      if (table === 'Closes') r.voided = r.voided ? 'TRUE' : 'FALSE';
       var at = index[String(r.id)];
       if (at) sheet.getRange(at, 1, 1, cols.length).setValues([toRow(r, cols)]);
       else appends.push(toRow(r, cols));
@@ -306,7 +311,8 @@ function doPullSetup() {
       .map(function (r) { return String(r.name); }).filter(String),
     poList: doPullRows('POs', '').rows,
     shorts: doPullRows('Shortages', '').rows,
-    kits:   doPullRows('Kits', '').rows
+    kits:   doPullRows('Kits', '').rows,
+    closes: doPullRows('Closes', '').rows
   };
 }
 
@@ -334,6 +340,7 @@ function doPushSetup(body) {
     if (body.poList) doPushRows('POs', body.poList, '');
     if (body.shorts) doPushRows('Shortages', body.shorts, '');
     if (body.kits)   doPushRows('Kits', body.kits, '');
+    if (body.closes) doPushRows('Closes', body.closes, '');
     var v = nowIso();
     meta('setupVersion', v);
     SpreadsheetApp.flush();
@@ -360,6 +367,7 @@ function setupSheets() {
   sheetOf('POs', PO_COLS);
   sheetOf('Shortages', SHORT_COLS);
   sheetOf('Kits', KIT_COLS);
+  sheetOf('Closes', CLOSE_COLS);
   sheetOf('Meta', ['key', 'value']);
   SpreadsheetApp.getUi().alert('สร้างชีตครบแล้ว');
 }
