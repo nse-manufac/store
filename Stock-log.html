@@ -129,7 +129,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <button :class="{on:tab==='home'}" @click="tab='home'">หน้าแรก</button>
     <button :class="{on:['in','wk','out'].includes(tab)}" @click="tab='in'">งานประจำวัน</button>
     <button :class="{on:tab==='imp'}" @click="tab='imp'">นำเข้าไฟล์</button>
-    <button :class="{on:['card','po','list','short','over','claim'].includes(tab)}" @click="tab='card'">ตรวจสอบ/รายงาน
+    <button :class="{on:['card','inv','po','list','short','over','claim'].includes(tab)}" @click="tab='card'">ตรวจสอบ/รายงาน
       <span class="badge" v-if="shortsOpen.length+overShort.length+claims.length">{{ shortsOpen.length+overShort.length+claims.length }}</span></button>
     <button :class="{on:tab==='out2'}" @click="tab='out2'">ออก Bin Card</button>
     <button :class="{on:tab==='setup'}" @click="tab='setup'">ตั้งค่า</button>
@@ -142,9 +142,10 @@ td input{width:100%;padding:3px 6px;font-size:12px}
   <button :class="{on:tab==='wk'}"  @click="tab='wk'">รับเข้ารวม</button>
   <button :class="{on:tab==='out'}" @click="tab='out'">จ่ายออก</button>
 </div>
-<div class="subtabs" v-if="ready && ['card','po','list','short','over','claim'].includes(tab)">
+<div class="subtabs" v-if="ready && ['card','inv','po','list','short','over','claim'].includes(tab)">
   <span class="subgrp">ตรวจสอบ/รายงาน:</span>
   <button :class="{on:tab==='card'}"  @click="tab='card'">ดูการ์ด</button>
+  <button :class="{on:tab==='inv'}"   @click="tab='inv'">ยอดคงคลัง</button>
   <button :class="{on:tab==='po'}"    @click="tab='po'">รายการ PO</button>
   <button :class="{on:tab==='list'}"  @click="tab='list'">ค้นหา / แก้ไข</button>
   <button :class="{on:tab==='short'}" @click="tab='short'">ของขาด
@@ -260,7 +261,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       <div class="card">
         <h3>เรื่องที่ต้องตาม</h3>
         <p class="hint" style="margin-top:-8px">นับเฉพาะนิติบุคคล {{ entity }}</p>
-        <div v-if="!shortsOpen.length && !overShort.length && !claims.length" class="msg ok">ไม่มีเรื่องค้าง 🎉</div>
+        <div v-if="!shortsOpen.length && !overShort.length && !claims.length && !poNeedsClose.length" class="msg ok">ไม่มีเรื่องค้าง 🎉</div>
         <div class="row" v-if="shortsOpen.length" style="justify-content:space-between">
           <span>ของขาด <b>{{ shortsOpen.length }}</b> รายการ</span>
           <button class="btn sm" @click="tab='short'">ดู</button>
@@ -272,6 +273,10 @@ td input{width:100%;padding:3px 6px;font-size:12px}
         <div class="row" v-if="claims.length" style="justify-content:space-between">
           <span>คิวเคลม <b>{{ claims.length }}</b> รายการ</span>
           <button class="btn sm" @click="tab='claim'">ดู</button>
+        </div>
+        <div class="row" v-if="poNeedsClose.length" style="justify-content:space-between">
+          <span>PO คีย์รับแล้วแต่ยังไม่ปิดยอด <b>{{ poNeedsClose.length }}</b> ใบ</span>
+          <button class="btn sm" @click="tab='po'; poCloseFilter='open'">ดู</button>
         </div>
       </div>
 
@@ -482,7 +487,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
         <input v-model.trim="inH.po" list="polist" placeholder="TM4267H001" style="width:160px" class="mono"
                @change="pickPo(inH.po)">
         <datalist id="polist"><option v-for="p in poOptions" :key="p.po" :value="p.po">
-          {{ p.pn }} · {{ p.qty }}{{ poKeyed(p.po) ? ' · เคยรับแล้วบางส่วน' : '' }}</option></datalist></div>
+          {{ p.pn }} · {{ p.qty }}{{ poKeyed(p.po) ? ' · เคยรับแล้วบางส่วน' : '' }}{{ isPoClosed(p.po) ? ' · ⛔ ปิดยอดแล้ว' : '' }}</option></datalist></div>
       <div class="f"><label>P/N (สินค้า)</label>
         <input v-model.trim="inH.pn" list="pnlist" placeholder="2877669000" style="width:150px" class="mono">
         <datalist id="pnlist"><option v-for="p in bomPns" :key="p" :value="p"></option></datalist></div>
@@ -864,6 +869,72 @@ td input{width:100%;padding:3px 6px;font-size:12px}
   <div class="card" v-else-if="cardCode"><p class="hint">ยังไม่มีรายการเคลื่อนไหวของรหัสนี้ในนิติบุคคล {{ entity }}</p></div>
 </main>
 
+<!-- ════════ ยอดคงคลัง ════════ -->
+<main v-if="tab==='inv'">
+  <div class="card">
+    <h3>ยอดคงคลัง — {{ entity }}</h3>
+    <p class="hint" style="margin-top:0">
+      ยอดคงเหลือคำนวณสดจากรายการรับเข้า/จ่ายออกทั้งหมด (ไม่รวมรายการที่ยกเลิก) ·
+      <b>เบิกได้อีก</b> คือคงเหลือ ลบด้วยยอดที่ต้องกันไว้ให้ PO ที่รับของมาแล้วแต่ยังจ่ายไม่ครบตามสูตร BOM<br>
+      <b style="color:var(--bad)">แถวสีแดง = คงเหลือติดลบ หรือเบิกกินของที่กันไว้ไปแล้ว</b> — ควรตรวจสอบ
+    </p>
+    <div class="row">
+      <input v-model.trim="invQ" placeholder="ค้นหารหัสหรือคำอธิบาย"
+             style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;width:260px">
+      <select v-model="invFilter" style="width:150px">
+        <option value="all">ทั้งหมด</option>
+        <option value="have">เฉพาะมีของ (>0)</option>
+        <option value="neg">เฉพาะติดลบ</option>
+        <option value="over">เฉพาะเบิกเกิน</option>
+      </select>
+      <div class="grow"></div>
+      <span class="hint">{{ invShown.length }} รหัส</span>
+      <button class="btn" @click="exportInv" :disabled="!invShown.length">ส่งออก .xlsx</button>
+    </div>
+  </div>
+
+  <div class="card" v-if="invShown.length">
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th style="width:118px">รหัส</th><th>คำอธิบาย</th>
+          <th class="num" style="width:96px">รับสะสม</th>
+          <th class="num" style="width:96px">จ่ายสะสม</th>
+          <th class="num" style="width:96px">คงเหลือ</th>
+          <th class="num" style="width:96px">กันไว้</th>
+          <th class="num" style="width:104px">เบิกได้อีก</th>
+          <th style="width:52px">หน่วย</th>
+          <th style="width:100px">เคลื่อนไหวล่าสุด</th>
+          <th style="width:100px">สถานะ</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="r in invShown" :key="r.code" :class="{bad: r.bal < 0}"
+              style="cursor:pointer" @click="cardCode=r.code; tab='card'" title="คลิกเพื่อดูการ์ดรหัสนี้">
+            <td class="mono">{{ r.code }}</td>
+            <td class="hint">{{ descOf(r.code) }}</td>
+            <td class="num mono">{{ fmt(r.recv) }}</td>
+            <td class="num mono">{{ fmt(r.out) }}</td>
+            <td class="num mono"><b>{{ fmt(r.bal) }}</b></td>
+            <td class="num mono">{{ fmt(r.reserved) }}</td>
+            <td class="num mono"><b :style="{color: r.free < 0 ? 'var(--bad)' : ''}">{{ fmt(r.free) }}</b></td>
+            <td class="hint">{{ unitOf(r.code) }}</td>
+            <td class="mono hint">{{ r.last || '—' }}</td>
+            <td>
+              <span v-if="r.bal < 0" class="tag bad">ติดลบ</span>
+              <span v-else-if="r.free < 0" class="tag bad">เบิกเกิน</span>
+              <span v-else-if="!r.exact" class="tag warn">คำนวณไม่ครบ</span>
+              <span v-else class="hint">—</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card" v-else>
+    <p class="hint" style="margin:0">ยังไม่มีรายการเคลื่อนไหวของนิติบุคคลนี้ — หรือกรองจนไม่เหลือ</p>
+  </div>
+</main>
+
 <!-- ════════ รายการ PO ════════ -->
 <main v-if="tab==='po'">
   <div class="card">
@@ -872,32 +943,86 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <button class="btn" @click="tab='imp'">ไปแท็บ "นำเข้าไฟล์"</button>
   </div>
 
+  <div class="msg bad" v-if="lockLeaks.length">
+    <b>พบ {{ lockLeaks.length }} รายการที่คีย์เข้ามาหลัง PO ปิดยอดไปแล้ว</b> —
+    น่าจะเกิดจากเครื่องที่ยังเปิดหน้าเว็บเวอร์ชันเก่าค้างไว้ตอนปิดยอด (ยังไม่ได้ refresh)<br>
+    <span class="hint">ตรวจสอบที่แท็บ "ค้นหา / แก้ไข" — PO ที่เกี่ยวข้อง: {{ [...new Set(lockLeaks.map(t=>t.doc_ref))].join(', ') }}</span>
+  </div>
+
   <div class="card" v-if="poList.length">
     <div class="row" style="margin-bottom:10px">
       <h3 style="margin:0">รายการ PO ทั้งหมด</h3>
       <div class="grow"></div>
+      <select v-model="poCloseFilter" style="width:130px">
+        <option value="all">ทั้งหมด</option>
+        <option value="open">ยังไม่ปิด</option>
+        <option value="closed">ปิดแล้ว</option>
+      </select>
       <input v-model.trim="poQ" placeholder="ค้นหา PO / P/N / วันที่" style="width:240px">
-      <span class="hint">{{ poFiltered.length }} รายการ</span>
+      <span class="hint">{{ poFiltered.length }} รายการ · ปิดยอดแล้ว {{ poCloseStats.closed }} จาก {{ poCloseStats.total }} PO</span>
     </div>
     <div class="scroll">
       <table>
-        <thead><tr><th style="width:100px">วันที่</th><th style="width:100px">โรงงาน</th>
+        <thead><tr><th style="width:34px"></th><th style="width:100px">วันที่</th><th style="width:100px">โรงงาน</th>
           <th style="width:120px">PO</th><th style="width:110px">P/N</th>
           <th class="num" style="width:100px">จำนวนสั่ง</th><th style="width:70px">มี BOM</th>
-          <th style="width:100px">คีย์รับแล้ว</th><th>หมายเหตุ</th></tr></thead>
+          <th style="width:100px">คีย์รับแล้ว</th><th style="width:120px">ปิดยอด</th><th>หมายเหตุ</th></tr></thead>
         <tbody>
-          <tr v-for="(p,i) in poFiltered.slice(0,300)" :key="i">
-            <td class="mono">{{ p.date }}</td><td>{{ p.sub }}</td>
-            <td class="mono">{{ p.po }}</td><td class="mono">{{ p.pn }}</td>
-            <td class="num mono">{{ fmt(p.qty) }}</td>
-            <td><span class="tag" :class="bomByPn.has(p.pn)?'ok':'bad'">
-              {{ bomByPn.has(p.pn) ? 'มี' : 'ไม่มี' }}</span></td>
-            <td><span class="tag" :class="kitPos.has(p.po)?'ok':'bad'">
-              {{ kitPos.has(p.po) ? 'มี' : 'ไม่มี' }}</span></td>
-            <td><span class="tag" :class="poKeyed(p.po)?'ok':''">
-              {{ poKeyed(p.po) ? 'แล้ว' : 'ยัง' }}</span></td>
-            <td class="hint">{{ p.remark }}</td>
-          </tr>
+          <template v-for="(p,i) in poFiltered.slice(0,300)" :key="i">
+            <tr>
+              <td><button class="btn sm" @click="togglePoClose(p.po)">{{ poCloseOpen===p.po ? '−' : '+' }}</button></td>
+              <td class="mono">{{ p.date }}</td><td>{{ p.sub }}</td>
+              <td class="mono">{{ p.po }}</td><td class="mono">{{ p.pn }}</td>
+              <td class="num mono">{{ fmt(p.qty) }}</td>
+              <td><span class="tag" :class="bomByPn.has(p.pn)?'ok':'bad'">
+                {{ bomByPn.has(p.pn) ? 'มี' : 'ไม่มี' }}</span></td>
+              <td><span class="tag" :class="kitPos.has(p.po)?'ok':'bad'">
+                {{ kitPos.has(p.po) ? 'มี' : 'ไม่มี' }}</span></td>
+              <td><span class="tag" :class="isPoClosed(p.po)?'bad':(poKeyed(p.po)?'warn':'')">
+                {{ isPoClosed(p.po) ? '⛔ ปิดแล้ว' : (poKeyed(p.po) ? 'ยังไม่ปิด' : '—') }}</span></td>
+              <td class="hint">{{ p.remark }}</td>
+            </tr>
+            <tr v-if="poCloseOpen===p.po">
+              <td colspan="10" style="background:#f7f9fc;padding:10px 14px">
+                <h3 style="margin-top:0">ตรวจกระทบยอดก่อนปิด — PO {{ p.po }}</h3>
+                <div class="msg bad" v-if="isPoClosed(p.po)">
+                  <b>PO นี้ปิดยอดแล้ว</b> — {{ closeOf(p.po).filter(c=>!c.voided).slice(-1).map(c=>'ปิดเมื่อ '+localDateTime(c.closed_at)+' โดยเครื่อง '+c.device).join('') }}
+                  <span v-if="closeOf(p.po).slice(-1)[0].note"> · หมายเหตุ: {{ closeOf(p.po).slice(-1)[0].note }}</span>
+                </div>
+                <div class="msg warn" v-if="claimsOfPo(p.po).length">
+                  ⚠ PO นี้มีคิวเคลม {{ claimsOfPo(p.po).length }} รายการค้างอยู่ — ปิดยอดได้ตามปกติ แต่ควรตามเคลมกับ Delta ต่อไป
+                </div>
+                <div class="msg warn" v-if="pending">มีรายการยังไม่ sync {{ pending }} รายการในเครื่องนี้ — ยอดที่เห็นด้านล่างอาจไม่ครบ</div>
+                <table style="background:#fff;max-width:640px">
+                  <thead><tr><th style="width:120px">รหัส</th><th class="num" style="width:100px">รับแล้ว</th>
+                    <th class="num" style="width:100px">จ่ายแล้ว</th><th class="num" style="width:100px">ตามสูตร</th>
+                    <th class="num" style="width:100px">ค้าง (รับ−จ่าย)</th></tr></thead>
+                  <tbody>
+                    <tr v-for="r in poRecon(p)" :key="r.code" :class="{bad:r.bad, warn:r.warn}">
+                      <td class="mono">{{ r.code }}</td>
+                      <td class="num mono">{{ fmt(r.recv) }}</td>
+                      <td class="num mono">{{ fmt(r.issued) }}</td>
+                      <td class="num mono">{{ r.required===null ? 'ไม่มี BOM' : fmt(r.required) }}</td>
+                      <td class="num mono">{{ fmt(r.remain) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <template v-if="!isPoClosed(p.po)">
+                  <div class="row" style="margin-top:10px">
+                    <div class="f" style="flex:1"><label>หมายเหตุ (ไม่บังคับ)</label>
+                      <input v-model.trim="poCloseNote" placeholder="เช่น ของเกินยกไป PO ถัดไป" style="width:100%"></div>
+                  </div>
+                  <p style="margin-top:10px"><button class="btn primary" @click="closePo(p)">ปิดยอด PO นี้</button></p>
+                </template>
+                <template v-else>
+                  <p style="margin-top:10px"><button class="btn danger" @click="unclosePo(p.po)">ยกเลิกการปิดยอด</button></p>
+                </template>
+                <div class="hint" v-if="closeOf(p.po).length > 1" style="margin-top:8px">
+                  ประวัติ: {{ closeOf(p.po).map(c => (c.voided ? 'ยกเลิก' : 'ปิด') + ' ' + localDateTime(c.updated_at) + (c.void_reason ? ' ('+c.void_reason+')' : '')).join(' · ') }}
+                </div>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -1013,6 +1138,15 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       1 รหัสวัตถุดิบ = 1 ชีตเสมอ ไม่ว่าจะมีกี่บรรทัด — ตารางเปล่าขั้นต่ำ 18 แถวเท่าฟอร์มเดิม
       ยาวกว่านั้นก็แค่ต่อแถวลงไปเรื่อย ๆ ในชีตเดียวกัน
     </p>
+  </div>
+
+  <div class="card">
+    <h3>ส่งออกยอดคงเหลือ ณ วันที่เลือก</h3>
+    <p class="hint" style="margin-top:0">ไว้ใช้ตรวจสอบเฉพาะจุด (เช่น เทียบยอด ณ วันสิ้นเดือน) — ไม่ใช่ Bin Card ทางการ</p>
+    <div class="row">
+      <div class="f"><label>ณ วันที่</label><input v-model="balDate" type="date" style="width:145px"></div>
+      <button class="btn" @click="exportBalanceAsOf">ส่งออกยอดคงเหลือ .xlsx</button>
+    </div>
   </div>
 </main>
 
@@ -1591,6 +1725,62 @@ createApp({
       flash(`ส่งออก ${overShown.value.length} รหัสแล้ว`);
     }
 
+    // ───────── ยอดคงคลัง (ภาพรวมทุกรหัส) ─────────
+    const invRows = computed(() => {
+      const m = new Map();
+      for (const t of liveTxns.value) {
+        const code = String(t.material_code);
+        let h = m.get(code);
+        if (!h) m.set(code, h = { code, recv:0, out:0, last:'' });
+        if (t.direction === 'IN') h.recv += +t.qty || 0; else h.out += +t.qty || 0;
+        if (t.date > h.last) h.last = t.date;
+      }
+      const rows = [];
+      for (const h of m.values()) {
+        const over = overOf(h.code);
+        const bal = round5(h.recv - h.out);
+        const reserved = over ? over.reserved : 0;
+        rows.push({ code:h.code, recv:round5(h.recv), out:round5(h.out), last:h.last,
+                    bal, reserved, free:round5(bal - reserved), exact: over ? over.exact : true });
+      }
+      return rows.sort((a,b) => b.bal - a.bal);
+    });
+    const invQ = ref(''), invFilter = ref('all');
+    const invShown = computed(() => {
+      const t = invQ.value.toLowerCase();
+      return invRows.value.filter(r =>
+        (invFilter.value === 'all' || (invFilter.value === 'have' && r.bal > 0) ||
+         (invFilter.value === 'neg' && r.bal < 0) || (invFilter.value === 'over' && r.free < 0)) &&
+        (!t || (r.code + ' ' + descOf(r.code)).toLowerCase().includes(t)));
+    });
+
+    async function exportInv(){
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('ยอดคงคลัง');
+      ws.addRow(['รหัส','คำอธิบาย','หน่วย','รับสะสม','จ่ายสะสม','คงเหลือ',
+                 'กันไว้','เบิกได้อีก','เคลื่อนไหวล่าสุด','สถานะ']);
+      for (const r of invShown.value) {
+        ws.addRow([r.code, descOf(r.code), unitOf(r.code), r.recv, r.out, r.bal,
+                   r.reserved, r.free, r.last,
+                   r.bal < 0 ? 'ติดลบ' : (r.free < 0 ? 'เบิกเกิน' : (!r.exact ? 'คำนวณไม่ครบ' : '—'))]);
+      }
+      ws.getRow(1).eachCell(c => {
+        c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F4E79' } };
+        c.font = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+        c.alignment = { horizontal:'center', wrapText:true };
+      });
+      [14,42,8,12,12,12,12,14,16,14].forEach((w,i) => ws.getColumn(i+1).width = w);
+      ws.views = [{ state:'frozen', ySplit:1 }];
+      ws.autoFilter = { from:{row:1,column:1}, to:{row:1,column:ws.columnCount} };
+      const buf = await wb.xlsx.writeBuffer();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buf],
+        { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      a.download = `ยอดคงคลัง_${entity.value}_${today()}.xlsx`;
+      a.click(); URL.revokeObjectURL(a.href);
+      flash(`ส่งออก ${invShown.value.length} รหัสแล้ว`);
+    }
+
     // ───────── โหลดไฟล์ตั้งต้น ─────────
     function onDrop(e){ dragOver.value=false; handleFiles([...e.dataTransfer.files]); }
     function onPick(e){ handleFiles([...e.target.files]); e.target.value=''; }
@@ -1713,6 +1903,10 @@ createApp({
         bomHint.value = `⚠ PO นี้เคยคีย์รับแล้ว ${sorted.length} ครั้ง (ล่าสุด ${sorted[sorted.length-1]}) — คอลัมน์ "รับแล้ว" คือยอดสะสมเดิม จากรอบก่อนหน้า` +
           (bomHint.value ? ' · ' + bomHint.value : '');
       }
+      if (inH.po && isPoClosed(inH.po)) {
+        bomHint.value = `⛔ PO นี้ปิดยอดแล้ว — เปิดดูรายการได้ แต่กด "บันทึกรับเข้า" ไม่ได้ จนกว่าจะยกเลิกการปิดที่แท็บ "รายการ PO"` +
+          (bomHint.value ? ' · ' + bomHint.value : '');
+      }
 
       nextTick(() => qtyRefs[0] && qtyRefs[0].focus());
     }
@@ -1737,6 +1931,7 @@ createApp({
 
     function saveIn(){
       if (!inH.po) { flash('ยังไม่ได้กรอกเลข PO', true); return; }
+      if (isPoClosed(inH.po)) { flash(`PO ${inH.po} ปิดยอดแล้ว — คีย์รับเข้าเพิ่มไม่ได้ (ยกเลิกการปิดที่แท็บ "รายการ PO" ก่อน ถ้าต้องแก้)`, true); return; }
       const bad = inReady.value.filter(l => l.needExp && !l.expiry);
       if (bad.length) { flash(`ต้องกรอกวันหมดอายุอีก ${bad.length} รายการ`, true); return; }
       const unknown = inReady.value.filter(l => !matMap.value.has(String(l.code)));
@@ -1852,6 +2047,8 @@ createApp({
     function saveWeekly(){
       if (!wkH.docNo) { flash('ยังไม่ได้กรอกเลขที่เอกสาร', true); return; }
       if (!wkReady.value.length) { flash('ยังไม่มีบรรทัดที่กรอกครบ', true); return; }
+      const closedPos = [...new Set(wkReady.value.filter(l => isPoClosed(l.po)).map(l => l.po))];
+      if (closedPos.length) { flash(`PO ปิดยอดแล้ว คีย์รับเข้าเพิ่มไม่ได้: ${closedPos.join(', ')} — ตัดบรรทัดของ PO เหล่านี้ออกก่อนบันทึก`, true); return; }
       if (wkMismatch.value && !confirm(
         `มี ${wkMismatch.value} รหัสที่ยอดรวมไม่ตรงกับเอกสาร — บันทึกต่อไหม?`)) return;
       const unknown = wkReady.value.filter(l => !matMap.value.has(String(l.code)));
@@ -1907,6 +2104,7 @@ createApp({
     function saveOut(){
       if (!out.code || !(+out.qty > 0)) { flash('ยังกรอกไม่ครบ', true); return; }
       if (!matMap.value.has(String(out.code))) { flash('ไม่พบรหัสนี้ในทะเบียนวัตถุดิบ', true); return; }
+      if (out.po && isPoClosed(out.po)) { flash(`PO ${out.po} ปิดยอดแล้ว — จ่ายออกอ้างอิง PO นี้เพิ่มไม่ได้`, true); return; }
       if (outAfter.value < 0 && !confirm(`ยอดจะติดลบเป็น ${fmt(outAfter.value)} — ยืนยันบันทึก?`)) return;
       txns.value.push({
         id: 'T' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
@@ -1928,6 +2126,10 @@ createApp({
       txns.value.filter(t => t.entity === entity.value).slice(-10).reverse());
 
     function voidTxn(t){
+      if (t.doc_ref && isPoClosed(t.doc_ref)) {
+        flash(`PO ${t.doc_ref} ปิดยอดแล้ว — ยกเลิกรายการของ PO นี้ไม่ได้ (ยกเลิกการปิด PO ก่อน ถ้าต้องแก้)`, true);
+        return;
+      }
       const why = prompt('เหตุผลที่ยกเลิกรายการนี้:');
       if (why === null) return;
       t.voided = true;
@@ -1985,7 +2187,7 @@ createApp({
         const setup = JSON.stringify({
           materials: materials.value.filter(m => m.active === 'TRUE'),
           entities: entities.value, bom: bom.value, people: people.value,
-          poList: poList.value, shorts: shorts.value, kits: kits.value });
+          poList: poList.value, shorts: shorts.value, kits: kits.value, closes: closes.value });
         const tx = JSON.stringify(txns.value);
         localStorage.setItem(K_SETUP, setup);
         localStorage.setItem(K_TXN, tx);
@@ -2035,6 +2237,30 @@ createApp({
     const expBusy = ref(false);
     const expMsg  = ref('');
     const expProg = ref(0);
+
+    // ── ส่งออกยอดคงเหลือ ณ วันที่เลือก (ใช้ตรวจสอบเฉพาะจุด ไม่ใช่ Bin Card ทางการ) ──
+    const balDate = ref(today());
+    function exportBalanceAsOf(){
+      const cutoff = balDate.value;
+      const m = new Map();
+      for (const t of txns.value) {
+        if (t.voided || t.entity !== entity.value || t.date > cutoff) continue;
+        const code = String(t.material_code);
+        const h = m.get(code) || { code, recv:0, out:0 };
+        if (t.direction === 'IN') h.recv = round5(h.recv + (+t.qty || 0));
+        else h.out = round5(h.out + (+t.qty || 0));
+        m.set(code, h);
+      }
+      const rows = [...m.values()].filter(h => h.recv || h.out)
+        .sort((a,b) => a.code < b.code ? -1 : 1)
+        .map(h => ({ รหัส:h.code, คำอธิบาย:descOf(h.code), หน่วย:unitOf(h.code),
+          รับสะสม:h.recv, จ่ายสะสม:h.out, คงเหลือ:round5(h.recv - h.out) }));
+      if (!rows.length) { flash('ไม่มีรายการเคลื่อนไหวถึงวันที่เลือก', true); return; }
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'ยอดคงเหลือ');
+      download(wb, `ยอดคงเหลือ_${entity.value}_ณ_${cutoff}`);
+      flash(`ส่งออกยอดคงเหลือ ${rows.length} รหัส ณ วันที่ ${cutoff}`);
+    }
 
     /** สรุปว่าจะได้กี่การ์ด กี่หน้า แยกตามชนิดวัสดุ */
     const cardPlan = computed(() => {
@@ -2587,6 +2813,7 @@ createApp({
 
     const poList  = ref([]);   // รายการ PO ที่นำเข้ามา
     const shorts  = ref([]);   // ของขาด / รอส่ง
+    const closes  = ref([]);   // ประวัติปิดยอด PO — voided=true คือยกเลิกการปิดไปแล้ว
     const poImp   = ref(null);
     const poOpt   = reactive({ pos:true, shorts:true });
 
@@ -2657,6 +2884,125 @@ createApp({
       return m;
     }
 
+    /** ยอดที่จ่ายออกไปแล้วของ PO นี้ แยกตามรหัสวัตถุดิบ — คู่กับ recvOfPo แต่ฝั่งจ่ายออก */
+    function issuedOfPo(po){
+      const m = new Map();
+      txns.value.filter(t => !t.voided && t.direction === 'OUT' && t.doc_ref === po)
+        .forEach(t => {
+          const code = String(t.material_code);
+          const hit = m.get(code);
+          if (hit) { hit.qty = round5(hit.qty + (+t.qty || 0)); hit.n++; }
+          else m.set(code, { qty: +t.qty || 0, n: 1 });
+        });
+      return m;
+    }
+
+    // ═══════════ ปิดยอด PO ═══════════
+    // ปิดยอดกันคีย์รับ/จ่าย/ยกเลิกรายการซ้ำโดยไม่ได้ตั้งใจ หลังตรวจกระทบยอดของ PO นั้นจบแล้ว
+    // ปิดแต่ละครั้งเพิ่มแถวใหม่ (ประวัติไม่หาย) — ยกเลิกการปิด = แก้แถวที่ active อยู่เป็น voided:true + เหตุผล
+    // (แบบเดียวกับ voidTxn) ถ้าจะปิดใหม่อีกครั้งค่อยเพิ่มแถวใหม่ทับ
+    const closedPoSet = computed(() => {
+      const s = new Set();
+      // เรียงตาม updated_at ก่อน แล้วให้แถวหลังสุดของแต่ละ PO เป็นตัวตัดสิน (รองรับปิด-ยกเลิก-ปิดใหม่)
+      const byPo = new Map();
+      for (const c of closes.value) {
+        const cur = byPo.get(c.po);
+        if (!cur || String(c.updated_at || '') > String(cur.updated_at || '')) byPo.set(c.po, c);
+      }
+      byPo.forEach(c => { if (!c.voided) s.add(c.po); });
+      return s;
+    });
+    function isPoClosed(po){ return closedPoSet.value.has(po); }
+    /** แถวปิดล่าสุดของ PO นี้ (ไม่ว่าจะยกเลิกไปแล้วหรือยังปิดอยู่) ไว้โชว์ประวัติ */
+    function closeOf(po){
+      return closes.value.filter(c => c.po === po)
+        .sort((a,b) => String(a.updated_at||'') < String(b.updated_at||'') ? -1 : 1);
+    }
+    /** จับรายการที่หลุดเข้ามาหลังปิด PO แล้ว — เกิดได้จากเครื่องที่ยัง cache เวอร์ชันเก่าค้างอยู่
+     *  (ล็อกกันที่ทางเข้า save ไม่ใช่ที่ sync จึงต้องมีตัวจับตรงนี้ ไม่ให้เงียบหาย) */
+    const lockLeaks = computed(() => {
+      const out = [];
+      for (const c of closes.value) {
+        if (c.voided) continue;
+        for (const t of txns.value) {
+          if (!t.voided && t.doc_ref === c.po && String(t.created_at || '') > String(c.closed_at || ''))
+            out.push(t);
+        }
+      }
+      return out;
+    });
+
+    /** ตารางกระทบยอดรายรหัสของ PO หนึ่งใบ — ไว้ตรวจก่อนกดปิดยอด
+     *  รับแล้ว/จ่ายแล้ว มาจาก recvOfPo/issuedOfPo (นับจริงที่คีย์ไว้แล้วเท่านั้น)
+     *  ตามสูตร = BOM usage × ยอดสั่งของ PO นี้ (p.qty) — เชื่อถือกว่ายอดจาก kit เพราะเป็นรายการ PO เอง */
+    function poRecon(p){
+      const recvMap = recvOfPo(p.po);
+      const issuedMap = issuedOfPo(p.po);
+      const bomList = bomByPn.value.get(String(p.pn)) || [];
+      const reqOf = new Map(bomList.map(b => [b.code, round5(b.usage * (p.qty || 0))]));
+      const codes = new Set([...recvMap.keys(), ...issuedMap.keys(), ...reqOf.keys()]);
+      return [...codes].map(code => {
+        const recv = recvMap.get(code) ? recvMap.get(code).qty : 0;
+        const issued = issuedMap.get(code) ? issuedMap.get(code).qty : 0;
+        const required = reqOf.has(code) ? reqOf.get(code) : null;
+        const remain = round5(recv - issued);
+        const short = required === null ? null : round5(required - issued);
+        return { code, recv, issued, required, remain, short,
+                 bad: remain < -1e-9,                       // จ่ายมากกว่ารับ — ผิดปกติ
+                 warn: short !== null && short > 1e-5 };     // ยังจ่ายไม่ครบตามสูตร
+      }).sort((a,b) => a.code < b.code ? -1 : 1);
+    }
+    function claimsOfPo(po){ return claims.value.filter(t => t.doc_ref === po); }
+
+    const poCloseOpen = ref('');    // PO ที่กำลังกางแถวตรวจ/ปิดยอดอยู่ (เปิดได้ทีละใบ)
+    const poCloseNote = ref('');
+    function togglePoClose(po){
+      poCloseOpen.value = poCloseOpen.value === po ? '' : po;
+      poCloseNote.value = '';
+    }
+    function closePo(p){
+      const rows = poRecon(p);
+      const flagged = rows.filter(r => r.bad || r.warn);
+      let msg = `ปิดยอด PO ${p.po}`;
+      if (flagged.length) msg += `\n\n⚠ มี ${flagged.length} รหัสที่ยังจ่ายไม่ครบตามสูตร หรือค้างผิดปกติ — ตรวจตารางด้านล่างก่อน`;
+      if (claimsOfPo(p.po).length) msg += `\n⚠ PO นี้ยังมีคิวเคลม ${claimsOfPo(p.po).length} รายการค้างอยู่`;
+      if (pending.value) msg += `\n⚠ มีรายการยังไม่ sync ${pending.value} รายการในเครื่องนี้ — ยอดที่เห็นอาจไม่ครบ`;
+      if (!confirm(msg + '\n\nยืนยันปิดยอด PO นี้?')) return;
+      const stamp = new Date().toISOString();
+      closes.value.push({
+        id: 'C' + p.po + '-' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
+        po: p.po, closed_at: stamp, device: sync.device, note: poCloseNote.value || '',
+        voided:false, void_reason:'', updated_at: stamp, _dirty:true
+      });
+      poCloseOpen.value = ''; poCloseNote.value = '';
+      persist(); doSync();
+      flash(`ปิดยอด PO ${p.po} แล้ว`);
+    }
+    function unclosePo(po){
+      const active = closes.value.filter(c => c.po === po && !c.voided)
+        .sort((a,b) => String(a.updated_at||'') < String(b.updated_at||'') ? -1 : 1);
+      const row = active[active.length - 1];
+      if (!row) return;
+      const why = prompt(`เหตุผลที่ยกเลิกการปิดยอด PO ${po}:`);
+      if (why === null) return;
+      row.voided = true;
+      row.void_reason = why || '(ไม่ระบุ)';
+      row.updated_at = new Date().toISOString();
+      row._dirty = true;
+      persist(); doSync();
+      flash(`ยกเลิกการปิดยอด PO ${po} แล้ว — คีย์เพิ่มได้อีกครั้ง`);
+    }
+    /** PO ที่คีย์รับเข้าไปแล้วแต่ยังไม่ได้ปิดยอด — ใช้เตือนในหน้าแรก (นับเฉพาะนิติบุคคลที่เลือกอยู่) */
+    const poNeedsClose = computed(() => {
+      const seen = new Set(); const list = [];
+      for (const p of poList.value) {
+        if (seen.has(p.po)) continue; seen.add(p.po);
+        if (p.sub && p.sub !== entity.value) continue;
+        if (poKeyed(p.po) && !isPoClosed(p.po)) list.push(p);
+      }
+      return list;
+    });
+
     // ═══════════ สรุปสถานะสำหรับหน้าแรก ═══════════
     const homePoToday  = computed(() => poList.value.filter(p => p.date === todayStr.value));
     const homePoTodayN = computed(() => homePoToday.value.length);
@@ -2666,10 +3012,24 @@ createApp({
       && t.direction === 'OUT' && t.date === todayStr.value).length);
 
     const poQ = ref('');
+    const poCloseFilter = ref('all');   // all | open | closed
     const poFiltered = computed(() => {
       const t = poQ.value.trim().toLowerCase();
-      return poList.value.filter(p => !t ||
-        (p.po + ' ' + p.pn + ' ' + p.sub + ' ' + p.date).toLowerCase().includes(t));
+      return poList.value.filter(p => {
+        if (t && !(p.po + ' ' + p.pn + ' ' + p.sub + ' ' + p.date).toLowerCase().includes(t)) return false;
+        if (poCloseFilter.value === 'open' && isPoClosed(p.po)) return false;
+        if (poCloseFilter.value === 'closed' && !isPoClosed(p.po)) return false;
+        return true;
+      });
+    });
+    /** นับ PO ไม่ซ้ำ (PO เดียวมีได้หลายบรรทัดในไฟล์) ปิดแล้ว/ทั้งหมด — โชว์เป็นแถบสรุป */
+    const poCloseStats = computed(() => {
+      const seen = new Set(); let total = 0, closed = 0;
+      for (const p of poList.value) {
+        if (seen.has(p.po)) continue; seen.add(p.po); total++;
+        if (isPoClosed(p.po)) closed++;
+      }
+      return { total, closed };
     });
     const shortsOpen = computed(() => shorts.value.filter(s => !s.done));
     function toggleShort(s){
@@ -2927,7 +3287,7 @@ createApp({
         let auxUp = 0, auxDown = 0;
         sync.needDeploy = false;
         try {
-          for (const [table, listRef] of [['POs', poList], ['Shortages', shorts], ['Kits', kits]]) {
+          for (const [table, listRef] of [['POs', poList], ['Shortages', shorts], ['Kits', kits], ['Closes', closes]]) {
             const dirtyRows = listRef.value.filter(x => x._dirty && x.id);
             if (dirtyRows.length) {
               const res = await api('pushRows', { table,
@@ -2972,7 +3332,7 @@ createApp({
         const d = await api('pushSetup', {
           materials: materials.value.filter(m => m.active === 'TRUE'),
           entities: entities.value, bom: bom.value, people: people.value,
-          poList: poList.value, shorts: shorts.value, kits: kits.value });
+          poList: poList.value, shorts: shorts.value, kits: kits.value, closes: closes.value });
         sync.state='ok';
         flash('อัปโหลดข้อมูลตั้งต้นแล้ว · เวอร์ชัน ' + String(d.setupVersion).slice(0,19));
       } catch (e) { sync.state='error'; sync.error=e.message; flash('อัปโหลดไม่สำเร็จ: '+e.message, true); }
@@ -2990,6 +3350,7 @@ createApp({
         if (d.poList)                          poList.value    = d.poList;
         if (d.shorts)                          shorts.value    = d.shorts;
         if (d.kits)                            kits.value      = d.kits;
+        if (d.closes)                          closes.value    = d.closes;
         if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
         sync.state='ok'; persist();
         flash(`ดึงข้อมูลตั้งต้นแล้ว · วัตถุดิบ ${materials.value.length} · BOM ${bom.value.length}`);
@@ -3041,7 +3402,8 @@ createApp({
         const s = JSON.parse(localStorage.getItem(K_SETUP) || 'null');
         if (s) { materials.value=s.materials||[]; entities.value=s.entities||[];
                  bom.value=s.bom||[]; people.value=s.people||[];
-                 poList.value=s.poList||[]; shorts.value=s.shorts||[]; kits.value=s.kits||[]; }
+                 poList.value=s.poList||[]; shorts.value=s.shorts||[]; kits.value=s.kits||[];
+                 closes.value=s.closes||[]; }
         // ข้อมูลที่นำเข้าก่อนเวอร์ชันนี้ยังไม่มี id — เติมให้ แล้วมาร์คส่งขึ้นเซิร์ฟเวอร์
         const stampNow = new Date().toISOString();
         poList.value.forEach(p => { if (!p.id) {
@@ -3104,6 +3466,7 @@ createApp({
       copyIssueToQty, lineClass, inReady, nInDiffIssue, nInDiffReq, saveIn,
       out, outCode, outQty, outPerson, focusEl, outDesc, outUnit, outBal, outAfter,
       outOver, outFree, overOf, overRows, overShort, overShown, overQ, overOnlyIssue, overOpen, exportOver,
+      invRows, invShown, invQ, invFilter, exportInv,
       openPos, outPick, saveOut, resetOut, recent, voidTxn,
       cardCode, cardRows, cardOver, exportCard,
       lq, lDir, lFrom, lTo, lShowVoid, listRows, claims,
@@ -3117,7 +3480,10 @@ createApp({
       expBusy, expMsg, expProg, cardPlan, exportBinCards,
       exportTxn, exportClaims, exportAll, restoreAll,
       recvOfPo, homePoToday, homePoTodayN, homePoKeyed, homeKitToday, homeOutToday,
-      impDragOver, impInfo, onImpPick, onImpDrop, forceImp, applyChemImportGo
+      impDragOver, impInfo, onImpPick, onImpDrop, forceImp, applyChemImportGo,
+      closes, isPoClosed, closeOf, lockLeaks, poRecon, claimsOfPo,
+      poCloseOpen, poCloseNote, togglePoClose, closePo, unclosePo, poNeedsClose,
+      poCloseFilter, poCloseStats, balDate, exportBalanceAsOf
     };
   }
 }).mount('#app');
