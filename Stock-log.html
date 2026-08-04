@@ -129,7 +129,7 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     <button :class="{on:tab==='home'}" @click="tab='home'">หน้าแรก</button>
     <button :class="{on:['in','wk','out'].includes(tab)}" @click="tab='in'">งานประจำวัน</button>
     <button :class="{on:tab==='imp'}" @click="tab='imp'">นำเข้าไฟล์</button>
-    <button :class="{on:['card','po','list','short','over','claim'].includes(tab)}" @click="tab='card'">ตรวจสอบ/รายงาน
+    <button :class="{on:['card','inv','po','list','short','over','claim'].includes(tab)}" @click="tab='card'">ตรวจสอบ/รายงาน
       <span class="badge" v-if="shortsOpen.length+overShort.length+claims.length">{{ shortsOpen.length+overShort.length+claims.length }}</span></button>
     <button :class="{on:tab==='out2'}" @click="tab='out2'">ออก Bin Card</button>
     <button :class="{on:tab==='setup'}" @click="tab='setup'">ตั้งค่า</button>
@@ -142,9 +142,10 @@ td input{width:100%;padding:3px 6px;font-size:12px}
   <button :class="{on:tab==='wk'}"  @click="tab='wk'">รับเข้ารวม</button>
   <button :class="{on:tab==='out'}" @click="tab='out'">จ่ายออก</button>
 </div>
-<div class="subtabs" v-if="ready && ['card','po','list','short','over','claim'].includes(tab)">
+<div class="subtabs" v-if="ready && ['card','inv','po','list','short','over','claim'].includes(tab)">
   <span class="subgrp">ตรวจสอบ/รายงาน:</span>
   <button :class="{on:tab==='card'}"  @click="tab='card'">ดูการ์ด</button>
+  <button :class="{on:tab==='inv'}"   @click="tab='inv'">ยอดคงคลัง</button>
   <button :class="{on:tab==='po'}"    @click="tab='po'">รายการ PO</button>
   <button :class="{on:tab==='list'}"  @click="tab='list'">ค้นหา / แก้ไข</button>
   <button :class="{on:tab==='short'}" @click="tab='short'">ของขาด
@@ -866,6 +867,72 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     </p>
   </div>
   <div class="card" v-else-if="cardCode"><p class="hint">ยังไม่มีรายการเคลื่อนไหวของรหัสนี้ในนิติบุคคล {{ entity }}</p></div>
+</main>
+
+<!-- ════════ ยอดคงคลัง ════════ -->
+<main v-if="tab==='inv'">
+  <div class="card">
+    <h3>ยอดคงคลัง — {{ entity }}</h3>
+    <p class="hint" style="margin-top:0">
+      ยอดคงเหลือคำนวณสดจากรายการรับเข้า/จ่ายออกทั้งหมด (ไม่รวมรายการที่ยกเลิก) ·
+      <b>เบิกได้อีก</b> คือคงเหลือ ลบด้วยยอดที่ต้องกันไว้ให้ PO ที่รับของมาแล้วแต่ยังจ่ายไม่ครบตามสูตร BOM<br>
+      <b style="color:var(--bad)">แถวสีแดง = คงเหลือติดลบ หรือเบิกกินของที่กันไว้ไปแล้ว</b> — ควรตรวจสอบ
+    </p>
+    <div class="row">
+      <input v-model.trim="invQ" placeholder="ค้นหารหัสหรือคำอธิบาย"
+             style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;width:260px">
+      <select v-model="invFilter" style="width:150px">
+        <option value="all">ทั้งหมด</option>
+        <option value="have">เฉพาะมีของ (>0)</option>
+        <option value="neg">เฉพาะติดลบ</option>
+        <option value="over">เฉพาะเบิกเกิน</option>
+      </select>
+      <div class="grow"></div>
+      <span class="hint">{{ invShown.length }} รหัส</span>
+      <button class="btn" @click="exportInv" :disabled="!invShown.length">ส่งออก .xlsx</button>
+    </div>
+  </div>
+
+  <div class="card" v-if="invShown.length">
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th style="width:118px">รหัส</th><th>คำอธิบาย</th>
+          <th class="num" style="width:96px">รับสะสม</th>
+          <th class="num" style="width:96px">จ่ายสะสม</th>
+          <th class="num" style="width:96px">คงเหลือ</th>
+          <th class="num" style="width:96px">กันไว้</th>
+          <th class="num" style="width:104px">เบิกได้อีก</th>
+          <th style="width:52px">หน่วย</th>
+          <th style="width:100px">เคลื่อนไหวล่าสุด</th>
+          <th style="width:100px">สถานะ</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="r in invShown" :key="r.code" :class="{bad: r.bal < 0}"
+              style="cursor:pointer" @click="cardCode=r.code; tab='card'" title="คลิกเพื่อดูการ์ดรหัสนี้">
+            <td class="mono">{{ r.code }}</td>
+            <td class="hint">{{ descOf(r.code) }}</td>
+            <td class="num mono">{{ fmt(r.recv) }}</td>
+            <td class="num mono">{{ fmt(r.out) }}</td>
+            <td class="num mono"><b>{{ fmt(r.bal) }}</b></td>
+            <td class="num mono">{{ fmt(r.reserved) }}</td>
+            <td class="num mono"><b :style="{color: r.free < 0 ? 'var(--bad)' : ''}">{{ fmt(r.free) }}</b></td>
+            <td class="hint">{{ unitOf(r.code) }}</td>
+            <td class="mono hint">{{ r.last || '—' }}</td>
+            <td>
+              <span v-if="r.bal < 0" class="tag bad">ติดลบ</span>
+              <span v-else-if="r.free < 0" class="tag bad">เบิกเกิน</span>
+              <span v-else-if="!r.exact" class="tag warn">คำนวณไม่ครบ</span>
+              <span v-else class="hint">—</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card" v-else>
+    <p class="hint" style="margin:0">ยังไม่มีรายการเคลื่อนไหวของนิติบุคคลนี้ — หรือกรองจนไม่เหลือ</p>
+  </div>
 </main>
 
 <!-- ════════ รายการ PO ════════ -->
@@ -1656,6 +1723,62 @@ createApp({
       a.download = `ของเกินBOM_${entity.value}_${today()}.xlsx`;
       a.click(); URL.revokeObjectURL(a.href);
       flash(`ส่งออก ${overShown.value.length} รหัสแล้ว`);
+    }
+
+    // ───────── ยอดคงคลัง (ภาพรวมทุกรหัส) ─────────
+    const invRows = computed(() => {
+      const m = new Map();
+      for (const t of liveTxns.value) {
+        const code = String(t.material_code);
+        let h = m.get(code);
+        if (!h) m.set(code, h = { code, recv:0, out:0, last:'' });
+        if (t.direction === 'IN') h.recv += +t.qty || 0; else h.out += +t.qty || 0;
+        if (t.date > h.last) h.last = t.date;
+      }
+      const rows = [];
+      for (const h of m.values()) {
+        const over = overOf(h.code);
+        const bal = round5(h.recv - h.out);
+        const reserved = over ? over.reserved : 0;
+        rows.push({ code:h.code, recv:round5(h.recv), out:round5(h.out), last:h.last,
+                    bal, reserved, free:round5(bal - reserved), exact: over ? over.exact : true });
+      }
+      return rows.sort((a,b) => b.bal - a.bal);
+    });
+    const invQ = ref(''), invFilter = ref('all');
+    const invShown = computed(() => {
+      const t = invQ.value.toLowerCase();
+      return invRows.value.filter(r =>
+        (invFilter.value === 'all' || (invFilter.value === 'have' && r.bal > 0) ||
+         (invFilter.value === 'neg' && r.bal < 0) || (invFilter.value === 'over' && r.free < 0)) &&
+        (!t || (r.code + ' ' + descOf(r.code)).toLowerCase().includes(t)));
+    });
+
+    async function exportInv(){
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('ยอดคงคลัง');
+      ws.addRow(['รหัส','คำอธิบาย','หน่วย','รับสะสม','จ่ายสะสม','คงเหลือ',
+                 'กันไว้','เบิกได้อีก','เคลื่อนไหวล่าสุด','สถานะ']);
+      for (const r of invShown.value) {
+        ws.addRow([r.code, descOf(r.code), unitOf(r.code), r.recv, r.out, r.bal,
+                   r.reserved, r.free, r.last,
+                   r.bal < 0 ? 'ติดลบ' : (r.free < 0 ? 'เบิกเกิน' : (!r.exact ? 'คำนวณไม่ครบ' : '—'))]);
+      }
+      ws.getRow(1).eachCell(c => {
+        c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F4E79' } };
+        c.font = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+        c.alignment = { horizontal:'center', wrapText:true };
+      });
+      [14,42,8,12,12,12,12,14,16,14].forEach((w,i) => ws.getColumn(i+1).width = w);
+      ws.views = [{ state:'frozen', ySplit:1 }];
+      ws.autoFilter = { from:{row:1,column:1}, to:{row:1,column:ws.columnCount} };
+      const buf = await wb.xlsx.writeBuffer();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buf],
+        { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      a.download = `ยอดคงคลัง_${entity.value}_${today()}.xlsx`;
+      a.click(); URL.revokeObjectURL(a.href);
+      flash(`ส่งออก ${invShown.value.length} รหัสแล้ว`);
     }
 
     // ───────── โหลดไฟล์ตั้งต้น ─────────
@@ -3343,6 +3466,7 @@ createApp({
       copyIssueToQty, lineClass, inReady, nInDiffIssue, nInDiffReq, saveIn,
       out, outCode, outQty, outPerson, focusEl, outDesc, outUnit, outBal, outAfter,
       outOver, outFree, overOf, overRows, overShort, overShown, overQ, overOnlyIssue, overOpen, exportOver,
+      invRows, invShown, invQ, invFilter, exportInv,
       openPos, outPick, saveOut, resetOut, recent, voidTxn,
       cardCode, cardRows, cardOver, exportCard,
       lq, lDir, lFrom, lTo, lShowVoid, listRows, claims,
