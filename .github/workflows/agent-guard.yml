@@ -1,0 +1,83 @@
+name: ด่านกัน agent ยกระดับสิทธิ์ตัวเอง
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+# ═══════════════════════════════════════════════════════════════
+# ภัยที่กันอยู่: PR ที่แก้ไฟล์ใน .github/ สามารถเปลี่ยนสิทธิ์ของ workflow,
+# ปิดการตรวจ, หรือทำให้ secret หลุดในรอบถัดไปได้
+#
+# หมายเหตุสำคัญ: workflow ที่รันตอน pull_request คือเวอร์ชันใน PR นั้นเอง
+# แปลว่า PR ที่ "ลบไฟล์นี้ทิ้ง" จะทำให้ job นี้ไม่รัน
+# ตัวที่กันจริงจึงเป็น branch protection ที่ตั้ง job นี้เป็น required check —
+# ถ้า check ไม่รายงานผล ปุ่ม merge จะไม่เขียวตลอดกาล
+# ═══════════════════════════════════════════════════════════════
+
+jobs:
+  guard:
+    name: ตรวจสิ่งที่ agent ห้ามแตะ
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ตรวจไฟล์ที่เปลี่ยน
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+          BASE="origin/${{ github.base_ref }}"
+          git fetch --quiet origin "${{ github.base_ref }}"
+          CHANGED=$(git diff --name-only "$BASE...HEAD")
+
+          echo "PR โดย: $PR_AUTHOR   branch: $HEAD_REF"
+          echo "ไฟล์ที่เปลี่ยน:"
+          echo "$CHANGED" | sed 's/^/  /'
+          echo ""
+
+          FAIL=0
+
+          # ── 1. PR จาก agent ห้ามแตะ .github/ เด็ดขาด ──
+          case "$HEAD_REF" in
+            fix/*|claude/*)
+              if echo "$CHANGED" | grep -q '^\.github/'; then
+                echo "::error::PR จาก branch ของ agent ($HEAD_REF) แก้ไฟล์ใน .github/ — ไม่อนุญาตเด็ดขาด"
+                echo "$CHANGED" | grep '^\.github/' | sed 's/^/::error::  แตะ: /'
+                FAIL=1
+              fi
+              ;;
+          esac
+
+          # ── 2. ห้ามมี secret หลุดเข้ามาในทุก PR (repo นี้เป็น public) ──
+          # ตรวจเฉพาะบรรทัดที่ "เพิ่มเข้ามา" เพื่อไม่ให้ของเก่าทำ PR ใหม่แดง
+          ADDED=$(git diff "$BASE...HEAD" -- . ':(exclude)*.md' | grep '^+' || true)
+          leak() {
+            if printf '%s' "$ADDED" | grep -qE "$1"; then
+              echo "::error::พบ $2 ในบรรทัดที่เพิ่มเข้ามา — repo นี้เป็น public"
+              FAIL=1
+            fi
+          }
+          leak 'AKfyc[A-Za-z0-9_-]{20,}'        'URL ของ Apps Script deployment'
+          leak 'gh[pousr]_[A-Za-z0-9]{30,}'      'GitHub token'
+          leak 'github_pat_[A-Za-z0-9_]{30,}'    'GitHub PAT'
+          leak 'sk-ant-[A-Za-z0-9_-]{20,}'       'Anthropic API key'
+
+          # ── 3. ห้ามลบเทสทิ้งทั้งไฟล์ ──
+          if git diff --name-status "$BASE...HEAD" | grep -qE '^D\s+tests/'; then
+            echo "::error::PR นี้ลบไฟล์เทสทิ้ง — เทสแดงแปลว่าโค้ดผิด ไม่ใช่เทสผิด"
+            FAIL=1
+          fi
+
+          if [ "$FAIL" -eq 1 ]; then
+            exit 1
+          fi
+          echo "✓ ผ่าน — ไม่มีไฟล์ต้องห้ามถูกแตะ"
