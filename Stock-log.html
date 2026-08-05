@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- เวอร์ชันของไฟล์นี้ — ประกาศที่เดียว โค้ดอ่านจากตรงนี้ ห้ามเขียนซ้ำที่อื่น
+     ต้องบัมป์ทุกครั้งที่แก้ไฟล์นี้ (CI จะตรวจให้ ถ้าลืมบัมป์ PR จะแดง)
+     รูปแบบ: YYYY-MM-DD.ลำดับของวันนั้น -->
+<meta name="app-version" content="2026-08-05.1">
 <title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -114,8 +118,17 @@ td input{width:100%;padding:3px 6px;font-size:12px}
 <header>
   <div>
     <h1>บันทึกสต็อกวัตถุดิบ</h1>
-    <div class="sub">ระบบ Bin Card — Phase 2</div>
+    <div class="sub">ระบบ Bin Card ·
+      <span style="cursor:pointer;border-bottom:1px dotted currentColor"
+            @click="checkUpdate(false)"
+            title="กดเพื่อตรวจว่ามีเวอร์ชันใหม่ไหม">v{{ APP_VERSION }}</span>
+    </div>
   </div>
+  <button v-if="newVersion" class="btn sm" @click="reloadApp"
+          title="เครื่องนี้ยังใช้ไฟล์เก่าอยู่ กดเพื่อโหลดเวอร์ชันล่าสุด"
+          style="background:var(--warn,#a15c00);color:#fff;border-color:transparent">
+    มีเวอร์ชันใหม่ {{ newVersion }} — โหลดใหม่
+  </button>
   <select v-if="ready" v-model="entity" title="นิติบุคคล / โรงงาน">
     <option v-for="e in entities" :key="e.entity_code" :value="e.entity_code">{{ e.entity_code }}</option>
   </select>
@@ -3389,6 +3402,41 @@ createApp({
       sync.lastPull = ''; saveSyncCfg(); doSync(false);
     }
 
+    // ───────── ตรวจเวอร์ชัน ─────────
+    // เครื่องที่ cache ไฟล์เก่าค้างไว้ทำให้แก้บั๊กแล้วผู้ใช้ยังเจอปัญหาเดิม
+    // และร้ายกว่านั้นคือทำให้รายการหลุดข้ามการล็อก PO ได้ (ดู lockLeaks / INVARIANTS B4)
+    // จึงต้องเห็นเวอร์ชันตลอดเวลา และรู้ได้ว่ามีของใหม่รออยู่
+    const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
+    const newVersion  = ref('');
+
+    /** ดึงไฟล์ตัวเองแบบข้าม cache แล้วเทียบเวอร์ชันกับที่รันอยู่
+     *  regex จับ <meta> ตัวแรกของไฟล์ ซึ่งอยู่ใน <head> ก่อนโค้ดส่วนนี้เสมอ จึงไม่ไปจับตัวเอง */
+    async function checkUpdate(silent = true){
+      try {
+        const res = await fetch(location.pathname + '?v=' + Date.now(), { cache:'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const m = (await res.text()).match(/<meta name="app-version" content="([^"]*)">/);
+        if (!m) throw new Error('ไม่พบเวอร์ชันในไฟล์บนเซิร์ฟเวอร์');
+        if (m[1] === APP_VERSION) {
+          newVersion.value = '';
+          if (!silent) flash(`ใช้เวอร์ชันล่าสุดอยู่แล้ว · ${APP_VERSION}`);
+        } else {
+          newVersion.value = m[1];
+          if (!silent) flash(`มีเวอร์ชันใหม่ ${m[1]} — กดปุ่มด้านบนเพื่อโหลดใหม่`, true);
+        }
+      } catch (e) {
+        // ออฟไลน์อยู่ก็แค่ตรวจไม่ได้ ห้ามทำให้แอปใช้งานไม่ได้ (INVARIANTS D7)
+        if (!silent) flash('ตรวจอัปเดตไม่ได้ — อาจไม่มีอินเทอร์เน็ต', true);
+      }
+    }
+
+    /** บังคับให้เบราว์เซอร์ทิ้ง cache ของไฟล์นี้ก่อนโหลดใหม่
+     *  (location.reload() เฉย ๆ ยังหยิบของเก่าจาก cache ได้) */
+    async function reloadApp(){
+      try { await fetch(location.pathname, { cache:'reload' }); } catch (e) { /* ไม่มีเน็ตก็ลองโหลดไปเลย */ }
+      location.reload();
+    }
+
     let toastTimer = null;
     function flash(text, bad = false){
       toast.text = text; toast.bad = bad; toast.show = true;
@@ -3449,12 +3497,15 @@ createApp({
           if (n) flash(`รับ ${n} รายการจากแท็บอื่นบนเครื่องนี้`);
         } catch (e) { /* ข้ามไป */ }
       });
-      window.addEventListener('online',  () => { if (sync.url) doSync(); });
+      // ตรวจเวอร์ชันเงียบ ๆ หลังหน้าจอพร้อมแล้ว — ห้ามหน่วงการเปิดแอป
+      setTimeout(() => checkUpdate(true), 3000);
+      window.addEventListener('online',  () => { if (sync.url) doSync(); checkUpdate(true); });
       window.addEventListener('offline', () => { sync.state = 'error'; sync.error = 'ไม่มีอินเทอร์เน็ต'; });
     });
     watch(tab, t => { if (t === 'out') nextTick(() => focusEl('outCode')); });
 
     return {
+      APP_VERSION, newVersion, checkUpdate, reloadApp,
       tab, dragOver, entity, materials, entities, bom, people, txns, toast, ready,
       matMap, activeMats, bomByPn, bomPns, entInfo,
       descOf, unitOf, needExpOf, fmt, balOf, localTime, localDateTime,

@@ -13,6 +13,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ถ้าแก้ไฟล์แอปแล้วลืมบัมป์เวอร์ชัน เครื่องที่ cache ไว้จะไม่มีทางรู้ว่ามีของใหม่
+  # กฎแบบนี้ถ้าไม่บังคับด้วยเครื่อง เดี๋ยวก็ลืม — ให้ CI เป็นคนจำแทน
+  version-bump:
+    name: ตรวจว่าบัมป์ app-version แล้ว
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: เทียบเวอร์ชันกับ base branch
+        run: |
+          set -euo pipefail
+          BASE="origin/${{ github.base_ref }}"
+          git fetch --quiet origin "${{ github.base_ref }}"
+
+          if ! git diff --name-only "$BASE...HEAD" | grep -qx 'Stock-log.html'; then
+            echo "PR นี้ไม่ได้แก้ Stock-log.html — ข้ามการตรวจ"
+            exit 0
+          fi
+
+          ver() { grep -o '<meta name="app-version" content="[^"]*"' | head -1 | sed 's/.*content="//; s/"$//'; }
+          NEW=$(ver < Stock-log.html || true)
+          OLD=$(git show "$BASE:Stock-log.html" | ver || true)
+
+          echo "เวอร์ชันบน ${{ github.base_ref }} : ${OLD:-(ไม่พบ)}"
+          echo "เวอร์ชันใน PR นี้            : ${NEW:-(ไม่พบ)}"
+
+          if [ -z "$NEW" ]; then
+            echo '::error file=Stock-log.html::ไม่พบ <meta name="app-version"> ในไฟล์'
+            exit 1
+          fi
+          if [ "$OLD" = "$NEW" ]; then
+            echo "::error file=Stock-log.html::แก้ Stock-log.html แล้วแต่ไม่ได้บัมป์ app-version (ยังเป็น $NEW) — เครื่องที่ cache ไฟล์เก่าไว้จะไม่รู้ว่ามีของใหม่ ดู INVARIANTS B4"
+            exit 1
+          fi
+          echo "✓ บัมป์เวอร์ชันแล้ว: $OLD → $NEW"
+
   smoke:
     name: ตรวจกฎใน INVARIANTS.md
     runs-on: ubuntu-latest

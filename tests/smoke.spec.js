@@ -219,6 +219,41 @@ test('E1 — refresh แล้วข้อมูลต้องยังอย�
   expect(bal, 'หลัง refresh ยอดต้องเท่าเดิม').toBe(12);
 });
 
+test('เวอร์ชันต้องแสดงบนหน้าจอ และตรงกับที่ประกาศใน meta', async ({ page }) => {
+  await openApp(page);
+  const meta = await page.getAttribute('meta[name="app-version"]', 'content');
+  expect(meta, 'ต้องประกาศเวอร์ชันไว้ใน <meta name="app-version">').toBeTruthy();
+  await expect(page.locator('header .sub'), 'ผู้ใช้ต้องเห็นเวอร์ชันได้โดยไม่ต้องเปิด DevTools')
+    .toContainText('v' + meta);
+});
+
+test('เจอเวอร์ชันใหม่บนเซิร์ฟเวอร์ ต้องขึ้นปุ่มให้โหลดใหม่', async ({ page }) => {
+  await openApp(page);
+  await page.route('**/Stock-log.html?v=*', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html; charset=utf-8',
+    body: '<meta name="app-version" content="9999-12-31.9">'
+  }));
+
+  await page.evaluate(() => document.querySelector('#app')._vnode.component.setupState.checkUpdate(false));
+  await expect(page.getByRole('button', { name: /มีเวอร์ชันใหม่/ })).toBeVisible();
+});
+
+test('D7 — ตรวจอัปเดตไม่ได้ตอนออฟไลน์ ต้องไม่ทำให้แอปใช้งานไม่ได้', async ({ page }) => {
+  await openApp(page);
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+
+  await page.route('**/Stock-log.html?v=*', route => route.abort());
+  await page.evaluate(() => document.querySelector('#app')._vnode.component.setupState.checkUpdate(false));
+  await page.waitForTimeout(300);
+
+  expect(errors, 'ตรวจอัปเดตล้มเหลวต้องไม่โยน error หลุดออกมา').toEqual([]);
+  expect(await readState(page, s => s.balOf('M001')), 'แอปต้องยังทำงานได้ตามปกติ').toBe(12);
+  await expect(page.getByRole('button', { name: /มีเวอร์ชันใหม่/ }), 'ตรวจไม่ได้ ห้ามเดาว่ามีของใหม่')
+    .toHaveCount(0);
+});
+
 test('F3 — ห้ามมี URL ของ Apps Script หรือ token ฝังอยู่ในไฟล์', () => {
   const src = fs.readFileSync(APP_FILE, 'utf8');
   // placeholder ที่เป็น ".../exec" ปล่อยผ่านได้ ที่ห้ามคือ deployment id จริง (ขึ้นต้นด้วย AKfyc)
