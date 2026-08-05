@@ -6,3 +6,9 @@
 !/Stock-log.html
 !/ทะเบียนวัตถุดิบ.html
 !/google-apps-script.gs
+
+# Docs + config for the AI maintenance workflow.
+# NOTE: because of the deny-all rule above, every new tracked file needs a line here.
+!/CLAUDE.md
+!/INVARIANTS.md
+!/.github/

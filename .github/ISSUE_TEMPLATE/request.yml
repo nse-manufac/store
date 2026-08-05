@@ -1,0 +1,34 @@
+name: ขอเพิ่ม / ขอปรับ (request)
+description: อยากให้โปรแกรมทำอะไรได้เพิ่ม หรือปรับให้ใช้ง่ายขึ้น
+title: "[ขอปรับ] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: ตอนนี้ติดปัญหาอะไร
+      description: บอกว่า "ทำงานแล้วเจอปัญหาอะไร" ดีกว่าบอกว่า "อยากได้ปุ่มอะไร" — จะได้หาทางออกที่ดีที่สุดให้
+      placeholder: เช่น ทุกเช้าต้องนั่งไล่ดูทีละ PO ว่าอันไหนยังไม่ปิดยอด ใช้เวลานาน
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: คิดว่าน่าจะแก้ยังไง
+      description: ถ้ายังไม่มีไอเดียก็ข้ามได้
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: อยากได้เร็วแค่ไหน
+      options:
+        - รีบ กระทบงานทุกวัน
+        - ไม่รีบ ค่อยทำก็ได้
+    validations:
+      required: true
+
+  - type: input
+    id: reporter
+    attributes:
+      label: ชื่อผู้ขอ
