@@ -12,3 +12,14 @@
 !/CLAUDE.md
 !/INVARIANTS.md
 !/.github/
+
+# Test harness (dev tooling — the app itself still has no build step).
+!/tests/
+!/package.json
+!/playwright.config.js
+
+# ...but never the generated output of a test run.
+/node_modules/
+/test-results/
+/playwright-report/
+/package-lock.json
