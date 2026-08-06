@@ -102,16 +102,16 @@ jobs:
           ISSUE: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
-          mkdir -p .triage-out
-          echo "$ISSUE" > .triage-out/issue
+          mkdir -p triage-out
+          echo "$ISSUE" > triage-out/issue
 
           # อ่านป้ายปัจจุบัน "หลัง" หัวหน้าทีมทำงานเสร็จ — ตัดสินจากสถานะจริง
           # ไม่ใช่จากสิ่งที่ agent บอกว่าทำ
           if gh issue view "$ISSUE" --json labels -q '.labels[].name' | grep -qx 'ready-to-fix'; then
-            echo yes > .triage-out/dispatch
+            echo yes > triage-out/dispatch
             echo "→ ติดป้าย ready-to-fix แล้ว จะส่งต่อให้ช่างซ่อม"
           else
-            echo no > .triage-out/dispatch
+            echo no > triage-out/dispatch
             echo "→ ไม่มีป้าย ready-to-fix ช่างซ่อมจะไม่ทำงาน"
           fi
 
@@ -119,5 +119,9 @@ jobs:
         if: always()
         with:
           name: triage-result
-          path: .triage-out/
+          # ห้ามใช้ชื่อขึ้นต้นด้วยจุด — upload-artifact ถือว่าเป็นไฟล์ซ่อนและข้ามให้เงียบ ๆ
+          path: triage-out/
+          # ถ้าไม่มีไฟล์ให้อัปโหลด ให้ล้มเลย อย่ารายงาน success
+          # ค่าเริ่มต้นคือแค่เตือน ซึ่งเคยทำให้สายส่งงานขาดโดยไม่มีใครรู้มาแล้วหนึ่งรอบ
+          if-no-files-found: error
           retention-days: 1
