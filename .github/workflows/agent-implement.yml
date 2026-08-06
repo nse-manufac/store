@@ -43,7 +43,7 @@ jobs:
           name: triage-result
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
-          path: .triage-out
+          path: triage-out
 
       - name: ตัดสิน
         id: decide
@@ -69,11 +69,11 @@ jobs:
           elif [ "$EVENT" = "workflow_run" ]; then
             if [ "$RUN_CONCLUSION" != "success" ]; then
               echo "หัวหน้าทีมทำงานไม่สำเร็จ ($RUN_CONCLUSION) — ไม่ส่งต่อ"
-            elif [ ! -f .triage-out/issue ]; then
+            elif [ ! -f triage-out/issue ]; then
               echo "ไม่พบผลการคัดกรอง (หัวหน้าทีมอาจถูกข้าม) — ไม่ส่งต่อ"
             else
-              issue=$(cat .triage-out/issue)
-              dispatch=$(cat .triage-out/dispatch 2>/dev/null || echo no)
+              issue=$(cat triage-out/issue)
+              dispatch=$(cat triage-out/dispatch 2>/dev/null || echo no)
               echo "มาจากหัวหน้าทีม: issue=#$issue dispatch=$dispatch"
               [ "$dispatch" = "yes" ] && go=yes
             fi
