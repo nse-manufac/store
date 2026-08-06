@@ -125,3 +125,23 @@ jobs:
           # ค่าเริ่มต้นคือแค่เตือน ซึ่งเคยทำให้สายส่งงานขาดโดยไม่มีใครรู้มาแล้วหนึ่งรอบ
           if-no-files-found: error
           retention-days: 1
+
+      # หัวหน้าทีมล้ม = ช่างซ่อมไม่ตื่น = issue เงียบสนิท
+      # คนแจ้งจะนึกว่าไม่มีใครเห็น จึงต้องมีข้อความไปโผล่บน issue เสมอ
+      - name: แจ้งบน issue เมื่อหัวหน้าทีมทำงานไม่สำเร็จ
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "⚠️ **หัวหน้าทีมคัดกรอง issue นี้ไม่สำเร็จ**"
+            echo ""
+            echo "เรื่องนี้ยังไม่ได้ถูกส่งต่อให้ช่างซ่อม ถ้าจะให้ลองใหม่ ให้ปิด issue แล้วเปิดกลับ"
+            echo ""
+            echo "ดูว่าติดตรงไหน: $RUN_URL"
+          } > fail-note.md
+          gh issue comment "$ISSUE" -R "$REPO" --body-file fail-note.md

@@ -141,10 +141,19 @@ jobs:
           # ใช้ token ที่ GitHub ออกให้ workflow นี้โดยตรง แทนการติดตั้ง Claude GitHub App
           # ผลคือขอบเขตสิทธิ์ = permissions ด้านบนเป๊ะ ๆ ไม่ใช่สิทธิ์ของ app ที่กว้างกว่า
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # max-turns 40 ไม่พอจริง — รอบแรกใช้ไป 41 เทิร์นแล้วยังไม่ทันเปิด PR
+          # งานหนึ่งชิ้นต้อง: อ่านกฎ → อ่าน issue → ทำซ้ำอาการ → แก้ → เขียนเทส → รันเทส → push → เปิด PR
+          # ถ้าเทสแดงรอบหนึ่งก็หมดไปอีกหลายเทิร์น
+          #
+          # รายการเครื่องมือ: กว้างขึ้นโดยตั้งใจ ไม่ใช่ความหละหลวม
+          # ขอบเขตความเสียหายจริงคือบล็อก permissions ด้านบน (เขียนโค้ดได้ เปิด PR ได้ merge ไม่ได้)
+          # ไม่ใช่รายการนี้ การกันคำสั่งพื้นฐานอย่าง ls/cat จึงไม่ได้เพิ่มความปลอดภัย
+          # ได้แค่เผาเทิร์นกับเงินไปกับการที่ agent ต้องหาทางอ้อม
+          # สิ่งที่ยัง "ไม่" ให้คือเครื่องมือที่ส่งข้อมูลออกนอกเครื่อง (curl, wget) — repo นี้เป็น public
           claude_args: |
             --model claude-opus-5
-            --max-turns 40
-            --allowedTools "Read,Write,Edit,Grep,Glob,Bash(git:*),Bash(gh pr:*),Bash(gh issue:*),Bash(npm:*),Bash(npx:*)"
+            --max-turns 80
+            --allowedTools "Read,Write,Edit,Grep,Glob,Bash(git:*),Bash(gh pr:*),Bash(gh issue:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(mkdir:*),Bash(cd:*)"
           prompt: |
             คุณคือ "ช่างซ่อม" หน้าที่คือแก้ปัญหาตาม issue นี้แล้วเปิด PR ให้เจ้าของตรวจ
 
@@ -202,3 +211,28 @@ jobs:
             - **ห้ามแก้ไฟล์ใน `.github/`** ทุกกรณี (มี CI ตรวจ ถ้าแก้ PR จะแดงทันที)
             - ห้ามแตะบรรทัด vendor library ที่ยาวผิดปกติ
             - ห้ามแก้หรือลบเทสที่มีอยู่เพื่อให้ผ่าน — เทสแดงแปลว่าโค้ดผิด ไม่ใช่เทสผิด
+
+      # ═══════════════════════════════════════════════════════════════
+      # ถ้าช่างซ่อมทำไม่จบ ต้องไปโผล่บน issue
+      #
+      # ไม่งั้นสิ่งที่เจ้าของเห็นตอนพักเที่ยงคือ issue ที่ติดป้าย ready-to-fix แล้วเงียบ
+      # ซึ่ง "หน้าตาเหมือนกันเป๊ะ" กับกรณีที่ยังไม่มีใครเริ่มทำ
+      # ต้องเข้าไปเปิดแท็บ Actions เองถึงจะรู้ว่าพัง — ซึ่งแปลว่าจะไม่มีใครรู้
+      # ═══════════════════════════════════════════════════════════════
+      - name: แจ้งบน issue เมื่อช่างซ่อมทำไม่สำเร็จ
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ needs.resolve.outputs.issue }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "⚠️ **ช่างซ่อมทำงานไม่สำเร็จ — ยังไม่มี PR ให้ตรวจ**"
+            echo ""
+            echo "ป้าย \`ready-to-fix\` ยังอยู่ ถ้าจะให้ลองใหม่ ให้ถอดป้ายออกแล้วติดกลับเข้าไป"
+            echo ""
+            echo "ดูว่าติดตรงไหน: $RUN_URL"
+          } > fail-note.md
+          gh issue comment "$ISSUE" -R "$REPO" --body-file fail-note.md
