@@ -30,28 +30,41 @@ jobs:
           set -euo pipefail
           BASE="origin/${{ github.base_ref }}"
           git fetch --quiet origin "${{ github.base_ref }}"
-
-          if ! git diff --name-only "$BASE...HEAD" | grep -qx 'Stock-log.html'; then
-            echo "PR นี้ไม่ได้แก้ Stock-log.html — ข้ามการตรวจ"
-            exit 0
-          fi
+          CHANGED=$(git diff --name-only "$BASE...HEAD")
 
           ver() { grep -o '<meta name="app-version" content="[^"]*"' | head -1 | sed 's/.*content="//; s/"$//'; }
-          NEW=$(ver < Stock-log.html || true)
-          OLD=$(git show "$BASE:Stock-log.html" | ver || true)
 
-          echo "เวอร์ชันบน ${{ github.base_ref }} : ${OLD:-(ไม่พบ)}"
-          echo "เวอร์ชันใน PR นี้            : ${NEW:-(ไม่พบ)}"
+          # ตรวจทุกไฟล์แอปในโฟลเดอร์บนสุด ไม่ใช่แค่ไฟล์เดียวที่ hardcode ไว้
+          # เพิ่มแอปใหม่แล้วจะถูกตรวจเองโดยไม่ต้องมาแก้ตรงนี้ — กฎที่ต้องจำว่าให้ไปเติม คือกฎที่จะลืม
+          FAIL=0
+          FOUND=0
+          for APP in *.html; do
+            echo "$CHANGED" | grep -qxF "$APP" || continue
+            FOUND=1
 
-          if [ -z "$NEW" ]; then
-            echo '::error file=Stock-log.html::ไม่พบ <meta name="app-version"> ในไฟล์'
-            exit 1
+            NEW=$(ver < "$APP" || true)
+            OLD=$(git show "$BASE:$APP" 2>/dev/null | ver || true)
+            echo "── $APP"
+            echo "   บน ${{ github.base_ref }} : ${OLD:-(ไม่พบ)}"
+            echo "   ใน PR นี้        : ${NEW:-(ไม่พบ)}"
+
+            if [ -z "$NEW" ]; then
+              echo "::error file=$APP::ไม่พบ <meta name=\"app-version\"> ในไฟล์ — ผู้ใช้จะบอกไม่ได้ว่าเครื่องตัวเองรันรุ่นไหน (INVARIANTS F4)"
+              FAIL=1
+            elif [ "$OLD" = "$NEW" ]; then
+              echo "::error file=$APP::แก้ $APP แล้วแต่ไม่ได้บัมป์ app-version (ยังเป็น $NEW) — เครื่องที่ cache ไฟล์เก่าไว้จะไม่รู้ว่ามีของใหม่ ดู INVARIANTS B4"
+              FAIL=1
+            else
+              echo "   ✓ บัมป์แล้ว: ${OLD:-(ไม่มี)} → $NEW"
+            fi
+          done
+
+          # ห้ามเขียนเป็น `[ ... ] && echo` — ภายใต้ set -e ถ้าเงื่อนไขเป็นเท็จ
+          # AND-list จะคืนค่า 1 และทำให้ step ล้มทั้งที่ทุกอย่างถูกต้อง
+          if [ "$FOUND" -eq 0 ]; then
+            echo "PR นี้ไม่ได้แก้ไฟล์แอป — ข้ามการตรวจ"
           fi
-          if [ "$OLD" = "$NEW" ]; then
-            echo "::error file=Stock-log.html::แก้ Stock-log.html แล้วแต่ไม่ได้บัมป์ app-version (ยังเป็น $NEW) — เครื่องที่ cache ไฟล์เก่าไว้จะไม่รู้ว่ามีของใหม่ ดู INVARIANTS B4"
-            exit 1
-          fi
-          echo "✓ บัมป์เวอร์ชันแล้ว: $OLD → $NEW"
+          exit "$FAIL"
 
   smoke:
     name: ตรวจกฎใน INVARIANTS.md

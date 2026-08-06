@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-version" content="2026-08-06.1">
 <title>ทะเบียนวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -89,8 +90,18 @@ table.plain input[type=text]{width:100%}
   <header>
     <div>
       <h1>ทะเบียนวัตถุดิบ</h1>
-      <div class="sub">ระบบ Bin Card — Phase 1</div>
+      <div class="sub">ระบบ Bin Card — Phase 1 ·
+        <span style="cursor:pointer;border-bottom:1px dotted currentColor"
+              @click="checkUpdate(false)"
+              title="กดเพื่อตรวจว่ามีเวอร์ชันใหม่ไหม">v{{ APP_VERSION }}</span>
+        <span v-if="verMsg"> — {{ verMsg }}</span>
+      </div>
     </div>
+    <button v-if="newVersion" class="btn" @click="reloadApp"
+            title="เครื่องนี้ยังใช้ไฟล์เก่าอยู่ กดเพื่อโหลดเวอร์ชันล่าสุด"
+            style="background:var(--warn);color:#fff;border-color:transparent">
+      มีเวอร์ชันใหม่ {{ newVersion }} — โหลดใหม่
+    </button>
     <div class="spacer"></div>
     <div class="tabs">
       <button :class="{on:tab==='mat'}"    @click="tab='mat'">วัตถุดิบ</button>
@@ -1453,6 +1464,51 @@ createApp({
     }
 
     // ---------- เริ่มต้น ----------
+    // ───────── ตรวจเวอร์ชัน ─────────
+    // เครื่องที่ cache ไฟล์เก่าค้างไว้ทำให้แก้บั๊กแล้วผู้ใช้ยังเจอปัญหาเดิม
+    // และแยกไม่ออกว่าอาการที่แจ้งมาเกิดจากบั๊กจริง หรือจากการใช้ไฟล์คนละรุ่นกัน
+    // ต้องเห็นเวอร์ชันได้ตลอดเวลาโดยไม่ต้องเปิด DevTools (INVARIANTS F4)
+    const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
+    const newVersion  = ref('');
+    const verMsg      = ref('');
+
+    let verMsgTimer = null;
+    function sayVer(text){
+      verMsg.value = text;
+      clearTimeout(verMsgTimer);
+      verMsgTimer = setTimeout(() => verMsg.value = '', 4000);
+    }
+
+    /** ดึงไฟล์ตัวเองแบบข้าม cache แล้วเทียบเวอร์ชันกับที่รันอยู่
+     *  regex จับ <meta> ตัวแรกของไฟล์ ซึ่งอยู่ใน <head> ก่อนโค้ดส่วนนี้เสมอ จึงไม่ไปจับตัวเอง */
+    async function checkUpdate(silent = true){
+      try {
+        const res = await fetch(location.pathname + '?v=' + Date.now(), { cache:'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const m = (await res.text()).match(/<meta name="app-version" content="([^"]*)">/);
+        if (!m) throw new Error('ไม่พบเวอร์ชันในไฟล์บนเซิร์ฟเวอร์');
+        if (m[1] === APP_VERSION) {
+          newVersion.value = '';
+          if (!silent) sayVer('ใช้เวอร์ชันล่าสุดอยู่แล้ว');
+        } else {
+          newVersion.value = m[1];
+          if (!silent) sayVer('มีเวอร์ชันใหม่ กดปุ่มด้านบนเพื่อโหลด');
+        }
+      } catch (e) {
+        // ออฟไลน์อยู่ก็แค่ตรวจไม่ได้ ห้ามทำให้แอปใช้งานไม่ได้
+        if (!silent) sayVer('ตรวจอัปเดตไม่ได้ — อาจไม่มีอินเทอร์เน็ต');
+      }
+    }
+
+    /** บังคับให้เบราว์เซอร์ทิ้ง cache ของไฟล์นี้ก่อนโหลดใหม่
+     *  (location.reload() เฉย ๆ ยังหยิบของเก่าจาก cache ได้) */
+    async function reloadApp(){
+      // แอปนี้เก็บงานที่ยังไม่บันทึกไว้ในหน่วยความจำ โหลดใหม่แล้วหาย — ต้องถามก่อน
+      if (dirty.value && !confirm('ยังมีรายการที่แก้ไว้แต่ยังไม่ได้บันทึก โหลดใหม่แล้วจะหาย ต้องการโหลดใหม่ไหม')) return;
+      try { await fetch(location.pathname, { cache:'reload' }); } catch (e) { /* ไม่มีเน็ตก็ลองโหลดไปเลย */ }
+      location.reload();
+    }
+
     onMounted(() => {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
@@ -1473,9 +1529,14 @@ createApp({
       window.addEventListener('beforeunload', e => {
         if (dirty.value) { e.preventDefault(); e.returnValue = ''; }
       });
+
+      // หน่วงไว้ให้แอปพร้อมใช้ก่อน การตรวจเวอร์ชันสำคัญน้อยกว่าการเปิดขึ้นเร็ว
+      setTimeout(() => checkUpdate(true), 3000);
+      window.addEventListener('online', () => checkUpdate(true));
     });
 
     return {
+      APP_VERSION, newVersion, verMsg, checkUpdate, reloadApp,
       tab, loaded, dragOver, dirty, rows, entities, issues,
       q, fCat, fActive, fExp, fUnit, fIssue, issueLimit,
       sortKey, sortDir, rowH, startIdx, winSize, scroller, searchBox,
