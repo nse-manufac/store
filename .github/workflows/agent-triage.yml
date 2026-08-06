@@ -23,6 +23,9 @@ jobs:
     permissions:
       issues: write
       contents: read
+      # claude-code-action แลก GitHub token ผ่าน OIDC — ขาดบรรทัดนี้ action จะ fail
+      # ตั้งแต่ก่อนเริ่มคิด ไม่เกี่ยวกับ ANTHROPIC_API_KEY
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
