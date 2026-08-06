@@ -1,23 +1,115 @@
 name: ช่างซ่อม — แก้ตาม issue
 
 on:
+  # ทาง 1 — เจ้าของติดป้าย ready-to-fix เอง
   issues:
     types: [labeled]
+  # ทาง 2 — หัวหน้าทีมคัดกรองจบแล้วส่งไม้ต่อ
+  # ใช้ workflow_run เพราะป้ายที่ bot ติดจะไม่สร้าง workflow run ใหม่ (กฎกันลูปของ GitHub)
+  workflow_run:
+    workflows: ["หัวหน้าทีม — คัดกรอง issue"]
+    types: [completed]
 
 # ═══════════════════════════════════════════════════════════════
 # agent ตัวเดียวใน repo นี้ที่มีสิทธิ์เขียนโค้ด จึงมี 3 ด่านซ้อนกัน
 #   1. ต้องเป็น issue ที่เจ้าของ repo เปิด (กันคนนอกสั่งงาน)
-#   2. ต้องมีป้าย ready-to-fix (หัวหน้าทีมหรือเจ้าของติดเท่านั้น)
+#   2. ต้องมีป้าย ready-to-fix จริงในขณะนั้น (ตรวจจากสถานะจริง ไม่ใช่จากที่ agent อ้าง)
 #   3. ห้าม push main — บังคับด้วย branch protection ไม่ใช่แค่สั่งในคำสั่ง
 # ผลลัพธ์สูงสุดที่ agent ทำได้คือ "เปิด PR" ซึ่งต้องผ่านสายตาเจ้าของเสมอ
 # ═══════════════════════════════════════════════════════════════
 
 jobs:
+  # ─────────────────────────────────────────────
+  # หา issue ที่ต้องทำ และตรวจด่านความปลอดภัยทั้งหมด
+  # แยกเป็น job ต่างหากเพื่อให้ job ที่มีสิทธิ์เขียนโค้ดไม่ต้องยุ่งกับการตัดสินใจ
+  # ─────────────────────────────────────────────
+  resolve:
+    name: ตรวจว่าต้องทำ issue ไหน
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: read
+      actions: read
+    outputs:
+      go: ${{ steps.decide.outputs.go }}
+      issue: ${{ steps.decide.outputs.issue }}
+
+    steps:
+      - name: ดึงผลการคัดกรองจากหัวหน้าทีม
+        if: github.event_name == 'workflow_run'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: triage-result
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: .triage-out
+
+      - name: ตัดสิน
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          EVENT: ${{ github.event_name }}
+          LABEL: ${{ github.event.label.name }}
+          ISSUE_FROM_EVENT: ${{ github.event.issue.number }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          go=no
+          issue=
+
+          if [ "$EVENT" = "issues" ]; then
+            # เจ้าของติดป้ายเอง
+            issue="$ISSUE_FROM_EVENT"
+            [ "$LABEL" = "ready-to-fix" ] && go=yes
+            echo "มาจากการติดป้าย: label=$LABEL issue=#$issue"
+
+          elif [ "$EVENT" = "workflow_run" ]; then
+            if [ "$RUN_CONCLUSION" != "success" ]; then
+              echo "หัวหน้าทีมทำงานไม่สำเร็จ ($RUN_CONCLUSION) — ไม่ส่งต่อ"
+            elif [ ! -f .triage-out/issue ]; then
+              echo "ไม่พบผลการคัดกรอง (หัวหน้าทีมอาจถูกข้าม) — ไม่ส่งต่อ"
+            else
+              issue=$(cat .triage-out/issue)
+              dispatch=$(cat .triage-out/dispatch 2>/dev/null || echo no)
+              echo "มาจากหัวหน้าทีม: issue=#$issue dispatch=$dispatch"
+              [ "$dispatch" = "yes" ] && go=yes
+            fi
+          fi
+
+          # ── ด่านความปลอดภัย: ตรวจซ้ำจากสถานะจริงเสมอ ──
+          # workflow_run ไม่มี context ของ issue ติดมาด้วย จึงต้องถาม API เอง
+          # และถึงจะมาจาก event ปกติ ก็ตรวจซ้ำอยู่ดี — ป้ายอาจถูกถอดไปแล้วระหว่างรอคิว
+          if [ "$go" = "yes" ]; then
+            author=$(gh issue view "$issue" -R "$REPO" --json author -q '.author.login')
+            state=$(gh issue view "$issue" -R "$REPO" --json state -q '.state')
+            has_label=$(gh issue view "$issue" -R "$REPO" --json labels -q '.labels[].name' | grep -cx 'ready-to-fix' || true)
+
+            if [ "$author" != "$OWNER" ]; then
+              echo "::warning::issue #$issue เปิดโดย $author ไม่ใช่ $OWNER — ไม่ทำ"
+              go=no
+            elif [ "$state" != "OPEN" ]; then
+              echo "issue #$issue ปิดไปแล้ว — ไม่ทำ"
+              go=no
+            elif [ "$has_label" -eq 0 ]; then
+              echo "issue #$issue ไม่มีป้าย ready-to-fix แล้ว — ไม่ทำ"
+              go=no
+            fi
+          fi
+
+          echo "go=$go"     >> "$GITHUB_OUTPUT"
+          echo "issue=$issue" >> "$GITHUB_OUTPUT"
+          echo "► สรุป: go=$go issue=#$issue"
+
+  # ─────────────────────────────────────────────
+  # แก้จริง — job เดียวใน repo ที่มี contents: write
+  # ─────────────────────────────────────────────
   implement:
     name: แก้และเปิด PR
-    if: >-
-      github.event.label.name == 'ready-to-fix' &&
-      github.event.issue.user.login == github.repository_owner
+    needs: resolve
+    if: needs.resolve.outputs.go == 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -25,14 +117,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      # claude-code-action แลก GitHub token ผ่าน OIDC — ขาดบรรทัดนี้ action จะ fail
-      # ตั้งแต่ก่อนเริ่มคิด ไม่เกี่ยวกับ ANTHROPIC_API_KEY
+      # claude-code-action แลก GitHub token ผ่าน OIDC
       id-token: write
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - uses: actions/setup-node@v4
         with:
@@ -56,7 +148,7 @@ jobs:
           prompt: |
             คุณคือ "ช่างซ่อม" หน้าที่คือแก้ปัญหาตาม issue นี้แล้วเปิด PR ให้เจ้าของตรวจ
 
-            issue: #${{ github.event.issue.number }}
+            issue: #${{ needs.resolve.outputs.issue }}
             repo:  ${{ github.repository }}
 
             ## ⚠️ กฎความปลอดภัย
@@ -70,23 +162,24 @@ jobs:
 
             1. `INVARIANTS.md` — กฎที่ห้ามพัง
             2. `CLAUDE.md` — แผนที่โค้ดและวิธีหาที่แก้โดยไม่ต้องอ่านทั้งไฟล์
-            3. `gh issue view ${{ github.event.issue.number }} --comments` — รวมบทวิเคราะห์ของหัวหน้าทีม
+            3. `gh issue view ${{ needs.resolve.outputs.issue }} --comments` — รวมบทวิเคราะห์ของหัวหน้าทีม
+               **และคำตอบของเจ้าของ** ถ้าหัวหน้าทีมถามอะไรไว้ ให้ทำตามคำตอบนั้น
 
             ## ขั้นตอน
 
             1. **ทำซ้ำอาการให้ได้ก่อน** ถ้าทำซ้ำไม่ได้ ห้ามเดาแล้วแก้ —
                ให้คอมเมนต์ถามข้อมูลเพิ่ม ถอดป้าย `ready-to-fix` แล้วหยุด
-            2. สร้าง branch: `git checkout -b fix/${{ github.event.issue.number }}-<คำอธิบายสั้นภาษาอังกฤษ>`
+            2. สร้าง branch: `git checkout -b fix/${{ needs.resolve.outputs.issue }}-<คำอธิบายสั้นภาษาอังกฤษ>`
             3. **แก้ให้เล็กที่สุด** เฉพาะสาเหตุ ห้ามจัดระเบียบโค้ดรอบข้าง ห้ามเพิ่มฟีเจอร์แถม
             4. **บัมป์ `<meta name="app-version">`** ในไฟล์แอปที่แก้ (INVARIANTS F4)
-               รูปแบบ `YYYY-MM-DD.ลำดับ` — ถ้าลืม CI จะแดงและ PR จะใช้ไม่ได้
+               รูปแบบ `YYYY-MM-DD.ลำดับ` — **แต่ละไฟล์เดินเลขของตัวเอง** แก้ไฟล์ไหนบัมป์ไฟล์นั้น
             5. **เพิ่ม smoke test** ที่ครอบอาการนี้ ตั้งชื่อเทสอ้างข้อกฎใน INVARIANTS ให้ตรงหมวด
             6. รัน `npm test` ให้ผ่านครบทุกข้อ **ถ้าแดง ห้ามเปิด PR** — แก้จนเขียวก่อน
             7. `git push -u origin <branch>` แล้ว `gh pr create`
 
             ## หัว PR ต้องมี (ภาษาไทย)
 
-            - `Closes #${{ github.event.issue.number }}`
+            - `Closes #${{ needs.resolve.outputs.issue }}`
             - **อาการ** — ผู้ใช้เจออะไร
             - **เกิดจากอะไร** — สาเหตุจริง ระบุไฟล์และฟังก์ชัน
             - **แก้ยังไง** — ทำอะไรไปบ้าง

@@ -85,3 +85,39 @@ jobs:
             - ห้ามติด `ready-to-fix` ถ้ายังทำซ้ำอาการไม่ได้ หรือยังไม่รู้สาเหตุ
             - ห้ามติด `ready-to-fix` ถ้าการแก้จะไปแตะ INVARIANTS หมวด A (สูตรยอด),
               C (การล็อก PO), D (sync) หรือ E (โครงสร้างข้อมูล) — พวกนี้ต้องให้เจ้าของตัดสิน
+
+      # ═══════════════════════════════════════════════════════════════
+      # ส่งไม้ต่อให้ช่างซ่อม
+      #
+      # GitHub มีกฎกันลูป: event ที่เกิดจาก GITHUB_TOKEN จะไม่สร้าง workflow run ใหม่
+      # ป้าย ready-to-fix ที่หัวหน้าทีมติดจึงปลุกช่างซ่อมไม่ได้
+      #
+      # ทางออกคือบันทึกผลไว้เป็น artifact แล้วให้ช่างซ่อมตื่นด้วย workflow_run
+      # ซึ่งยิงตอน "workflow นี้ทำงานจบ" ไม่ได้ยิงจาก event ที่ bot สร้าง จึงไม่ติดกฎ
+      # ═══════════════════════════════════════════════════════════════
+      - name: บันทึกผลการคัดกรองไว้ให้ช่างซ่อม
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p .triage-out
+          echo "$ISSUE" > .triage-out/issue
+
+          # อ่านป้ายปัจจุบัน "หลัง" หัวหน้าทีมทำงานเสร็จ — ตัดสินจากสถานะจริง
+          # ไม่ใช่จากสิ่งที่ agent บอกว่าทำ
+          if gh issue view "$ISSUE" --json labels -q '.labels[].name' | grep -qx 'ready-to-fix'; then
+            echo yes > .triage-out/dispatch
+            echo "→ ติดป้าย ready-to-fix แล้ว จะส่งต่อให้ช่างซ่อม"
+          else
+            echo no > .triage-out/dispatch
+            echo "→ ไม่มีป้าย ready-to-fix ช่างซ่อมจะไม่ทำงาน"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: triage-result
+          path: .triage-out/
+          retention-days: 1
