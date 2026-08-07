@@ -6,7 +6,7 @@
 <!-- เวอร์ชันของไฟล์นี้ — ประกาศที่เดียว โค้ดอ่านจากตรงนี้ ห้ามเขียนซ้ำที่อื่น
      ต้องบัมป์ทุกครั้งที่แก้ไฟล์นี้ (CI จะตรวจให้ ถ้าลืมบัมป์ PR จะแดง)
      รูปแบบ: YYYY-MM-DD.ลำดับของวันนั้น -->
-<meta name="app-version" content="2026-08-05.1">
+<meta name="app-version" content="2026-08-07.1">
 <title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -3409,9 +3409,16 @@ createApp({
     const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
     const newVersion  = ref('');
 
+    // เครื่องที่เปิดแท็บค้างไว้ทั้งวันต้องรู้เองว่ามีของใหม่ ไม่ใช่รอให้พนักงานกด
+    // แต่ตรวจแต่ละครั้ง = โหลดไฟล์ใหม่ทั้งไฟล์ เน็ตโรงงานไม่ไหว จึงตรวจห่าง ๆ เท่านั้น
+    const UPDATE_EVERY = 30 * 60 * 1000;   // ระยะห่างขั้นต่ำระหว่างการตรวจสองครั้ง
+    const UPDATE_TICK  =  5 * 60 * 1000;   // จังหวะเดินมาดูว่าถึงเวลาหรือยัง — ไม่ยิงเน็ต
+    let lastCheck = 0;
+
     /** ดึงไฟล์ตัวเองแบบข้าม cache แล้วเทียบเวอร์ชันกับที่รันอยู่
      *  regex จับ <meta> ตัวแรกของไฟล์ ซึ่งอยู่ใน <head> ก่อนโค้ดส่วนนี้เสมอ จึงไม่ไปจับตัวเอง */
     async function checkUpdate(silent = true){
+      lastCheck = Date.now();
       try {
         const res = await fetch(location.pathname + '?v=' + Date.now(), { cache:'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -3428,6 +3435,14 @@ createApp({
         // ออฟไลน์อยู่ก็แค่ตรวจไม่ได้ ห้ามทำให้แอปใช้งานไม่ได้ (INVARIANTS D7)
         if (!silent) flash('ตรวจอัปเดตไม่ได้ — อาจไม่มีอินเทอร์เน็ต', true);
       }
+    }
+
+    /** ตรวจซ้ำแบบเงียบ ๆ เมื่อถึงเวลาเท่านั้น — แท็บที่ถูกซ่อนอยู่ไม่ต้องตรวจ ปล่อยเครื่องเก่าได้พัก
+     *  และคนที่สลับแท็บไปมาทั้งวันก็จะไม่ยิงเน็ตทุกครั้ง */
+    function checkUpdateIfDue(){
+      if (document.hidden) return;
+      if (Date.now() - lastCheck < UPDATE_EVERY) return;
+      checkUpdate(true);
     }
 
     /** บังคับให้เบราว์เซอร์ทิ้ง cache ของไฟล์นี้ก่อนโหลดใหม่
@@ -3499,6 +3514,8 @@ createApp({
       });
       // ตรวจเวอร์ชันเงียบ ๆ หลังหน้าจอพร้อมแล้ว — ห้ามหน่วงการเปิดแอป
       setTimeout(() => checkUpdate(true), 3000);
+      setInterval(checkUpdateIfDue, UPDATE_TICK);
+      document.addEventListener('visibilitychange', checkUpdateIfDue);
       window.addEventListener('online',  () => { if (sync.url) doSync(); checkUpdate(true); });
       window.addEventListener('offline', () => { sync.state = 'error'; sync.error = 'ไม่มีอินเทอร์เน็ต'; });
     });
