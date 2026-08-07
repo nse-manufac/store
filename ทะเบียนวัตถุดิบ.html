@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-06.1">
+<meta name="app-version" content="2026-08-07.1">
 <title>ทะเบียนวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1502,9 +1502,13 @@ createApp({
 
     /** บังคับให้เบราว์เซอร์ทิ้ง cache ของไฟล์นี้ก่อนโหลดใหม่
      *  (location.reload() เฉย ๆ ยังหยิบของเก่าจาก cache ได้) */
+    /** ผู้ใช้ยืนยันจะโหลดใหม่แล้ว — ปิดตัวกัน beforeunload ไม่ให้ถามซ้ำเป็นภาษาอังกฤษ (INVARIANTS G1) */
+    let reloading = false;
+
     async function reloadApp(){
       // แอปนี้เก็บงานที่ยังไม่บันทึกไว้ในหน่วยความจำ โหลดใหม่แล้วหาย — ต้องถามก่อน
       if (dirty.value && !confirm('ยังมีรายการที่แก้ไว้แต่ยังไม่ได้บันทึก โหลดใหม่แล้วจะหาย ต้องการโหลดใหม่ไหม')) return;
+      reloading = true;
       try { await fetch(location.pathname, { cache:'reload' }); } catch (e) { /* ไม่มีเน็ตก็ลองโหลดไปเลย */ }
       location.reload();
     }
@@ -1527,7 +1531,7 @@ createApp({
         }
       });
       window.addEventListener('beforeunload', e => {
-        if (dirty.value) { e.preventDefault(); e.returnValue = ''; }
+        if (dirty.value && !reloading) { e.preventDefault(); e.returnValue = ''; }
       });
 
       // หน่วงไว้ให้แอปพร้อมใช้ก่อน การตรวจเวอร์ชันสำคัญน้อยกว่าการเปิดขึ้นเร็ว
