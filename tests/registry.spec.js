@@ -67,6 +67,64 @@ test('F4 — เวอร์ชันตรงกัน ต้องไม่ข
   await expect(page.locator('header .sub')).toContainText('ใช้เวอร์ชันล่าสุดอยู่แล้ว');
 });
 
+test('F4 — เปิดแท็บค้างไว้ทั้งวัน ต้องตรวจเวอร์ชันซ้ำเองโดยไม่ต้องกด', async ({ page }) => {
+  await page.clock.install();          // ต้องติดตั้งก่อนเปิดหน้า ไม่งั้นนาฬิกาของหน้าไม่ถูกแทน
+  await openApp(page);
+  await page.clock.runFor(5000);       // ผ่านการตรวจรอบแรกตอนเปิดแอป (เวอร์ชันตรงกัน ไม่ขึ้นปุ่ม)
+  await expect(page.getByRole('button', { name: /มีเวอร์ชันใหม่/ })).toHaveCount(0);
+
+  let hits = 0;
+  await page.route(isSelfCheck, route => {
+    hits++;
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: '<meta name="app-version" content="9999-12-31.9">'
+    });
+  });
+
+  await page.clock.runFor(10 * 60 * 1000);
+  expect(hits, 'ยังไม่ถึงเวลา ห้ามยิงโหลดไฟล์ซ้ำถี่ ๆ — เน็ตโรงงานรับไม่ไหว').toBe(0);
+
+  await page.clock.runFor(30 * 60 * 1000);
+  await expect(page.getByRole('button', { name: /มีเวอร์ชันใหม่/ }),
+    'เปิดแท็บค้างไว้ต้องรู้เองว่ามีเวอร์ชันใหม่').toBeVisible();
+  expect(hits, 'ตรวจถี่เกินไป — ต้องห่างกันอย่างน้อยครึ่งชั่วโมง').toBeLessThanOrEqual(2);
+});
+
+test('F4 — แท็บที่ถูกซ่อนอยู่ต้องไม่ตรวจ ตรวจตอนพนักงานสลับกลับมา', async ({ page }) => {
+  await page.clock.install();
+  await openApp(page);
+  await page.clock.runFor(5000);
+
+  let hits = 0;
+  await page.route(isSelfCheck, route => {
+    hits++;
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: '<meta name="app-version" content="9999-12-31.9">'
+    });
+  });
+
+  // พนักงานสลับไปโปรแกรมอื่น แท็บนี้ถูกซ่อน
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__hidden });
+    window.__hidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.clock.runFor(40 * 60 * 1000);
+  expect(hits, 'แท็บถูกซ่อนอยู่ ห้ามตรวจ — ปล่อยเครื่องเก่าได้พัก').toBe(0);
+
+  // สลับกลับมาที่แท็บนี้ — เลยเวลาที่ควรตรวจแล้ว ต้องตรวจให้
+  await page.evaluate(() => {
+    window.__hidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.getByRole('button', { name: /มีเวอร์ชันใหม่/ })).toBeVisible();
+  expect(hits, 'สลับกลับมาแล้วต้องตรวจครั้งเดียวพอ').toBe(1);
+});
+
 test('ตรวจอัปเดตไม่ได้ตอนออฟไลน์ ต้องไม่ทำให้แอปใช้งานไม่ได้', async ({ page }) => {
   await openApp(page);
   const errors = [];

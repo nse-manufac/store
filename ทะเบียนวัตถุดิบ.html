@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-07.1">
+<meta name="app-version" content="2026-08-07.2">
 <title>ทะเบียนวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1479,9 +1479,16 @@ createApp({
       verMsgTimer = setTimeout(() => verMsg.value = '', 4000);
     }
 
+    // เครื่องที่เปิดแท็บค้างไว้ทั้งวันต้องรู้เองว่ามีของใหม่ ไม่ใช่รอให้พนักงานกด
+    // แต่ตรวจแต่ละครั้ง = โหลดไฟล์ใหม่ทั้งไฟล์ เน็ตโรงงานไม่ไหว จึงตรวจห่าง ๆ เท่านั้น
+    const UPDATE_EVERY = 30 * 60 * 1000;   // ระยะห่างขั้นต่ำระหว่างการตรวจสองครั้ง
+    const UPDATE_TICK  =  5 * 60 * 1000;   // จังหวะเดินมาดูว่าถึงเวลาหรือยัง — ไม่ยิงเน็ต
+    let lastCheck = 0;
+
     /** ดึงไฟล์ตัวเองแบบข้าม cache แล้วเทียบเวอร์ชันกับที่รันอยู่
      *  regex จับ <meta> ตัวแรกของไฟล์ ซึ่งอยู่ใน <head> ก่อนโค้ดส่วนนี้เสมอ จึงไม่ไปจับตัวเอง */
     async function checkUpdate(silent = true){
+      lastCheck = Date.now();
       try {
         const res = await fetch(location.pathname + '?v=' + Date.now(), { cache:'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1498,6 +1505,14 @@ createApp({
         // ออฟไลน์อยู่ก็แค่ตรวจไม่ได้ ห้ามทำให้แอปใช้งานไม่ได้
         if (!silent) sayVer('ตรวจอัปเดตไม่ได้ — อาจไม่มีอินเทอร์เน็ต');
       }
+    }
+
+    /** ตรวจซ้ำแบบเงียบ ๆ เมื่อถึงเวลาเท่านั้น — แท็บที่ถูกซ่อนอยู่ไม่ต้องตรวจ ปล่อยเครื่องเก่าได้พัก
+     *  และคนที่สลับแท็บไปมาทั้งวันก็จะไม่ยิงเน็ตทุกครั้ง */
+    function checkUpdateIfDue(){
+      if (document.hidden) return;
+      if (Date.now() - lastCheck < UPDATE_EVERY) return;
+      checkUpdate(true);
     }
 
     /** บังคับให้เบราว์เซอร์ทิ้ง cache ของไฟล์นี้ก่อนโหลดใหม่
@@ -1536,6 +1551,8 @@ createApp({
 
       // หน่วงไว้ให้แอปพร้อมใช้ก่อน การตรวจเวอร์ชันสำคัญน้อยกว่าการเปิดขึ้นเร็ว
       setTimeout(() => checkUpdate(true), 3000);
+      setInterval(checkUpdateIfDue, UPDATE_TICK);
+      document.addEventListener('visibilitychange', checkUpdateIfDue);
       window.addEventListener('online', () => checkUpdate(true));
     });
 
