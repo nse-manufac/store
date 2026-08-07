@@ -229,10 +229,14 @@ jobs:
           # ไม่ใช่รายการนี้ การกันคำสั่งพื้นฐานอย่าง ls/cat จึงไม่ได้เพิ่มความปลอดภัย
           # ได้แค่เผาเทิร์นกับเงินไปกับการที่ agent ต้องหาทางอ้อม
           # สิ่งที่ยัง "ไม่" ให้คือเครื่องมือที่ส่งข้อมูลออกนอกเครื่อง (curl, wget) — repo นี้เป็น public
+          #
+          # `Bash(gh pr:*)` เดิมกว้างเกินไป มันครอบ `gh pr merge` และ `gh pr review --approve` ด้วย
+          # ระบุคำสั่งย่อยเป็นรายตัวแทน — ช่างซ่อมเปิด PR ได้ แต่ merge หรือ approve ไม่ได้ในระดับเครื่องมือ
+          # (ก่อนหน้านี้พึ่ง branch protection อย่างเดียว ตอนนี้มีสองชั้น)
           claude_args: |
             --model claude-opus-5
             --max-turns 80
-            --allowedTools "Read,Write,Edit,Grep,Glob,Bash(git:*),Bash(gh pr:*),Bash(gh issue:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(mkdir:*),Bash(cd:*)"
+            --allowedTools "Read,Write,Edit,Grep,Glob,Bash(git:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr checks:*),Bash(gh pr comment:*),Bash(gh issue:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(mkdir:*),Bash(cd:*)"
           prompt: |
             คุณคือ "ช่างซ่อม" หน้าที่คือแก้ปัญหาตาม issue นี้แล้วเปิด PR ให้เจ้าของตรวจ
 
