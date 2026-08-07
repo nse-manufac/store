@@ -82,6 +82,60 @@ test('ตรวจอัปเดตไม่ได้ตอนออฟไล�
   await expect(page.locator('header h1'), 'แอปต้องยังอยู่').toContainText('ทะเบียนวัตถุดิบ');
 });
 
+test('G1 — มีของยังไม่บันทึกแล้วกดโหลดใหม่ ต้องถามรอบเดียวเป็นภาษาไทย', async ({ page }) => {
+  await openApp(page);
+  await page.route(isSelfCheck, route => route.fulfill({
+    status: 200,
+    contentType: 'text/html; charset=utf-8',
+    body: '<meta name="app-version" content="9999-12-31.9">'
+  }));
+  await checkUpdate(page);
+
+  // จำลองว่ามีรายการที่แก้ไว้แต่ยังไม่ได้บันทึก
+  await page.evaluate(() => {
+    document.querySelector('#app')._vnode.component.setupState.dirty = true;
+    window.__beforeReload = true;   // หายไปเมื่อหน้าโหลดใหม่จริง
+  });
+
+  const dialogs = [];
+  page.on('dialog', d => { dialogs.push({ type: d.type(), message: d.message() }); d.accept(); });
+
+  // ต้องคลิกปุ่มจริง เพราะกล่อง beforeunload ของเบราว์เซอร์ขึ้นเฉพาะเมื่อมี user gesture
+  await page.getByRole('button', { name: /มีเวอร์ชันใหม่/ }).click();
+  await page.waitForFunction(() => !window.__beforeReload);   // รอให้โหลดใหม่เสร็จจริงก่อนค่อยนับ
+
+  expect(dialogs.map(d => d.type), 'ต้องถามรอบเดียว ห้ามให้ beforeunload เด้งซ้ำ').toEqual(['confirm']);
+  expect(dialogs[0].message, 'ข้อความยืนยันต้องเป็นภาษาไทย').toMatch(/ยังไม่ได้บันทึก/);
+});
+
+test('G1 — กดยกเลิกในคำถามโหลดใหม่ ต้องไม่โหลดใหม่ และ beforeunload ต้องยังกันอยู่', async ({ page }) => {
+  await openApp(page);
+  await page.route(isSelfCheck, route => route.fulfill({
+    status: 200,
+    contentType: 'text/html; charset=utf-8',
+    body: '<meta name="app-version" content="9999-12-31.9">'
+  }));
+  await checkUpdate(page);
+  await page.evaluate(() => {
+    const s = document.querySelector('#app')._vnode.component.setupState;
+    s.dirty = true;
+    window.__stillHere = true;
+  });
+
+  page.once('dialog', d => d.dismiss());
+  await page.getByRole('button', { name: /มีเวอร์ชันใหม่/ }).click();
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.__stillHere), 'กดยกเลิกแล้วต้องไม่โหลดหน้าใหม่').toBe(true);
+
+  // ตอบยกเลิกไปแล้ว ตัวกันเผลอปิดแท็บต้องยังทำงานอยู่
+  const guarded = await page.evaluate(() => {
+    const e = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+  expect(guarded, 'ยังมีของค้าง ตัวกันเผลอปิดแท็บต้องยังเตือน').toBe(true);
+});
+
 test('F3 — ห้ามมี URL ของ Apps Script หรือ token ฝังอยู่ในไฟล์', () => {
   const src = fs.readFileSync(APP_FILE, 'utf8');
   expect(src, 'พบ deployment URL จริงฝังในไฟล์ — repo นี้เป็น public')
