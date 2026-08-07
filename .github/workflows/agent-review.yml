@@ -38,6 +38,16 @@ jobs:
           # ผลคือขอบเขตสิทธิ์ = permissions ด้านบนเป๊ะ ๆ ไม่ใช่สิทธิ์ของ app ที่กว้างกว่า
           github_token: ${{ secrets.GITHUB_TOKEN }}
           use_sticky_comment: true
+          # ─────────────────────────────────────────────────────────
+          # PR ที่ช่างซ่อมเปิดเองมี actor เป็น github-actions[bot]
+          # claude-code-action ปฏิเสธ actor ที่ไม่ใช่คนโดยค่าเริ่มต้น ผู้ตรวจจึงล้มทันที
+          #   Workflow initiated by non-human actor: github-actions (type: Bot)
+          #
+          # ระบุชื่อ bot ตัวเดียว — **ห้ามใช้ '*'** เอกสารของ action เตือนไว้ว่า
+          # บน repo สาธารณะ '*' เปิดให้ App ภายนอกเรียก action ด้วย prompt ที่มันคุมเองได้
+          # bot ตัวนี้สร้าง PR ได้จาก workflow ของเราเท่านั้น ขอบเขตจึงยังแคบเท่าเดิม
+          # (ตัวเทียบ normalize ทั้งสองฝั่ง เขียนมี [bot] หรือไม่มีก็แมตช์เหมือนกัน)
+          allowed_bots: "github-actions[bot]"
           # `Bash(gh pr:*)` กว้างเกินไป — มันครอบ `gh pr review --approve` และ `gh pr merge` ด้วย
           # ผู้ตรวจต้องไม่มีสิทธิ์ผ่านงานของตัวเอง จึงระบุคำสั่งย่อยที่อนุญาตเป็นรายตัว
           # (รอบที่วัดได้มี permission_denials_count = 7 จึงเติมคำสั่งอ่านอย่างเดียวเข้าไปด้วย)
