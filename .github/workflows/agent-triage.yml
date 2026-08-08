@@ -210,9 +210,16 @@ jobs:
                 --rawfile t line.txt \
                 '{from:"github", repo:$r, issue:$i, text:$t}' > payload.json
 
-          curl -sS -X POST -H 'Content-Type: application/json' \
-               --data @payload.json "$HOOK" -o /dev/null \
-               -w 'ส่งกลับ LINE แล้ว — HTTP %{http_code}\n'
+          # Apps Script ตอบ 302 ชี้ไป googleusercontent เสมอ ต้อง -L ถึงจะได้คำตอบจริง
+          # และต้อง --post302 ด้วย ไม่งั้น curl จะเปลี่ยน POST เป็น GET ตอนตามต่อ
+          # แล้ว body หายทั้งก้อน ปลายทางจะไม่มีอะไรให้อ่าน — เงียบแบบหาสาเหตุไม่เจอ
+          code=$(curl -sS -L --post301 --post302 --post303 -X POST -H "Content-Type: application/json" --data @payload.json "$HOOK" -o relay-body.txt -w "%{http_code}")
+          said=$(head -c 200 relay-body.txt)
+          echo "ปลายทางตอบ: HTTP $code · $said"
+          case "$said" in
+            sent*) echo "ส่งถึงคนแจ้งเรียบร้อย" ;;
+            *)     echo "::warning::คนแจ้งอาจไม่ได้รับข้อความ — ปลายทางตอบว่า [$said]" ;;
+          esac
 
       # หัวหน้าทีมล้ม = ช่างซ่อมไม่ตื่น = issue เงียบสนิท
       # คนแจ้งจะนึกว่าไม่มีใครเห็น จึงต้องมีข้อความไปโผล่บน issue เสมอ
