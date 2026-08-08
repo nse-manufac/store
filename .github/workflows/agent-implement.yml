@@ -134,6 +134,23 @@ jobs:
             fi
           fi
 
+          # ══════════════════════════════════════════════════════════════
+          # กันทำงานซ้ำ — เคยเสียเงินฟรีมาแล้วหนึ่งครั้ง
+          #
+          # ถ้าเจ้าของติดป้าย ready-to-fix แล้วเปิด issue ใหม่ในจังหวะไล่เลี่ยกัน
+          # ช่างซ่อมจะถูกปลุกสองทาง (issues: labeled และ workflow_run ของหัวหน้าทีม)
+          # concurrency กันไม่ให้รันพร้อมกันก็จริง แต่ตัวที่สองยังรันต่อหลังตัวแรกจบ
+          # ผลคือได้ PR สองใบสำหรับเรื่องเดียวกัน และจ่ายค่า opus สองรอบ
+          # ══════════════════════════════════════════════════════════════
+          if [ "$go" = "yes" ]; then
+            open_pr=$(gh pr list -R "$REPO" --state open --json headRefName                         --jq "[.[] | select(.headRefName | startswith(\"fix/$issue-\"))] | length")
+            branch=$(gh api "repos/$REPO/branches?per_page=100"                        --jq "[.[].name | select(startswith(\"fix/$issue-\"))] | length")
+            if [ "$open_pr" -gt 0 ] || [ "$branch" -gt 0 ]; then
+              echo "::warning::มีงานของ issue #$issue อยู่แล้ว (PR เปิดอยู่ $open_pr · branch $branch) — ไม่ทำซ้ำ"
+              go=no
+            fi
+          fi
+
           echo "go=$go"     >> "$GITHUB_OUTPUT"
           echo "issue=$issue" >> "$GITHUB_OUTPUT"
           echo "► สรุป: go=$go issue=#$issue"
@@ -261,7 +278,7 @@ jobs:
           claude_args: |
             --model claude-opus-5
             --max-turns 80
-            --allowedTools "Read,Write,Edit,Grep,Glob,Bash(git:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr checks:*),Bash(gh pr comment:*),Bash(gh issue:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(mkdir:*),Bash(cd:*)"
+            --allowedTools "Read,Write,Edit,Grep,Glob,Bash(git:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr checks:*),Bash(gh pr comment:*),Bash(gh issue:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(mkdir:*),Bash(cd:*),Bash(awk:*),Bash(wc:*),Bash(sed:*),Bash(sort:*),Bash(uniq:*)"
           prompt: |
             คุณคือ "ช่างซ่อม" หน้าที่คือแก้ปัญหาตาม issue นี้แล้วเปิด PR ให้เจ้าของตรวจ
 

@@ -210,9 +210,13 @@ jobs:
                 --rawfile t line.txt \
                 '{from:"github", repo:$r, issue:$i, text:$t}' > payload.json
 
-          curl -sS -X POST -H 'Content-Type: application/json' \
-               --data @payload.json "$HOOK" -o /dev/null \
-               -w 'ส่งกลับ LINE แล้ว — HTTP %{http_code}\n'
+          # ต้องมี -L : Apps Script ตอบ 302 ชี้ไป googleusercontent เสมอ
+          # ไม่ตาม redirect จะเห็นแค่ 302 แล้วแยกไม่ออกว่าปลายทางรับเรื่องจริงหรือพัง
+          code=$(curl -sS -L -X POST -H 'Content-Type: application/json'                       --data @payload.json "$HOOK" -o /dev/null -w '%{http_code}')
+          echo "ส่งกลับ LINE — HTTP $code"
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "::warning::ปลายทางตอบ $code — คนแจ้งอาจไม่ได้รับข้อความ"
+          fi
 
       # หัวหน้าทีมล้ม = ช่างซ่อมไม่ตื่น = issue เงียบสนิท
       # คนแจ้งจะนึกว่าไม่มีใครเห็น จึงต้องมีข้อความไปโผล่บน issue เสมอ

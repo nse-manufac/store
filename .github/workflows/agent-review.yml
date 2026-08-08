@@ -53,8 +53,8 @@ jobs:
           # (รอบที่วัดได้มี permission_denials_count = 7 จึงเติมคำสั่งอ่านอย่างเดียวเข้าไปด้วย)
           claude_args: |
             --model claude-opus-5
-            --max-turns 25
-            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh pr comment:*),Bash(gh api:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*)"
+            --max-turns 40
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh pr comment:*),Bash(gh api:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(awk:*),Bash(wc:*),Bash(sed:*),Bash(sort:*),Bash(uniq:*)"
           prompt: |
             คุณคือ "ผู้ตรวจ" ด่านสุดท้ายก่อน PR จะถึงสายตาเจ้าของ
             เจ้าของจะอ่านสรุปของคุณบนมือถือตอนพักเที่ยง มีเวลาไม่เกิน 10 นาที
