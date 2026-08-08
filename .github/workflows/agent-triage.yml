@@ -34,6 +34,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ═══════════════════════════════════════════════════════════════
+      # ติดป้ายบอกว่ากำลังทำงานอยู่
+      #
+      # หน้า issue ไม่มีสัญญาณอะไรเลยว่ามี agent ถูกปลุกแล้วหรือยัง
+      # (ต่างจากหน้า PR ที่มีแถบ checks บอกอยู่แล้ว)
+      # เจ้าของจึงกดซ้ำโดยไม่รู้ตัว แล้วได้งานซ้ำกับค่าใช้จ่ายซ้ำ — เคยเกิดมาแล้ว
+      #
+      # || true ทุกบรรทัด เพราะป้ายไม่ใช่งานหลัก ห้ามทำให้ทั้ง job ล้มเพราะติดป้ายไม่ได้
+      # ═══════════════════════════════════════════════════════════════
+      - name: ติดป้ายว่ากำลังทำงาน
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [ -n "${ISSUE:-}" ]; then
+            gh issue edit "$ISSUE" -R "$REPO" --add-label "⏳ กำลังทำงาน" || true
+          fi
+
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -241,3 +261,16 @@ jobs:
             echo "ดูว่าติดตรงไหน: $RUN_URL"
           } > fail-note.md
           gh issue comment "$ISSUE" -R "$REPO" --body-file fail-note.md
+
+      # ปลดป้ายเสมอ ไม่ว่างานจะจบสวยหรือล้ม — ป้ายที่ค้างอันตรายกว่าไม่มีป้าย
+      # เพราะจะทำให้เจ้าของรอสิ่งที่ไม่มีวันมา
+      - name: ปลดป้ายกำลังทำงาน
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [ -n "${ISSUE:-}" ]; then
+            gh issue edit "$ISSUE" -R "$REPO" --remove-label "⏳ กำลังทำงาน" || true
+          fi
