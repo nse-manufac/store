@@ -211,9 +211,10 @@ jobs:
                 '{from:"github", repo:$r, issue:$i, text:$t}' > payload.json
 
           # Apps Script ตอบ 302 ชี้ไป googleusercontent เสมอ ต้อง -L ถึงจะได้คำตอบจริง
-          # และต้อง --post302 ด้วย ไม่งั้น curl จะเปลี่ยน POST เป็น GET ตอนตามต่อ
-          # แล้ว body หายทั้งก้อน ปลายทางจะไม่มีอะไรให้อ่าน — เงียบแบบหาสาเหตุไม่เจอ
-          code=$(curl -sS -L --post301 --post302 --post303 -X POST -H "Content-Type: application/json" --data @payload.json "$HOOK" -o relay-body.txt -w "%{http_code}")
+          # ห้ามใส่ -X POST และ --post302 ทั้งคู่บังคับ method ตอนตาม redirect ด้วย
+          # ปลายทางของ redirect รับได้แค่ GET ฝืน POST ตามไปจะได้ 405 (พิสูจน์มาแล้ว)
+          # --data ทำให้เป็น POST อยู่แล้ว ไม่ต้องระบุซ้ำ
+          code=$(curl -sS -L -H "Content-Type: application/json" --data @payload.json "$HOOK" -o relay-body.txt -w "%{http_code}")
           said=$(head -c 200 relay-body.txt)
           echo "ปลายทางตอบ: HTTP $code · $said"
           case "$said" in
