@@ -68,6 +68,7 @@ jobs:
       # ═══════════════════════════════════════════════════════════════
       - name: ดึงหลักฐานจาก intake
         env:
+          GH_TOKEN: ${{ github.token }}
           PAT: ${{ secrets.INTAKE_READ_PAT }}
           REPO: ${{ github.repository }}
           ISSUE: ${{ github.event.issue.number }}
@@ -78,15 +79,25 @@ jobs:
             exit 0
           fi
 
-          DIR="${REPO#*/}-$ISSUE"        # เช่น store-26
-          API="https://api.github.com/repos/nse-manufac/intake/contents"
+          # bot เขียนรหัสอ้างอิงไว้ในตัว issue และอัปรูปเสร็จ "ก่อน" เปิดเรื่องเสมอ
+          # มีรหัส = ไฟล์ขึ้นครบแล้วแน่นอน ไม่มีทางที่ workflow จะวิ่งมาถึงก่อน
+          #
+          # || true จำเป็น เพราะ pipefail ทำให้ grep ที่ไม่เจออะไร (ซึ่งคือกรณีปกติ)
+          # ลากทั้ง step ล้มไปด้วย — เคยโดนกับดักนี้มาแล้ว
+          TICKET=$(gh issue view "$ISSUE" -R "$REPO" --json body -q .body \
+                     | grep -oE 'evidence: [A-Za-z0-9-]+' | head -1 | sed 's/^evidence: //' || true)
+          if [ -z "$TICKET" ]; then
+            echo "ไม่มีหลักฐานแนบมากับเรื่องนี้"; exit 0
+          fi
+          echo "รหัสหลักฐาน: $TICKET"
 
-          # 404 = ไม่มีหลักฐานแนบมา ซึ่งเป็นกรณีปกติ ไม่ใช่ความผิดพลาด
+          API="https://api.github.com/repos/nse-manufac/intake/contents"
           code=$(curl -sS -H "Authorization: Bearer $PAT" \
                       -H "Accept: application/vnd.github+json" \
-                      "$API/evidence/$DIR" -o list.json -w "%{http_code}")
+                      "$API/evidence/$TICKET" -o list.json -w "%{http_code}")
           if [ "$code" = "404" ]; then
-            echo "ไม่มีหลักฐานแนบมากับเรื่องนี้"; exit 0
+            echo "::warning::issue อ้างถึงหลักฐาน $TICKET แต่หาไม่เจอใน intake"
+            exit 0
           fi
           if [ "$code" != "200" ]; then
             echo "::warning::ดึงรายชื่อหลักฐานไม่สำเร็จ (HTTP $code) — agent จะทำงานต่อโดยไม่มีรูป"
