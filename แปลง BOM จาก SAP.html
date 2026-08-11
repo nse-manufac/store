@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-version" content="2026-08-11">
+<title>แปลง Indented BOM เป็น BOM.xlsx</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+:root{--bg:#f4f6f9;--panel:#fff;--line:#dde3ea;--ink:#1c2733;--muted:#68778a;
+  --brand:#1f4e79;--soft:#e8f0f8;--ok:#1a7f4b;--okbg:#e6f5ed;--warn:#b06d00;--warnbg:#fff6e0;--bad:#c02626;--badbg:#fdecec;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-size:14px}
+header{background:var(--brand);color:#fff;padding:12px 18px}
+header h1{margin:0;font-size:17px}
+header .sub{font-size:12px;opacity:.85;margin-top:2px}
+header .ver{font-size:11px;font-weight:400;opacity:.75;padding:1px 7px;border:1px solid rgba(255,255,255,.4);
+  border-radius:99px;vertical-align:middle;margin-left:6px;font-variant-numeric:tabular-nums}
+main{padding:16px 18px 60px;max-width:1500px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--brand)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:34px;text-align:center;transition:.15s}
+.drop.over{border-color:var(--brand);background:var(--soft)}
+.hint{font-size:12px;color:var(--muted)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.grow{flex:1}
+.btn{font-family:inherit;font-size:13px;padding:8px 16px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;cursor:pointer}
+.btn:hover{background:#f0f4f8}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-size:15px;padding:12px 24px}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid var(--line);
+  font-size:11px;color:var(--muted);white-space:nowrap;position:sticky;top:0}
+td{padding:4px 8px;border-bottom:1px solid #f0f3f6}
+.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace}
+.num{text-align:right}
+.scroll{max-height:62vh;overflow:auto}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;background:var(--soft);color:var(--brand)}
+.pill.bad{background:var(--badbg);color:var(--bad)}
+.pill.ok{background:var(--okbg);color:var(--ok)}
+.msg{padding:10px 13px;border-radius:6px;margin-bottom:12px;font-size:13px}
+.msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
+.msg.warn{background:var(--warnbg);color:var(--warn);border:1px solid #f0d799}
+.msg.bad{background:var(--badbg);color:var(--bad);border:1px solid #f0c4c4}
+label.chk{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+.bignum{font-size:30px;font-weight:700;color:var(--brand);line-height:1.1}
+code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <h1>แปลง Indented BOM เป็น BOM.xlsx <span class="ver">v{{ APP_VERSION }}</span></h1>
+  <div class="sub">อ่านไฟล์ .html ที่ออกจาก SAP ของ Delta (REPORT YTRPBOM1) แล้วรวมเป็นไฟล์ BOM เดียว</div>
+</header>
+
+<main @dragover.prevent="over=true" @dragleave="over=false" @drop.prevent="onDrop">
+  <div class="card">
+    <div class="drop" :class="{over}">
+      <h2 style="margin:0 0 8px;font-size:17px">ลากไฟล์ .html มาวางตรงนี้</h2>
+      <p class="hint">1 ไฟล์ = 1 P/N · <b>ลากพร้อมกันหลายไฟล์ได้</b> · ลากซ้ำเพื่อเพิ่มเข้าไปอีกก็ได้</p>
+      <p style="margin-top:16px"><input type="file" accept=".html,.htm" multiple @change="onPick"></p>
+    </div>
+  </div>
+
+  <div class="card" v-if="errors.length">
+    <div class="msg bad"><b>อ่านไม่ได้ {{ errors.length }} ไฟล์</b>
+      <ul style="margin:6px 0 0 18px;padding:0"><li v-for="(e,i) in errors" :key="i">{{ e }}</li></ul>
+    </div>
+  </div>
+
+  <template v-if="docs.length">
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="hint">จะได้ BOM</div>
+          <div class="bignum">{{ lines.length.toLocaleString() }}</div>
+          <div class="hint">คู่ P/N + วัตถุดิบ · จาก {{ docs.length }} P/N</div>
+        </div>
+        <div style="width:20px"></div>
+        <div>
+          <label class="chk"><input type="checkbox" v-model="opt.dropParent">
+            ตัดชิ้นส่วนประกอบ (parent) ออก</label>
+          <p class="hint" style="margin:2px 0 10px 22px">
+            เอาเฉพาะของที่เบิกจากคลังจริง — ถ้าไม่ตัดจะนับ ASSY ซ้ำกับชิ้นส่วนของมัน</p>
+          <label class="chk"><input type="checkbox" v-model="opt.dropAlt0">
+            ตัดรายการที่ ALT.GRP% = 0 ออก</label>
+          <p class="hint" style="margin:2px 0 0 22px">
+            ⚠️ ไม่แนะนำ — เคยเจอกรณีที่หน้างานเบิกตัวที่เอกสารระบุ 0%</p>
+        </div>
+        <div class="grow"></div>
+        <button class="btn primary" @click="exportXlsx" :disabled="busy || !lines.length">
+          {{ busy ? 'กำลังสร้าง...' : 'ดาวน์โหลด BOM.xlsx' }}</button>
+      </div>
+      <div class="msg warn" style="margin:14px 0 0" v-if="stat.alt0 || stat.parents">
+        <span v-if="stat.parents">ตัด parent ออก <b>{{ stat.parents }}</b> รายการ</span>
+        <span v-if="stat.parents && stat.alt0"> · </span>
+        <span v-if="stat.alt0">มีรายการ ALT.GRP% = 0 อยู่ <b>{{ stat.alt0 }}</b> รายการ ({{ opt.dropAlt0 ? 'ตัดออกแล้ว' : 'เก็บไว้และทำเครื่องหมาย' }})</span>
+      </div>
+      <div class="msg bad" style="margin:10px 0 0" v-if="dupPairs.length">
+        พบคู่ P/N + รหัส ที่ซ้ำกัน <b>{{ dupPairs.length }}</b> คู่ — <b>รวมยอดให้แล้ว</b>
+        (วัตถุดิบตัวเดียวกันใช้หลายขั้นตอนในสินค้าเดียว)
+      </div>
+      <div class="msg bad" style="margin:10px 0 0" v-if="badUom.length">
+        <b>⚠️ พบหน่วยที่โปรแกรมยังไม่รู้จัก {{ badUom.length }} หน่วย —
+          ปริมาณของ {{ badUom.reduce((a,x)=>a+x.n,0) }} รายการอาจผิด</b><br>
+        <table style="margin:8px 0;max-width:640px;background:#fff">
+          <thead><tr><th style="width:70px">หน่วย</th><th class="num" style="width:80px">รายการ</th>
+            <th class="num" style="width:70px">P/N</th><th>ตัวอย่าง</th></tr></thead>
+          <tbody><tr v-for="u in badUom" :key="u.uom">
+            <td class="mono"><b>{{ u.uom }}</b></td><td class="num mono">{{ u.n }}</td>
+            <td class="num mono">{{ u.pns }}</td><td class="hint">{{ u.sample.join(' · ') }}</td>
+          </tr></tbody>
+        </table>
+        โปรแกรม<b>ไม่แปลงหน่วยเหล่านี้</b> (ใช้ค่าดิบตามเอกสาร) เพราะยังไม่รู้ตัวคูณที่ถูกต้อง
+        และจะ<b>ไม่เดาให้</b> — เคยเจอกรณีหน่วย <code>TP</code> ที่ค่าต่างจากของจริงถึง 1,000 เท่า<br>
+        <span class="hint">กรุณาสอบถาม Delta ว่าหน่วยนี้หมายถึงอะไร แล้วแจ้งเพื่อเพิ่มลงตารางแปลง ·
+          รายการเหล่านี้ถูกทำเครื่องหมาย <code>unknown_uom = TRUE</code> ในไฟล์ที่ได้</span>
+      </div>
+      <p class="hint" style="margin:12px 0 0">
+        ไฟล์ที่ได้มีคอลัมน์ตรงกับ <code>BOM_xxxx.xlsx</code> โหลดเข้าโปรแกรมทะเบียนวัตถุดิบได้ทันที
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>เอกสารที่อ่านได้</h3>
+      <table>
+        <thead><tr><th style="width:130px">P/N</th><th style="width:70px">REV</th>
+          <th style="width:120px">มีผลตั้งแต่</th><th>คำอธิบายสินค้า</th>
+          <th class="num" style="width:90px">บรรทัด</th><th class="num" style="width:90px">ใช้จริง</th>
+          <th style="width:40px"></th></tr></thead>
+        <tbody><tr v-for="(d,i) in perDoc" :key="d.key">
+          <td class="mono">{{ d.pn }}</td><td class="mono">{{ d.rev }}</td>
+          <td class="mono">{{ d.valid }}</td>
+          <td style="color:var(--muted)">{{ d.desc }}</td>
+          <td class="num mono">{{ d.raw.length }}</td>
+          <td class="num mono"><b>{{ d.kept }}</b></td>
+          <td><button class="btn" style="padding:2px 8px" @click="docs.splice(i,1)">✕</button></td>
+        </tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h3 style="margin:0">รายการ BOM ที่จะได้</h3>
+        <div class="grow"></div>
+        <input v-model.trim="q" placeholder="ค้นหา P/N หรือรหัส" style="padding:6px 9px;border:1px solid var(--line);border-radius:6px;width:230px">
+        <span class="hint">{{ shown.length.toLocaleString() }} รายการ</span>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th style="width:120px">P/N</th><th style="width:120px">รหัสวัตถุดิบ</th>
+            <th>คำอธิบาย</th><th class="num" style="width:100px">QPA</th>
+            <th style="width:70px">หน่วยเดิม</th><th class="num" style="width:140px">ปริมาณต่อชิ้น</th>
+            <th style="width:60px">หน่วย</th><th style="width:70px">ALT%</th>
+            <th style="width:70px">รวมยอด</th></tr></thead>
+          <tbody>
+            <tr v-for="(l,i) in shown.slice(0,600)" :key="i">
+              <td class="mono">{{ l.pn }}</td><td class="mono">{{ l.code }}</td>
+              <td style="color:var(--muted)">{{ l.desc }}</td>
+              <td class="num mono">{{ l.rawQpa }}</td><td class="hint">{{ l.rawUom }}</td>
+              <td class="num mono"><b>{{ l.usage }}</b></td><td>{{ l.unit }}</td>
+              <td><span v-if="l.altPct===0" class="pill bad">0%</span>
+                  <span v-else-if="l.altPct!==null" class="pill">{{ l.altPct }}%</span></td>
+              <td><span v-if="l.n>1" class="pill bad">{{ l.n }} บรรทัด</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="shown.length>600" class="hint" style="padding:10px">แสดง 600 รายการแรก — ใช้ช่องค้นหาเพื่อดูรายการอื่น</p>
+      </div>
+    </div>
+  </template>
+
+  <div class="card" v-else-if="!errors.length">
+    <h3>เอกสารนี้ให้อะไรได้บ้าง</h3>
+    <table style="max-width:620px">
+      <tbody>
+        <tr><td style="width:36px">✅</td><td><b>QPA</b> = ปริมาณต่อชิ้นตรง ๆ ไม่ต้องหารเอง</td></tr>
+        <tr><td>✅</td><td>เลข <b>REV</b> และ <b>VALID DATE FROM</b> ใช้ตามรอยได้ว่าสูตรรุ่นไหน</td></tr>
+        <tr><td>✅</td><td>แปลงหน่วยให้อัตโนมัติ — <code>GRM → KGM</code> ÷1,000 · <code>MG → KGM</code> ÷1,000,000 · <code>PST → NPR</code></td></tr>
+        <tr><td>⚠️</td><td><b>ไม่มีวัสดุแพ็กกิ้ง</b> (CARTON / TRAY / PAD / ANGLE / FOAM / LABEL) ต้องเติมเองทีหลัง</td></tr>
+        <tr><td>⚠️</td><td>คำอธิบายถูกตัดเหลือ 25 ตัวอักษร ใช้เป็นแค่ตัวช่วยจำ</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed } = Vue;
+
+// ต้องเห็นเวอร์ชันได้ตลอดเวลาโดยไม่ต้องเปิด DevTools (INVARIANTS F4)
+// และต้องประทับลงในไฟล์ที่สร้างออกมาด้วย — ไฟล์ BOM เก่าที่ไม่มีเลขรุ่นกำกับ
+// ทำให้ไล่ย้อนไม่ได้ว่าถูกสร้างตอนที่ตั้งค่าแบบไหน ต้องมาเดาจากเนื้อไฟล์เอา
+const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
+
+// หน่วยในเอกสาร SAP ใช้กรัม/มิลลิกรัม ต้องแปลงเป็นหน่วยเดียวกับทะเบียน
+const UOM_CONV = { GRM:['KGM',0.001], MG:['KGM',1e-6], KG:['KGM',1], KGM:['KGM',1],
+                   MTR:['MTR',1], M:['MTR',1], PCE:['PCE',1], PCS:['PCE',1],
+                   NPR:['NPR',1], PST:['NPR',1] };
+const r10 = n => Math.round(n * 1e10) / 1e10;
+
+/**
+ * อ่านไฟล์ Indented BOM
+ * รายงานนี้เป็นข้อความจัดคอลัมน์แบบตายตัว จึงตัดตามตำแหน่งที่อ่านได้จากบรรทัดหัวตาราง
+ * ปลอดภัยกว่าการเดาด้วย regex เพราะบางช่องเว้นว่างทั้งคอลัมน์
+ */
+function parseIndentedBom(htmlText, fileName){
+  const div = document.createElement('div');
+  div.innerHTML = htmlText.replace(/<br\s*\/?>/gi, '\n').replace(/<\/tr>/gi, '\n</tr>');
+  const lines = (div.textContent || '').replace(/\u00a0/g, ' ')
+    .split('\n').map(l => l.replace(/\s+$/, '')).filter(l => l.trim());
+
+  let head = null;
+  for (const l of lines) {
+    const m = l.match(/MODEL\s*NO:\s*(\d+)\s+REV:\s*(\w+)\s+L\/F:\s*(\w+)\s+(.*?)\s+VALID\s*DATE\s*FROM:\s*(\d{2})\/(\d{2})\/(\d{4})/);
+    if (m) { head = { pn:m[1], rev:m[2], lf:m[3], desc:m[4].trim(), valid:`${m[7]}-${m[5]}-${m[6]}` }; break; }
+  }
+  if (!head) throw new Error('หาบรรทัด MODEL NO / VALID DATE FROM ไม่เจอ');
+
+  const hdr = lines.find(l => l.includes('PART NUMBER') && l.includes('QPA'));
+  if (!hdr) throw new Error('หาบรรทัดหัวตารางไม่เจอ');
+  const at = s => hdr.indexOf(s);
+  const cDesc = at('DESCRIPTION'), cAlt = at('ALT.GRP%'), cQpa = at('QPA'), cUom = at('UOM'), cDsg = at('DESIGN NO');
+
+  const raw = [];
+  for (const l of lines) {
+    const m = l.match(/^\s*(\d+)\s+L?\.*(\d+)\s+\.*(\d{9,10})\s/);
+    if (!m) continue;
+    const seg = (a, b) => l.slice(a, b).trim();
+    // ตัดตามขอบคอลัมน์จริงจากหัวตาราง — ALT.GRP% กว้างถึงตำแหน่งที่ QPA เริ่ม
+    const qpaTxt = seg(cQpa, cUom).replace(/[^\d.]/g, '');
+    const uom = seg(cUom, cDsg).split(/\s+/)[0] || '';
+    if (!qpaTxt || !uom) continue;
+    const altTxt = seg(cAlt, cQpa);
+    const altM = altTxt.match(/(\d+)\s*%/);
+    // ⚠️ หน่วยที่ไม่มีในตารางแปลงจะถูกปล่อยผ่านโดยไม่แปลง (ตัวคูณ 1)
+    // เคยพลาดมาแล้วกับหน่วย TP และ MMT — ค่าที่ได้ผิดหลักพันเท่าโดยไม่มีใครรู้
+    // จึงติดธง unknownUom ไว้ให้หน้าจอเตือน ห้ามเดาตัวคูณเอง
+    const known = Object.prototype.hasOwnProperty.call(UOM_CONV, uom);
+    const [u, f] = known ? UOM_CONV[uom] : [uom, 1];
+    raw.push({ item:+m[1], level:+m[2], code:m[3],
+               desc: seg(cDesc, cAlt),
+               rawQpa: parseFloat(qpaTxt), rawUom: uom, unknownUom: !known,
+               usage: r10(parseFloat(qpaTxt) * f), unit: u,
+               altPct: altM ? +altM[1] : null });
+  }
+  if (!raw.length) throw new Error('ไม่พบบรรทัดวัตถุดิบเลย');
+  return { key:fileName + '|' + head.pn, fileName, ...head, raw };
+}
+
+createApp({
+  setup(){
+    const docs = ref([]);
+    const errors = ref([]);
+    const over = ref(false);
+    const busy = ref(false);
+    const q = ref('');
+    const opt = reactive({ dropParent:true, dropAlt0:false });
+
+    function addFiles(files){
+      errors.value = [];
+      [...files].forEach(f => {
+        const fr = new FileReader();
+        fr.onload = ev => {
+          try {
+            const d = parseIndentedBom(String(ev.target.result), f.name);
+            const i = docs.value.findIndex(x => x.key === d.key);
+            if (i >= 0) docs.value.splice(i, 1, d); else docs.value.push(d);
+          } catch (err) { errors.value.push(`${f.name}: ${err.message}`); }
+        };
+        fr.readAsText(f, 'utf-8');
+      });
+    }
+    function onDrop(e){ over.value = false; addFiles(e.dataTransfer.files); }
+    function onPick(e){ addFiles(e.target.files); e.target.value = ''; }
+
+    /** ตัด parent (ตัวที่มีลูก) และ ALT 0% ตามที่เลือก แล้วรวมยอดรหัสซ้ำในเอกสารเดียวกัน */
+    const perDoc = computed(() => docs.value.map(d => {
+      let rows = d.raw;
+      let parents = 0;
+      if (opt.dropParent) {
+        const before = rows.length;
+        rows = rows.filter((r, i) => !(d.raw[i+1] && d.raw[i+1].level > r.level));
+        parents = before - rows.length;
+      }
+      const alt0 = rows.filter(r => r.altPct === 0).length;
+      if (opt.dropAlt0) rows = rows.filter(r => r.altPct !== 0);
+      // รหัสเดียวกันโผล่หลายบรรทัด = คนละขั้นตอน ต้องรวมยอด
+      const agg = new Map();
+      for (const r of rows) {
+        const hit = agg.get(r.code);
+        if (hit) { hit.usage = r10(hit.usage + r.usage); hit.rawQpa = r10(hit.rawQpa + r.rawQpa); hit.n++; }
+        else agg.set(r.code, { ...r, n:1, pn:d.pn, rev:d.rev, valid:d.valid });
+      }
+      return { ...d, parents, alt0, kept:agg.size, lines:[...agg.values()] };
+    }));
+
+    const lines = computed(() => perDoc.value.flatMap(d => d.lines));
+    const dupPairs = computed(() => lines.value.filter(l => l.n > 1));
+    const stat = computed(() => ({
+      parents: perDoc.value.reduce((a, d) => a + d.parents, 0),
+      alt0:    perDoc.value.reduce((a, d) => a + d.alt0, 0) }));
+    /** หน่วยที่ยังไม่มีในตารางแปลง — ค่าที่ได้อาจผิดหลักพันเท่า */
+    const badUom = computed(() => {
+      const g = new Map();
+      for (const l of lines.value) {
+        if (!l.unknownUom) continue;
+        const h = g.get(l.rawUom) || { uom:l.rawUom, n:0, pns:new Set(), sample:[] };
+        h.n++; h.pns.add(l.pn);
+        if (h.sample.length < 3) h.sample.push(`${l.pn}/${l.code} = ${l.rawQpa}`);
+        g.set(l.rawUom, h);
+      }
+      return [...g.values()].map(x => ({ ...x, pns:x.pns.size })).sort((a,b) => b.n - a.n);
+    });
+    const shown = computed(() => {
+      const t = q.value.toLowerCase();
+      return t ? lines.value.filter(l => (l.pn + ' ' + l.code + ' ' + l.desc).toLowerCase().includes(t))
+               : lines.value;
+    });
+
+    async function exportXlsx(){
+      busy.value = true;
+      try {
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'ระบบ Bin Card';
+        const HF = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F4E79' } };
+        const HFONT = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+        const BODY = { name:'Arial', size:10 };
+        const THIN = { style:'thin', color:{ argb:'FFBFBFBF' } };
+        const BORDER = { left:THIN, right:THIN, top:THIN, bottom:THIN };
+
+        // ── ชีต README ──
+        const rd = wb.addWorksheet('README');
+        rd.getColumn(1).width = 112;
+        [['BOM master — แปลงจากเอกสาร Indented Bill of Material ของ Delta', true],
+         [`สร้างเมื่อ ${today()} · จาก ${docs.value.length} P/N · โปรแกรมรุ่น ${APP_VERSION}`, false], ['', false],
+         ['ที่มา', true],
+         ['  REPORT YTRPBOM1 (TCODE YPT43) ออกจาก SAP ของ Delta — 1 ไฟล์ = 1 P/N', false],
+         ['  ใช้ค่า QPA เป็นปริมาณต่อชิ้น และแปลงหน่วย GRM→KGM ÷1,000 · MG→KGM ÷1,000,000 · PST→NPR', false],
+         ['  ⚠️ หน่วยที่ไม่มีในตารางแปลง (เช่น TP, MMT) จะไม่ถูกแปลง และทำเครื่องหมายไว้ในคอลัมน์ unknown_uom', false],
+         ['     ห้ามนำแถวเหล่านั้นไปใช้จนกว่าจะยืนยันตัวคูณกับ Delta', false],
+         ['', false],
+         ['กฎที่ใช้', true],
+         [`  ${opt.dropParent ? 'ตัด' : 'ไม่ตัด'}ชิ้นส่วนประกอบ (parent) — เอาเฉพาะของที่เบิกจากคลังจริง`, false],
+         [`  ${opt.dropAlt0 ? 'ตัด' : 'เก็บ'}รายการที่ ALT.GRP% = 0`, false],
+         ['  รวมยอดรหัสที่โผล่หลายบรรทัดในสินค้าเดียวกัน (คนละขั้นตอนการผลิต)', false],
+         ['', false],
+         ['⚠️ ข้อจำกัดที่ต้องรู้', true],
+         ['  1. เอกสารนี้ไม่มีวัสดุแพ็กกิ้ง (CARTON / TRAY / PAD / ANGLE / FOAM / LABEL) ต้องเติมเองทีหลัง', false],
+         ['  2. ALT.GRP% ไม่ได้บอกว่าของไหนใช้จริง เคยเจอกรณีที่หน้างานเบิกตัวที่ระบุ 0%', false],
+         ['  3. คำอธิบายถูกตัดเหลือ 25 ตัวอักษรตามหน้ารายงาน', false],
+         ['', false],
+         ['วิธีใช้', true],
+         ['  โหลดไฟล์นี้เข้าโปรแกรมทะเบียนวัตถุดิบ ที่แท็บ BOM → ปุ่ม "โหลดไฟล์ BOM เดิม"', false]
+        ].forEach(([t, b], i) => { rd.getCell(i + 1, 1).value = t;
+          rd.getCell(i + 1, 1).font = { name:'Arial', size:11, bold:b }; });
+
+        // ── ชีต BOM (คอลัมน์ตรงกับ BOM master) ──
+        const ws = wb.addWorksheet('BOM');
+        const cols = ['pn','material_code','description','usage_per_pcs','unit','sample_count',
+                      'usage_varies','usage_all_values','source','source_date','unknown_uom'];
+        ws.addRow(cols);
+        for (const l of lines.value) {
+          ws.addRow([l.pn, l.code, l.desc, l.usage, l.unit, l.n,
+                     'FALSE', l.n > 1 ? `รวม ${l.n} บรรทัด` : '',
+                     `SAP BOM REV ${l.rev}`, l.valid,
+                     // ⚠️ TRUE = หน่วยยังไม่รู้จัก ปริมาณอาจผิด ห้ามเอาไปใช้ตัดสินใจ
+                     l.unknownUom ? 'TRUE·' + l.rawUom : 'FALSE']);
+        }
+        // ── ชีต Raw ไว้ตรวจย้อน ──
+        const wr = wb.addWorksheet('Raw');
+        wr.addRow(['pn','rev','valid_from','item','level','material_code','description',
+                   'qpa','uom','usage_converted','unit','alt_pct','file']);
+        for (const d of docs.value)
+          for (const r of d.raw)
+            wr.addRow([d.pn, d.rev, d.valid, r.item, r.level, r.code, r.desc,
+                       r.rawQpa, r.rawUom, r.usage, r.unit,
+                       r.altPct === null ? '' : r.altPct, d.fileName]);
+
+        for (const sheet of [ws, wr]) {
+          sheet.getRow(1).eachCell(c => { c.fill = HF; c.font = HFONT;
+            c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }; });
+          sheet.views = [{ state:'frozen', ySplit:1 }];
+          sheet.eachRow((row, n) => { if (n === 1) return;
+            row.eachCell(c => { c.font = BODY; c.border = BORDER; }); });
+          sheet.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:sheet.columnCount } };
+        }
+        [14,16,44,18,8,13,13,20,20,13,14].forEach((w, i) => ws.getColumn(i + 1).width = w);
+        [14,7,12,7,7,16,40,12,9,18,8,9,26].forEach((w, i) => wr.getColumn(i + 1).width = w);
+        ws.getColumn(4).numFmt = '0.0000000000';
+        wr.getColumn(10).numFmt = '0.0000000000';
+        // ระบายแดงให้แถวที่ ALT 0% ในชีต Raw จะได้เห็นง่าย
+        wr.eachRow((row, n) => { if (n === 1) return;
+          if (row.getCell(12).value === 0)
+            row.eachCell(c => c.font = { name:'Arial', size:10, color:{ argb:'FFC02626' } }); });
+
+        const buf = await wb.xlsx.writeBuffer();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([buf],
+          { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        a.download = `BOM_SAP_${today()}.xlsx`;
+        a.click();
+      } catch (e) {
+        errors.value = ['สร้างไฟล์ไม่สำเร็จ: ' + e.message];
+      } finally { busy.value = false; }
+    }
+
+    // ⚠️ ห้ามใช้ toISOString() ทำวันที่ เพราะให้เวลา UTC ช้ากว่าไทย 7 ชั่วโมง
+    function today(){
+      const d = new Date(), p = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    }
+
+    return { APP_VERSION, docs, errors, over, busy, q, opt, perDoc, lines, dupPairs, badUom, stat, shown,
+             onDrop, onPick, exportXlsx };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

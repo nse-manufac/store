@@ -5,6 +5,7 @@
 !/.gitignore
 !/Stock-log.html
 !/ทะเบียนวัตถุดิบ.html
+!/แปลง BOM จาก SAP.html
 !/google-apps-script.gs
 
 # Docs + config for the AI maintenance workflow.
@@ -17,6 +18,11 @@
 !/tests/
 !/package.json
 !/playwright.config.js
+
+# Evidence photos pulled from the private intake repo at runtime.
+# The deny-all above already covers this; kept explicit so a future
+# restructure of this file cannot quietly start tracking them.
+/evidence/
 
 # ...but never the generated output of a test run.
 /node_modules/
