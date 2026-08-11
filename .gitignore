@@ -5,6 +5,7 @@
 !/.gitignore
 !/Stock-log.html
 !/ทะเบียนวัตถุดิบ.html
+!/แปลง BOM จาก SAP.html
 !/google-apps-script.gs
 
 # Docs + config for the AI maintenance workflow.
