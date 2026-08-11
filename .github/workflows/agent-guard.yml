@@ -86,7 +86,17 @@ jobs:
               ;;
           esac
 
-          # ── 4. ห้ามลบเทสทิ้งทั้งไฟล์ ──
+          # ── 4. ห้ามให้หลักฐานจากที่ส่วนตัวหลุดเข้ามาใน repo public ──
+          # workflow ของหัวหน้าทีมดึงรูปจาก nse-manufac/intake มาไว้ที่ evidence/
+          # ระหว่างที่ทำงาน .gitignore กันไว้ชั้นหนึ่งแล้ว แต่ `git add -f` ข้ามได้
+          # ด่านนี้คือชั้นที่ข้ามไม่ได้ เพราะเป็น required check
+          if echo "$CHANGED" | grep -qE '^evidence/'; then
+            echo "::error::PR นี้มีไฟล์ใน evidence/ ซึ่งเป็นรูปจากหน้างานใน repo ส่วนตัว — repo นี้เป็น public"
+            echo "$CHANGED" | grep -E '^evidence/' | sed 's/^/::error::  หลุด: /'
+            FAIL=1
+          fi
+
+          # ── 5. ห้ามลบเทสทิ้งทั้งไฟล์ ──
           if git diff --name-status "$BASE...HEAD" | grep -qE '^D\s+tests/'; then
             echo "::error::PR นี้ลบไฟล์เทสทิ้ง — เทสแดงแปลว่าโค้ดผิด ไม่ใช่เทสผิด"
             FAIL=1

@@ -19,6 +19,11 @@
 !/package.json
 !/playwright.config.js
 
+# Evidence photos pulled from the private intake repo at runtime.
+# The deny-all above already covers this; kept explicit so a future
+# restructure of this file cannot quietly start tracking them.
+/evidence/
+
 # ...but never the generated output of a test run.
 /node_modules/
 /test-results/
