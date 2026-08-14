@@ -321,3 +321,41 @@ test('F3 — ห้ามมี URL ของ Apps Script หรือ token ฝ
   expect(src, 'พบ GitHub token ฝังในไฟล์').not.toMatch(/gh[pousr]_[A-Za-z0-9]{30,}/);
   expect(src, 'พบ GitHub PAT ฝังในไฟล์').not.toMatch(/github_pat_[A-Za-z0-9_]{30,}/);
 });
+
+test('D7 + G3 — พื้นที่เต็มตอนเซฟ: รายการเคลื่อนไหวต้องลงเครื่องก่อน และคำเตือนต้องค้างจนกดรับทราบ', async ({ page }) => {
+  await openApp(page);
+
+  // จำลอง "พื้นที่เต็ม" เฉพาะตอนเขียนก้อน setup — ก้อนนี้ใหญ่ที่สุด (ทะเบียนวัตถุดิบ)
+  // จึงเป็นก้อนที่ชนเพดานก่อนของจริง ส่วน txns เล็กกว่ามากและยังพอที่เขียนได้
+  await page.evaluate(() => {
+    const orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) {
+      if (k === 'bincard.setup.v1') throw new DOMException('quota', 'QuotaExceededError');
+      return orig.call(this, k, v);
+    };
+  });
+
+  await page.evaluate(() => {
+    const s = document.querySelector('#app')._vnode.component.setupState;
+    s.txns.push({
+      id: 'T99', entity: 'E1', direction: 'IN', material_code: 'M001', doc_ref: 'PO-1', part_no: '',
+      date: '2026-08-14', time: '09', qty: 7, reqmt_qty: '', issued_qty: '', person: 'สมชาย',
+      expiry_date: '', remark: '', batch: '', created_at: '2026-08-14T02:00:00.000Z',
+      updated_at: '2026-08-14T02:00:00.000Z', voided: false, void_reason: '', device: 'test'
+    });
+    s.persist();
+  });
+
+  const stored = await page.evaluate(() => localStorage.getItem('bincard.txns.v1'));
+  expect(stored, 'พื้นที่ไม่พอตอนเขียน setup ต้องไม่ทำให้รายการที่คีย์ไว้ไม่ถูกเขียนลงเครื่อง').toContain('T99');
+
+  // คำเตือนต้องไม่หายเองแบบ toast (3.2 วิ) — ต้องค้างจนพนักงานกดรับทราบ
+  await page.waitForTimeout(3600);
+  const warn = page.locator('.storage-alert');
+  await expect(warn, 'คำเตือนพื้นที่เต็มต้องยังอยู่บนจอ').toBeVisible();
+  await expect(warn).toContainText('พื้นที่เก็บข้อมูลเต็ม');
+  expect(await warn.textContent(), 'ห้ามชวนให้ลบรายการเคลื่อนไหว (B1)').not.toMatch(/ลบรายการ/);
+
+  await warn.getByRole('button', { name: 'รับทราบ' }).click();
+  await expect(warn, 'กดรับทราบแล้วต้องปิดได้').toHaveCount(0);
+});
