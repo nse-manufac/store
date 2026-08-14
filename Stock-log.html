@@ -6,7 +6,7 @@
 <!-- เวอร์ชันของไฟล์นี้ — ประกาศที่เดียว โค้ดอ่านจากตรงนี้ ห้ามเขียนซ้ำที่อื่น
      ต้องบัมป์ทุกครั้งที่แก้ไฟล์นี้ (CI จะตรวจให้ ถ้าลืมบัมป์ PR จะแดง)
      รูปแบบ: YYYY-MM-DD.ลำดับของวันนั้น -->
-<meta name="app-version" content="2026-08-14.3">
+<meta name="app-version" content="2026-08-14.2">
 <title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1373,12 +1373,6 @@ td input{width:100%;padding:3px 6px;font-size:12px}
       ใกล้เต็มแล้ว — กด <b>ส่งออกข้อมูลทั้งหมด (.json)</b> เก็บไฟล์ไว้ทันที และแจ้งหัวหน้า
       ถ้าเต็มจริงจะคีย์เพิ่มไม่ได้ ให้ย้ายไปคีย์บนเบราว์เซอร์อีกตัว (Chrome กับ Edge มีพื้นที่แยกกัน)
     </div>
-    <div v-if="matCacheBytes>0" style="margin-top:12px">
-      <button class="btn" @click="clearMatCache">คืนพื้นที่ — ล้าง cache ทะเบียนวัตถุดิบ
-        ({{ (matCacheBytes/1048576).toFixed(2) }} MB)</button>
-      <p class="hint">cache ก้อนนี้เป็นของโปรแกรม <b>ทะเบียนวัตถุดิบ</b> ล้างแล้วต้องเปิดโปรแกรมนั้น
-        โหลดไฟล์ Excel เข้าใหม่ — <b>ไม่แตะรายการเคลื่อนไหวและข้อมูลตั้งค่าของโปรแกรมนี้</b></p>
-    </div>
     <p class="hint">
       เก็บลงเครื่องเฉพาะวัตถุดิบที่ตั้งค่า <b>active</b> ไว้ ({{ activeMats.length.toLocaleString() }} รายการ)
       เพื่อประหยัดพื้นที่ — ถ้าต้องใช้รหัสอื่น ให้ไปตั้ง active ในโปรแกรมทะเบียนวัตถุดิบแล้วโหลดไฟล์ใหม่
@@ -1565,7 +1559,6 @@ const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
 const K_SETUP = 'bincard.setup.v1';   // materials / entities / bom / people
 const K_TXN   = 'bincard.txns.v1';    // รายการเคลื่อนไหว
 const K_SYNC  = 'bincard.sync.v1';    // การตั้งค่าเชื่อมต่อ Google Sheets
-const K_MATCACHE = 'bincard.materials.v1';  // cache ของ ทะเบียนวัตถุดิบ.html — โหลดกลับจากไฟล์ Excel ได้
 
 // ⚠️ ห้ามใช้ toISOString() ทำวันที่ เพราะให้เวลา UTC ซึ่งช้ากว่าไทย 7 ชั่วโมง
 // ถ้าใช้ จะได้วันที่ของ "เมื่อวาน" ทุกครั้งที่คีย์ก่อน 07:00 น.
@@ -2244,25 +2237,6 @@ createApp({
         + 'แล้วย้ายไปคีย์ต่อบนเบราว์เซอร์อีกตัว (Chrome กับ Edge มีพื้นที่แยกกัน) และแจ้งหัวหน้าให้ทราบ';
     }
     const storagePct = computed(() => Math.min(100, Math.round(storageBytes.value / 5e6 * 100)));
-
-    // ปุ่มคืนพื้นที่ — ล้างได้เฉพาะ cache ทะเบียนของโปรแกรมทะเบียนวัตถุดิบ ซึ่งโหลดกลับจากไฟล์ Excel ได้
-    // ห้ามให้ปุ่มนี้แตะ K_TXN หรือ K_SETUP เด็ดขาด (B1 / E1) — สองก้อนนั้นไม่มีที่อื่นให้กู้
-    const matCacheBytes = ref(0);
-    function readMatCache(){
-      const v = localStorage.getItem(K_MATCACHE);
-      matCacheBytes.value = v === null ? 0 : (K_MATCACHE.length + v.length) * 2;
-    }
-    function clearMatCache(){
-      const mb = (matCacheBytes.value / 1048576).toFixed(2);
-      if (!confirm('ล้าง cache ทะเบียนวัตถุดิบในเครื่องนี้ เพื่อคืนพื้นที่ ' + mb + ' MB ?\n\n'
-        + 'รายการเคลื่อนไหวและข้อมูลตั้งค่าของโปรแกรมนี้ไม่ถูกลบ\n'
-        + 'แต่ครั้งต่อไปที่เปิดโปรแกรมทะเบียนวัตถุดิบ ต้องโหลดไฟล์ Excel เข้าใหม่ '
-        + 'และงานที่แก้ค้างไว้ในโปรแกรมนั้นแต่ยังไม่ได้ส่งออกเป็นไฟล์ จะหายไปด้วย')) return;
-      localStorage.removeItem(K_MATCACHE);
-      readMatCache();
-      storageBytes.value = measureStorage();
-      flash('ล้าง cache ทะเบียนวัตถุดิบแล้ว — คืนพื้นที่ ' + mb + ' MB');
-    }
     function rememberPerson(p){
       if (p && !people.value.includes(p)) { people.value.push(p); }
     }
@@ -3531,7 +3505,6 @@ createApp({
       } catch (e) { /* ข้อมูลเสีย เริ่มใหม่ */ }
       if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
       storageBytes.value = measureStorage();
-      readMatCache();
       try {
         const c = JSON.parse(localStorage.getItem(K_SYNC) || 'null');
         if (c) Object.assign(sync, c);
@@ -3593,7 +3566,6 @@ createApp({
       cardCode, cardRows, cardOver, exportCard,
       lq, lDir, lFrom, lTo, lShowVoid, listRows, claims,
       newPerson, addPerson, persist, storageBytes, storagePct, storageAlert,
-      matCacheBytes, clearMatCache,
       wipe, wipeReady, doWipe, backupThenMark,
       sync, pending, syncLabel, syncColor, doSync, testConn, uploadSetup, downloadSetup,
       resetSyncClock, saveSyncCfg, connectAndPull, copySetupLink,
