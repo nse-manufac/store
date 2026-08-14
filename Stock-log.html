@@ -6,7 +6,7 @@
 <!-- เวอร์ชันของไฟล์นี้ — ประกาศที่เดียว โค้ดอ่านจากตรงนี้ ห้ามเขียนซ้ำที่อื่น
      ต้องบัมป์ทุกครั้งที่แก้ไฟล์นี้ (CI จะตรวจให้ ถ้าลืมบัมป์ PR จะแดง)
      รูปแบบ: YYYY-MM-DD.ลำดับของวันนั้น -->
-<meta name="app-version" content="2026-08-07.1">
+<meta name="app-version" content="2026-08-14.1">
 <title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -108,6 +108,9 @@ td input{width:100%;padding:3px 6px;font-size:12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:var(--ok);color:#fff;
   padding:10px 20px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.22);font-size:14px;z-index:99}
 .toast.bad{background:var(--bad)}
+.storage-alert{position:fixed;left:12px;right:12px;top:12px;z-index:100;display:flex;gap:12px;
+  align-items:center;justify-content:center;flex-wrap:wrap;background:var(--bad);color:#fff;
+  padding:10px 16px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.22);font-size:14px}
 .kbd{display:inline-block;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
   padding:0 5px;font-size:11px;background:#fafbfc;font-family:ui-monospace,monospace}
 </style>
@@ -1447,6 +1450,10 @@ td input{width:100%;padding:3px 6px;font-size:12px}
 <datalist id="people"><option v-for="p in people" :key="p" :value="p"></option></datalist>
 
 <div class="toast" :class="toast.bad?'bad':''" v-if="toast.show">{{ toast.text }}</div>
+<div class="storage-alert" v-if="storageAlert">
+  <span>⚠️ {{ storageAlert }}</span>
+  <button class="btn" @click="storageAlert=''">รับทราบ</button>
+</div>
 </div>
 
 <script>
@@ -2195,19 +2202,24 @@ createApp({
     // พื้นที่ localStorage มีจำกัด ~5 MB — ทะเบียนวัตถุดิบเต็ม 12,259 รายการกินไป ~2.5 MB
     // จึงเก็บลงเครื่องเฉพาะรายการที่ active เพื่อเหลือที่ให้รายการเคลื่อนไหว
     const storageBytes = ref(0);
+    // คำเตือนพื้นที่เต็ม ต้องค้างบนจอจนพนักงานกดรับทราบ ห้ามใช้ flash() ที่หายเองใน 3.2 วิ
+    const storageAlert = ref('');
     function persist(){
-      try {
-        const setup = JSON.stringify({
-          materials: materials.value.filter(m => m.active === 'TRUE'),
-          entities: entities.value, bom: bom.value, people: people.value,
-          poList: poList.value, shorts: shorts.value, kits: kits.value, closes: closes.value });
-        const tx = JSON.stringify(txns.value);
-        localStorage.setItem(K_SETUP, setup);
-        localStorage.setItem(K_TXN, tx);
-        storageBytes.value = setup.length + tx.length;
-      } catch (e) {
-        flash('พื้นที่เก็บข้อมูลเต็ม — ส่งออกสำรองแล้วลบรายการเก่าออกด่วน', true);
-      }
+      const setup = JSON.stringify({
+        materials: materials.value.filter(m => m.active === 'TRUE'),
+        entities: entities.value, bom: bom.value, people: people.value,
+        poList: poList.value, shorts: shorts.value, kits: kits.value, closes: closes.value });
+      const tx = JSON.stringify(txns.value);
+      // เขียน txns ก่อน setup เสมอ และแยก try กัน — ถ้าพื้นที่ไม่พอ
+      // งานที่พนักงานคีย์ไว้ต้องรอดก่อน (ก้อน setup ใหญ่กว่าหลายเท่า ถ้าเขียนก้อนนั้นก่อน
+      // แล้วชนเพดาน รายการเคลื่อนไหวจะไม่ถูกเขียนลงเครื่องเลย)
+      let fail = '';
+      try { localStorage.setItem(K_TXN, tx); }   catch (e) { fail = 'รายการเคลื่อนไหว'; }
+      try { localStorage.setItem(K_SETUP, setup); } catch (e) { fail = fail || 'ทะเบียนและข้อมูลตั้งค่า'; }
+      storageBytes.value = setup.length + tx.length;
+      if (fail) storageAlert.value = 'พื้นที่เก็บข้อมูลเต็ม — บันทึก' + fail + 'ลงเครื่องนี้ไม่สำเร็จ '
+        + 'ให้กด "ส่งออกข้อมูลทั้งหมด (.json)" ในหน้าตั้งค่าเก็บไฟล์ไว้ทันที '
+        + 'แล้วย้ายไปคีย์ต่อบนเบราว์เซอร์อีกตัว (Chrome กับ Edge มีพื้นที่แยกกัน) และแจ้งหัวหน้าให้ทราบ';
     }
     const storagePct = computed(() => Math.min(100, Math.round(storageBytes.value / 5e6 * 100)));
     function rememberPerson(p){
@@ -3538,7 +3550,7 @@ createApp({
       openPos, outPick, saveOut, resetOut, recent, voidTxn,
       cardCode, cardRows, cardOver, exportCard,
       lq, lDir, lFrom, lTo, lShowVoid, listRows, claims,
-      newPerson, addPerson, persist, storageBytes, storagePct,
+      newPerson, addPerson, persist, storageBytes, storagePct, storageAlert,
       wipe, wipeReady, doWipe, backupThenMark,
       sync, pending, syncLabel, syncColor, doSync, testConn, uploadSetup, downloadSetup,
       resetSyncClock, saveSyncCfg, connectAndPull, copySetupLink,
