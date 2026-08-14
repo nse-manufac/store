@@ -359,3 +359,37 @@ test('D7 + G3 — พื้นที่เต็มตอนเซฟ: ราย
   await warn.getByRole('button', { name: 'รับทราบ' }).click();
   await expect(warn, 'กดรับทราบแล้วต้องปิดได้').toHaveCount(0);
 });
+
+test('E3 + G3 — มาตรวัดพื้นที่ต้องนับทุก key ในโดเมน และคิด 2 ไบต์ต่อตัวอักษร', async ({ page }) => {
+  // cache ทะเบียนของ ทะเบียนวัตถุดิบ.html กินโควตาก้อนเดียวกับแอปนี้ ต้องถูกนับด้วย
+  await page.addInitScript(() => {
+    localStorage.setItem('bincard.materials.v1', JSON.stringify({ rows: 'x'.repeat(1_900_000) }));
+  });
+  await openApp(page);
+
+  /** ขนาดจริงที่กินโควตา = (ความยาว key + ความยาวค่า) ของทุก key × 2 ไบต์ */
+  const measure = () => page.evaluate(() => {
+    let chars = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      chars += k.length + (localStorage.getItem(k) || '').length;
+    }
+    const s = document.querySelector('#app')._vnode.component.setupState;
+    return { bytes: s.storageBytes, pct: s.storagePct, expect: chars * 2 };
+  });
+
+  const boot = await measure();
+  expect(boot.bytes, 'ตอนเปิดโปรแกรมต้องนับทุก key และคิด 2 ไบต์ต่อตัวอักษร').toBe(boot.expect);
+  expect(boot.bytes, 'cache ทะเบียน 1.9 ล้านตัวอักษรต้องถูกนับด้วย').toBeGreaterThan(3_500_000);
+  expect(boot.pct, 'พื้นที่เกิน 70% แล้ว แถบต้องไม่เขียว').toBeGreaterThan(70);
+
+  // persist() ต้องคิดด้วยสูตรเดียวกับตอนเปิดโปรแกรม ไม่ใช่แค่ความยาวสองก้อนที่เพิ่งเขียน
+  await page.evaluate(() => document.querySelector('#app')._vnode.component.setupState.persist());
+  const after = await measure();
+  expect(after.bytes, 'persist() ต้องใช้สูตรเดียวกัน').toBe(after.expect);
+
+  await page.evaluate(() => { document.querySelector('#app')._vnode.component.setupState.tab = 'setup'; });
+  const warn = page.locator('.card', { hasText: 'พื้นที่เก็บข้อมูล' }).locator('.msg.bad');
+  await expect(warn, 'พื้นที่เกิน 70% ต้องขึ้นคำเตือน').toBeVisible();
+  expect(await warn.textContent(), 'คำเตือนต้องไม่อ้าง Phase 2.5 ที่ไม่มีอยู่แล้ว').not.toMatch(/Phase/);
+});
