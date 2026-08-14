@@ -6,7 +6,7 @@
 <!-- เวอร์ชันของไฟล์นี้ — ประกาศที่เดียว โค้ดอ่านจากตรงนี้ ห้ามเขียนซ้ำที่อื่น
      ต้องบัมป์ทุกครั้งที่แก้ไฟล์นี้ (CI จะตรวจให้ ถ้าลืมบัมป์ PR จะแดง)
      รูปแบบ: YYYY-MM-DD.ลำดับของวันนั้น -->
-<meta name="app-version" content="2026-08-14.1">
+<meta name="app-version" content="2026-08-14.2">
 <title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1367,9 +1367,11 @@ td input{width:100%;padding:3px 6px;font-size:12px}
     </div>
     <p class="hint" style="margin-top:8px">
       ใช้ไป <b>{{ (storageBytes/1048576).toFixed(2) }} MB</b> จากประมาณ 5 MB ({{ storagePct }}%)
+      — นับรวมทุกโปรแกรมที่อยู่โดเมนเดียวกัน (รวม cache ของโปรแกรมทะเบียนวัตถุดิบ) เพราะใช้พื้นที่ก้อนเดียวกัน
     </p>
-    <div class="msg bad" v-if="storagePct>80" style="margin-top:10px">
-      ใกล้เต็มแล้ว — ส่งออกสำรองเก็บไว้ แล้วเร่งขึ้น Google Sheets ใน Phase 2.5
+    <div class="msg bad" v-if="storagePct>70" style="margin-top:10px">
+      ใกล้เต็มแล้ว — กด <b>ส่งออกข้อมูลทั้งหมด (.json)</b> เก็บไฟล์ไว้ทันที และแจ้งหัวหน้า
+      ถ้าเต็มจริงจะคีย์เพิ่มไม่ได้ ให้ย้ายไปคีย์บนเบราว์เซอร์อีกตัว (Chrome กับ Edge มีพื้นที่แยกกัน)
     </div>
     <p class="hint">
       เก็บลงเครื่องเฉพาะวัตถุดิบที่ตั้งค่า <b>active</b> ไว้ ({{ activeMats.length.toLocaleString() }} รายการ)
@@ -2202,6 +2204,19 @@ createApp({
     // พื้นที่ localStorage มีจำกัด ~5 MB — ทะเบียนวัตถุดิบเต็ม 12,259 รายการกินไป ~2.5 MB
     // จึงเก็บลงเครื่องเฉพาะรายการที่ active เพื่อเหลือที่ให้รายการเคลื่อนไหว
     const storageBytes = ref(0);
+    /** ขนาดที่กินโควตาจริง (ไบต์)
+     *  โควตา ~5 MB เป็นของ "โดเมน" ไม่ใช่ของแต่ละไฟล์ — ทะเบียนวัตถุดิบ.html กินก้อนเดียวกับไฟล์นี้
+     *  จึงต้องนับทุก key ไม่ใช่แค่ K_SETUP + K_TXN
+     *  และ Chrome/Edge คิด 2 ไบต์ต่อตัวอักษร (UTF-16) ถ้านับเป็นจำนวนตัวอักษรเฉย ๆ
+     *  มาตรวัดจะบอกต่ำกว่าความจริงราวครึ่งหนึ่ง แถบยังเขียวอยู่ทั้งที่พื้นที่เต็มแล้ว */
+    function measureStorage(){
+      let chars = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        chars += k.length + (localStorage.getItem(k) || '').length;
+      }
+      return chars * 2;
+    }
     // คำเตือนพื้นที่เต็ม ต้องค้างบนจอจนพนักงานกดรับทราบ ห้ามใช้ flash() ที่หายเองใน 3.2 วิ
     const storageAlert = ref('');
     function persist(){
@@ -2216,7 +2231,7 @@ createApp({
       let fail = '';
       try { localStorage.setItem(K_TXN, tx); }   catch (e) { fail = 'รายการเคลื่อนไหว'; }
       try { localStorage.setItem(K_SETUP, setup); } catch (e) { fail = fail || 'ทะเบียนและข้อมูลตั้งค่า'; }
-      storageBytes.value = setup.length + tx.length;
+      storageBytes.value = measureStorage();
       if (fail) storageAlert.value = 'พื้นที่เก็บข้อมูลเต็ม — บันทึก' + fail + 'ลงเครื่องนี้ไม่สำเร็จ '
         + 'ให้กด "ส่งออกข้อมูลทั้งหมด (.json)" ในหน้าตั้งค่าเก็บไฟล์ไว้ทันที '
         + 'แล้วย้ายไปคีย์ต่อบนเบราว์เซอร์อีกตัว (Chrome กับ Edge มีพื้นที่แยกกัน) และแจ้งหัวหน้าให้ทราบ';
@@ -3489,7 +3504,7 @@ createApp({
         txns.value = JSON.parse(localStorage.getItem(K_TXN) || '[]');
       } catch (e) { /* ข้อมูลเสีย เริ่มใหม่ */ }
       if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
-      storageBytes.value = (localStorage.getItem(K_SETUP)||'').length + (localStorage.getItem(K_TXN)||'').length;
+      storageBytes.value = measureStorage();
       try {
         const c = JSON.parse(localStorage.getItem(K_SYNC) || 'null');
         if (c) Object.assign(sync, c);
