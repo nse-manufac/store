@@ -17,7 +17,8 @@
  */
 
 export const DB_NAME = 'bincard-v2';
-export const DB_VERSION = 1;
+// 2 — เพิ่มตาราง counts (รอบนับของ)
+export const DB_VERSION = 2;
 
 /** ตารางทั้งหมด — keyPath ทุกตัวคือ id ยกเว้นที่ระบุ */
 const STORES = {
@@ -28,6 +29,7 @@ const STORES = {
   kits:      { keyPath: 'id' },
   shorts:    { keyPath: 'id' },
   closes:    { keyPath: 'id' },
+  counts:    { keyPath: 'id' },
   meta:      { keyPath: 'k' }
 };
 

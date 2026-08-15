@@ -11,6 +11,8 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan } from './master/bom.js';
+import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
+import { balances } from './core/balance.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -36,11 +38,16 @@ createApp({
     const materials = ref([]);
     const entries = ref([]);
     const bom = ref([]);
+    const counts = ref([]);
 
     const q = ref('');
     const fCat = ref('');
     const fState = ref('active');
     const edit = ref(null);
+
+    // ชื่อเครื่อง — ติดไปกับทุกรายการเพื่อให้ไล่ได้ว่าคีย์มาจากเครื่องไหน (INVARIANTS B)
+    // สุ่มครั้งเดียวแล้วเก็บไว้ เพราะยังไม่มีหน้าตั้งค่าให้ตั้งชื่อเอง
+    const device = ref('');
 
     const toast = reactive({ show: false, text: '', bad: false });
     let toastTimer = null;
@@ -58,7 +65,15 @@ createApp({
         materials.value = data.materials || [];
         entries.value = data.entries || [];
         bom.value = data.bom || [];
+        counts.value = data.counts || [];
         entity.value = await db.getMeta('entity', '') || '';
+        // ยังไม่มีหน้าตั้งค่า — ตั้งค่าเริ่มต้นไว้ก่อนเพื่อให้หน้าที่ต้องใช้ entity ทำงานได้
+        if (!entity.value) { entity.value = 'NSE'; await db.setMeta('entity', 'NSE'); }
+        device.value = await db.getMeta('device', '') || '';
+        if (!device.value) {
+          device.value = 'PC-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+          await db.setMeta('device', device.value);
+        }
         ready.value = true;
       } catch (err) {
         // เปิดฐานข้อมูลไม่ได้ = ทำอะไรไม่ได้เลย ต้องบอกให้ชัดว่าเกิดอะไรและทำยังไงต่อ
@@ -207,12 +222,114 @@ createApp({
       finally { bomBusy.value = false; }
     }
 
-    return { APP_VERSION, TABS, CATEGORIES, SHOW_MAX,
+    // ── นับของ ─────────────────────────────────────────────────────
+    const cs = ref(null);                       // รอบนับที่เปิดอยู่
+    const csBusy = ref(false);
+    const csRefText = ref('');
+    const csNew = reactive({ name: '', person: '', category: '', scope: '' });
+
+    const countHistory = computed(() =>
+      [...counts.value].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 12));
+
+    const csPreview = computed(() =>
+      sheetRows(materials.value, { scope: csNew.scope, category: csNew.category }).length);
+
+    const csRows = computed(() =>
+      cs.value ? sheetRows(materials.value, { scope: cs.value.scope, category: cs.value.category }) : []);
+
+    const csFilled = computed(() => {
+      if (!cs.value) return 0;
+      return Object.values(cs.value.counted || {})
+        .filter(v => v && v.qty !== null && v.qty !== undefined && v.qty !== '').length;
+    });
+
+    /** ยอดอ้างอิงจากระบบเดิม — วางเป็นข้อความ ไม่เข้าสมุด ใช้เทียบอย่างเดียว */
+    const csRef = computed(() => {
+      const m = new Map();
+      for (const line of String(csRefText.value).split('\n')) {
+        const t = line.trim();
+        if (!t) continue;
+        const p = t.split(/[\s,\t]+/);
+        if (p.length < 2) continue;
+        const v = Number(p[p.length - 1]);
+        if (isFinite(v)) m.set(String(p[0]).trim().toUpperCase(), v);
+      }
+      return m;
+    });
+
+    const codesWithHistory = computed(() => {
+      const s = new Set();
+      for (const e of entries.value) if (e.entity === entity.value) s.add(String(e.material_code));
+      return s;
+    });
+    const bookBalances = computed(() =>
+      entity.value ? balances(entries.value, entity.value) : new Map());
+
+    const csPlanRows = computed(() => cs.value
+      ? planCount(cs.value, { balances: bookBalances.value,
+                              codesWithHistory: codesWithHistory.value,
+                              reference: csRef.value.size ? csRef.value : null })
+      : []);
+    const csSum = computed(() => planSummary(csPlanRows.value));
+
+    function startCount() {
+      if (!entity.value) { flash('ยังไม่ได้เลือกนิติบุคคล', true); return; }
+      try {
+        const s = makeSession({ entity: entity.value, name: csNew.name,
+                                person: csNew.person, scope: csNew.scope });
+        s.category = csNew.category;
+        // เตรียมช่องว่างไว้ให้ทุกรหัสที่ต้องนับ เพื่อให้ v-model ผูกได้ตั้งแต่แรก
+        for (const r of sheetRows(materials.value, { scope: s.scope, category: s.category })) {
+          s.counted[r.code] = { qty: null, note: '' };
+        }
+        cs.value = s;
+        counts.value.push(s);
+        db.put('counts', JSON.parse(JSON.stringify(s))).catch(e => flash(e.message, true));
+      } catch (err) { flash(err.message, true); }
+    }
+
+    let saveTimer = null;
+    function saveCount() {
+      // คีย์ของ 400 รายการแล้วหายเพราะปิดแท็บคือฝันร้าย เซฟทุกครั้งที่แก้ แต่หน่วงไว้กันเขียนถี่
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        if (!cs.value) return;
+        cs.value.updated_at = new Date().toISOString();
+        try { await db.put('counts', JSON.parse(JSON.stringify(cs.value))); }
+        catch (err) { flash(err.message, true); }
+      }, 400);
+    }
+
+    async function postCountNow() {
+      if (!cs.value) return;
+      const rows = csPlanRows.value.filter(r => r.kind);
+      if (!rows.length) { flash('ไม่มีอะไรต้องลงบัญชี', true); return; }
+      csBusy.value = true;
+      try {
+        const posted = postCount(cs.value, csPlanRows.value, { device: device.value });
+        // เขียนรายการเคลื่อนไหวก่อนเสมอ — เป็นสิ่งเดียวที่สร้างใหม่ไม่ได้ถ้าหาย (บทเรียน #29)
+        await db.put('entries', posted);
+        entries.value.push(...posted);
+        cs.value.status = 'posted';
+        cs.value.posted_at = new Date().toISOString();
+        await db.put('counts', JSON.parse(JSON.stringify(cs.value)));
+        db.announce('entries');
+        flash(`ลงบัญชี ${posted.length} รายการแล้ว`);
+      } catch (err) { flash(err.message, true); }
+      finally { csBusy.value = false; }
+    }
+
+    const printSheet = () => window.print();
+
+    return { APP_VERSION, TABS, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity,
              materials, entries, bom, q, fCat, fState, edit, toast,
              activeCount, needReview, shown, codeCheck, dupOf,
              startAdd, startEdit, saveEdit, approve,
              bomDocs, bomPlan, bomBusy, dragOver, bomSum, bomPns, missingPack,
-             bomUnknownCodes, bomUnconfirmed, onDropBom, onPickBom, applyBom };
+             bomUnknownCodes, bomUnconfirmed, onDropBom, onPickBom, applyBom,
+             counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
+             csRows, csFilled, csPlanRows, csSum,
+             startCount, saveCount, postCountNow, printSheet };
   }
 }).mount('#app');

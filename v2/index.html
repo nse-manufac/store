@@ -74,6 +74,26 @@ tr.review td{background:#fffdf3}
 .big{font-size:28px;font-weight:700;color:var(--brand);line-height:1.15;
   font-variant-numeric:tabular-nums}
 .big.bad{color:var(--bad)} .big.warn{color:var(--warn)}
+textarea{font:inherit}
+.printonly{display:none}
+
+/* ── ใบนับตอนพิมพ์ ──
+   ช่อง "นับได้" ต้องเป็นกรอบว่างให้เขียนด้วยมือ ไม่ใช่ช่องกรอกบนจอที่พิมพ์ออกมาว่าง ๆ
+   และห้ามมียอดของระบบโผล่มาในใบนับเด็ดขาด — ดูเหตุผลใน core/count.js */
+@media print{
+  header,.noprint,.tabs{display:none !important}
+  body{background:#fff}
+  main{padding:0}
+  .card{border:0;padding:0;margin:0}
+  .printonly{display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:10px;font-size:13px}
+  .scroll{max-height:none;overflow:visible}
+  table{font-size:12px}
+  th{background:#fff;border-bottom:1.5px solid #000;position:static}
+  td{border-bottom:1px solid #ccc;padding:7px 8px}
+  .countcell{border:1px solid #000;min-width:90px}
+  tr{page-break-inside:avoid}
+}
 .empty{padding:26px;text-align:center;color:var(--muted)}
 .boot{padding:60px;text-align:center;color:var(--muted)}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);
@@ -343,6 +363,174 @@ tr.review td{background:#fffdf3}
           </div>
           <p v-else class="empty">ยังไม่มี BOM ในเครื่อง — ลากไฟล์จาก SAP มาวางด้านบน</p>
         </div>
+      </template>
+
+      <!-- ════════ นับของ ════════ -->
+      <template v-else-if="tab==='count'">
+        <!-- ── ยังไม่มีรอบนับ ── -->
+        <div class="card noprint" v-if="!cs">
+          <h2>เริ่มรอบนับใหม่</h2>
+          <div class="row">
+            <label class="f" style="width:210px">ชื่อรอบนับ
+              <input v-model.trim="csNew.name" placeholder="เช่น นับเปิดระบบ 20 ส.ค."></label>
+            <label class="f" style="width:160px">คนนับ
+              <input v-model.trim="csNew.person" placeholder="ชื่อคนนับ"></label>
+            <label class="f" style="width:150px">เฉพาะหมวด
+              <select v-model="csNew.category">
+                <option value="">ทุกหมวด</option>
+                <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+              </select></label>
+            <label class="f grow" style="min-width:180px">เฉพาะที่ค้นเจอ
+              <input v-model.trim="csNew.scope" placeholder="เว้นว่างได้"></label>
+            <button class="btn primary" @click="startCount"
+                    :disabled="!csNew.person">เริ่มนับ ({{ csPreview }} รายการ)</button>
+          </div>
+          <p class="hint" style="margin:9px 0 0">
+            นับตอนของไม่เคลื่อนจะง่ายที่สุด — เสาร์หรือหลังเลิกงาน
+            ถ้าต้องนับระหว่างวันทำงาน ให้นับทีละหมวดแล้วหยุดเบิกเฉพาะหมวดนั้น</p>
+        </div>
+
+        <div class="card" v-if="!cs && countHistory.length">
+          <h2>รอบนับที่ผ่านมา</h2>
+          <table><thead><tr><th>ชื่อรอบ</th><th style="width:120px">คนนับ</th>
+            <th style="width:150px">เมื่อ</th><th style="width:110px">สถานะ</th>
+            <th style="width:90px"></th></tr></thead>
+            <tbody><tr v-for="c in countHistory" :key="c.id">
+              <td>{{ c.name }}</td><td>{{ c.person }}</td>
+              <td class="mono hint">{{ c.created_at.slice(0,16).replace('T',' ') }}</td>
+              <td><span class="tag" :class="c.status==='posted'?'ok':'warn'">{{ STATUS[c.status] }}</span></td>
+              <td><button class="btn" style="padding:3px 9px" @click="cs=c">เปิด</button></td>
+            </tr></tbody></table>
+        </div>
+
+        <!-- ── กำลังนับ ── -->
+        <template v-if="cs">
+          <div class="card noprint">
+            <div class="row">
+              <div><div class="hint">รอบนับ</div><b style="font-size:16px">{{ cs.name }}</b>
+                <span class="hint"> · คนนับ {{ cs.person }}</span></div>
+              <div class="grow"></div>
+              <span class="tag" :class="cs.status==='posted'?'ok':'warn'">{{ STATUS[cs.status] }}</span>
+              <button class="btn" @click="printSheet">🖨 พิมพ์ใบนับ</button>
+              <button class="btn" @click="cs=null">ปิด</button>
+            </div>
+            <div class="msg warn" style="margin:12px 0 0" v-if="cs.status!=='posted'">
+              <b>ใบนับไม่มีตัวเลขของระบบอยู่ในนั้น — ตั้งใจให้เป็นแบบนั้น</b><br>
+              <span class="hint">ถ้าคนนับเห็นว่าระบบบอกเท่าไหร่ เขาจะนับได้เท่านั้น
+                ไม่ใช่เพราะขี้โกงแต่เพราะสมองทำแบบนั้นเอง แล้วการนับทั้งรอบจะเสียเปล่า
+                — ส่วนต่างค่อยดูตอนคีย์ผลเข้ามาแล้ว</span>
+            </div>
+          </div>
+
+          <!-- ใบนับ (แสดงตอนพิมพ์) -->
+          <div class="card sheet">
+            <div class="printonly sheet-head">
+              <b>ใบนับของ — {{ cs.name }}</b>
+              <span>คนนับ ................................ วันที่ ..................</span>
+            </div>
+            <div class="row noprint" style="margin-bottom:8px">
+              <h2 style="margin:0">รายการที่ต้องนับ</h2>
+              <span class="tag">{{ csRows.length }} รายการ</span>
+              <div class="grow"></div>
+              <span class="hint">คีย์แล้ว {{ csFilled }} / {{ csRows.length }}</span>
+            </div>
+            <div class="scroll">
+              <table>
+                <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
+                  <th style="width:70px">หน่วย</th><th style="width:110px">นับได้</th>
+                  <th style="width:150px" class="noprint">หมายเหตุ</th></tr></thead>
+                <tbody>
+                  <tr v-for="r in csRows" :key="r.code">
+                    <td class="mono"><b>{{ r.code }}</b></td>
+                    <td>{{ r.desc }}</td>
+                    <td class="mono">{{ r.unit }}</td>
+                    <td class="countcell">
+                      <input class="mono noprint" style="width:96px" type="number" step="any"
+                             v-model.number="cs.counted[r.code].qty"
+                             :disabled="cs.status==='posted'" @change="saveCount">
+                    </td>
+                    <td class="noprint">
+                      <input v-model.trim="cs.counted[r.code].note" style="width:100%"
+                             :disabled="cs.status==='posted'" @change="saveCount">
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── ผลต่าง ── -->
+          <div class="card noprint" v-if="csFilled">
+            <div class="row">
+              <h2 style="margin:0">จะลงบัญชีแบบนี้</h2>
+              <div class="grow"></div>
+              <button class="btn primary" v-if="cs.status!=='posted'"
+                      @click="postCountNow" :disabled="csBusy || !csPlanRows.some(r=>r.kind)">
+                {{ csBusy ? 'กำลังลง...' : 'ลงบัญชี' }}</button>
+            </div>
+            <div class="row" style="gap:26px;margin-top:10px;align-items:flex-start">
+              <div><div class="hint">คีย์แล้ว</div><div class="big">{{ csSum.counted }}</div></div>
+              <div v-if="csSum.open"><div class="hint">ยกยอดมา</div>
+                <div class="big">{{ csSum.open }}</div></div>
+              <div v-if="csSum.adjust"><div class="hint">ปรับยอด</div>
+                <div class="big warn">{{ csSum.adjust }}</div>
+                <div class="hint">ขึ้น {{ csSum.up }} · ลง {{ csSum.down }}</div></div>
+              <div v-if="csSum.same"><div class="hint">ตรงกับสมุดแล้ว</div>
+                <div class="big" style="color:var(--ok)">{{ csSum.same }}</div></div>
+              <div v-if="csSum.refChecked"><div class="hint">ต่างจากระบบเดิม</div>
+                <div class="big bad">{{ csSum.refOff }}</div>
+                <div class="hint">จาก {{ csSum.refChecked }} ที่เทียบได้</div></div>
+            </div>
+
+            <div class="msg ok" v-if="csSum.refChecked" style="margin:12px 0 0">
+              เทียบกับยอดของระบบเดิมแล้ว <b>ตรงกัน {{ csSum.refMatch }}</b> ·
+              <b>ไม่ตรง {{ csSum.refOff }}</b> จาก {{ csSum.refChecked }} รหัส<br>
+              <span class="hint">ตัวเลขชุดนี้บอกว่าตัวเลขเดิมเชื่อได้แค่ไหน เก็บไว้เป็นเส้นฐาน</span>
+            </div>
+
+            <div class="scroll" style="margin-top:10px">
+              <table>
+                <thead><tr><th style="width:120px">รหัส</th><th style="width:90px">นับได้</th>
+                  <th style="width:90px">ในสมุด</th><th style="width:110px">จะลง</th>
+                  <th style="width:90px">ส่วนต่าง</th>
+                  <th style="width:110px" v-if="csRef.size">ระบบเดิม</th>
+                  <th>หมายเหตุ</th></tr></thead>
+                <tbody><tr v-for="r in csPlanRows" :key="r.code">
+                  <td class="mono"><b>{{ r.code }}</b></td>
+                  <td class="mono">{{ r.counted }}</td>
+                  <td class="mono hint">{{ r.known ? r.book : '—' }}</td>
+                  <td><span v-if="r.kind==='open'" class="tag">ยกยอดมา</span>
+                      <span v-else-if="r.kind==='adjust'" class="tag warn">ปรับยอด</span>
+                      <span v-else class="tag ok">ตรงแล้ว</span></td>
+                  <td class="mono" :style="r.delta<0?'color:var(--bad)':''">
+                    {{ r.kind==='adjust' ? (r.delta>0?'+':'') + r.delta : '' }}</td>
+                  <td v-if="csRef.size" class="mono">
+                    <span v-if="r.ref===null" class="hint">—</span>
+                    <span v-else-if="r.refDelta===0" class="tag ok">ตรง</span>
+                    <span v-else class="tag bad">{{ (r.refDelta>0?'+':'') + r.refDelta }}</span>
+                  </td>
+                  <td class="hint">{{ r.note }}</td>
+                </tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── ยอดอ้างอิงจากระบบเดิม ── -->
+          <div class="card noprint" v-if="cs.status!=='posted'">
+            <h2>ยอดอ้างอิงจากระบบเดิม (ไม่บังคับ)</h2>
+            <p class="hint">
+              วางยอดคงเหลือจาก v1 ไว้ตรงนี้เพื่อเทียบว่าของจริงต่างจากที่ระบบเดิมบอกแค่ไหน
+              <b>ตัวเลขชุดนี้ไม่เข้าสมุด</b> ใช้เทียบอย่างเดียว<br>
+              รูปแบบ: บรรทัดละหนึ่งรายการ <span class="mono">รหัส เว้นวรรค ยอด</span>
+            </p>
+            <textarea v-model="csRefText" rows="4" style="width:100%;font-family:ui-monospace,monospace;
+              font-size:13px;padding:8px;border:1px solid var(--line);border-radius:6px"
+              placeholder="3220130200 47&#10;4010600100 2.5"></textarea>
+            <div class="row" style="margin-top:8px">
+              <span class="hint">อ่านได้ {{ csRef.size }} รหัส</span>
+            </div>
+          </div>
+        </template>
       </template>
 
       <div class="card" v-else>
