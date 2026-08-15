@@ -12,6 +12,8 @@ import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
+import { lotsOf, suggestLots } from './core/lots.js';
+import { makeEntry } from './core/ledger.js';
 import { balances } from './core/balance.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
@@ -321,6 +323,149 @@ createApp({
 
     const printSheet = () => window.print();
 
+    // ── ค้นหารหัส (ใช้ร่วมกันทุกหน้า) ────────────────────────────
+    // ไม่ใช้ <datalist> เหมือน v1 เพราะมันแสดงคำอธิบายอย่างเดียว
+    // ในทะเบียนที่ใช้งานอยู่มี 32 คำอธิบายที่ซ้ำกันเป๊ะ แยกกันไม่ออกบนหน้าจอ — issue #26
+    const pick = ref(null);        // อ็อบเจกต์ปลายทางที่จะเติมรหัสลงไป
+    const pickQ = ref('');
+    const pickResults = computed(() =>
+      searchMaterials(materials.value, pickQ.value, { limit: 60 }));
+    function openPick(target) { pick.value = target; pickQ.value = target.code || ''; }
+    function choosePick(m) {
+      if (!pick.value) return;
+      pick.value.code = m.material_code;
+      if (pick.value === out) onOutCode(); else fillLine(pick.value);
+      pick.value = null;
+    }
+
+    const matOf = code => materials.value.find(m => normCode(m.material_code) === normCode(code));
+
+    // ── รับเข้า ────────────────────────────────────────────────────
+    const today = () => { const d = new Date(), p = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
+
+    const inH = reactive({ po: '', pn: '', order: null, date: today(), person: '' });
+    const inLines = ref([]);
+    const bomHint = ref('');
+    let lineSeq = 0;
+
+    const bomPnCodes = computed(() => [...new Set(bom.value.map(r => r.pn))].sort());
+
+    function blankLine(code = '') {
+      return { k: 'L' + (++lineSeq), code, desc: '', unit: '', reqmt: null,
+               qty: null, lot: '', expiry: '', needExp: false, known: false };
+    }
+    function fillLine(l) {
+      const m = matOf(l.code);
+      l.known = !!m;
+      l.desc = m ? m.description : '';
+      l.unit = m ? m.unit : '';
+      l.needExp = m ? m.requires_expiry === true : false;
+    }
+    const addInLine = () => inLines.value.push(blankLine());
+
+    /** กางสูตรของ P/N นี้ออกมาให้คีย์ */
+    function expandBom() {
+      if (!inH.pn) return;
+      const rows = bom.value.filter(r => r.pn === String(inH.pn));
+      if (!rows.length) { bomHint.value = `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`; return; }
+      const order = Number(inH.order) || 0;
+      inLines.value = rows.map(r => {
+        const l = blankLine(r.code);
+        fillLine(l);
+        if (!l.known) { l.desc = r.desc; l.unit = r.unit; }
+        l.reqmt = order ? Math.round(r.usage * order * 1e5) / 1e5 : null;
+        l.uomConfirmed = r.uomConfirmed;
+        return l;
+      });
+      const un = rows.filter(r => r.uomConfirmed === false).length;
+      bomHint.value = `กางสูตร ${rows.length} รายการ`
+        + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร')
+        + (un ? ` · ⚠️ ${un} รายการใช้หน่วยที่ยังไม่ยืนยันกับ Delta` : '');
+    }
+
+    const inReady = computed(() => inLines.value.filter(l => l.code && Number(l.qty) > 0));
+    const inNoLot = computed(() => inReady.value.filter(l => !l.lot));
+
+    async function saveIn() {
+      if (!inH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
+      if (!inH.po) { flash('ยังไม่ได้ใส่เลข PO', true); return; }
+      const bad = inReady.value.filter(l => l.needExp && !l.expiry);
+      if (bad.length) { flash(`ต้องกรอกวันหมดอายุอีก ${bad.length} รายการ`, true); return; }
+      const noLot = inNoLot.value.length;
+      if (noLot && !confirm(`มี ${noLot} บรรทัดที่ยังไม่ใส่เลขล็อต\n`
+        + 'ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป\n\nบันทึกต่อไหม')) return;
+      try {
+        const at = new Date().toISOString();
+        const posted = inReady.value.map(l => makeEntry({
+          entity: entity.value, kind: 'receive', material_code: l.code, qty: Number(l.qty),
+          lot: l.lot || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: inH.po, part_no: inH.pn,
+          at: inH.date ? inH.date + at.slice(10) : at,
+          person: inH.person, device: device.value,
+          expiry_date: l.expiry || '', reqmt_qty: l.reqmt
+        }));
+        await db.put('entries', posted);
+        entries.value.push(...posted);
+        db.announce('entries');
+        flash(`บันทึกรับเข้า ${posted.length} รายการ · PO ${inH.po}`);
+        inLines.value = []; bomHint.value = ''; inH.po = ''; inH.pn = ''; inH.order = null;
+      } catch (err) { flash(err.message, true); }
+    }
+
+    function addFromLine(l) {
+      edit.value = { _new: true, material_code: l.code, description: '', unit: '',
+                     category: 'OTHER', requires_expiry: false, active: true };
+      tab.value = 'mat';
+      flash('กรอกชื่อกับหน่วยแล้วกดบันทึก จากนั้นกลับมาหน้ารับเข้าได้เลย');
+    }
+
+    // ── จ่ายออก ────────────────────────────────────────────────────
+    const out = reactive({ code: '', qty: null, lot: '', part_no: '', doc_ref: '',
+                           date: today(), person: '', _inferred: false });
+
+    const outKnown = computed(() => !!matOf(out.code));
+    const outDesc = computed(() => (matOf(out.code) || {}).description || '');
+    const outBal = computed(() =>
+      out.code && entity.value ? (bookBalances.value.get(normCode(out.code)) || 0) : 0);
+    const outAfter = computed(() => Math.round((outBal.value - (Number(out.qty) || 0)) * 1e5) / 1e5);
+    const outLots = computed(() =>
+      out.code && entity.value ? lotsOf(entries.value, entity.value, normCode(out.code)) : []);
+    const outSuggest = computed(() =>
+      out.code && Number(out.qty) > 0 && entity.value
+        ? suggestLots(entries.value, entity.value, normCode(out.code), Number(out.qty)) : null);
+
+    function onOutCode() { out.lot = ''; out._inferred = false; }
+    function onOutQty() { out._inferred = false; }
+
+    function addFromOut() {
+      edit.value = { _new: true, material_code: out.code, description: '', unit: '',
+                     category: 'OTHER', requires_expiry: false, active: true };
+      tab.value = 'mat';
+    }
+
+    async function saveOut() {
+      if (!out.person) { flash('ยังไม่ได้ใส่ชื่อผู้เบิก', true); return; }
+      // ยอดติดลบเตือนได้ แต่ห้ามบล็อก — INVARIANTS A4
+      // ของจริงมีกรณีคีย์รับเข้าย้อนหลัง ถ้าห้ามบันทึกพนักงานจะไปจดใส่กระดาษแล้วลืมคีย์
+      if (outAfter.value < 0 &&
+          !confirm(`ยอดจะติดลบเป็น ${outAfter.value}\nยืนยันบันทึกไหม`)) return;
+      try {
+        const at = new Date().toISOString();
+        const e = makeEntry({
+          entity: entity.value, kind: 'issue', material_code: out.code, qty: Number(out.qty),
+          lot: out.lot, lot_inferred: out._inferred && !!out.lot,
+          doc_kind: out.doc_ref ? 'po' : '', doc_ref: out.doc_ref, part_no: out.part_no,
+          at: out.date ? out.date + at.slice(10) : at,
+          person: out.person, device: device.value
+        });
+        await db.put('entries', e);
+        entries.value.push(e);
+        db.announce('entries');
+        flash(`บันทึกจ่ายออก ${out.qty} ${(matOf(out.code) || {}).unit || ''}`);
+        out.code = ''; out.qty = null; out.lot = ''; out._inferred = false;
+      } catch (err) { flash(err.message, true); }
+    }
+
     return { APP_VERSION, TABS, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity,
              materials, entries, bom, q, fCat, fState, edit, toast,
@@ -330,6 +475,11 @@ createApp({
              bomUnknownCodes, bomUnconfirmed, onDropBom, onPickBom, applyBom,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,
-             startCount, saveCount, postCountNow, printSheet };
+             startCount, saveCount, postCountNow, printSheet,
+             pick, pickQ, pickResults, openPick, choosePick,
+             inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
+             addInLine, expandBom, fillLine, saveIn, addFromLine,
+             out, outKnown, outDesc, outBal, outAfter, outLots, outSuggest,
+             onOutCode, onOutQty, saveOut, addFromOut };
   }
 }).mount('#app');
