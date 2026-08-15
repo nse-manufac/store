@@ -8,6 +8,11 @@
 !/แปลง BOM จาก SAP.html
 !/google-apps-script.gs
 
+# v2 — แอปรุ่นใหม่ อยู่ข้าง ๆ ของเดิม เสิร์ฟที่ /store/v2/
+# กฎปฏิเสธทุกอย่างด้านบนกินโฟลเดอร์ใหม่ด้วย ไฟล์แรกที่เพิ่มจึงเคยหายเงียบมาแล้วหนึ่งรอบ
+!/v2/
+!/v2/**
+
 # Docs + config for the AI maintenance workflow.
 # NOTE: because of the deny-all rule above, every new tracked file needs a line here.
 !/CLAUDE.md
