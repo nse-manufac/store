@@ -1,0 +1,4 @@
+{
+  "//": "บอก node ว่าไฟล์ .js ในโฟลเดอร์นี้เป็น ES module — เบราว์เซอร์รู้อยู่แล้วจาก <script type=module> แต่ node ไม่รู้ ใส่ไว้ที่นี่แทนที่จะใส่ใน package.json หลัก เพราะตัวหลักยังต้องเป็น CommonJS ให้ playwright.config.js กับเทสเดิมใช้ได้",
+  "type": "module"
+}
