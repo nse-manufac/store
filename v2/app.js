@@ -8,6 +8,9 @@
 import * as db from './core/db.js';
 import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
          searchMaterials, duplicateDescriptions, normCode } from './master/materials.js';
+import { parseBomHtml, summarize } from './master/sap-bom.js';
+import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
+         importPlan } from './master/bom.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -32,6 +35,7 @@ createApp({
 
     const materials = ref([]);
     const entries = ref([]);
+    const bom = ref([]);
 
     const q = ref('');
     const fCat = ref('');
@@ -53,6 +57,7 @@ createApp({
         const data = await db.loadAll();
         materials.value = data.materials || [];
         entries.value = data.entries || [];
+        bom.value = data.bom || [];
         entity.value = await db.getMeta('entity', '') || '';
         ready.value = true;
       } catch (err) {
@@ -66,8 +71,11 @@ createApp({
 
     // อีกแท็บบนเครื่องเดียวกันเขียนข้อมูล ต้องรู้ตัว ไม่งั้นสองแท็บจะเห็นคนละยอด
     db.onChange(async () => {
-      try { materials.value = await db.all('materials'); entries.value = await db.all('entries'); }
-      catch { /* อ่านไม่ได้ก็ปล่อยไป รอบหน้าค่อยว่ากัน */ }
+      try {
+        materials.value = await db.all('materials');
+        entries.value = await db.all('entries');
+        bom.value = await db.all('bom');
+      } catch { /* อ่านไม่ได้ก็ปล่อยไป รอบหน้าค่อยว่ากัน */ }
     });
 
     // ── ทะเบียน ────────────────────────────────────────────────────
@@ -141,10 +149,70 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    // ── BOM ────────────────────────────────────────────────────────
+    const bomDocs = ref([]);
+    const bomPlan = ref(null);
+    const bomBusy = ref(false);
+    const dragOver = ref(false);
+
+    const bomSum = computed(() => summarize(bomDocs.value));
+    const bomPns = computed(() => pnSummary(bom.value));
+    const missingPack = computed(() => pnsMissingPackMat(bom.value));
+    const bomUnknownCodes = computed(() => unknownCodes(bom.value, materials.value));
+    const bomUnconfirmed = computed(() => bom.value.filter(r => r.uomConfirmed === false).length);
+
+    function readBomFiles(files) {
+      const list = [...files].filter(f => /\.html?$/i.test(f.name));
+      if (!list.length) { flash('ต้องเป็นไฟล์ .html ที่ออกจาก SAP', true); return; }
+      let left = list.length;
+      const docs = [];
+      list.forEach(f => {
+        const fr = new FileReader();
+        fr.onload = ev => {
+          try { docs.push(parseBomHtml(String(ev.target.result), f.name)); }
+          catch (err) { docs.push({ ok: false, fileName: f.name, error: err.message }); }
+          if (--left === 0) {
+            bomDocs.value = docs;
+            bomPlan.value = importPlan(docs, bom.value);
+          }
+        };
+        fr.onerror = () => { docs.push({ ok: false, fileName: f.name, error: 'อ่านไฟล์ไม่ได้' });
+                             if (--left === 0) { bomDocs.value = docs; bomPlan.value = importPlan(docs, bom.value); } };
+        fr.readAsText(f, 'utf-8');
+      });
+    }
+    const onDropBom = e => { dragOver.value = false; readBomFiles(e.dataTransfer.files); };
+    const onPickBom = e => { readBomFiles(e.target.files); e.target.value = ''; };
+
+    async function applyBom() {
+      const docs = bomDocs.value.filter(d => d.ok);
+      if (!docs.length) return;
+      bomBusy.value = true;
+      try {
+        // แทนที่ทั้ง P/N เสมอ — ทิ้งของเดิมก่อนแล้วค่อยใส่ของใหม่
+        // ถ้าใส่ทับทีละบรรทัด บรรทัดของ REV เก่าที่ไม่มีใน REV ใหม่จะค้างอยู่
+        // แล้วยอดจะเบิ้ลโดยไม่มีอะไรเตือน เพราะทั้งสองบรรทัดดูถูกทั้งคู่เมื่อดูทีละบรรทัด
+        const pns = new Set(docs.map(d => d.pn));
+        const stale = bom.value.filter(r => pns.has(r.pn)).map(r => r.id);
+        if (stale.length) await db.del('bom', stale);
+
+        const rows = docs.flatMap(makeBomRows);
+        await db.put('bom', rows);
+
+        bom.value = [...bom.value.filter(r => !pns.has(r.pn)), ...rows];
+        db.announce('bom');
+        bomDocs.value = []; bomPlan.value = null;
+        flash(`นำเข้า ${rows.length} บรรทัด จาก ${pns.size} P/N แล้ว`);
+      } catch (err) { flash(err.message, true); }
+      finally { bomBusy.value = false; }
+    }
+
     return { APP_VERSION, TABS, CATEGORIES, SHOW_MAX,
              ready, bootMsg, bootError, tab, entity,
-             materials, entries, q, fCat, fState, edit, toast,
+             materials, entries, bom, q, fCat, fState, edit, toast,
              activeCount, needReview, shown, codeCheck, dupOf,
-             startAdd, startEdit, saveEdit, approve };
+             startAdd, startEdit, saveEdit, approve,
+             bomDocs, bomPlan, bomBusy, dragOver, bomSum, bomPns, missingPack,
+             bomUnknownCodes, bomUnconfirmed, onDropBom, onPickBom, applyBom };
   }
 }).mount('#app');
