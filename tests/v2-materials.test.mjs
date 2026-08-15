@@ -30,6 +30,9 @@ ok('BASELUG ยังเป็น BASE ไม่หล่นไป OTHER',
 ok('CORE COATING เป็นแกน ไม่ใช่เคมี',
    categorize('CORE COATING 4140190419') === 'CORE', categorize('CORE COATING 4140190419'));
 ok('WIRE CU เป็นลวด', categorize('WIRE CU 0.5 2UEW MW-75C') === 'WIRE');
+// PML = Packing Material Label — v1 จัดเป็น FG/SEMI ซึ่งผิด มี 209 รายการ
+ok('PML เป็นแพ็กกิ้ง ไม่ใช่สินค้ากึ่งสำเร็จรูป',
+   categorize('PML 2801960000') === 'PACKING', categorize('PML 2801960000'));
 ok('TAPE PI เป็นเทป', categorize('TAPE PI 20mm KA180 AMBER') === 'TAPE');
 ok('EOL(PFR) ถูกตัดหัวออกก่อนดู',
    categorize('EOL(PFR) BOBBIN PM9820 PQ3020') === 'BOBBIN');

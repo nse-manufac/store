@@ -28,13 +28,11 @@ const CAT_RULES = [
   ['METAL PART', ['TERMINAL', 'STRIP', 'BUS', 'CLIP', 'FOIL', 'COPPER', 'PIN', 'FRAME',
                   'SCREW', 'HSK', 'SHIELD', 'CONDUCT PLATE']],
   ['ELECTRONIC', ['RES', 'FUSE', 'CAP', 'DIODE', 'NTC', 'PTC', 'THERMAL']],
+  // PML = Packing Material Label (ยืนยันกับเจ้าของแล้ว 15 ส.ค. 2026)
+  // v1 จัดไว้เป็น FG/SEMI ซึ่งผิด — มี 209 รายการที่ย้ายมาที่นี่
   ['PACKING',    ['FOAM', 'PARTITION', 'TRAY', 'CARTON', 'PAD', 'DIVIDER', 'PALLET',
-                  'ANGLE', 'CARRIER', 'BAG', 'FILM', 'STRAPING', 'BOX', 'STOPPER']],
-  // ⚠️ PML ยังไม่ย้ายมา PACKING ทั้งที่มีเค้าว่าน่าจะใช่ (รหัสอยู่ช่วง 35 เหมือนแพ็กกิ้ง
-  // และใน BOM ใช้หน่วย TP เหมือนแพ็กกิ้ง) แต่ยังไม่รู้ว่าย่อมาจากอะไร และมีถึง 209 รายการ
-  // การย้ายด้วยการเดาจึงเสี่ยงเกินไป — คงไว้ที่ FG/SEMI เหมือน v1 จนกว่าจะถาม Delta ได้
-  ['FG/SEMI',    ['INDUCTOR', 'TRANSFORMER', 'LINE FILTER', 'COIL', 'CHOKE', 'TEONEX',
-                  'XFMR', 'PML']]
+                  'ANGLE', 'CARRIER', 'BAG', 'FILM', 'STRAPING', 'BOX', 'STOPPER', 'PML']],
+  ['FG/SEMI',    ['INDUCTOR', 'TRANSFORMER', 'LINE FILTER', 'COIL', 'CHOKE', 'TEONEX', 'XFMR']]
 ];
 
 /**
