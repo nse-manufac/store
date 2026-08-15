@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-version" content="2026-08-15.1">
+<title>ระบบ Bin Card v2</title>
+
+<!--
+  ⚠️ ไลบรารีทั้งหมดอยู่ในเครื่อง ห้ามเปลี่ยนไปโหลดจากเน็ต
+  v1 โหลดจาก cdnjs ทุกครั้งที่เปิด เน็ตโรงงานบล็อกเมื่อไหร่ก็หน้าขาวสนิท
+  ทั้งที่ข้อมูลอยู่ในเครื่องครบและไม่ต้องใช้เน็ตทำงานเลย — ดู lib/README.md
+-->
+<script src="lib/vue.global.prod.js"></script>
+
+<style>
+:root{
+  /* สีชุดเดียวกับ v1 โดยตั้งใจ — พนักงานจะใช้สองตัวคาบเกี่ยวกันช่วงเปลี่ยนผ่าน
+     ถ้าหน้าตาต่างกันมากจะรู้สึกเหมือนต้องเรียนโปรแกรมใหม่ทั้งตัว */
+  --bg:#f4f6f9;--panel:#fff;--line:#dde3ea;--ink:#1c2733;--muted:#68778a;
+  --brand:#1f4e79;--soft:#e8f0f8;--ok:#1a7f4b;--okbg:#e6f5ed;
+  --warn:#b06d00;--warnbg:#fff6e0;--bad:#c02626;--badbg:#fdecec;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-size:14px}
+#app{min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--brand);color:#fff;padding:9px 16px;display:flex;
+  align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:15px;font-weight:600}
+header .ver{font-size:11px;opacity:.75;padding:1px 7px;border:1px solid rgba(255,255,255,.4);
+  border-radius:99px;font-variant-numeric:tabular-nums}
+header .grow{flex:1}
+header .who{font-size:12px;opacity:.9}
+.tabs{display:flex;gap:3px;flex-wrap:wrap}
+.tabs button{background:rgba(255,255,255,.12);color:#fff;border:0;padding:7px 14px;
+  border-radius:5px 5px 0 0;font:inherit;font-size:13px;cursor:pointer}
+.tabs button.on{background:var(--bg);color:var(--brand);font-weight:600}
+main{padding:14px 16px 60px;flex:1}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;margin-bottom:12px}
+.card h2{margin:0 0 10px;font-size:14px;color:var(--brand)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grow{flex:1}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+input,select{font:inherit;font-size:14px;padding:7px 9px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;color:var(--ink)}
+input:focus,select:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.btn{font:inherit;font-size:13px;padding:8px 15px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;cursor:pointer}
+.btn:hover{background:#f0f4f8}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid var(--line);
+  font-size:11px;color:var(--muted);white-space:nowrap;position:sticky;top:0}
+td{padding:6px 8px;border-bottom:1px solid #f0f3f6;vertical-align:top}
+tr.review td{background:#fffdf3}
+.mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.scroll{max-height:60vh;overflow:auto}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
+  background:var(--soft);color:var(--brand);white-space:nowrap}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.tag.warn{background:var(--warnbg);color:var(--warn)}
+.tag.bad{background:var(--badbg);color:var(--bad)}
+.msg{padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
+.msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
+.msg.warn{background:var(--warnbg);color:var(--warn);border:1px solid #f0d799}
+.msg.bad{background:var(--badbg);color:var(--bad);border:1px solid #f0c4c4}
+.hint{font-size:12px;color:var(--muted)}
+.empty{padding:26px;text-align:center;color:var(--muted)}
+.boot{padding:60px;text-align:center;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);
+  color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:50;
+  box-shadow:0 6px 22px rgba(0,0,0,.28)}
+.toast.bad{background:var(--bad)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="boot" v-if="!ready">{{ bootMsg }}</div>
+
+  <template v-else>
+    <header>
+      <h1>ระบบ Bin Card</h1>
+      <span class="ver">v{{ APP_VERSION }}</span>
+      <div class="tabs">
+        <button v-for="t in TABS" :key="t.k" :class="{on:tab===t.k}" @click="tab=t.k">
+          {{ t.label }}<span v-if="t.k==='mat' && needReview" class="badge"> {{ needReview }}</span>
+        </button>
+      </div>
+      <div class="grow"></div>
+      <span class="who">{{ entity || 'ยังไม่เลือกนิติบุคคล' }}</span>
+    </header>
+
+    <main>
+      <div class="msg bad" v-if="bootError">{{ bootError }}</div>
+
+      <!-- ════════ ทะเบียนวัตถุดิบ ════════ -->
+      <template v-if="tab==='mat'">
+        <div class="card">
+          <div class="row">
+            <label class="f grow" style="min-width:240px">ค้นหา
+              <input v-model.trim="q" placeholder="พิมพ์รหัสหรือชื่อ เช่น 3220130200 หรือ TAPE PLE">
+            </label>
+            <label class="f">หมวด
+              <select v-model="fCat">
+                <option value="">ทุกหมวด</option>
+                <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </label>
+            <label class="f">แสดง
+              <select v-model="fState">
+                <option value="active">ที่ใช้งานอยู่</option>
+                <option value="review">รอตรวจ</option>
+                <option value="all">ทั้งหมด</option>
+              </select>
+            </label>
+            <button class="btn primary" @click="startAdd">+ เพิ่มรหัสใหม่</button>
+          </div>
+          <p class="hint" style="margin:9px 0 0">
+            ทะเบียนในเครื่อง <b>{{ materials.length.toLocaleString() }}</b> รายการ ·
+            ใช้งานอยู่ {{ activeCount.toLocaleString() }}
+            <span v-if="needReview"> · <span class="tag warn">รอคุณตรวจ {{ needReview }}</span></span>
+          </p>
+        </div>
+
+        <!-- ── ฟอร์มเพิ่ม/แก้ ── -->
+        <div class="card" v-if="edit">
+          <h2>{{ edit._new ? 'เพิ่มรหัสใหม่' : 'แก้ไข ' + edit.material_code }}</h2>
+          <div class="row">
+            <label class="f" style="width:170px">รหัสวัตถุดิบ
+              <input v-model.trim="edit.material_code" class="mono" :disabled="!edit._new"
+                     placeholder="เช่น 3220130200">
+            </label>
+            <label class="f grow" style="min-width:260px">ชื่อ / คำอธิบาย
+              <input v-model.trim="edit.description" placeholder="ชื่อที่พนักงานเรียกกันจริง">
+            </label>
+            <label class="f" style="width:90px">หน่วย
+              <input v-model.trim="edit.unit" class="mono" placeholder="PCE">
+            </label>
+            <label class="f" style="width:140px">หมวด
+              <select v-model="edit.category">
+                <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:9px">
+            <label class="row" style="gap:6px;font-size:13px">
+              <input type="checkbox" v-model="edit.requires_expiry"> ต้องกรอกวันหมดอายุ</label>
+            <label class="row" style="gap:6px;font-size:13px">
+              <input type="checkbox" v-model="edit.active"> ใช้งานอยู่</label>
+            <div class="grow"></div>
+            <button class="btn" @click="edit=null">ยกเลิก</button>
+            <button class="btn primary" @click="saveEdit" :disabled="codeCheck.level==='bad'">บันทึก</button>
+          </div>
+
+          <div class="msg bad" v-if="codeCheck.level==='bad'" style="margin:10px 0 0">
+            {{ codeCheck.msg }}</div>
+          <div class="msg warn" v-else-if="codeCheck.level==='warn'" style="margin:10px 0 0">
+            ⚠️ {{ codeCheck.msg }}<br>
+            <span class="hint">บันทึกต่อได้ ระบบจะทำเครื่องหมายไว้ให้เจ้าของตรวจอีกที</span></div>
+          <div class="msg warn" v-if="edit._new && dupOf(edit.description).length" style="margin:10px 0 0">
+            มีของชื่อนี้อยู่แล้ว {{ dupOf(edit.description).length }} รหัส —
+            <span class="mono">{{ dupOf(edit.description).join(' · ') }}</span><br>
+            <span class="hint">ถ้าเป็นของตัวเดียวกัน ใช้รหัสเดิมดีกว่า จะได้ไม่มีสองรายการที่แยกกันไม่ออก</span></div>
+        </div>
+
+        <!-- ── รายการ ── -->
+        <div class="card">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th style="width:120px">รหัส</th><th>ชื่อ</th>
+                <th style="width:70px">หน่วย</th><th style="width:110px">หมวด</th>
+                <th style="width:90px">สถานะ</th><th style="width:120px"></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="m in shown" :key="m.material_code" :class="{review:m.needs_review}">
+                  <td class="mono"><b>{{ m.material_code }}</b></td>
+                  <td>{{ m.description || '(ยังไม่มีชื่อ)' }}
+                    <span v-if="m.dupDesc" class="tag warn" title="มีของชื่อเดียวกันหลายรหัส ดูที่รหัสให้ดี">ชื่อซ้ำ</span>
+                  </td>
+                  <td class="mono">{{ m.unit }}</td>
+                  <td><span class="tag">{{ m.category }}</span></td>
+                  <td>
+                    <span v-if="m.needs_review" class="tag warn">รอตรวจ</span>
+                    <span v-else-if="!m.active" class="tag bad">ปิดใช้งาน</span>
+                    <span v-else class="tag ok">ใช้งานอยู่</span>
+                  </td>
+                  <td>
+                    <button class="btn" style="padding:3px 9px" @click="startEdit(m)">แก้</button>
+                    <button v-if="m.needs_review" class="btn" style="padding:3px 9px;margin-left:4px"
+                            @click="approve(m)">ตรวจแล้ว</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="!shown.length" class="empty">
+              ไม่เจอรายการที่ตรงกับที่ค้น<br>
+              <span class="hint">ถ้าของอยู่ตรงหน้าแต่ไม่มีในทะเบียน กด "เพิ่มรหัสใหม่" ได้เลย</span>
+            </p>
+            <p v-else-if="shown.length>=SHOW_MAX" class="hint" style="padding:8px">
+              แสดง {{ SHOW_MAX }} รายการแรก — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น
+            </p>
+          </div>
+        </div>
+      </template>
+
+      <div class="card" v-else>
+        <p class="empty">หน้านี้ยังไม่ได้ทำ — กำลังสร้างทีละส่วน</p>
+      </div>
+    </main>
+
+    <div class="toast" :class="{bad:toast.bad}" v-if="toast.show">{{ toast.text }}</div>
+  </template>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
