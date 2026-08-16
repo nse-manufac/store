@@ -10,7 +10,7 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
          searchMaterials, duplicateDescriptions, normCode } from './master/materials.js';
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan } from './master/bom.js';
+         importPlan, registryPlan } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
@@ -236,6 +236,43 @@ createApp({
         flash(`นำเข้า ${rows.length} บรรทัด จาก ${pns.size} P/N แล้ว`);
       } catch (err) { flash(err.message, true); }
       finally { bomBusy.value = false; }
+    }
+
+    // ── ตั้งทะเบียนจาก BOM ─────────────────────────────────────────
+    // BOM ที่ Delta ให้มามีครบสามอย่างที่ทะเบียนต้องใช้ คือ รหัส ชื่อ หน่วย
+    // จึงใช้ตั้งต้นทะเบียนได้เลย และได้เฉพาะของที่ใช้ผลิตจริง
+    const regPlan = computed(() => registryPlan(bom.value, materials.value));
+    const regDraft = ref(null);      // ตารางที่กำลังตรวจก่อนกดสร้าง
+    const regBusy = ref(false);
+
+    function openRegPlan() {
+      // ก๊อปออกมาเป็นชุดแก้ได้ ยังไม่แตะทะเบียนจริงจนกว่าจะกดสร้าง
+      regDraft.value = regPlan.value.rows.map(r => ({ ...r, take: true }));
+    }
+    const regTake = computed(() => (regDraft.value || []).filter(r => r.take));
+
+    async function applyRegPlan() {
+      const rows = regTake.value;
+      if (!rows.length) { flash('ยังไม่ได้เลือกรายการไหนเลย', true); return; }
+      regBusy.value = true;
+      try {
+        // ติดธงรอตรวจทุกตัว เพราะ BOM บอกวันหมดอายุไม่ได้ และหมวดเป็นแค่การเดาจากชื่อ
+        // พนักงานเดินต่อได้ทันที เจ้าของมาไล่ยืนยันทีเดียว — รูปแบบเดียวกับรหัสที่เพิ่มหน้างาน
+        const recs = rows.map(r => makeMaterial({
+          material_code: r.code, description: r.desc, unit: r.unit, category: r.category,
+          active: true, needs_review: true, source: 'sap',
+          note: 'ตั้งจาก BOM · ใช้ใน ' + r.pns.slice(0, 3).join(' ')
+              + (r.nPn > 3 ? ` และอีก ${r.nPn - 3} P/N` : '')
+        }));
+        await db.put('materials', recs);
+        materials.value.push(...recs);
+        db.announce('materials');
+        flash(`เพิ่ม ${recs.length} รหัสเข้าทะเบียนแล้ว — ติดธงรอตรวจไว้ทุกตัว`);
+        regDraft.value = null;
+        tab.value = 'mat';
+        fState.value = 'review';
+      } catch (err) { flash(err.message, true); }
+      finally { regBusy.value = false; }
     }
 
     // ── นับของ ─────────────────────────────────────────────────────
@@ -809,6 +846,7 @@ createApp({
              startAdd, startEdit, saveEdit, approve,
              bomDocs, bomPlan, bomBusy, dragOver, bomSum, bomPns, missingPack,
              bomUnknownCodes, bomUnconfirmed, onDropBom, onPickBom, applyBom,
+             regPlan, regDraft, regBusy, regTake, openRegPlan, applyRegPlan,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,
              startCount, saveCount, postCountNow, printSheet,

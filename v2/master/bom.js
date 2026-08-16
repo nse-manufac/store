@@ -7,7 +7,7 @@
  * ถ้านำเข้าแบบผสม บรรทัดของ REV เก่าจะค้างอยู่ปนกับของใหม่ แล้วยอดจะเบิ้ล
  * โดยไม่มีอะไรเตือน เพราะทั้งสองบรรทัดดู "ถูก" ทั้งคู่เมื่อดูทีละบรรทัด
  */
-import { categorize } from './materials.js';
+import { categorize, normCode } from './materials.js';
 
 export const bomId = (pn, code) => `${pn}|${code}`;
 
@@ -80,6 +80,90 @@ export function unknownCodes(rows, materials) {
     out.set(r.code, e);
   }
   return [...out.values()].sort((a, b) => a.code.localeCompare(b.code));
+}
+
+const normDesc = s => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+
+/**
+ * ตั้งทะเบียนวัตถุดิบจาก BOM ที่นำเข้ามาแล้ว
+ *
+ * ── ทำไมถึงคุ้ม ──────────────────────────────────────────────────
+ * BOM ที่ Delta ให้มามีครบสามอย่างที่ทะเบียนต้องใช้ คือ รหัส ชื่อ และหน่วย
+ * (วัดจากไฟล์จริง: 293 รหัสที่ขาดทะเบียน มีชื่อและหน่วยครบทั้ง 293)
+ * และได้เฉพาะของที่ใช้ผลิตจริง ไม่ใช่ลากทั้ง 12,259 รหัสที่ส่วนใหญ่ตายไปแล้วมาทั้งก้อน
+ *
+ * ── สิ่งที่ BOM บอกไม่ได้ และห้ามเดาแทนคน ────────────────────────
+ * หมวด    เดาจากชื่อให้ก่อน แต่ต้องให้แก้ได้ก่อนกดสร้าง
+ * วันหมดอายุ  ไม่มีใน SAP เลย จึงติดธงรอตรวจไว้ทุกตัว
+ *          (ยกเว้นหมวด CHEMICAL ที่ makeMaterial บังคับให้ต้องกรอกอยู่แล้ว)
+ *
+ * ⚠️ ของที่ทำเองในบ้าน (รหัสขึ้นต้น 28) ต้องไม่หลุดมาถึงตรงนี้
+ * ตัวอ่าน SAP ตัดทิ้งตั้งแต่ต้นทางแล้ว แต่ถ้าวันหนึ่งมันหลุดมา
+ * เราจะได้ "วัตถุดิบ" ชื่อ BOBBIN+WIRE ASSY ซึ่งคือของที่เราพันเอง ไม่ใช่ของที่ซื้อ
+ * — เป็นของตระกูลเดียวกับที่ทำให้เกิด issue #26 จึงกันซ้ำอีกชั้นตรงนี้
+ */
+export function registryPlan(rows, materials) {
+  const have = new Set(materials.map(m => normCode(m.material_code)));
+
+  // ชื่อที่ทะเบียนมีอยู่แล้ว ใช้เตือนว่ากำลังจะสร้างของชื่อซ้ำกับรหัสเดิม
+  const descOwners = new Map();
+  for (const m of materials) {
+    const d = normDesc(m.description);
+    if (!d) continue;
+    if (!descOwners.has(d)) descOwners.set(d, []);
+    descOwners.get(d).push(normCode(m.material_code));
+  }
+
+  const byCode = new Map();
+  const inHouse = [];
+  for (const r of rows) {
+    const code = normCode(r.code);
+    if (!code || have.has(code)) continue;
+    if (/^28/.test(code)) { if (!inHouse.includes(code)) inHouse.push(code); continue; }
+    const e = byCode.get(code) || { code, pns: [], nPn: 0, descs: new Map(), units: new Map() };
+    e.nPn++;
+    if (e.pns.length < 6) e.pns.push(r.pn);
+    const d = String(r.desc || '').trim();
+    const u = String(r.unit || '').trim().toUpperCase();
+    if (d) e.descs.set(d, (e.descs.get(d) || 0) + 1);
+    if (u) e.units.set(u, (e.units.get(u) || 0) + 1);
+    byCode.set(code, e);
+  }
+
+  // ชื่อกับหน่วยอาจไม่ตรงกันข้าม P/N เพราะ SAP ตัดชื่อคนละที่ — เอาตัวที่พบบ่อยสุด แล้วบอกว่ามีตัวอื่นด้วย
+  // เท่ากันให้เอาชื่อที่ยาวกว่า เพราะ SAP ตัดท้ายทิ้ง ตัวยาวกว่าจึงบอกอะไรได้มากกว่าเสมอ
+  const pickDesc = m =>
+    [...m.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length
+                                 || a[0].localeCompare(b[0]))[0];
+  const pickUnit = m => [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const list = [...byCode.values()].map(e => {
+    const d = pickDesc(e.descs), u = pickUnit(e.units);
+    const desc = d ? d[0] : '';
+    return {
+      code: e.code,
+      desc,
+      unit: u ? u[0] : '',
+      category: categorize(desc),
+      pns: e.pns,
+      nPn: e.nPn,
+      descVaries: e.descs.size > 1,
+      otherDescs: [...e.descs.keys()].filter(x => x !== desc),
+      // หน่วยไม่ตรงกันคือเรื่องใหญ่กว่าชื่อไม่ตรง เพราะตัวเลขในสูตรจะคนละมาตราส่วน
+      unitVaries: e.units.size > 1,
+      units: [...e.units.keys()],
+      noUnit: e.units.size === 0,
+      dupDesc: descOwners.get(normDesc(desc)) || []
+    };
+  }).sort((a, b) => a.code.localeCompare(b.code));
+
+  return {
+    rows: list,
+    total: list.length,
+    unitVaries: list.filter(r => r.unitVaries).length,
+    noUnit: list.filter(r => r.noUnit).length,
+    dupDesc: list.filter(r => r.dupDesc.length).length,
+    inHouseSkipped: inHouse
+  };
 }
 
 /**

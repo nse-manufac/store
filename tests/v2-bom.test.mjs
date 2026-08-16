@@ -6,7 +6,7 @@
  * เพราะ Delta กำลังทยอยใส่ pack mat เข้ามาทีละ REV ถ้าผสมกันยอดจะเบิ้ลเงียบ ๆ
  */
 import { makeBomRows, byPn, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan, bomId } from '../v2/master/bom.js';
+         importPlan, registryPlan, bomId } from '../v2/master/bom.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -92,6 +92,48 @@ console.log('\n=== G. รูปที่หน้าคีย์ใช้ ===');
 const m = byPn(merged);
 ok('จัดกลุ่มตาม P/N ได้', m.size === 1 && m.get('2870627900').size === 3);
 ok('หาสูตรรายรหัสได้', m.get('2870627900').get('3512142900').usage === 0.00625);
+
+console.log('\n=== H. ตั้งทะเบียนจาก BOM ===');
+// ของจริงมีทั้งชื่อที่ SAP ตัดคนละที่ หน่วยไม่ตรงกัน และของทำเองที่อาจหลุดมา
+const wild = makeBomRows(doc('2800404400', '006', '2022-09-15', [
+  { code: '3220130200', desc: 'TAPE PLE 6mm #1350F-1 YEL', usage: 0.2, unit: 'MTR' },
+  { code: '4020204800', desc: 'FLUX NON-CLEAN A83 ALPHA', usage: 0.01, unit: 'KGM' },
+  { code: '2831524600', desc: 'BOBBIN+WIRE ASSY 28004044', usage: 1, unit: 'PCE' }
+]));
+const wild2 = makeBomRows(doc('2870599900', '004', '2023-01-01', [
+  { code: '4020204800', desc: 'FLUX NON-CLEAN A83', usage: 0.02, unit: 'GRM' }
+]));
+const rPlan = registryPlan([...wild, ...wild2], [{ material_code: '3220130200',
+  description: 'TAPE PLE 6mm #1350F-1 YEL', unit: 'MTR' }]);
+
+ok('รหัสที่มีในทะเบียนแล้วไม่ถูกเสนอซ้ำ', !rPlan.rows.some(r => r.code === '3220130200'));
+ok('ของทำเอง (ขึ้นต้น 28) ไม่ถูกเสนอ — กับดักเดียวกับ issue #26',
+   !rPlan.rows.some(r => r.code === '2831524600'), JSON.stringify(rPlan.rows.map(r => r.code)));
+ok('แต่บอกว่าข้ามอะไรไปบ้าง ไม่ใช่หายเงียบ',
+   rPlan.inHouseSkipped.length === 1 && rPlan.inHouseSkipped[0] === '2831524600');
+ok('เหลือของซื้อจริงตัวเดียว', rPlan.total === 1, String(rPlan.total));
+
+const flux = rPlan.rows[0];
+ok('ยกชื่อกับหน่วยจาก BOM มาให้', flux.desc === 'FLUX NON-CLEAN A83 ALPHA');
+ok('เดาหมวดให้จากชื่อ', flux.category === 'CHEMICAL', flux.category);
+ok('บอกว่ามาจาก P/N ไหนบ้าง', flux.pns.length === 2 && flux.nPn === 2);
+ok('ชื่อไม่ตรงกันข้าม P/N ถูกติดธง และเก็บตัวอื่นไว้ให้เลือก',
+   flux.descVaries && flux.otherDescs.includes('FLUX NON-CLEAN A83'));
+// หน่วยไม่ตรงกันร้ายแรงกว่าชื่อไม่ตรง เพราะตัวเลขในสูตรจะคนละมาตราส่วน
+ok('หน่วยไม่ตรงกันถูกติดธงและสรุปนับให้', flux.unitVaries && rPlan.unitVaries === 1,
+   JSON.stringify(flux.units));
+
+const dupPlan = registryPlan(wild2, [{ material_code: '9999999999',
+  description: 'flux non-clean a83', unit: 'KGM' }]);
+ok('ชื่อซ้ำกับรหัสที่มีอยู่แล้วถูกเตือน (เทียบแบบไม่สนตัวพิมพ์)',
+   dupPlan.rows[0].dupDesc.includes('9999999999') && dupPlan.dupDesc === 1,
+   JSON.stringify(dupPlan.rows[0].dupDesc));
+
+const noU = registryPlan(makeBomRows(doc('2800000000', '001', '2024-01-01', [
+  { code: '4090006500', desc: 'SOLDER BAR SN97/AG3', usage: 1, unit: '' }
+])), []);
+ok('ไม่มีหน่วยก็ยังเสนอได้ แต่ติดธงไว้', noU.rows[0].noUnit && noU.noUnit === 1);
+ok('ไม่มีอะไรให้เพิ่มก็ตอบศูนย์ ไม่ใช่พัง', registryPlan([], []).total === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

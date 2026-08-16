@@ -344,11 +344,18 @@ textarea{font:inherit}
           </div>
 
           <div class="msg warn" v-if="bomUnknownCodes.length" style="margin:10px 0 0">
-            <b>{{ bomUnknownCodes.length }} รหัสใน BOM ที่ยังไม่มีในทะเบียน</b><br>
-            <span class="hint">เพิ่มเข้าทะเบียนก่อน แล้วตอนคีย์รับเข้าจะกางสูตรให้ครบ</span>
-            <div class="mono hint" style="margin-top:6px">
-              {{ bomUnknownCodes.slice(0,10).map(u => u.code).join(' · ') }}
-              <span v-if="bomUnknownCodes.length>10"> … อีก {{ bomUnknownCodes.length-10 }}</span>
+            <div class="row">
+              <div class="grow">
+                <b>{{ bomUnknownCodes.length }} รหัสใน BOM ที่ยังไม่มีในทะเบียน</b><br>
+                <span class="hint">BOM มีทั้งรหัส ชื่อ และหน่วยมาให้แล้ว
+                  ตั้งทะเบียนจากตรงนี้ได้เลย แล้วตอนคีย์รับเข้าจะกางสูตรให้ครบ</span>
+                <div class="mono hint" style="margin-top:6px">
+                  {{ bomUnknownCodes.slice(0,10).map(u => u.code).join(' · ') }}
+                  <span v-if="bomUnknownCodes.length>10"> … อีก {{ bomUnknownCodes.length-10 }}</span>
+                </div>
+              </div>
+              <button class="btn primary" @click="openRegPlan" :disabled="!regPlan.total">
+                ตั้งทะเบียนจาก BOM ({{ regPlan.total }})</button>
             </div>
           </div>
 
@@ -1026,6 +1033,79 @@ textarea{font:inherit}
 
       <!-- รายการ P/N ใช้ร่วมกันหลายหน้า จึงต้องอยู่นอกแท็บ ไม่งั้นหน้าที่ไม่ได้เปิดจะหาไม่เจอ -->
       <datalist id="pnlist"><option v-for="p in bomPnCodes" :key="p" :value="p"></option></datalist>
+
+      <!-- ════════ ตั้งทะเบียนจาก BOM ════════ -->
+      <div class="modal" v-if="regDraft" @click.self="regDraft=null">
+        <div class="modal-box" style="width:min(1100px,100%)">
+          <div class="row">
+            <h2 style="margin:0">ตั้งทะเบียนจาก BOM</h2>
+            <div class="grow"></div>
+            <span class="hint">เลือกไว้ {{ regTake.length }} จาก {{ regDraft.length }}</span>
+            <button class="btn" @click="regDraft=null">ปิด</button>
+          </div>
+
+          <p class="hint" style="margin:8px 0">
+            ทุกตัวจะถูกติดธง <b>รอตรวจ</b> ไว้ เพราะ BOM บอกวันหมดอายุไม่ได้ และหมวดเป็นแค่การเดาจากชื่อ
+            — หมวด CHEMICAL จะถูกตั้งให้ต้องกรอกวันหมดอายุอัตโนมัติ
+          </p>
+
+          <div class="msg warn" v-if="regPlan.unitVaries || regPlan.noUnit || regPlan.dupDesc">
+            <span v-if="regPlan.unitVaries"><b>{{ regPlan.unitVaries }} รหัสมีหน่วยไม่ตรงกันข้าม P/N</b>
+              — ต้องดูก่อนว่าจะเอาหน่วยไหน เพราะตัวเลขในสูตรจะคนละมาตราส่วน<br></span>
+            <span v-if="regPlan.noUnit">{{ regPlan.noUnit }} รหัสไม่มีหน่วยใน BOM เลย<br></span>
+            <span v-if="regPlan.dupDesc">{{ regPlan.dupDesc }} รหัสมีชื่อซ้ำกับรหัสที่มีอยู่แล้วในทะเบียน
+              — เช็กว่าไม่ใช่ของเดียวกันคนละรหัส (issue #26)</span>
+          </div>
+          <div class="msg ok" v-if="regPlan.inHouseSkipped.length">
+            ข้ามของที่เราทำเอง {{ regPlan.inHouseSkipped.length }} รหัสให้แล้ว
+            <span class="mono hint">{{ regPlan.inHouseSkipped.slice(0,5).join(' · ') }}</span><br>
+            <span class="hint">พวกนี้คืองานที่เราพันเอง ไม่ใช่ของที่ซื้อเข้ามา ไม่ควรอยู่ในทะเบียนวัตถุดิบ</span>
+          </div>
+
+          <div class="scroll" style="margin-top:10px;max-height:50vh">
+            <table>
+              <thead><tr>
+                <th style="width:34px"></th><th style="width:115px">รหัส</th><th>ชื่อ</th>
+                <th style="width:70px">หน่วย</th><th style="width:130px">หมวด</th>
+                <th style="width:200px">ใช้ใน P/N</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in regDraft" :key="r.code" :class="{review: r.unitVaries || r.dupDesc.length}">
+                  <td><input type="checkbox" v-model="r.take" style="width:16px;height:16px"></td>
+                  <td class="mono"><b>{{ r.code }}</b></td>
+                  <td>
+                    <input v-model.trim="r.desc" style="width:100%;font-size:13px">
+                    <div class="hint" v-if="r.descVaries">
+                      ชื่ออื่นที่พบ: <span class="mono">{{ r.otherDescs.join(' · ') }}</span></div>
+                    <div class="hint" v-if="r.dupDesc.length">
+                      <span class="tag warn">ชื่อซ้ำกับ {{ r.dupDesc.join(' · ') }}</span></div>
+                  </td>
+                  <td>
+                    <input v-model.trim="r.unit" class="mono" style="width:58px">
+                    <div v-if="r.unitVaries"><span class="tag bad">พบ {{ r.units.join('/') }}</span></div>
+                    <div v-if="r.noUnit"><span class="tag warn">ไม่มีหน่วย</span></div>
+                  </td>
+                  <td>
+                    <select v-model="r.category" style="width:118px;font-size:12px">
+                      <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+                    </select>
+                  </td>
+                  <td class="mono hint">{{ r.pns.join(' ') }}
+                    <span v-if="r.nPn > r.pns.length">… รวม {{ r.nPn }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn" @click="regDraft.forEach(r => r.take = true)">เลือกทั้งหมด</button>
+            <button class="btn" @click="regDraft.forEach(r => r.take = false)">ไม่เลือกเลย</button>
+            <div class="grow"></div>
+            <button class="btn primary" @click="applyRegPlan" :disabled="regBusy || !regTake.length">
+              {{ regBusy ? 'กำลังเพิ่ม...' : 'เพิ่ม ' + regTake.length + ' รหัสเข้าทะเบียน' }}</button>
+          </div>
+        </div>
+      </div>
 
       <!-- ════════ ยกเลิกรายการ ════════ -->
       <div class="modal" v-if="voidBox.row" @click.self="voidBox.row=null">
