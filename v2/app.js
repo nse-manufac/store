@@ -12,9 +12,10 @@ import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
-import { lotsOf, suggestLots } from './core/lots.js';
-import { makeEntry } from './core/ledger.js';
-import { balances } from './core/balance.js';
+import { lotsOf, suggestLots, traceLot } from './core/lots.js';
+// counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
+import { makeEntry, counts as alive } from './core/ledger.js';
+import { balances, cardRows, oddBalances } from './core/balance.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -466,6 +467,83 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    // ── ยอดคงคลัง และการ์ด ─────────────────────────────────────────
+    const balQ = ref('');
+    const balCat = ref('');
+    const balZero = ref(false);
+    const cardCode = ref('');        // เปิดการ์ดของรหัสไหนอยู่
+    const traceOf = ref('');         // กำลังตามรอยล็อตไหน
+
+    /** วันที่เคลื่อนไหวล่าสุดและจำนวนบรรทัดของแต่ละรหัส — ใช้แสดงผลอย่างเดียว */
+    const balStats = computed(() => {
+      const m = new Map();
+      if (!entity.value) return m;
+      for (const e of entries.value) {
+        if (e.entity !== entity.value || !alive(e)) continue;
+        const c = normCode(e.material_code);
+        const a = m.get(c) || { last: '', lines: 0 };
+        a.lines++;
+        if (e.at > a.last) a.last = e.at;
+        m.set(c, a);
+      }
+      return m;
+    });
+
+    const balAll = computed(() => {
+      const rows = [];
+      for (const [code, qty] of bookBalances.value) {
+        const m = matOf(code);
+        const s = balStats.value.get(normCode(code)) || { last: '', lines: 0 };
+        rows.push({ code, qty, known: !!m,
+                    desc: m ? m.description : '', unit: m ? m.unit : '',
+                    category: m ? m.category : '', last: s.last, lines: s.lines });
+      }
+      return rows.sort((a, b) => a.code.localeCompare(b.code));
+    });
+
+    const balShown = computed(() => {
+      const t = balQ.value.trim().toUpperCase();
+      const pool = balAll.value.filter(r =>
+        (balZero.value || r.qty !== 0) &&
+        (!balCat.value || r.category === balCat.value) &&
+        (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
+      return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
+    });
+
+    const balSum = computed(() => {
+      const r = balAll.value;
+      return { codes: r.filter(x => x.qty !== 0).length,
+               negative: r.filter(x => x.qty < 0).length,
+               unknown: r.filter(x => !x.known && x.qty !== 0).length };
+    });
+
+    /**
+     * รายการที่ควรไปดู — ใช้แทนการนับรอบ ซึ่งตกลงกันแล้วว่ายังไม่มีคนทำ
+     * ให้เครื่องชี้เป้าจากสมุด แทนที่จะให้คนเดินนับทั้งคลังตามรอบ
+     */
+    const oddRows = computed(() => {
+      if (!entity.value) return [];
+      return oddBalances(entries.value, entity.value).map(o => {
+        const m = matOf(o.code);
+        return { ...o, desc: m ? m.description : '', unit: m ? m.unit : '' };
+      });
+    });
+
+    const cardMat = computed(() => (cardCode.value ? matOf(cardCode.value) : null));
+    const cardBal = computed(() =>
+      cardCode.value ? (bookBalances.value.get(normCode(cardCode.value)) || 0) : 0);
+    const card = computed(() => (cardCode.value && entity.value)
+      ? cardRows(entries.value, entity.value, normCode(cardCode.value)).reverse() : []);
+    const cardLots = computed(() => (cardCode.value && entity.value)
+      ? lotsOf(entries.value, entity.value, normCode(cardCode.value)) : []);
+    const trace = computed(() => (traceOf.value !== '' && cardCode.value && entity.value)
+      ? traceLot(entries.value, entity.value, normCode(cardCode.value),
+                 traceOf.value === '(ว่าง)' ? '' : traceOf.value) : null);
+
+    function openCard(code) { cardCode.value = String(code); traceOf.value = ''; tab.value = 'bal'; }
+    function closeCard() { cardCode.value = ''; traceOf.value = ''; }
+    function goIssue(code) { out.code = String(code); onOutCode(); tab.value = 'out'; }
+
     return { APP_VERSION, TABS, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity,
              materials, entries, bom, q, fCat, fState, edit, toast,
@@ -480,6 +558,9 @@ createApp({
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, fillLine, saveIn, addFromLine,
              out, outKnown, outDesc, outBal, outAfter, outLots, outSuggest,
-             onOutCode, onOutQty, saveOut, addFromOut };
+             onOutCode, onOutQty, saveOut, addFromOut,
+             balQ, balCat, balZero, balShown, balSum, oddRows,
+             cardCode, cardMat, cardBal, card, cardLots, traceOf, trace,
+             openCard, closeCard, goIssue };
   }
 }).mount('#app');
