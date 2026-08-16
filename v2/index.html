@@ -667,7 +667,7 @@ textarea{font:inherit}
             <tbody><tr v-for="l in outLots" :key="l.lot">
               <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต — ของก่อนเริ่มเก็บล็อต)' }}</td>
               <td class="mono">{{ l.qty }}</td>
-              <td class="mono hint">{{ l.first.slice(0,10) }}</td>
+              <td class="mono hint">{{ localDate(l.first) }}</td>
             </tr></tbody></table>
         </div>
       </template>
@@ -702,6 +702,29 @@ textarea{font:inherit}
               <div v-if="oddRows.length"><div class="hint">รายการที่ควรไปดู</div>
                 <div class="big warn">{{ oddRows.length }}</div></div>
             </div>
+          </div>
+
+          <!-- ออกไฟล์ให้คนข้างนอก — ฟอร์มต้องเหมือน v1 ทุกช่อง -->
+          <div class="card">
+            <div class="row">
+              <h2 style="margin:0">ออก Bin Card</h2>
+              <div class="grow"></div>
+              <span class="hint">{{ cardPlan.cards }} การ์ด · {{ cardPlan.lines }} บรรทัด ·
+                {{ cardPlan.byCat.size }} ไฟล์ (แยกตามหมวด)</span>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <label class="f grow" style="min-width:220px">Store Location
+                <input v-model.trim="store" @change="saveStore"
+                       placeholder="ใส่ครั้งเดียว จำไว้ให้ — ขึ้นหัวการ์ดทุกใบ"></label>
+              <button class="btn primary" @click="exportAllCards" :disabled="expBusy || !cardPlan.cards"
+                      style="align-self:flex-end">
+                {{ expBusy ? 'กำลังทำไฟล์...' : 'ออกทั้งหมดเป็น .zip' }}</button>
+            </div>
+            <p class="hint" v-if="expMsg" style="margin:10px 0 0">{{ expMsg }}</p>
+            <p class="hint" style="margin:8px 0 0">
+              ฟอร์มเหมือนของเดิมทุกช่อง — ของเสีย คืนของ ปรับยอด จะเขียนกำกับไว้ในช่อง Remark
+              เพราะฟอร์มมีแค่ฝั่งรับกับฝั่งจ่าย
+            </p>
           </div>
 
           <!-- ใช้แทนการนับรอบ ให้เครื่องชี้เป้าแทนคนเดินนับทั้งคลัง -->
@@ -751,7 +774,7 @@ textarea{font:inherit}
                   <td><span v-if="r.category" class="tag">{{ r.category }}</span></td>
                   <td class="mono"><b :style="r.qty<0?'color:var(--bad)':''">{{ r.qty }}</b></td>
                   <td class="mono hint">{{ r.unit }}</td>
-                  <td class="mono hint">{{ r.last ? r.last.slice(0,10) : '—' }}</td>
+                  <td class="mono hint">{{ r.last ? localDate(r.last) : '—' }}</td>
                   <td class="row" style="gap:4px;flex-wrap:nowrap">
                     <button class="btn" style="padding:2px 9px" @click="openCard(r.code)">การ์ด</button>
                     <button class="btn" style="padding:2px 9px" @click="goIssue(r.code)">จ่ายออก</button>
@@ -773,6 +796,8 @@ textarea{font:inherit}
               <div class="grow"></div>
               <button class="btn" @click="goIssue(cardCode)">จ่ายออกรหัสนี้</button>
               <button class="btn" @click="printSheet">พิมพ์</button>
+              <button class="btn primary" @click="exportOneCard" :disabled="expBusy || !card.length">
+                {{ expBusy ? 'กำลังทำไฟล์...' : 'เซฟเป็น Excel' }}</button>
             </div>
           </div>
 
@@ -806,7 +831,7 @@ textarea{font:inherit}
               <tbody><tr v-for="l in cardLots" :key="l.lot">
                 <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต — ของก่อนเริ่มเก็บล็อต)' }}</td>
                 <td class="mono"><b>{{ l.qty }}</b></td>
-                <td class="mono hint">{{ l.first.slice(0,10) }}</td>
+                <td class="mono hint">{{ localDate(l.first) }}</td>
                 <td class="noprint"><button class="btn" style="padding:2px 9px"
                   @click="traceOf = (l.lot || '(ว่าง)')">ตามรอยล็อตนี้</button></td>
               </tr></tbody></table>
@@ -836,8 +861,8 @@ textarea{font:inherit}
               <tbody><tr v-for="j in trace.jobs" :key="j.job">
                 <td class="mono">{{ j.job }}</td>
                 <td class="mono">{{ j.qty }}</td>
-                <td class="mono hint">{{ j.first.slice(0,10) }}</td>
-                <td class="mono hint">{{ j.last.slice(0,10) }}</td>
+                <td class="mono hint">{{ localDate(j.first) }}</td>
+                <td class="mono hint">{{ localDate(j.last) }}</td>
                 <td><span class="tag" :class="j.inferred?'warn':'ok'">
                   {{ j.inferred ? 'เดา' : 'คนระบุเอง' }}</span></td>
               </tr></tbody>
@@ -858,7 +883,7 @@ textarea{font:inherit}
                   <th style="width:110px">เอกสาร</th><th style="width:100px">ผู้ทำ</th>
                   <th>หมายเหตุ</th><th style="width:70px" class="noprint"></th></tr></thead>
                 <tbody><tr v-for="r in card" :key="r.id">
-                  <td class="mono hint">{{ r.at.slice(0,10) }}</td>
+                  <td class="mono hint">{{ localDate(r.at) }}</td>
                   <td><span class="tag">{{ r.kindLabel }}</span></td>
                   <td class="mono"><b :style="r.moved<0?'color:var(--bad)':'color:var(--ok)'">
                     {{ r.moved > 0 ? '+' + r.moved : r.moved }}</b></td>
@@ -890,13 +915,13 @@ textarea{font:inherit}
                 <th>เหตุผลที่ยกเลิก</th><th style="width:100px">ใครยกเลิก</th>
                 <th style="width:100px">เมื่อไหร่</th></tr></thead>
               <tbody><tr v-for="v in cardVoided" :key="v.id" style="opacity:.72">
-                <td class="mono hint">{{ v.at.slice(0,10) }}</td>
+                <td class="mono hint">{{ localDate(v.at) }}</td>
                 <td><span class="tag">{{ v.kindLabel }}</span></td>
                 <td class="mono" style="text-decoration:line-through">{{ v.qty }}</td>
                 <td>{{ v.person }}</td>
                 <td>{{ v.void_reason }}</td>
                 <td>{{ v.void_by }}</td>
-                <td class="mono hint">{{ v.void_at.slice(0,10) }}</td>
+                <td class="mono hint">{{ localDate(v.void_at) }}</td>
               </tr></tbody>
             </table>
           </div>
@@ -989,7 +1014,7 @@ textarea{font:inherit}
             <tbody><tr v-for="l in mkLots" :key="l.lot">
               <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต)' }}</td>
               <td class="mono">{{ l.qty }}</td>
-              <td class="mono hint">{{ l.first.slice(0,10) }}</td>
+              <td class="mono hint">{{ localDate(l.first) }}</td>
               <td><button class="btn" style="padding:2px 9px" @click="mk.lot=l.lot">เลือก</button></td>
             </tr></tbody></table>
         </div>
@@ -1012,14 +1037,14 @@ textarea{font:inherit}
           </p>
           <table><tbody>
             <tr><td class="hint" style="width:90px">วันที่</td>
-                <td class="mono">{{ voidBox.row.at.slice(0,10) }}</td></tr>
+                <td class="mono">{{ localDate(voidBox.row.at) }}</td></tr>
             <tr><td class="hint">รายการ</td>
                 <td>{{ voidBox.row.kindLabel }} <b class="mono">{{ voidBox.row.qty }}</b>
                     <span class="mono hint">{{ voidBox.row.lot ? '· ล็อต ' + voidBox.row.lot : '' }}</span></td></tr>
             <tr><td class="hint">ผู้บันทึก</td><td>{{ voidBox.row.person }}</td></tr>
           </tbody></table>
           <div class="msg warn" v-if="voidAfterAdjust" style="margin:12px 0 0">
-            <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ voidAfterAdjust.at.slice(0,10) }}</b><br>
+            <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ localDate(voidAfterAdjust.at) }}</b><br>
             <span class="hint">ส่วนต่างของการปรับยอดถูกแช่แข็งไว้ตั้งแต่ตอนบันทึกและจะไม่คำนวณใหม่
               ยกเลิกแล้วยอดคงเหลือจะไม่ตรงกับ {{ voidAfterAdjust.counted_qty }} ที่เคยนับได้อีก
               — ถ้าของจริงยังเท่าเดิม ให้ปรับยอดอีกครั้งหลังยกเลิก</span>

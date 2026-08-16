@@ -16,6 +16,8 @@ import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive } from './core/ledger.js';
 import { balances, cardRows, oddBalances } from './core/balance.js';
+import { localDate, atFrom, todayLocal } from './core/localtime.js';
+import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -82,6 +84,7 @@ createApp({
         entity.value = await db.getMeta('entity', '') || '';
         // ยังไม่มีหน้าตั้งค่า — ตั้งค่าเริ่มต้นไว้ก่อนเพื่อให้หน้าที่ต้องใช้ entity ทำงานได้
         if (!entity.value) { entity.value = 'NSE'; await db.setMeta('entity', 'NSE'); }
+        store.value = await db.getMeta('store', '') || '';
         device.value = await db.getMeta('device', '') || '';
         if (!device.value) {
           device.value = 'PC-' + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -369,10 +372,7 @@ createApp({
     ].filter(Boolean).join(' · ');
 
     // ── รับเข้า ────────────────────────────────────────────────────
-    const today = () => { const d = new Date(), p = n => String(n).padStart(2, '0');
-      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
-
-    const inH = reactive({ po: '', pn: '', order: null, date: today(), person: '' });
+    const inH = reactive({ po: '', pn: '', order: null, date: todayLocal(), person: '' });
     const inLines = ref([]);
     const bomHint = ref('');
     let lineSeq = 0;
@@ -424,11 +424,10 @@ createApp({
       if (noLot && !confirm(`มี ${noLot} บรรทัดที่ยังไม่ใส่เลขล็อต\n`
         + 'ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป\n\nบันทึกต่อไหม')) return;
       try {
-        const at = new Date().toISOString();
         const posted = inReady.value.map(l => makeEntry({
           entity: entity.value, kind: 'receive', material_code: l.code, qty: Number(l.qty),
           lot: l.lot || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: inH.po, part_no: inH.pn,
-          at: inH.date ? inH.date + at.slice(10) : at,
+          at: atFrom(inH.date),
           person: inH.person, device: device.value,
           expiry_date: l.expiry || '', reqmt_qty: l.reqmt
         }));
@@ -449,7 +448,7 @@ createApp({
 
     // ── จ่ายออก ────────────────────────────────────────────────────
     const out = reactive({ code: '', qty: null, lot: '', part_no: '', doc_ref: '',
-                           date: today(), person: '', _inferred: false });
+                           date: todayLocal(), person: '', _inferred: false });
 
     const outKnown = computed(() => !!matOf(out.code));
     const outDesc = computed(() => (matOf(out.code) || {}).description || '');
@@ -478,12 +477,11 @@ createApp({
       if (outAfter.value < 0 &&
           !confirm(`ยอดจะติดลบเป็น ${outAfter.value}\nยืนยันบันทึกไหม`)) return;
       try {
-        const at = new Date().toISOString();
         const e = makeEntry({
           entity: entity.value, kind: 'issue', material_code: out.code, qty: Number(out.qty),
           lot: out.lot, lot_inferred: out._inferred && !!out.lot,
           doc_kind: out.doc_ref ? 'po' : '', doc_ref: out.doc_ref, part_no: out.part_no,
-          at: out.date ? out.date + at.slice(10) : at,
+          at: atFrom(out.date),
           person: out.person, device: device.value
         });
         await db.put('entries', e);
@@ -499,7 +497,7 @@ createApp({
     // ผลคือยอด "จ่ายออก" ในรายงานปนของเสียอยู่ข้างใน แยกกันไม่ออกย้อนหลัง
     const mk = reactive({ kind: 'scrap', code: '', qty: null, counted: null,
                           lot: '', part_no: '', reason: '', note: '',
-                          date: today(), person: '' });
+                          date: todayLocal(), person: '' });
 
     const mkDef = computed(() => KINDS[mk.kind]);
     const mkReasons = computed(() => REASONS[mk.kind] || []);
@@ -536,13 +534,12 @@ createApp({
 
     async function saveMisc() {
       try {
-        const at = new Date().toISOString();
         // จับยอดเดิมไว้ก่อน — mkBook คำนวณสดจากสมุด พอเขียนรายการลงไปแล้วมันจะเป็นยอดใหม่ทันที
         const was = mkBook.value;
         const base = {
           entity: entity.value, kind: mk.kind, material_code: mk.code,
           lot: mk.lot, part_no: mk.part_no, reason_code: mk.reason, note: mk.note.trim(),
-          at: mk.date ? mk.date + at.slice(10) : at,
+          at: atFrom(mk.date),
           person: mk.person, device: device.value
         };
         const e = mk.kind === 'adjust'
@@ -679,6 +676,128 @@ createApp({
         .map(e => ({ ...e, kindLabel: (KINDS[e.kind] || {}).label || e.kind }));
     });
 
+    // ── ออกไฟล์ Bin Card ───────────────────────────────────────────
+    // ไฟล์ที่ออกไปมีคนรับต่อ ฟอร์มจึงต้องเหมือน v1 ทุกช่อง — ดู export/bincard.js
+    const expBusy = ref(false);
+    const expMsg = ref('');
+    const store = ref('');
+
+    /**
+     * โหลดไลบรารีตอนกดออกไฟล์เท่านั้น
+     * ExcelJS กับ JSZip หนักรวมเกือบ 1 MB ถ้าโหลดตั้งแต่เปิดโปรแกรม
+     * เครื่องในโรงงานจะรอทุกเช้า ทั้งที่บางวันไม่มีใครกดออกไฟล์เลยสักครั้ง
+     */
+    function loadLib(src, globalName) {
+      if (globalThis[globalName]) return Promise.resolve();
+      return new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => globalThis[globalName] ? res()
+          : rej(new Error(`โหลด ${src} แล้วแต่ไม่เจอ ${globalName}`));
+        s.onerror = () => rej(new Error(`โหลด ${src} ไม่สำเร็จ — ไฟล์อยู่ในเครื่องไม่ได้ใช้เน็ต `
+                                      + 'ลองรีเฟรชหน้า ถ้ายังไม่ได้แปลว่าไฟล์ในโฟลเดอร์ lib หาย'));
+        document.head.appendChild(s);
+      });
+    }
+
+    const saveBlob = (blob, name) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    };
+
+    const cardInfo = code => {
+      const m = matOf(code) || {};
+      return { code, description: m.description || '', unit: m.unit || '',
+               store: store.value, entity: entity.value };
+    };
+
+    /** ออกการ์ดใบเดียวจากหน้าที่เปิดดูอยู่ */
+    async function exportOneCard() {
+      if (!card.value.length) { flash('รหัสนี้ยังไม่มีรายการเคลื่อนไหว', true); return; }
+      expBusy.value = true;
+      try {
+        await loadLib('lib/exceljs.min.js', 'ExcelJS');
+        const info = cardInfo(cardCode.value);
+        // card เรียงใหม่สุดขึ้นก่อนเพื่อดูบนจอ แต่เอกสารต้องเรียงเก่าไปใหม่
+        const rows = toCardLines([...card.value].reverse(), info.unit);
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'ระบบ Bin Card';
+        const nm = sheetNameFor(cardCode.value);
+        wb.addWorksheet(nm);
+        writeCard(wb.getWorksheet(nm), info, rows);
+        const buf = await wb.xlsx.writeBuffer();
+        saveBlob(new Blob([buf], { type: 'application/octet-stream' }),
+                 `BinCard_${cardCode.value}_${todayLocal()}.xlsx`);
+        flash('เซฟการ์ดเรียบร้อย');
+      } catch (err) { flash('ออกไฟล์ไม่สำเร็จ: ' + err.message, true); }
+      finally { expBusy.value = false; }
+    }
+
+    /** รหัสที่มีรายการเคลื่อนไหว แยกตามหมวด — ใช้บอกล่วงหน้าว่าจะได้กี่ไฟล์กี่การ์ด */
+    const cardPlan = computed(() => {
+      const byCat = new Map();
+      let cards = 0, lines = 0;
+      if (!entity.value) return { cards, lines, byCat };
+      const seen = new Map();
+      for (const e of entries.value) {
+        if (e.entity !== entity.value || !alive(e)) continue;
+        const c = normCode(e.material_code);
+        seen.set(c, (seen.get(c) || 0) + 1);
+      }
+      for (const [c, n] of seen) {
+        const cat = safeFileName((matOf(c) || {}).category || 'OTHER');
+        if (!byCat.has(cat)) byCat.set(cat, []);
+        byCat.get(cat).push(c);
+        cards++; lines += n;
+      }
+      for (const list of byCat.values()) list.sort();
+      return { cards, lines, byCat };
+    });
+
+    /** ออกการ์ดทุกรหัส — หนึ่งหมวดหนึ่งไฟล์ รวมเป็นซิปเดียว เหมือน v1 */
+    async function exportAllCards() {
+      const plan = cardPlan.value;
+      if (!plan.cards) { flash('ยังไม่มีรายการเคลื่อนไหวให้ออกการ์ด', true); return; }
+      expBusy.value = true;
+      expMsg.value = 'กำลังโหลดตัวเขียนไฟล์...';
+      try {
+        await loadLib('lib/exceljs.min.js', 'ExcelJS');
+        await loadLib('lib/jszip.min.js', 'JSZip');
+        const zip = new JSZip();
+        let done = 0;
+        for (const [cat, codes] of plan.byCat) {
+          const wb = new ExcelJS.Workbook();
+          wb.creator = 'ระบบ Bin Card';
+          for (const code of codes) {
+            const info = cardInfo(code);
+            const rows = toCardLines(cardRows(entries.value, entity.value, code), info.unit);
+            const nm = sheetNameFor(code);
+            wb.addWorksheet(nm);
+            writeCard(wb.getWorksheet(nm), info, rows);
+            done++;
+            if (done % 20 === 0) {
+              expMsg.value = `กำลังสร้าง ${done} / ${plan.cards} การ์ด...`;
+              await new Promise(r => setTimeout(r, 0));   // ปล่อยให้หน้าจอขยับ
+            }
+          }
+          zip.file(`${cat}.xlsx`, await wb.xlsx.writeBuffer());
+        }
+        expMsg.value = 'กำลังบีบไฟล์...';
+        saveBlob(await zip.generateAsync({ type: 'blob' }),
+                 `BinCard_${entity.value}_${todayLocal()}.zip`);
+        expMsg.value = `เสร็จแล้ว · ${plan.cards} การ์ด · ${plan.lines} บรรทัด · ${plan.byCat.size} ไฟล์`;
+        flash('ออก Bin Card เรียบร้อย');
+      } catch (err) {
+        expMsg.value = 'ผิดพลาด: ' + err.message;
+        flash('ออกไฟล์ไม่สำเร็จ: ' + err.message, true);
+      } finally { expBusy.value = false; }
+    }
+
+    const saveStore = () => db.setMeta('store', store.value).catch(() => {});
+
     function openCard(code) { cardCode.value = String(code); traceOf.value = ''; tab.value = 'bal'; }
     function closeCard() { cardCode.value = ''; traceOf.value = ''; }
     function goIssue(code) { out.code = String(code); onOutCode(); tab.value = 'out'; }
@@ -701,6 +820,7 @@ createApp({
              balQ, balCat, balZero, balShown, balSum, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
+             expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
