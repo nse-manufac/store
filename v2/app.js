@@ -14,7 +14,7 @@ import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
-import { makeEntry, counts as alive } from './core/ledger.js';
+import { makeEntry, voidEntry, REASONS, KINDS, counts as alive } from './core/ledger.js';
 import { balances, cardRows, oddBalances } from './core/balance.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
@@ -27,7 +27,17 @@ const TABS = [
   { k: 'count', label: 'นับของ' },
   { k: 'in',    label: 'รับเข้า' },
   { k: 'out',   label: 'จ่ายออก' },
-  { k: 'bal',   label: 'ยอดคงคลัง' }
+  { k: 'bal',   label: 'ยอดคงคลัง' },
+  // สามชนิดที่เหลือรวมไว้หน้าเดียว เพราะแบบฟอร์มเหมือนกันเกือบหมด
+  // และแยกเป็นสามแท็บจะทำให้แถบบนยาวจนหาของไม่เจอบนจอโรงงาน
+  { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' }
+];
+
+/** สามชนิดที่หน้า misc ดูแล — เรียงตามความถี่ที่ใช้จริง */
+const MISC = [
+  { k: 'scrap',  what: 'ตัดของที่เสียออกจากคลัง' },
+  { k: 'return', what: 'ของที่เบิกไปแล้วเอากลับเข้าคลัง' },
+  { k: 'adjust', what: 'นับได้ไม่ตรงสมุด แก้ยอดให้ตรงของจริง' }
 ];
 
 createApp({
@@ -333,13 +343,30 @@ createApp({
       searchMaterials(materials.value, pickQ.value, { limit: 60 }));
     function openPick(target) { pick.value = target; pickQ.value = target.code || ''; }
     function choosePick(m) {
-      if (!pick.value) return;
-      pick.value.code = m.material_code;
-      if (pick.value === out) onOutCode(); else fillLine(pick.value);
+      const t = pick.value;
+      if (!t) return;
+      t.code = m.material_code;
+      if (t === out) onOutCode();
+      else if (t === mk) onMkCode();
+      else fillLine(t);
       pick.value = null;
     }
 
     const matOf = code => materials.value.find(m => normCode(m.material_code) === normCode(code));
+
+    /** เหตุผลเก็บเป็นรหัสในสมุด แต่บนจอต้องอ่านรู้เรื่อง */
+    const reasonLabel = e => {
+      if (!e || !e.reason_code) return '';
+      const r = (REASONS[e.kind] || []).find(x => x.code === e.reason_code);
+      return r ? r.label : e.reason_code;
+    };
+
+    /** ช่องหมายเหตุในการ์ด — ต่อเฉพาะส่วนที่มีจริง ไม่งั้นจะได้ "· " ห้อยหน้าลอย ๆ */
+    const noteCell = e => [
+      reasonLabel(e),
+      (e.kind === 'adjust' && e.counted_qty != null) ? 'นับได้ ' + e.counted_qty : '',
+      e.note
+    ].filter(Boolean).join(' · ');
 
     // ── รับเข้า ────────────────────────────────────────────────────
     const today = () => { const d = new Date(), p = n => String(n).padStart(2, '0');
@@ -467,6 +494,108 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    // ── ของเสีย · คืนของ · ปรับยอด ─────────────────────────────────
+    // สามชนิดนี้คือส่วนที่ v1 ไม่มีเลย พนักงานจึงต้องเอาไปแอบใส่ในจ่ายออก
+    // ผลคือยอด "จ่ายออก" ในรายงานปนของเสียอยู่ข้างใน แยกกันไม่ออกย้อนหลัง
+    const mk = reactive({ kind: 'scrap', code: '', qty: null, counted: null,
+                          lot: '', part_no: '', reason: '', note: '',
+                          date: today(), person: '' });
+
+    const mkDef = computed(() => KINDS[mk.kind]);
+    const mkReasons = computed(() => REASONS[mk.kind] || []);
+    const mkMat = computed(() => matOf(mk.code));
+    const mkUnit = computed(() => (mkMat.value || {}).unit || '');
+    const mkBook = computed(() =>
+      mk.code && entity.value ? (bookBalances.value.get(normCode(mk.code)) || 0) : 0);
+    const mkLots = computed(() =>
+      mk.code && entity.value ? lotsOf(entries.value, entity.value, normCode(mk.code)) : []);
+
+    /** ปรับยอด: ส่วนต่างที่จะเขียนลงสมุด — แสดงให้เห็นก่อนกดบันทึกเสมอ */
+    const mkDelta = computed(() => {
+      if (mk.kind !== 'adjust' || mk.counted === null || mk.counted === '') return null;
+      return Math.round((Number(mk.counted) - mkBook.value) * 1e5) / 1e5;
+    });
+    const mkAfter = computed(() => {
+      if (mk.kind === 'adjust') return mkDelta.value === null ? mkBook.value : Number(mk.counted);
+      const q = Number(mk.qty) || 0;
+      return Math.round((mkBook.value + (mkDef.value.sign * q)) * 1e5) / 1e5;
+    });
+
+    const mkReady = computed(() => {
+      if (!mk.code || !mk.person || !mk.reason) return false;
+      if (mk.reason === 'other' && !mk.note.trim()) return false;
+      return mk.kind === 'adjust'
+        ? (mk.counted !== null && mk.counted !== '' && isFinite(Number(mk.counted)))
+        : Number(mk.qty) > 0;
+    });
+
+    // เหตุผลของแต่ละชนิดเป็นคนละชุด ถ้าไม่ล้างจะเหลือค่าเดิมที่ใช้กับชนิดใหม่ไม่ได้
+    // แล้วจะไปตกตอน makeEntry ซึ่งสายเกินไปที่จะบอกพนักงาน
+    watch(() => mk.kind, () => { mk.reason = ''; });
+    function onMkCode() { mk.lot = ''; }
+
+    async function saveMisc() {
+      try {
+        const at = new Date().toISOString();
+        // จับยอดเดิมไว้ก่อน — mkBook คำนวณสดจากสมุด พอเขียนรายการลงไปแล้วมันจะเป็นยอดใหม่ทันที
+        const was = mkBook.value;
+        const base = {
+          entity: entity.value, kind: mk.kind, material_code: mk.code,
+          lot: mk.lot, part_no: mk.part_no, reason_code: mk.reason, note: mk.note.trim(),
+          at: mk.date ? mk.date + at.slice(10) : at,
+          person: mk.person, device: device.value
+        };
+        const e = mk.kind === 'adjust'
+          ? makeEntry({ ...base, counted_qty: Number(mk.counted), book_qty: mkBook.value })
+          : makeEntry({ ...base, qty: Number(mk.qty) });
+        // ยอดติดลบเตือนได้แต่ห้ามบล็อก — INVARIANTS A4
+        if (mkAfter.value < 0 &&
+            !confirm(`ยอดจะติดลบเป็น ${mkAfter.value}\nยืนยันบันทึกไหม`)) return;
+        await db.put('entries', e);
+        entries.value.push(e);
+        db.announce('entries');
+        flash(mk.kind === 'adjust'
+          ? `ปรับยอด ${mk.code} จาก ${was} เป็น ${mk.counted} แล้ว`
+          : `บันทึก${mkDef.value.label} ${mk.qty} ${mkUnit.value} แล้ว`);
+        mk.qty = null; mk.counted = null; mk.lot = ''; mk.note = '';
+      } catch (err) { flash(err.message, true); }
+    }
+
+    // ── ยกเลิกรายการ ───────────────────────────────────────────────
+    // สมุดเขียนเพิ่มได้อย่างเดียว ห้ามลบ — INVARIANTS B
+    // รายการที่ยกเลิกไม่นับเข้ายอด แต่ยังต้องเห็นได้ว่าเคยมีและใครสั่งยกเลิกเพราะอะไร
+    const voidBox = reactive({ row: null, reason: '', by: '' });
+    function askVoid(r) { voidBox.row = r; voidBox.reason = ''; voidBox.by = ''; }
+
+    /**
+     * ยกเลิกรายการที่อยู่ "ก่อน" การปรับยอด = ต้องเตือน
+     *
+     * ส่วนต่างของการปรับยอดถูกแช่แข็งไว้ตั้งแต่ตอนบันทึก และตั้งใจให้เป็นแบบนั้น
+     * (ถ้าคำนวณใหม่ตอนอ่าน ยอดในอดีตจะขยับเองเมื่อมีรายการแทรกทีหลัง — ดู core/ledger.js)
+     * ผลข้างเคียงคือถ้ายกเลิกรายการเก่ากว่า ยอดใหม่จะไม่ตรงกับที่เคยนับได้อีกต่อไป
+     * ระบบแก้ให้เองไม่ได้ จึงต้องบอกให้คนตัดสินใจ ไม่ใช่เงียบแล้วปล่อยให้ตัวเลขเพี้ยน
+     */
+    const voidAfterAdjust = computed(() => {
+      const r = voidBox.row;
+      if (!r) return null;
+      const c = normCode(r.material_code);
+      const later = entries.value.filter(e =>
+        e.entity === r.entity && !e.voided && e.kind === 'adjust'
+        && normCode(e.material_code) === c && e.at > r.at);
+      return later.length ? later[later.length - 1] : null;
+    });
+    async function doVoid() {
+      try {
+        const src = entries.value.find(e => e.id === voidBox.row.id);
+        const v = voidEntry(src, { by: voidBox.by.trim(), reason: voidBox.reason.trim() });
+        await db.put('entries', v);
+        entries.value.splice(entries.value.indexOf(src), 1, v);
+        db.announce('entries');
+        flash('ยกเลิกรายการแล้ว — ยังอยู่ในสมุดให้ตรวจย้อนหลังได้');
+        voidBox.row = null;
+      } catch (err) { flash(err.message, true); }
+    }
+
     // ── ยอดคงคลัง และการ์ด ─────────────────────────────────────────
     const balQ = ref('');
     const balCat = ref('');
@@ -540,6 +669,16 @@ createApp({
       ? traceLot(entries.value, entity.value, normCode(cardCode.value),
                  traceOf.value === '(ว่าง)' ? '' : traceOf.value) : null);
 
+    /** รายการที่ถูกยกเลิกของรหัสนี้ — ไม่นับเข้ายอด แต่ต้องเห็นได้ (INVARIANTS B) */
+    const cardVoided = computed(() => {
+      if (!cardCode.value || !entity.value) return [];
+      const c = normCode(cardCode.value);
+      return entries.value
+        .filter(e => e.entity === entity.value && e.voided && normCode(e.material_code) === c)
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .map(e => ({ ...e, kindLabel: (KINDS[e.kind] || {}).label || e.kind }));
+    });
+
     function openCard(code) { cardCode.value = String(code); traceOf.value = ''; tab.value = 'bal'; }
     function closeCard() { cardCode.value = ''; traceOf.value = ''; }
     function goIssue(code) { out.code = String(code); onOutCode(); tab.value = 'out'; }
@@ -560,7 +699,10 @@ createApp({
              out, outKnown, outDesc, outBal, outAfter, outLots, outSuggest,
              onOutCode, onOutQty, saveOut, addFromOut,
              balQ, balCat, balZero, balShown, balSum, oddRows,
-             cardCode, cardMat, cardBal, card, cardLots, traceOf, trace,
-             openCard, closeCard, goIssue };
+             cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
+             openCard, closeCard, goIssue,
+             MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
+             mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
+             voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
   }
 }).mount('#app');
