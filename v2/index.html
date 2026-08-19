@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-16.1">
+<meta name="app-version" content="2026-08-16.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1024,6 +1024,94 @@ textarea{font:inherit}
               <td class="mono hint">{{ localDate(l.first) }}</td>
               <td><button class="btn" style="padding:2px 9px" @click="mk.lot=l.lot">เลือก</button></td>
             </tr></tbody></table>
+        </div>
+      </template>
+
+      <!-- ════════ ซิงค์ ════════ -->
+      <template v-else-if="tab==='sync'">
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">เชื่อมกับ Google Sheets</h2>
+            <div class="grow"></div>
+            <span class="tag" :class="sync.state==='ok'?'ok':sync.state==='error'?'bad':''">
+              {{ sync.state==='busy' ? 'กำลังทำงาน' : sync.state==='ok' ? 'ปกติ'
+                 : sync.state==='error' ? 'มีปัญหา' : 'ยังไม่ได้ซิงค์' }}</span>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <label class="f grow" style="min-width:280px">URL ของ Apps Script
+              <input v-model.trim="sync.url" @change="saveSyncCfg"
+                     placeholder="https://script.google.com/macros/s/..../exec"></label>
+            <label class="f" style="width:200px">รหัสผ่าน (token)
+              <input v-model.trim="sync.token" @change="saveSyncCfg" type="password"></label>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <span class="row" style="gap:5px;flex-wrap:nowrap">
+              <input type="checkbox" v-model="sync.auto" @change="saveSyncCfg" id="au"
+                     style="width:16px;height:16px">
+              <label for="au" style="font-size:13px">ซิงค์เองทุก 2 นาที และทันทีที่เน็ตกลับมา</label>
+            </span>
+            <div class="grow"></div>
+            <button class="btn" @click="testConnection" :disabled="!sync.url">ทดสอบการเชื่อมต่อ</button>
+            <button class="btn primary" @click="syncNow(false)" :disabled="!sync.url || sync.state==='busy'">
+              ซิงค์เดี๋ยวนี้</button>
+          </div>
+
+          <div class="msg ok" v-if="sync.msg && sync.state!=='error'" style="margin:12px 0 0">
+            {{ sync.msg }}</div>
+          <div class="msg bad" v-if="sync.error" style="margin:12px 0 0">
+            {{ sync.error }}
+            <div v-if="sync.needDeploy" style="margin-top:6px">
+              <b>เซิร์ฟเวอร์ยังเป็นสคริปต์รุ่นเก่า</b><br>
+              <span class="hint">เปิดสเปรดชีต → ส่วนขยาย → Apps Script → วางไฟล์
+                v2/sync/apps-script.gs ทับ → Deploy → Manage deployments → กดดินสอ →
+                Version: New version → Deploy<br>
+                URL เดิมไม่เปลี่ยน ไม่ต้องมาแก้ช่องข้างบนนี้</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">ของที่รอส่งขึ้น</h2>
+            <div class="grow"></div>
+            <span class="hint" v-if="sync.lastOkAt">ซิงค์สำเร็จล่าสุด {{ localDate(sync.lastOkAt) }}
+              {{ sync.lastOkAt.slice(11,16) }}</span>
+            <span class="hint" v-else>ยังไม่เคยซิงค์สำเร็จ</span>
+          </div>
+          <div class="row" style="margin-top:12px;gap:28px">
+            <div><div class="hint">รายการเคลื่อนไหว</div>
+              <div class="big" :class="pending.per.entries?'warn':''">{{ pending.per.entries }}</div></div>
+            <div><div class="hint">ทะเบียนวัตถุดิบ</div>
+              <div class="big" :class="pending.per.materials?'warn':''">{{ pending.per.materials }}</div></div>
+            <div><div class="hint">BOM</div>
+              <div class="big" :class="pending.per.bom?'warn':''">{{ pending.per.bom }}</div></div>
+          </div>
+          <p class="hint" style="margin:12px 0 0">
+            ตัวเลขนี้คือของที่ยังอยู่แค่ในเครื่องนี้ ไม่ได้แปลว่าผิด — คีย์ได้ตามปกติแม้เน็ตหลุด
+            แล้วมันจะทยอยส่งขึ้นเองเมื่อเน็ตกลับมา
+          </p>
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="resync" :disabled="!sync.url || sync.state==='busy'">
+              ดึงใหม่ทั้งหมดจากเซิร์ฟเวอร์</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>เปิดใช้ครั้งแรกต้องทำอะไรบ้าง</h2>
+          <ol class="hint" style="margin:0;padding-left:20px;line-height:1.9">
+            <li>สร้าง <b>สเปรดชีตใหม่</b> แยกจากของ v1 (ของเดิมเก็บไว้เป็นบันทึกย้อนหลัง ห้ามลบ)</li>
+            <li>ส่วนขยาย → Apps Script → วางไฟล์ <span class="mono">v2/sync/apps-script.gs</span> ทั้งไฟล์</li>
+            <li>แก้บรรทัด <span class="mono">var TOKEN</span> เป็นรหัสของตัวเอง แล้วกรอกให้ตรงกันในช่องข้างบน</li>
+            <li>Deploy → New deployment → Web app → Execute as: <b>Me</b> ·
+                Who has access: <b>Anyone</b> → เอา URL ที่ลงท้าย <span class="mono">/exec</span> มาใส่ข้างบน</li>
+            <li>กดทดสอบการเชื่อมต่อ ถ้าขึ้นชื่อสเปรดชีตแปลว่าใช้ได้</li>
+          </ol>
+          <p class="hint" style="margin:10px 0 0">
+            รอบถัดไปที่แก้สคริปต์ ให้ใช้ <b>Manage deployments → ดินสอ → New version</b>
+            URL จะไม่เปลี่ยน — ถ้ากด New deployment ใหม่ URL จะเปลี่ยนแล้วต้องไล่แก้ทุกเครื่อง
+          </p>
         </div>
       </template>
 

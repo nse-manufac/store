@@ -98,9 +98,23 @@ export async function loadAll() {
  * เพราะรายการที่พนักงานเพิ่งคีย์คือสิ่งเดียวที่สร้างใหม่ไม่ได้ถ้าหาย
  * (บทเรียนจาก issue #29 ของ v1)
  */
-export async function put(store, rows) {
+/**
+ * ตารางที่ต้องซิงค์ขึ้นเซิร์ฟเวอร์ — เขียนเมื่อไหร่ต้องติดธงรอส่งทุกครั้ง
+ *
+ * ตั้งใจให้ติดธงที่นี่ที่เดียว ไม่ใช่ให้แต่ละหน้าจำเอง
+ * ถ้ากระจายไปติดตามที่เรียกใช้ วันหนึ่งจะมีคนเพิ่มหน้าจอใหม่แล้วลืม
+ * ผลคือรายการนั้นอยู่แค่ในเครื่องเดียวตลอดไปโดยไม่มีอะไรเตือน
+ * มีที่เดียวที่ผ่านโดยไม่ติดธงคือตัวซิงค์เอง ซึ่งส่ง synced: true มา
+ */
+const SYNCED = new Set(['entries', 'materials', 'bom']);
+
+export async function put(store, rows, { synced = false } = {}) {
   const list = Array.isArray(rows) ? rows : [rows];
   if (!list.length) return 0;
+  // ติดธงบนตัวอ็อบเจกต์เดิม ไม่ใช่บนสำเนา
+  // เพราะหน้าจอถืออ็อบเจกต์ตัวเดียวกันนี้อยู่ในหน่วยความจำ ถ้าติดบนสำเนา
+  // ของบนจอจะไม่มีธง แล้วตัวซิงค์จะมองไม่เห็นว่ามีอะไรรอส่ง
+  if (SYNCED.has(store) && !synced) for (const r of list) r.dirty = true;
   const db = await open();
   const { t, done } = tx(db, [store], 'readwrite');
   const os = t.objectStore(store);

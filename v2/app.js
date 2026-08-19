@@ -18,6 +18,8 @@ import { makeEntry, voidEntry, REASONS, KINDS, counts as alive } from './core/le
 import { balances, cardRows, oddBalances } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
+import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
+         syncPlan, looksLikeOldScript } from './core/sync.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -32,7 +34,8 @@ const TABS = [
   { k: 'bal',   label: 'ยอดคงคลัง' },
   // สามชนิดที่เหลือรวมไว้หน้าเดียว เพราะแบบฟอร์มเหมือนกันเกือบหมด
   // และแยกเป็นสามแท็บจะทำให้แถบบนยาวจนหาของไม่เจอบนจอโรงงาน
-  { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' }
+  { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' },
+  { k: 'sync',  label: 'ซิงค์' }
 ];
 
 /** สามชนิดที่หน้า misc ดูแล — เรียงตามความถี่ที่ใช้จริง */
@@ -85,6 +88,12 @@ createApp({
         // ยังไม่มีหน้าตั้งค่า — ตั้งค่าเริ่มต้นไว้ก่อนเพื่อให้หน้าที่ต้องใช้ entity ทำงานได้
         if (!entity.value) { entity.value = 'NSE'; await db.setMeta('entity', 'NSE'); }
         store.value = await db.getMeta('store', '') || '';
+        const cfg = await db.getMeta('sync', null);
+        if (cfg) {
+          sync.url = cfg.url || ''; sync.token = cfg.token || '';
+          sync.auto = cfg.auto !== false;
+          sync.since = Object.assign({ entries: '', materials: '', bom: '' }, cfg.since || {});
+        }
         device.value = await db.getMeta('device', '') || '';
         if (!device.value) {
           device.value = 'PC-' + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -713,6 +722,135 @@ createApp({
         .map(e => ({ ...e, kindLabel: (KINDS[e.kind] || {}).label || e.kind }));
     });
 
+    // ── ซิงค์ขึ้น Google Sheets ────────────────────────────────────
+    // ตรรกะการรวมข้อมูลอยู่ใน core/sync.js ที่นี่มีแค่การยิงเน็ตและต่อสายเข้าหน้าจอ
+    const sync = reactive({ url: '', token: '', auto: true,
+                            state: 'idle', error: '', lastOkAt: '',
+                            since: { entries: '', materials: '', bom: '' },
+                            needDeploy: false, msg: '' });
+    let syncing = false;
+
+    /**
+     * ถอดความเป็น reactive ออกก่อนเขียนลงฐานข้อมูล
+     *
+     * Vue ห่ออ็อบเจกต์ในหน้าจอไว้ด้วย Proxy ซึ่ง IndexedDB โคลนไม่ได้
+     * ถ้าส่งตรง ๆ จะได้ "could not be cloned" ตอนซิงค์ ซึ่งอ่านแล้วไม่รู้เลยว่าเกิดจากอะไร
+     * แถวพวกนี้เป็นข้อมูลแบนล้วน ไม่มีฟังก์ชันและไม่มีวันที่ การแปลงผ่าน JSON จึงปลอดภัย
+     */
+    const plain = r => JSON.parse(JSON.stringify(r));
+
+    const syncStore = computed(() => ({
+      entries: entries.value, materials: materials.value, bom: bom.value
+    }));
+    const pending = computed(() => syncPlan(syncStore.value));
+
+    const saveSyncCfg = () => db.setMeta('sync', {
+      url: sync.url, token: sync.token, auto: sync.auto, since: sync.since
+    }).catch(() => {});
+
+    /**
+     * ยิงคำสั่งไปที่ Apps Script
+     *
+     * ⚠️ สองบรรทัดนี้ห้ามแก้ ทั้งคู่มาจากการชนกำแพงจริงใน v1
+     *   text/plain  — ถ้าใส่ application/json เบราว์เซอร์จะยิง preflight ก่อน
+     *                 ซึ่ง Apps Script ไม่ตอบ แล้วจะได้ CORS error ที่หาสาเหตุยากมาก
+     *   redirect    — Apps Script ตอบ 302 ไปโดเมน googleusercontent เสมอ ต้องตามต่อ
+     */
+    async function api(action, body = {}) {
+      if (!sync.url) throw new Error('ยังไม่ได้ใส่ URL ของ Apps Script');
+      const res = await fetch(sync.url, {
+        method: 'POST', redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, token: sync.token, device: device.value, ...body })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error || 'เซิร์ฟเวอร์ตอบกลับผิดพลาด');
+      return d;
+    }
+
+    async function testConnection() {
+      sync.state = 'busy'; sync.error = ''; sync.msg = '';
+      try {
+        const d = await api('ping');
+        sync.state = 'ok';
+        sync.msg = `ต่อได้ · ${d.spreadsheet} · `
+                 + Object.entries(d.counts || {}).map(([k, v]) => `${k} ${v}`).join(' · ');
+      } catch (err) { sync.state = 'error'; sync.error = err.message; }
+    }
+
+    /** ตารางในเครื่องกับชื่อชีตบนเซิร์ฟเวอร์ */
+    const SHEET_OF = { entries: 'Entries', materials: 'Materials', bom: 'BOM' };
+    const listOf = t => (t === 'entries' ? entries : t === 'materials' ? materials : bom);
+
+    async function syncNow(silent = false) {
+      if (!sync.url || syncing) return;
+      syncing = true; sync.state = 'busy'; sync.error = ''; sync.needDeploy = false;
+      let up = 0, down = 0;
+      try {
+        for (const t of Object.keys(TABLES)) {
+          const key = TABLES[t].key;
+          const list = listOf(t);
+
+          // ── ส่งขึ้นก่อน ──
+          // ส่งก่อนดึงเสมอ เพื่อให้ของที่เครื่องนี้เพิ่งคีย์ไปถึงเซิร์ฟเวอร์
+          // ก่อนที่จะเอาของฝั่งโน้นมาทับ
+          const waiting = dirtyRows(list.value);
+          for (const part of chunk(waiting, 300)) {
+            sync.msg = `กำลังส่ง ${TABLES[t].label} ${up + part.length}/${waiting.length}...`;
+            const res = await api('pushTable', { table: SHEET_OF[t], rows: part.map(toWire) });
+            // เอาเวลาของเซิร์ฟเวอร์มาใช้ ไม่ใช่เวลาเครื่อง — ดูเหตุผลใน core/sync.js
+            const stamped = markSynced(part, res.serverTime);
+            stamped.forEach((r, i) => { part[i].dirty = false; part[i].updated_at = r.updated_at; });
+            await db.put(t, stamped.map(plain), { synced: true });
+            up += part.length;
+          }
+
+          // ── แล้วค่อยดึงลง ──
+          sync.msg = `กำลังดึง ${TABLES[t].label}...`;
+          const d = await api('pullTable', { table: SHEET_OF[t], since: sync.since[t] || '' });
+          const m = mergeIncoming(list.value, d.rows || [], key);
+          if (m.added.length) {
+            await db.put(t, m.added.map(plain), { synced: true });
+            list.value.push(...m.added);
+          }
+          for (const r of m.updated) {
+            const i = list.value.findIndex(x => String(x[key]) === String(r[key]));
+            if (i >= 0) list.value.splice(i, 1, r);
+          }
+          if (m.updated.length) await db.put(t, m.updated.map(plain), { synced: true });
+          sync.since[t] = d.serverTime;
+          down += m.changed;
+        }
+        sync.lastOkAt = new Date().toISOString();
+        sync.state = 'ok';
+        sync.msg = `ส่งขึ้น ${up} · รับมา ${down}`;
+        saveSyncCfg();
+        if (!silent) flash(`ซิงค์แล้ว · ส่งขึ้น ${up} · รับมา ${down}`);
+      } catch (err) {
+        sync.state = 'error';
+        sync.error = err.message;
+        sync.msg = '';
+        // เซิร์ฟเวอร์ยังเป็นสคริปต์รุ่นเก่า ต้องบอกให้ชัดว่าให้ไปกดอะไร
+        // ไม่ใช่ปล่อยให้เห็นข้อความดิบแล้วเดาเอาเองว่าพังตรงไหน
+        if (looksLikeOldScript(err.message)) sync.needDeploy = true;
+        if (!silent) flash('ซิงค์ไม่สำเร็จ: ' + err.message, true);
+      } finally { syncing = false; }
+    }
+
+    /** ดึงใหม่ทั้งหมดตั้งแต่ต้น — ใช้ตอนสงสัยว่าเครื่องนี้ตกอะไรไป */
+    async function resync() {
+      if (!confirm('จะดึงข้อมูลใหม่ทั้งหมดจากเซิร์ฟเวอร์\n'
+        + 'ของที่ยังไม่ได้ส่งขึ้นจะไม่ถูกทับ และไม่มีอะไรถูกลบ\n\nทำต่อไหม')) return;
+      sync.since = { entries: '', materials: '', bom: '' };
+      await syncNow(false);
+    }
+
+    // ซิงค์อัตโนมัติเมื่อว่าง — เน็ตโรงงานหลุดบ่อย จึงต้องลองใหม่เรื่อย ๆ เอง
+    // ไม่ใช่รอให้พนักงานนึกได้ว่าต้องกดปุ่ม
+    setInterval(() => { if (sync.auto && sync.url && !syncing) syncNow(true); }, 120000);
+    window.addEventListener('online', () => { if (sync.auto && sync.url) syncNow(true); });
+
     // ── ออกไฟล์ Bin Card ───────────────────────────────────────────
     // ไฟล์ที่ออกไปมีคนรับต่อ ฟอร์มจึงต้องเหมือน v1 ทุกช่อง — ดู export/bincard.js
     const expBusy = ref(false);
@@ -859,6 +997,7 @@ createApp({
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
+             sync, pending, saveSyncCfg, testConnection, syncNow, resync,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
