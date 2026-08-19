@@ -19,9 +19,12 @@
 
 /** ตารางที่ซิงค์ และกุญแจของแต่ละตาราง */
 export const TABLES = {
-  entries:   { key: 'id',            label: 'รายการเคลื่อนไหว' },
-  materials: { key: 'material_code', label: 'ทะเบียนวัตถุดิบ' },
-  bom:       { key: 'id',            label: 'BOM' }
+  entries:   { key: 'id',            label: 'รายการเคลื่อนไหว', sheet: 'Entries' },
+  materials: { key: 'material_code', label: 'ทะเบียนวัตถุดิบ',  sheet: 'Materials' },
+  bom:       { key: 'id',            label: 'BOM',              sheet: 'BOM' },
+  pos:       { key: 'id',            label: 'รายการ PO',        sheet: 'POs' },
+  kits:      { key: 'id',            label: 'Kit List',         sheet: 'Kits' },
+  shorts:    { key: 'id',            label: 'ของขาด',           sheet: 'Shorts' }
 };
 
 /**

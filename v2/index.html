@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-16.2">
+<meta name="app-version" content="2026-08-16.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -550,7 +550,8 @@ textarea{font:inherit}
         <div class="card">
           <div class="row">
             <label class="f" style="width:150px">เลข PO
-              <input v-model.trim="inH.po" class="mono" placeholder="เลขที่เอกสาร"></label>
+              <input v-model.trim="inH.po" class="mono" placeholder="เลขที่เอกสาร"
+                     @change="expandBom"></label>
             <label class="f" style="width:150px">P/N
               <input v-model.trim="inH.pn" class="mono" list="pnlist" placeholder="รหัสสินค้า"
                      @change="expandBom"></label>
@@ -572,6 +573,7 @@ textarea{font:inherit}
               <thead><tr>
                 <th style="width:130px">รหัส</th><th>ชื่อ</th>
                 <th style="width:60px">หน่วย</th><th style="width:95px">ตามสูตร</th>
+                <th style="width:95px">Delta จ่ายมา</th>
                 <th style="width:95px">รับจริง</th><th style="width:110px">ล็อต</th>
                 <th style="width:130px">วันหมดอายุ</th><th style="width:36px"></th>
               </tr></thead>
@@ -592,6 +594,7 @@ textarea{font:inherit}
                   </td>
                   <td class="mono">{{ l.unit }}</td>
                   <td class="mono hint">{{ l.reqmt === null ? '' : l.reqmt }}</td>
+                  <td class="mono">{{ l.issued === null || l.issued === undefined ? '' : l.issued }}</td>
                   <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:84px"></td>
                   <td><input v-model.trim="l.lot" class="mono" style="width:98px" placeholder="เลขล็อต"></td>
                   <td><input v-if="l.needExp" v-model="l.expiry" type="date" style="width:122px">
@@ -613,7 +616,9 @@ textarea{font:inherit}
           </div>
         </div>
         <div class="card" v-else><p class="empty">
-          ใส่ P/N แล้วโปรแกรมจะกางสูตรให้ หรือกด "เพิ่มบรรทัด" เพื่อคีย์เอง</p></div>
+          ใส่เลข PO แล้วโปรแกรมจะดึงรายการที่ Delta จ่ายมาให้ (Kit List)<br>
+          ถ้ายังไม่มี Kit List ของ PO นั้น ใส่ P/N แล้วจะกางจากสูตรให้แทน
+          — หรือกด "เพิ่มบรรทัด" เพื่อคีย์เอง</p></div>
       </template>
 
       <!-- ════════ จ่ายออก ════════ -->
@@ -1027,6 +1032,150 @@ textarea{font:inherit}
         </div>
       </template>
 
+      <!-- ════════ PO / Kit List ════════ -->
+      <template v-else-if="tab==='po'">
+        <div class="card">
+          <h2>ลากไฟล์จาก Delta เข้ามา</h2>
+          <div class="drop" :class="{over:impDrag}"
+               @dragover.prevent="impDrag=true" @dragleave="impDrag=false" @drop.prevent="onDropImp">
+            <p style="margin:0 0 8px">ลากไฟล์มาวางตรงนี้ หรือ
+              <label class="btn" style="cursor:pointer">เลือกไฟล์
+                <input type="file" accept=".xls,.xlsx" @change="onPickImp" style="display:none">
+              </label>
+            </p>
+            <p class="hint" style="margin:0">
+              รับได้ทั้งสามแบบ — PO รายวัน · Kit List (22-H) · Kit List กลุ่มจ่ายรวม<br>
+              ไม่ต้องบอกว่าเป็นแบบไหน โปรแกรมดูจากเนื้อในให้เอง
+            </p>
+          </div>
+          <p class="hint" v-if="impBusy" style="margin:10px 0 0">กำลังอ่านไฟล์...</p>
+        </div>
+
+        <!-- พรีวิวก่อนนำเข้า -->
+        <div class="card" v-if="imp">
+          <div class="row">
+            <h2 style="margin:0">{{ KIND_LABEL[imp.kind] }}</h2>
+            <span class="tag ok">{{ imp.fileName }}</span>
+            <div class="grow"></div>
+            <button class="btn" @click="imp=null">ยกเลิก</button>
+            <button class="btn primary" @click="applyImp" :disabled="impBusy || !imp.plan.fresh.length">
+              นำเข้า {{ imp.plan.fresh.length }} รายการ</button>
+          </div>
+
+          <div class="row" style="margin-top:12px;gap:26px">
+            <div><div class="hint">อ่านได้</div><div class="big">{{ imp.plan.total }}</div></div>
+            <div><div class="hint">ยังไม่เคยนำเข้า</div><div class="big">{{ imp.plan.fresh.length }}</div></div>
+            <div v-if="imp.plan.dup"><div class="hint">นำเข้าไปแล้ว</div>
+              <div class="big hint">{{ imp.plan.dup }}</div></div>
+            <div v-if="imp.kind!=='po'"><div class="hint">PO ที่เกี่ยวข้อง</div>
+              <div class="big">{{ imp.plan.pos.length }}</div></div>
+            <div v-if="imp.kind==='po' && imp.shorts"><div class="hint">ของขาด/รอส่ง</div>
+              <div class="big" :class="imp.freshShorts.length?'warn':''">{{ imp.freshShorts.length }}</div></div>
+          </div>
+
+          <!-- ทุกอย่างที่ตัวอ่านสงสัย ต้องขึ้นให้เห็นก่อนกดนำเข้า ไม่ใช่เงียบแล้วนำเข้าไปเลย -->
+          <div class="msg warn" v-if="imp.merged && imp.merged.length" style="margin:12px 0 0">
+            รวมยอดให้แล้ว {{ imp.merged.length }} รายการ ที่ PO กับรหัสซ้ำกันหลายบรรทัด<br>
+            <span class="hint mono">{{ imp.merged.slice(0,6).map(m => m.po + '/' + m.code + ' ×' + m.n).join(' · ') }}</span>
+          </div>
+          <div class="msg bad" v-if="imp.gaps && imp.gaps.length" style="margin:10px 0 0">
+            <b>เลข Item กระโดด {{ imp.gaps.length }} จุด — บรรทัดอาจหายตอน export</b><br>
+            <span class="hint mono">{{ imp.gaps.slice(0,5).map(g => g.sheet + ' หลัง ' + g.after + ': ขาด ' + g.missing.join(',')).join(' · ') }}</span>
+          </div>
+          <div class="msg bad" v-if="imp.blocks && imp.blocks.some(b => b.match === false)" style="margin:10px 0 0">
+            <b>ยอดรวมที่บวกเองไม่ตรงกับยอดในเอกสาร</b><br>
+            <span class="hint mono">{{ imp.blocks.filter(b => b.match === false).slice(0,4)
+              .map(b => b.code + ': เอกสาร ' + b.docTotal + ' · บวกได้ ' + b.calc).join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="imp.plan.codeNew && imp.plan.codeNew.length" style="margin:10px 0 0">
+            {{ imp.plan.codeNew.length }} รหัสยังไม่มีในทะเบียน —
+            <span class="hint mono">{{ imp.plan.codeNew.slice(0,8).join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="imp.plan.noPo && imp.plan.noPo.length" style="margin:10px 0 0">
+            {{ imp.plan.noPo.length }} PO ยังไม่มีในรายการ PO —
+            <span class="hint mono">{{ imp.plan.noPo.slice(0,8).join(' · ') }}</span>
+            <br><span class="hint">นำเข้าไฟล์ PO รายวันของวันนั้นด้วยจะครบกว่า</span>
+          </div>
+          <div class="msg warn" v-if="imp.skipped && imp.skipped.length" style="margin:10px 0 0">
+            ข้ามชีต {{ imp.skipped.length }} ชีต —
+            <span class="hint">{{ imp.skipped.map(s => s.name + ' (' + s.why + ')').join(' · ') }}</span>
+          </div>
+
+          <div class="scroll" style="margin-top:12px;max-height:38vh">
+            <table v-if="imp.kind==='po'">
+              <thead><tr><th style="width:110px">วันที่</th><th style="width:120px">PO</th>
+                <th style="width:120px">P/N</th><th style="width:90px">จำนวน</th>
+                <th>หมายเหตุ</th></tr></thead>
+              <tbody><tr v-for="p in imp.plan.fresh.slice(0,80)" :key="p.id">
+                <td class="mono hint">{{ p.date }}</td><td class="mono"><b>{{ p.po }}</b></td>
+                <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
+                <td class="hint">{{ p.remark }}</td>
+              </tr></tbody>
+            </table>
+            <table v-else>
+              <thead><tr><th style="width:120px">PO</th><th style="width:115px">รหัส</th>
+                <th>ชื่อ</th><th style="width:100px">จ่ายมา</th>
+                <th style="width:100px" v-if="imp.kind==='chem'">ตามสูตร</th>
+                <th style="width:110px" v-if="imp.kind==='chem'">ยอดสั่ง</th></tr></thead>
+              <tbody><tr v-for="k in imp.plan.fresh.slice(0,80)" :key="k.id">
+                <td class="mono"><b>{{ k.po }}</b></td><td class="mono">{{ k.code }}</td>
+                <td>{{ k.desc }}</td><td class="mono">{{ k.issue }}</td>
+                <td class="mono hint" v-if="imp.kind==='chem'">{{ k.req }}</td>
+                <td class="mono hint" v-if="imp.kind==='chem'">{{ k.orderQty }}</td>
+              </tr></tbody>
+            </table>
+            <p class="hint" v-if="imp.plan.fresh.length>80" style="margin:8px 0 0">
+              แสดง 80 จาก {{ imp.plan.fresh.length }} รายการ</p>
+          </div>
+        </div>
+
+        <!-- ของขาดที่ยังไม่ได้ -->
+        <div class="card" v-if="openShorts.length">
+          <h2>ของขาด / รอส่ง ({{ openShorts.length }})</h2>
+          <div class="scroll" style="max-height:32vh">
+            <table>
+              <thead><tr><th style="width:105px">แจ้งวันที่</th><th style="width:115px">PO</th>
+                <th style="width:115px">รหัส</th><th style="width:75px">ประเภท</th>
+                <th style="width:95px">จำนวน</th><th style="width:105px">ETA</th>
+                <th>ข้อความเต็ม</th><th style="width:80px"></th></tr></thead>
+              <tbody><tr v-for="s in openShorts" :key="s.id">
+                <td class="mono hint">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
+                <td class="mono">{{ s.code }}</td>
+                <td><span class="tag" :class="s.type==='ขาด'?'bad':'warn'">{{ s.type }}</span></td>
+                <td class="mono">{{ s.qty || '—' }} {{ s.unit }}</td>
+                <td class="mono hint">{{ s.eta || '—' }}</td>
+                <td class="hint">{{ s.note }}</td>
+                <td><button class="btn" style="padding:2px 8px" @click="toggleShort(s)">มาแล้ว</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">รายการ PO</h2>
+            <div class="grow"></div>
+            <span class="hint">วันนี้ {{ poToday.length }} PO · ทั้งหมด {{ pos.length }} ·
+              Kit List {{ kits.length }} บรรทัด</span>
+          </div>
+          <div class="scroll" style="margin-top:8px;max-height:40vh">
+            <table>
+              <thead><tr><th style="width:110px">วันที่</th><th style="width:125px">PO</th>
+                <th style="width:125px">P/N</th><th style="width:90px">จำนวน</th>
+                <th style="width:110px">Kit List</th><th>หมายเหตุ</th></tr></thead>
+              <tbody><tr v-for="p in recentPos" :key="p.id">
+                <td class="mono hint">{{ p.date }}</td><td class="mono"><b>{{ p.po }}</b></td>
+                <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
+                <td><span class="tag" :class="kits.some(k => k.po===p.po && k.src!=='chem') ? 'ok' : ''">
+                  {{ kits.filter(k => k.po===p.po && k.src!=='chem').length || 'ยังไม่มี' }}</span></td>
+                <td class="hint">{{ p.remark }}</td>
+              </tr></tbody>
+            </table>
+            <p v-if="!pos.length" class="empty">ยังไม่มี PO — ลากไฟล์ PO รายวันเข้ามาก่อน</p>
+          </div>
+        </div>
+      </template>
+
       <!-- ════════ ซิงค์ ════════ -->
       <template v-else-if="tab==='sync'">
         <div class="card">
@@ -1080,12 +1229,10 @@ textarea{font:inherit}
             <span class="hint" v-else>ยังไม่เคยซิงค์สำเร็จ</span>
           </div>
           <div class="row" style="margin-top:12px;gap:28px">
-            <div><div class="hint">รายการเคลื่อนไหว</div>
-              <div class="big" :class="pending.per.entries?'warn':''">{{ pending.per.entries }}</div></div>
-            <div><div class="hint">ทะเบียนวัตถุดิบ</div>
-              <div class="big" :class="pending.per.materials?'warn':''">{{ pending.per.materials }}</div></div>
-            <div><div class="hint">BOM</div>
-              <div class="big" :class="pending.per.bom?'warn':''">{{ pending.per.bom }}</div></div>
+            <div v-for="(def,k) in TABLES" :key="k">
+              <div class="hint">{{ def.label }}</div>
+              <div class="big" :class="pending.per[k]?'warn':''">{{ pending.per[k] || 0 }}</div>
+            </div>
           </div>
           <p class="hint" style="margin:12px 0 0">
             ตัวเลขนี้คือของที่ยังอยู่แค่ในเครื่องนี้ ไม่ได้แปลว่าผิด — คีย์ได้ตามปกติแม้เน็ตหลุด
@@ -1093,6 +1240,8 @@ textarea{font:inherit}
           </p>
           <div class="row" style="margin-top:12px">
             <div class="grow"></div>
+            <button class="btn" @click="pushAll" :disabled="!sync.url || sync.state==='busy'">
+              ส่งขึ้นใหม่ทั้งหมด</button>
             <button class="btn" @click="resync" :disabled="!sync.url || sync.state==='busy'">
               ดึงใหม่ทั้งหมดจากเซิร์ฟเวอร์</button>
           </div>

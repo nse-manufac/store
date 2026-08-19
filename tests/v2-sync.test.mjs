@@ -71,14 +71,21 @@ console.log('\n=== D. เตรียมส่ง ===');
 const store = {
   entries: [{ id: '1', dirty: true }, { id: '2', dirty: false }, { id: '3', dirty: true }],
   materials: [{ material_code: 'a', dirty: true }],
-  bom: []
+  bom: [],
+  kits: [{ id: 'k1', dirty: true }]
 };
 ok('หยิบเฉพาะแถวที่ยังไม่ได้ส่ง', dirtyRows(store.entries).length === 2);
 const plan = syncPlan(store);
 ok('นับแยกรายตาราง ไม่ใช่ยอดรวมก้อนเดียว',
-   plan.per.entries === 2 && plan.per.materials === 1 && plan.total === 3,
-   JSON.stringify(plan));
-ok('ตารางที่ซิงค์มีสามตาราง', Object.keys(TABLES).length === 3);
+   plan.per.entries === 2 && plan.per.materials === 1 && plan.per.kits === 1
+   && plan.total === 4, JSON.stringify(plan));
+ok('ตารางที่ยังไม่มีข้อมูลก็ต้องมีในสรุป ไม่ใช่หายไป',
+   plan.per.pos === 0 && plan.per.shorts === 0, JSON.stringify(plan.per));
+ok('ซิงค์ครบทุกตารางที่ต้องแชร์กันข้ามเครื่อง',
+   Object.keys(TABLES).join(',') === 'entries,materials,bom,pos,kits,shorts',
+   Object.keys(TABLES).join(','));
+ok('ทุกตารางบอกชื่อชีตปลายทางไว้ครบ',
+   Object.values(TABLES).every(t => t.sheet && t.key && t.label));
 ok('ธง dirty ไม่ถูกส่งขึ้นไปด้วย', toWire({ id: 'x', dirty: true }).dirty === undefined);
 
 // Apps Script มีเพดานเวลา 6 นาที ตอนเปิดระบบครั้งแรกจะมีเป็นพันแถวพร้อมกัน

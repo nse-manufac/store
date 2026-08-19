@@ -106,7 +106,7 @@ export async function loadAll() {
  * ผลคือรายการนั้นอยู่แค่ในเครื่องเดียวตลอดไปโดยไม่มีอะไรเตือน
  * มีที่เดียวที่ผ่านโดยไม่ติดธงคือตัวซิงค์เอง ซึ่งส่ง synced: true มา
  */
-const SYNCED = new Set(['entries', 'materials', 'bom']);
+const SYNCED = new Set(['entries', 'materials', 'bom', 'pos', 'kits', 'shorts']);
 
 export async function put(store, rows, { synced = false } = {}) {
   const list = Array.isArray(rows) ? rows : [rows];

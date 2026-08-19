@@ -20,6 +20,8 @@ import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript } from './core/sync.js';
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
+         importPlan as importPlanKit } from './master/po-kit.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -35,6 +37,7 @@ const TABS = [
   // สามชนิดที่เหลือรวมไว้หน้าเดียว เพราะแบบฟอร์มเหมือนกันเกือบหมด
   // และแยกเป็นสามแท็บจะทำให้แถบบนยาวจนหาของไม่เจอบนจอโรงงาน
   { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' },
+  { k: 'po',    label: 'PO / Kit List' },
   { k: 'sync',  label: 'ซิงค์' }
 ];
 
@@ -84,6 +87,9 @@ createApp({
         entries.value = data.entries || [];
         bom.value = data.bom || [];
         counts.value = data.counts || [];
+        pos.value = data.pos || [];
+        kits.value = data.kits || [];
+        shorts.value = data.shorts || [];
         entity.value = await db.getMeta('entity', '') || '';
         // ยังไม่มีหน้าตั้งค่า — ตั้งค่าเริ่มต้นไว้ก่อนเพื่อให้หน้าที่ต้องใช้ entity ทำงานได้
         if (!entity.value) { entity.value = 'NSE'; await db.setMeta('entity', 'NSE'); }
@@ -92,7 +98,7 @@ createApp({
         if (cfg) {
           sync.url = cfg.url || ''; sync.token = cfg.token || '';
           sync.auto = cfg.auto !== false;
-          sync.since = Object.assign({ entries: '', materials: '', bom: '' }, cfg.since || {});
+          sync.since = Object.assign({}, cfg.since || {});
         }
         device.value = await db.getMeta('device', '') || '';
         if (!device.value) {
@@ -426,7 +432,7 @@ createApp({
     const bomPnCodes = computed(() => [...new Set(bom.value.map(r => r.pn))].sort());
 
     function blankLine(code = '') {
-      return { k: 'L' + (++lineSeq), code, desc: '', unit: '', reqmt: null,
+      return { k: 'L' + (++lineSeq), code, desc: '', unit: '', reqmt: null, issued: null,
                qty: null, lot: '', expiry: '', needExp: false, known: false };
     }
     function fillLine(l) {
@@ -438,12 +444,50 @@ createApp({
     }
     const addInLine = () => inLines.value.push(blankLine());
 
-    /** กางสูตรของ P/N นี้ออกมาให้คีย์ */
+    /**
+     * กางรายการให้คีย์ — ยึด Kit List ก่อน แล้วค่อยตกมาที่ BOM
+     *
+     * ลำดับความน่าเชื่อถือ: Kit List (ของที่ Delta จ่ายมาจริง) > BOM (ยอดตามสูตร)
+     * ถ้ามี Kit List จะเติมช่อง "ตามที่จ่ายมา" ให้เลย เหลือให้พนักงานคีย์แค่ยอดนับจริง
+     * ซึ่งเป็นงานที่ต่างกันมาก — คีย์ทับเลขที่มีอยู่แล้ว เร็วกว่าและผิดยากกว่าคีย์จากศูนย์
+     *
+     * ⚠️ kitsOfPo ตัดกลุ่มจ่ายรวมรายสัปดาห์ (chem) ออกให้แล้ว ห้ามเอากลับเข้ามา
+     * ของกลุ่มนั้นไม่ได้มาพร้อม PO ถ้ากางขึ้นมาพนักงานจะคีย์ยอดที่ยังไม่ได้รับของจริง
+     */
     function expandBom() {
-      if (!inH.pn) return;
-      const rows = bom.value.filter(r => r.pn === String(inH.pn));
-      if (!rows.length) { bomHint.value = `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`; return; }
+      const kit = inH.po ? kitsOfPo(kits.value, inH.po) : [];
+      const rows = inH.pn ? bom.value.filter(r => r.pn === String(inH.pn)) : [];
       const order = Number(inH.order) || 0;
+      const bomOf = new Map(rows.map(r => [String(r.code), r]));
+
+      if (kit.length) {
+        // เติม P/N จาก Kit List ให้ถ้ายังไม่ได้ใส่ — เอกสารใบเดียวกันน่าเชื่อกว่าที่คนจำมา
+        if (!inH.pn && kit[0].pn) inH.pn = kit[0].pn;
+        inLines.value = kit.map(k => {
+          const l = blankLine(k.code);
+          fillLine(l);
+          if (!l.known) { l.desc = k.desc; l.unit = k.unit; }
+          l.issued = k.issue;                       // Delta จ่ายมาเท่าไหร่
+          l.qty = k.issue;                          // ตั้งไว้ให้ก่อน พนักงานแก้ทับเป็นยอดนับจริง
+          const b = bomOf.get(String(k.code));
+          l.reqmt = b && order ? Math.round(b.usage * order * 1e5) / 1e5 : null;
+          l.uomConfirmed = b ? b.uomConfirmed : true;
+          return l;
+        });
+        // รายการที่สูตรบอกว่าต้องใช้ แต่ Kit List ไม่ได้จ่ายมา — บอกไว้ ไม่ใช่เติมให้เอง
+        const missing = rows.filter(r => !kit.some(k => String(k.code) === String(r.code)));
+        bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมยอดที่ Delta จ่ายให้แล้ว)`
+          + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้จ่ายมา` : '');
+        return;
+      }
+
+      if (!rows.length) {
+        bomHint.value = inH.po
+          ? `ยังไม่มีทั้ง Kit List ของ PO ${inH.po} และสูตรของ ${inH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
+          : `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`;
+        return;
+      }
+
       inLines.value = rows.map(r => {
         const l = blankLine(r.code);
         fillLine(l);
@@ -454,6 +498,7 @@ createApp({
       });
       const un = rows.filter(r => r.uomConfirmed === false).length;
       bomHint.value = `กางสูตร ${rows.length} รายการ`
+        + (inH.po ? ` · ยังไม่มี Kit List ของ PO ${inH.po} จึงใช้สูตรแทน` : '')
         + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร')
         + (un ? ` · ⚠️ ${un} รายการใช้หน่วยที่ยังไม่ยืนยันกับ Delta` : '');
     }
@@ -475,7 +520,7 @@ createApp({
           lot: l.lot || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: inH.po, part_no: inH.pn,
           at: atFrom(inH.date),
           person: inH.person, device: device.value,
-          expiry_date: l.expiry || '', reqmt_qty: l.reqmt
+          expiry_date: l.expiry || '', reqmt_qty: l.reqmt, issued_qty: l.issued
         }));
         await db.put('entries', posted);
         entries.value.push(...posted);
@@ -722,11 +767,115 @@ createApp({
         .map(e => ({ ...e, kindLabel: (KINDS[e.kind] || {}).label || e.kind }));
     });
 
+    // ── นำเข้า PO / Kit List ───────────────────────────────────────
+    // ไฟล์จาก Delta สามแบบ อ่านด้วยตัวอ่านคนละตัว แต่เข้าท่อเดียวกัน
+    const pos = ref([]);
+    const kits = ref([]);
+    const shorts = ref([]);
+    const imp = ref(null);          // ผลอ่านไฟล์ที่รอให้ตรวจก่อนกดนำเข้า
+    const impBusy = ref(false);
+    const impDrag = ref(false);
+
+    const KIND_LABEL = { po: 'PO รายวัน', kit: 'Kit List (22-H)', chem: 'Kit List กลุ่มจ่ายรวม' };
+
+    /**
+     * เดาว่าไฟล์ที่ลากมาเป็นแบบไหน จากเนื้อในไม่ใช่จากชื่อไฟล์
+     * ชื่อไฟล์ของจริงตั้งไม่เป็นระบบ (22-H.xls · 4020600700-4020241300.xlsx)
+     * และเดาผิดแล้วจะได้ข้อมูลเปล่า ๆ โดยไม่มีอะไรฟ้อง จึงลองอ่านจริงทั้งสามแบบแล้วดูว่าอันไหนได้ของ
+     */
+    function detectAndParse(wb, XLSX) {
+      const aoaOf = name => XLSX.utils.sheet_to_json(wb.Sheets[name],
+                              { header: 1, defval: null, blankrows: true });
+      const first = aoaOf(wb.SheetNames[0]);
+
+      const chemBook = { sheets: wb.SheetNames.map(n => ({
+        name: n,
+        hidden: ((wb.Workbook && wb.Workbook.Sheets) || [])
+                  .some(s => s.name === n && s.Hidden),
+        aoa: aoaOf(n)
+      })) };
+      const chem = parseKitChem(chemBook);
+      if (chem.rows.length) return { kind: 'chem', ...chem };
+
+      const kit = parseKitList(first);
+      if (kit.rows.length) return { kind: 'kit', ...kit };
+
+      const po = parsePoFile(first);
+      if (po.pos.length) return { kind: 'po', ...po };
+
+      return { kind: '', rows: [], pos: [] };
+    }
+
+    async function readImpFile(file) {
+      impBusy.value = true;
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+        const p = detectAndParse(wb, XLSX);
+        if (!p.kind) throw new Error('อ่านไม่ออกว่าเป็นไฟล์แบบไหน — ไม่เจอทั้งแถว PO และบรรทัด Kit List');
+        const rows = p.kind === 'po' ? p.pos : p.rows;
+        const plan = p.kind === 'po'
+          ? { total: p.pos.length, fresh: p.pos.filter(x => !pos.value.some(y => y.id === x.id)),
+              dup: 0, pos: p.pos.map(x => x.po), noPo: [], codeNew: [], totalIssue: 0 }
+          : importPlanKit(rows, { existing: kits.value, materials: materials.value,
+                                  poList: pos.value });
+        if (p.kind === 'po') plan.dup = p.pos.length - plan.fresh.length;
+        imp.value = { fileName: file.name, ...p, plan,
+                      freshShorts: (p.shorts || []).filter(s => !shorts.value.some(x => x.id === s.id)) };
+      } catch (err) {
+        flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true);
+        imp.value = null;
+      } finally { impBusy.value = false; }
+    }
+
+    const onDropImp = e => { impDrag.value = false;
+      if (e.dataTransfer.files[0]) readImpFile(e.dataTransfer.files[0]); };
+    const onPickImp = e => { if (e.target.files[0]) readImpFile(e.target.files[0]); e.target.value = ''; };
+
+    async function applyImp() {
+      const p = imp.value;
+      if (!p) return;
+      impBusy.value = true;
+      try {
+        if (p.kind === 'po') {
+          await db.put('pos', p.plan.fresh.map(plain));
+          pos.value.push(...p.plan.fresh);
+          if (p.freshShorts.length) {
+            await db.put('shorts', p.freshShorts.map(plain));
+            shorts.value.push(...p.freshShorts);
+          }
+          flash(`นำเข้า PO ${p.plan.fresh.length} รายการ · ของขาด ${p.freshShorts.length} รายการ`);
+        } else {
+          await db.put('kits', p.plan.fresh.map(plain));
+          kits.value.push(...p.plan.fresh);
+          flash(`นำเข้า ${KIND_LABEL[p.kind]} ${p.plan.fresh.length} รายการ · ${p.plan.pos.length} PO`);
+        }
+        imp.value = null;
+      } catch (err) { flash(err.message, true); }
+      finally { impBusy.value = false; }
+    }
+
+    const openShorts = computed(() => shorts.value.filter(s => !s.done));
+    const poToday = computed(() => {
+      const d = todayLocal();
+      return pos.value.filter(p => p.date === d);
+    });
+    const recentPos = computed(() =>
+      [...pos.value].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 40));
+
+    async function toggleShort(s) {
+      const rec = { ...plain(s), done: !s.done };
+      await db.put('shorts', rec);
+      const i = shorts.value.findIndex(x => x.id === s.id);
+      shorts.value.splice(i, 1, rec);
+    }
+
     // ── ซิงค์ขึ้น Google Sheets ────────────────────────────────────
     // ตรรกะการรวมข้อมูลอยู่ใน core/sync.js ที่นี่มีแค่การยิงเน็ตและต่อสายเข้าหน้าจอ
     const sync = reactive({ url: '', token: '', auto: true,
                             state: 'idle', error: '', lastOkAt: '',
-                            since: { entries: '', materials: '', bom: '' },
+                            since: {},
                             needDeploy: false, msg: '' });
     let syncing = false;
 
@@ -779,9 +928,9 @@ createApp({
       } catch (err) { sync.state = 'error'; sync.error = err.message; }
     }
 
-    /** ตารางในเครื่องกับชื่อชีตบนเซิร์ฟเวอร์ */
-    const SHEET_OF = { entries: 'Entries', materials: 'Materials', bom: 'BOM' };
-    const listOf = t => (t === 'entries' ? entries : t === 'materials' ? materials : bom);
+    /** ตารางในเครื่องกับกล่องข้อมูลของมัน — ชื่อชีตอยู่ใน TABLES แล้ว */
+    const LIST_OF = { entries, materials, bom, pos, kits, shorts };
+    const listOf = t => LIST_OF[t];
 
     async function syncNow(silent = false) {
       if (!sync.url || syncing) return;
@@ -798,7 +947,7 @@ createApp({
           const waiting = dirtyRows(list.value);
           for (const part of chunk(waiting, 300)) {
             sync.msg = `กำลังส่ง ${TABLES[t].label} ${up + part.length}/${waiting.length}...`;
-            const res = await api('pushTable', { table: SHEET_OF[t], rows: part.map(toWire) });
+            const res = await api('pushTable', { table: TABLES[t].sheet, rows: part.map(toWire) });
             // เอาเวลาของเซิร์ฟเวอร์มาใช้ ไม่ใช่เวลาเครื่อง — ดูเหตุผลใน core/sync.js
             const stamped = markSynced(part, res.serverTime);
             stamped.forEach((r, i) => { part[i].dirty = false; part[i].updated_at = r.updated_at; });
@@ -808,7 +957,7 @@ createApp({
 
           // ── แล้วค่อยดึงลง ──
           sync.msg = `กำลังดึง ${TABLES[t].label}...`;
-          const d = await api('pullTable', { table: SHEET_OF[t], since: sync.since[t] || '' });
+          const d = await api('pullTable', { table: TABLES[t].sheet, since: sync.since[t] || '' });
           const m = mergeIncoming(list.value, d.rows || [], key);
           if (m.added.length) {
             await db.put(t, m.added.map(plain), { synced: true });
@@ -838,11 +987,31 @@ createApp({
       } finally { syncing = false; }
     }
 
+    /**
+     * ส่งขึ้นใหม่ทั้งหมด — ติดธงทุกแถวว่ายังไม่ได้ส่ง แล้วซิงค์
+     *
+     * มีไว้สำหรับกรณีที่ธงหายไปโดยที่ข้อมูลยังอยู่ เช่น
+     *   ตารางเพิ่งถูกเพิ่มเข้าระบบซิงค์ทีหลัง แถวเก่าจึงไม่เคยมีธงมาก่อน
+     *   หรือเคยกดล้างข้อมูลบนเซิร์ฟเวอร์แล้วอยากอัปใหม่จากเครื่องนี้
+     * ไม่มีอะไรถูกลบ ฝั่งเซิร์ฟเวอร์ upsert ทับของเดิมด้วยกุญแจเดียวกัน
+     */
+    async function pushAll() {
+      if (!confirm(['จะส่งข้อมูลทั้งหมดในเครื่องนี้ขึ้นเซิร์ฟเวอร์อีกครั้ง',
+                    'ของบนเซิร์ฟเวอร์ที่มีกุญแจเดียวกันจะถูกทับด้วยของในเครื่องนี้',
+                    '', 'ทำต่อไหม'].join('\n'))) return;
+      for (const t of Object.keys(TABLES)) {
+        const list = listOf(t).value;
+        for (const r of list) r.dirty = true;
+        if (list.length) await db.put(t, list.map(plain));
+      }
+      await syncNow(false);
+    }
+
     /** ดึงใหม่ทั้งหมดตั้งแต่ต้น — ใช้ตอนสงสัยว่าเครื่องนี้ตกอะไรไป */
     async function resync() {
       if (!confirm('จะดึงข้อมูลใหม่ทั้งหมดจากเซิร์ฟเวอร์\n'
         + 'ของที่ยังไม่ได้ส่งขึ้นจะไม่ถูกทับ และไม่มีอะไรถูกลบ\n\nทำต่อไหม')) return;
-      sync.since = { entries: '', materials: '', bom: '' };
+      sync.since = {};
       await syncNow(false);
     }
 
@@ -997,7 +1166,9 @@ createApp({
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
-             sync, pending, saveSyncCfg, testConnection, syncNow, resync,
+             sync, pending, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
+             pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
+             applyImp, openShorts, poToday, recentPos, toggleShort,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };

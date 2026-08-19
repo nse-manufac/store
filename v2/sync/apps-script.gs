@@ -49,6 +49,27 @@ var TABLES = {
            'deleted','updated_at'],
     bools: ['uomConfirmed','deleted'],
     texts: ['id','pn','code','valid_from','imported_at','updated_at']
+  },
+  // สามตารางนี้มาจากไฟล์ที่ Delta ส่งมา เครื่องไหนนำเข้าก็ได้ แต่ทุกเครื่องต้องเห็นเหมือนกัน
+  // ถ้าไม่ซิงค์ เครื่องที่ไม่ได้นำเข้าจะกางรายการรับเข้าจากสูตรแทน Kit List โดยไม่รู้ตัว
+  POs: {
+    key: 'id',
+    cols: ['id','date','sub','pn','po','qty','core','remark','updated_at'],
+    bools: [],
+    texts: ['id','date','pn','po','updated_at']
+  },
+  Kits: {
+    key: 'id',
+    cols: ['id','date','group','po','pn','code','desc','unit','issue',
+           'src','orderQty','req','remark','updated_at'],
+    bools: [],
+    texts: ['id','date','po','pn','code','updated_at']
+  },
+  Shorts: {
+    key: 'id',
+    cols: ['id','date','po','code','type','qty','unit','eta','note','done','updated_at'],
+    bools: ['done'],
+    texts: ['id','date','po','code','eta','updated_at']
   }
 };
 
