@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-version" content="2026-08-22.1">
+<title>โปรแกรมคลัง NSE</title>
+<style>
+:root{
+  --bg:#f4f6f9;--panel:#fff;--line:#dde3ea;--ink:#1c2733;--muted:#68778a;
+  --brand:#1f4e79;--soft:#e8f0f8;--ok:#1a7f4b;--okbg:#e6f5ed;
+  --warn:#b06d00;--warnbg:#fff6e0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-size:15px;
+  line-height:1.6}
+header{background:var(--brand);color:#fff;padding:22px 20px}
+header h1{margin:0;font-size:20px;font-weight:600}
+header p{margin:6px 0 0;font-size:13px;opacity:.85}
+main{max-width:760px;margin:0 auto;padding:22px 20px 60px}
+.app{display:block;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:16px 18px;margin-bottom:12px;text-decoration:none;color:inherit}
+.app:hover{border-color:var(--brand);box-shadow:0 2px 10px rgba(31,78,121,.1)}
+.app b{color:var(--brand);font-size:17px}
+.app .tag{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;
+  background:var(--okbg);color:var(--ok);margin-left:8px;vertical-align:2px}
+.app .tag.old{background:var(--soft);color:var(--brand)}
+.app p{margin:5px 0 0;font-size:13px;color:var(--muted)}
+h2{font-size:14px;color:var(--muted);margin:26px 0 10px;font-weight:600}
+.note{background:var(--warnbg);border:1px solid #f0d799;color:var(--warn);
+  border-radius:8px;padding:12px 15px;font-size:13px;margin-top:20px}
+.note b{display:block;margin-bottom:3px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>โปรแกรมคลัง NSE</h1>
+  <p>เปิดจากลิงก์นี้ได้ทุกเครื่อง ไม่ต้องติดตั้งอะไร</p>
+</header>
+
+<main>
+  <h2>ใช้งานประจำวัน</h2>
+
+  <!-- ชี้ที่ไฟล์ตรง ๆ ไม่ใช่ "v2/" เพราะเซิร์ฟเวอร์บางตัวไม่เปิดหน้า index ให้เองเมื่อขอเป็นโฟลเดอร์
+       GitHub Pages เปิดให้ แต่ถ้าวันหนึ่งย้ายไปเสิร์ฟจากเครื่องในโรงงานจะได้ไม่พังเงียบ ๆ -->
+  <a class="app" href="v2/index.html">
+    <b>ระบบ Bin Card v2</b><span class="tag">ตัวใหม่</span>
+    <p>รับเข้า · จ่ายออก · ของเสีย · ยอดคงคลัง · การ์ด · ทะเบียนวัตถุดิบ · BOM · PO/Kit List
+       — รวมทุกอย่างไว้ในตัวเดียว</p>
+  </a>
+
+  <a class="app" href="Stock-log.html">
+    <b>ระบบ Bin Card v1</b><span class="tag old">ตัวเดิม</span>
+    <p>ตัวที่ใช้อยู่เดิม ยังเปิดได้ตามปกติระหว่างช่วงเปลี่ยนผ่าน</p>
+  </a>
+
+  <h2>เครื่องมือแยก (ตัวเดิม)</h2>
+
+  <a class="app" href="%E0%B8%97%E0%B8%B0%E0%B9%80%E0%B8%9A%E0%B8%B5%E0%B8%A2%E0%B8%99%E0%B8%A7%E0%B8%B1%E0%B8%95%E0%B8%96%E0%B8%B8%E0%B8%94%E0%B8%B4%E0%B8%9A.html">
+    <b>ทะเบียนวัตถุดิบ</b>
+    <p>v2 มีทะเบียนอยู่ในตัวแล้ว ตัวนี้เก็บไว้สำหรับงานเก่า</p>
+  </a>
+
+  <a class="app" href="%E0%B9%81%E0%B8%9B%E0%B8%A5%E0%B8%87%20BOM%20%E0%B8%88%E0%B8%B2%E0%B8%81%20SAP.html">
+    <b>แปลง BOM จาก SAP</b>
+    <p>v2 ลากไฟล์ SAP เข้าโปรแกรมได้ตรง ๆ แล้ว ตัวนี้เก็บไว้สำหรับงานเก่า</p>
+  </a>
+
+  <div class="note">
+    <b>ข้อมูลเก็บอยู่ในเครื่องที่เปิด ไม่ได้อยู่บนเว็บ</b>
+    เปิดคนละเครื่องหรือคนละเบราว์เซอร์ = คนละชุดข้อมูล
+    ถ้าอยากให้ทุกเครื่องเห็นตรงกัน ต้องตั้งค่าซิงค์กับ Google Sheets ในหน้า "ตั้งค่า · ซิงค์"
+  </div>
+</main>
+
+</body>
+</html>
