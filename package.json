@@ -4,7 +4,8 @@
   "private": true,
   "description": "Smoke tests for Stock-log.html. The app itself has no build step and no runtime dependencies — this package.json exists only for the test harness.",
   "scripts": {
-    "test": "playwright test",
+    "test": "npm run test:core && playwright test",
+    "test:core": "node tests/v2-core.test.mjs && node tests/v2-materials.test.mjs && node tests/v2-sapbom.test.mjs && node tests/v2-bom.test.mjs && node tests/v2-count.test.mjs && node tests/v2-lots.test.mjs && node tests/v2-export.test.mjs && node tests/v2-pokit.test.mjs && node tests/v2-weekly.test.mjs && node tests/v2-entities.test.mjs && node tests/v2-sync.test.mjs && node tests/v2-sync-server.test.mjs",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui"
   },

@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-version" content="2026-08-22.1">
+<title>ระบบ Bin Card v2</title>
+
+<!--
+  ⚠️ ไลบรารีทั้งหมดอยู่ในเครื่อง ห้ามเปลี่ยนไปโหลดจากเน็ต
+  v1 โหลดจาก cdnjs ทุกครั้งที่เปิด เน็ตโรงงานบล็อกเมื่อไหร่ก็หน้าขาวสนิท
+  ทั้งที่ข้อมูลอยู่ในเครื่องครบและไม่ต้องใช้เน็ตทำงานเลย — ดู lib/README.md
+-->
+<script src="lib/vue.global.prod.js"></script>
+
+<style>
+:root{
+  /* สีชุดเดียวกับ v1 โดยตั้งใจ — พนักงานจะใช้สองตัวคาบเกี่ยวกันช่วงเปลี่ยนผ่าน
+     ถ้าหน้าตาต่างกันมากจะรู้สึกเหมือนต้องเรียนโปรแกรมใหม่ทั้งตัว */
+  --bg:#f4f6f9;--panel:#fff;--line:#dde3ea;--ink:#1c2733;--muted:#68778a;
+  --brand:#1f4e79;--soft:#e8f0f8;--ok:#1a7f4b;--okbg:#e6f5ed;
+  --warn:#b06d00;--warnbg:#fff6e0;--bad:#c02626;--badbg:#fdecec;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-size:14px}
+#app{min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--brand);color:#fff;padding:9px 16px;display:flex;
+  align-items:center;gap:14px;flex-wrap:wrap}
+header h1{margin:0;font-size:15px;font-weight:600}
+header .ver{font-size:11px;opacity:.75;padding:1px 7px;border:1px solid rgba(255,255,255,.4);
+  border-radius:99px;font-variant-numeric:tabular-nums}
+header .grow{flex:1}
+header .who{font-size:12px;opacity:.9}
+header .who-pick{font:inherit;font-size:13px;font-weight:600;padding:4px 8px;
+  background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);
+  border-radius:6px}
+header .who-pick option{color:var(--ink)}
+.tabs{display:flex;gap:3px;flex-wrap:wrap}
+.tabs button{background:rgba(255,255,255,.12);color:#fff;border:0;padding:7px 14px;
+  border-radius:5px 5px 0 0;font:inherit;font-size:13px;cursor:pointer}
+.tabs button.on{background:var(--bg);color:var(--brand);font-weight:600}
+.subtabs{display:flex;gap:4px;flex-wrap:wrap;padding:8px 16px 0;background:var(--bg);
+  border-bottom:1px solid var(--line)}
+.subtabs button{background:transparent;border:1px solid transparent;border-bottom:0;
+  padding:7px 13px;border-radius:6px 6px 0 0;font:inherit;font-size:13px;cursor:pointer;
+  color:var(--muted)}
+.subtabs button:hover{background:var(--panel)}
+.subtabs button.on{background:var(--panel);border-color:var(--line);color:var(--brand);
+  font-weight:600;margin-bottom:-1px;padding-bottom:8px}
+@media print{.subtabs{display:none !important}}
+main{padding:14px 16px 60px;flex:1}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;margin-bottom:12px}
+.card h2{margin:0 0 10px;font-size:14px;color:var(--brand)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grow{flex:1}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+input,select{font:inherit;font-size:14px;padding:7px 9px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;color:var(--ink)}
+input:focus,select:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.btn{font:inherit;font-size:13px;padding:8px 15px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;cursor:pointer}
+.btn:hover{background:#f0f4f8}
+.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid var(--line);
+  font-size:11px;color:var(--muted);white-space:nowrap;position:sticky;top:0}
+td{padding:6px 8px;border-bottom:1px solid #f0f3f6;vertical-align:top}
+tr.review td{background:#fffdf3}
+.mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.scroll{max-height:60vh;overflow:auto}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
+  background:var(--soft);color:var(--brand);white-space:nowrap}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.tag.warn{background:var(--warnbg);color:var(--warn)}
+.tag.bad{background:var(--badbg);color:var(--bad)}
+.msg{padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
+.msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
+.msg.warn{background:var(--warnbg);color:var(--warn);border:1px solid #f0d799}
+.msg.bad{background:var(--badbg);color:var(--bad);border:1px solid #f0c4c4}
+.hint{font-size:12px;color:var(--muted)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:30px;text-align:center;transition:.15s}
+.drop.over{border-color:var(--brand);background:var(--soft)}
+.big{font-size:28px;font-weight:700;color:var(--brand);line-height:1.15;
+  font-variant-numeric:tabular-nums}
+.big.bad{color:var(--bad)} .big.warn{color:var(--warn)}
+textarea{font:inherit}
+.printonly{display:none}
+.modal{position:fixed;inset:0;background:rgba(18,32,44,.45);display:flex;
+  align-items:flex-start;justify-content:center;padding:60px 16px;z-index:40}
+.modal-box{background:var(--panel);border-radius:10px;padding:16px;width:min(760px,100%);
+  box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.modal-box tbody tr:hover{background:var(--soft)}
+
+/* ── ใบนับตอนพิมพ์ ──
+   ช่อง "นับได้" ต้องเป็นกรอบว่างให้เขียนด้วยมือ ไม่ใช่ช่องกรอกบนจอที่พิมพ์ออกมาว่าง ๆ
+   และห้ามมียอดของระบบโผล่มาในใบนับเด็ดขาด — ดูเหตุผลใน core/count.js */
+@media print{
+  header,.noprint,.tabs{display:none !important}
+  body{background:#fff}
+  main{padding:0}
+  .card{border:0;padding:0;margin:0}
+  .printonly{display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:10px;font-size:13px}
+  .scroll{max-height:none;overflow:visible}
+  table{font-size:12px}
+  th{background:#fff;border-bottom:1.5px solid #000;position:static}
+  td{border-bottom:1px solid #ccc;padding:7px 8px}
+  .countcell{border:1px solid #000;min-width:90px}
+  tr{page-break-inside:avoid}
+}
+.empty{padding:26px;text-align:center;color:var(--muted)}
+.boot{padding:60px;text-align:center;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);
+  color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:50;
+  box-shadow:0 6px 22px rgba(0,0,0,.28)}
+.toast.bad{background:var(--bad)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="boot" v-if="!ready">{{ bootMsg }}</div>
+
+  <template v-else>
+    <header>
+      <h1>ระบบ Bin Card</h1>
+      <span class="ver">v{{ APP_VERSION }}</span>
+      <div class="tabs">
+        <button v-for="g in GROUPS" :key="g.k"
+                :class="{on: openGroup===g.k}" @click="openGroup=g.k">{{ g.label }}</button>
+      </div>
+      <div class="grow"></div>
+      <!-- เปลี่ยนตัวนี้ = เปลี่ยนความหมายของทุกยอดบนหน้าจอ ไม่ใช่แค่การกรอง -->
+      <select class="who-pick" :value="entity" @change="switchEntity($event.target.value)"
+              title="นิติบุคคล — ยอดคงคลังของแต่ละโรงงานแยกกัน">
+        <option v-for="c in entCodes" :key="c" :value="c">{{ c }}</option>
+      </select>
+    </header>
+
+    <div class="subtabs">
+      <button v-for="t in (GROUPS.find(g => g.k===openGroup) || {}).tabs" :key="t.k"
+              :class="{on: tab===t.k}" @click="tab=t.k">
+        {{ t.label }}<span v-if="t.k==='mat' && needReview" class="tag warn"
+                           style="margin-left:5px">{{ needReview }}</span>
+      </button>
+    </div>
+
+    <main>
+      <div class="msg bad" v-if="bootError">{{ bootError }}</div>
+
+      <!-- ════════ หน้าแรก ════════ -->
+      <template v-if="tab==='home'">
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">งานวันนี้ · {{ homeToday }}</h2>
+            <div class="grow"></div>
+            <span class="hint">นิติบุคคล {{ entity }}</span>
+          </div>
+          <p class="hint" style="margin:6px 0 12px">
+            ไล่จากบนลงล่างได้เลย — ติ๊กเขียวแปลว่าทำแล้ว
+          </p>
+          <table>
+            <tbody><tr v-for="t in homeTasks" :key="t.k">
+              <td style="width:44px;text-align:center;font-size:17px">
+                <span v-if="t.done === true" style="color:var(--ok)">✓</span>
+                <span v-else-if="t.done === false" style="color:var(--warn)">•</span>
+                <span v-else class="hint">—</span>
+              </td>
+              <td><b>{{ t.label }}</b><div class="hint">{{ t.detail }}</div></td>
+              <td style="width:90px"><button class="btn" @click="tab=t.tab">ไปทำ</button></td>
+            </tr></tbody>
+          </table>
+        </div>
+
+        <div class="card" v-if="homeAlerts.length">
+          <h2>ค้างอยู่</h2>
+          <div class="row" style="gap:26px;margin-top:4px">
+            <div v-for="a in homeAlerts" :key="a.label" style="cursor:pointer" @click="tab=a.tab">
+              <div class="hint">{{ a.label }}</div>
+              <div class="big" :class="a.bad ? 'bad' : 'warn'">{{ a.n }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>วันนี้คีย์ไปแล้ว</h2>
+          <div class="row" style="gap:28px;margin-top:4px">
+            <div><div class="hint">รับเข้า</div><div class="big">{{ homeIn }}</div></div>
+            <div><div class="hint">จ่ายออก</div><div class="big">{{ homeOut }}</div></div>
+            <div><div class="hint">รหัสที่มีของอยู่</div><div class="big">{{ balSum.codes }}</div></div>
+            <div v-if="balSum.negative"><div class="hint">ยอดติดลบ</div>
+              <div class="big bad">{{ balSum.negative }}</div></div>
+          </div>
+          <p class="hint" style="margin:12px 0 0" v-if="!sync.url">
+            ยังไม่ได้เชื่อมกับ Google Sheets — ข้อมูลอยู่แค่ในเครื่องนี้เครื่องเดียว
+            <button class="btn" style="padding:2px 9px" @click="tab='sync'">ไปตั้งค่า</button>
+          </p>
+          <p class="hint" style="margin:12px 0 0" v-else-if="sync.lastOkAt">
+            ซิงค์ล่าสุด {{ localDate(sync.lastOkAt) }} {{ sync.lastOkAt.slice(11,16) }}
+          </p>
+        </div>
+      </template>
+
+      <!-- ════════ ทะเบียนวัตถุดิบ ════════ -->
+      <template v-else-if="tab==='mat'">
+        <div class="card">
+          <div class="row">
+            <label class="f grow" style="min-width:240px">ค้นหา
+              <input v-model.trim="q" placeholder="พิมพ์รหัสหรือชื่อ เช่น 3220130200 หรือ TAPE PLE">
+            </label>
+            <label class="f">หมวด
+              <select v-model="fCat">
+                <option value="">ทุกหมวด</option>
+                <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </label>
+            <label class="f">แสดง
+              <select v-model="fState">
+                <option value="active">ที่ใช้งานอยู่</option>
+                <option value="review">รอตรวจ</option>
+                <option value="all">ทั้งหมด</option>
+              </select>
+            </label>
+            <button class="btn primary" @click="startAdd">+ เพิ่มรหัสใหม่</button>
+          </div>
+          <p class="hint" style="margin:9px 0 0">
+            ทะเบียนในเครื่อง <b>{{ materials.length.toLocaleString() }}</b> รายการ ·
+            ใช้งานอยู่ {{ activeCount.toLocaleString() }}
+            <span v-if="needReview"> · <span class="tag warn">รอคุณตรวจ {{ needReview }}</span></span>
+          </p>
+        </div>
+
+        <!-- ── ฟอร์มเพิ่ม/แก้ ── -->
+        <div class="card" v-if="edit">
+          <h2>{{ edit._new ? 'เพิ่มรหัสใหม่' : 'แก้ไข ' + edit.material_code }}</h2>
+          <div class="row">
+            <label class="f" style="width:170px">รหัสวัตถุดิบ
+              <input v-model.trim="edit.material_code" class="mono" :disabled="!edit._new"
+                     placeholder="เช่น 3220130200">
+            </label>
+            <label class="f grow" style="min-width:260px">ชื่อ / คำอธิบาย
+              <input v-model.trim="edit.description" placeholder="ชื่อที่พนักงานเรียกกันจริง">
+            </label>
+            <label class="f" style="width:90px">หน่วย
+              <input v-model.trim="edit.unit" class="mono" placeholder="PCE">
+            </label>
+            <label class="f" style="width:140px">หมวด
+              <select v-model="edit.category">
+                <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:9px">
+            <label class="row" style="gap:6px;font-size:13px">
+              <input type="checkbox" v-model="edit.requires_expiry"> ต้องกรอกวันหมดอายุ</label>
+            <label class="row" style="gap:6px;font-size:13px">
+              <input type="checkbox" v-model="edit.active"> ใช้งานอยู่</label>
+            <div class="grow"></div>
+            <button class="btn" @click="edit=null">ยกเลิก</button>
+            <button class="btn primary" @click="saveEdit" :disabled="codeCheck.level==='bad'">บันทึก</button>
+          </div>
+
+          <div class="msg bad" v-if="codeCheck.level==='bad'" style="margin:10px 0 0">
+            {{ codeCheck.msg }}</div>
+          <div class="msg warn" v-else-if="codeCheck.level==='warn'" style="margin:10px 0 0">
+            ⚠️ {{ codeCheck.msg }}<br>
+            <span class="hint">บันทึกต่อได้ ระบบจะทำเครื่องหมายไว้ให้เจ้าของตรวจอีกที</span></div>
+          <div class="msg warn" v-if="edit._new && dupOf(edit.description).length" style="margin:10px 0 0">
+            มีของชื่อนี้อยู่แล้ว {{ dupOf(edit.description).length }} รหัส —
+            <span class="mono">{{ dupOf(edit.description).join(' · ') }}</span><br>
+            <span class="hint">ถ้าเป็นของตัวเดียวกัน ใช้รหัสเดิมดีกว่า จะได้ไม่มีสองรายการที่แยกกันไม่ออก</span></div>
+        </div>
+
+        <!-- ── รายการ ── -->
+        <div class="card">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th style="width:120px">รหัส</th><th>ชื่อ</th>
+                <th style="width:70px">หน่วย</th><th style="width:110px">หมวด</th>
+                <th style="width:90px">สถานะ</th><th style="width:120px"></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="m in shown" :key="m.material_code" :class="{review:m.needs_review}">
+                  <td class="mono"><b>{{ m.material_code }}</b></td>
+                  <td>{{ m.description || '(ยังไม่มีชื่อ)' }}
+                    <span v-if="m.dupDesc" class="tag warn" title="มีของชื่อเดียวกันหลายรหัส ดูที่รหัสให้ดี">ชื่อซ้ำ</span>
+                  </td>
+                  <td class="mono">{{ m.unit }}</td>
+                  <td><span class="tag">{{ m.category }}</span></td>
+                  <td>
+                    <span v-if="m.needs_review" class="tag warn">รอตรวจ</span>
+                    <span v-else-if="!m.active" class="tag bad">ปิดใช้งาน</span>
+                    <span v-else class="tag ok">ใช้งานอยู่</span>
+                  </td>
+                  <td>
+                    <button class="btn" style="padding:3px 9px" @click="startEdit(m)">แก้</button>
+                    <button v-if="m.needs_review" class="btn" style="padding:3px 9px;margin-left:4px"
+                            @click="approve(m)">ตรวจแล้ว</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="!shown.length" class="empty">
+              ไม่เจอรายการที่ตรงกับที่ค้น<br>
+              <span class="hint">ถ้าของอยู่ตรงหน้าแต่ไม่มีในทะเบียน กด "เพิ่มรหัสใหม่" ได้เลย</span>
+            </p>
+            <p v-else-if="shown.length>=SHOW_MAX" class="hint" style="padding:8px">
+              แสดง {{ SHOW_MAX }} รายการแรก — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น
+            </p>
+          </div>
+        </div>
+      </template>
+
+      <!-- ════════ BOM ════════ -->
+      <template v-else-if="tab==='bom'">
+        <div class="card">
+          <div class="drop" :class="{over:dragOver}"
+               @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+               @drop.prevent="onDropBom">
+            <b style="font-size:16px">ลากไฟล์ BOM จาก SAP มาวางตรงนี้</b>
+            <p class="hint" style="margin:6px 0 0">
+              1 ไฟล์ = 1 P/N · ลากพร้อมกันหลายไฟล์ได้ · ไฟล์ .html ที่ออกจาก REPORT YTRPBOM1</p>
+            <p style="margin:12px 0 0"><input type="file" accept=".html,.htm" multiple @change="onPickBom"></p>
+          </div>
+        </div>
+
+        <!-- ── ผลการอ่าน รอกดยืนยัน ── -->
+        <template v-if="bomPlan">
+          <div class="card">
+            <h2>อ่านไฟล์แล้ว — ตรวจก่อนนำเข้า</h2>
+            <div class="row" style="gap:26px;align-items:flex-start">
+              <div><div class="hint">จะนำเข้า</div>
+                <div class="big">{{ bomSum.lines.toLocaleString() }}</div>
+                <div class="hint">บรรทัด จาก {{ bomSum.pns }} P/N</div></div>
+              <div v-if="bomSum.blocked"><div class="hint">ไม่ให้เข้าเพราะหน่วยไม่รู้จัก</div>
+                <div class="big bad">{{ bomSum.blocked }}</div>
+                <div class="hint">บรรทัด</div></div>
+              <div v-if="bomSum.unconfirmed"><div class="hint">หน่วยยังไม่ยืนยัน</div>
+                <div class="big warn">{{ bomSum.unconfirmed }}</div>
+                <div class="hint">บรรทัด</div></div>
+              <div v-if="bomSum.inhouse"><div class="hint">ของทำเองที่กันออก</div>
+                <div class="big">{{ bomSum.inhouse }}</div>
+                <div class="hint">บรรทัด</div></div>
+              <div class="grow"></div>
+              <button class="btn primary" @click="applyBom" :disabled="bomBusy">
+                {{ bomBusy ? 'กำลังนำเข้า...' : 'นำเข้า' }}</button>
+              <button class="btn" @click="bomPlan=null;bomDocs=[]">ยกเลิก</button>
+            </div>
+
+            <div class="msg bad" v-if="bomPlan.failed.length" style="margin:12px 0 0">
+              <b>อ่านไม่ได้ {{ bomPlan.failed.length }} ไฟล์</b>
+              <div v-for="(f,i) in bomPlan.failed" :key="i" class="hint">{{ f.fileName }}: {{ f.error }}</div>
+            </div>
+            <div class="msg warn" v-if="bomPlan.dupInBatch.length" style="margin:10px 0 0">
+              มี P/N ซ้ำในชุดที่ลากมา: <b class="mono">{{ bomPlan.dupInBatch.join(', ') }}</b> —
+              ไฟล์ที่มาทีหลังจะทับตัวก่อนหน้า
+            </div>
+            <div class="msg bad" v-if="bomSum.blocked" style="margin:10px 0 0">
+              <b>⚠️ {{ bomSum.blocked }} บรรทัดไม่ได้เข้า เพราะโปรแกรมยังไม่รู้ตัวคูณของหน่วยเหล่านี้</b>
+              <table style="margin:8px 0 0;max-width:620px;background:#fff">
+                <thead><tr><th style="width:80px">หน่วย</th><th style="width:90px">บรรทัด</th><th>ตัวอย่าง</th></tr></thead>
+                <tbody><tr v-for="u in bomSum.blockedUoms" :key="u.uom">
+                  <td class="mono"><b>{{ u.uom }}</b></td><td class="mono">{{ u.n }}</td>
+                  <td class="hint mono">{{ u.sample.join(' · ') }}</td></tr></tbody>
+              </table>
+              <span class="hint">ต้องถาม Delta ว่าหน่วยนี้หมายถึงอะไร แล้วเติมลงตารางแปลงก่อน
+                — ปล่อยเข้าไปด้วยการเดาจะทำให้ยอดผิดโดยไม่มีใครรู้</span>
+            </div>
+            <div class="msg warn" v-if="bomSum.unconfirmed" style="margin:10px 0 0">
+              <b>{{ bomSum.unconfirmed }} บรรทัดใช้หน่วยที่ยังไม่ได้ยืนยันกับ Delta</b><br>
+              <span class="hint">แปลงให้แล้วตามหลักฐานที่มี แต่ทุกที่ที่ใช้ตัวเลขนี้จะขึ้นป้ายกำกับไว้
+                จนกว่าจะได้คำยืนยัน</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>ราย P/N</h2>
+            <div class="scroll">
+              <table>
+                <thead><tr><th style="width:120px">P/N</th><th style="width:60px">REV</th>
+                  <th style="width:110px">มีผลตั้งแต่</th><th style="width:90px">จะเข้า</th>
+                  <th style="width:120px">ทับของเดิม</th><th>หมายเหตุ</th></tr></thead>
+                <tbody><tr v-for="p in bomPlan.perPn" :key="p.pn">
+                  <td class="mono"><b>{{ p.pn }}</b></td><td class="mono">{{ p.rev }}</td>
+                  <td class="mono">{{ p.valid_from }}</td>
+                  <td class="mono">{{ p.incoming }}</td>
+                  <td><span v-if="p.isNew" class="tag ok">P/N ใหม่</span>
+                      <span v-else class="tag warn">ทิ้งของเดิม {{ p.replacing }} บรรทัด</span></td>
+                  <td class="hint">
+                    <span v-if="p.blocked">หน่วยติด {{ p.blocked }} · </span>
+                    <span v-if="p.unconfirmed">ยังไม่ยืนยัน {{ p.unconfirmed }} · </span>
+                    <span v-if="p.inhouse">ของทำเอง {{ p.inhouse }}</span>
+                  </td>
+                </tr></tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── BOM ที่เก็บไว้แล้ว ── -->
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">BOM ในเครื่อง</h2>
+            <span class="tag">{{ bomPns.length }} P/N · {{ bom.length.toLocaleString() }} บรรทัด</span>
+            <div class="grow"></div>
+            <span v-if="bomUnconfirmed" class="tag warn">หน่วยยังไม่ยืนยัน {{ bomUnconfirmed }} บรรทัด</span>
+          </div>
+
+          <div class="msg warn" v-if="missingPack.length" style="margin:12px 0 0">
+            <b>{{ missingPack.length }} P/N ยังไม่มีวัสดุแพ็กกิ้งในสูตรเลย</b><br>
+            <span class="hint">Delta ทยอยใส่ pack mat เข้ามาทีละ REV — ตราบใดที่ยังใช้ของเก่า
+              ความต้องการแพ็กกิ้งของ P/N พวกนี้จะมองไม่เห็นทั้งก้อน ควรขอฉบับใหม่</span>
+            <div class="mono hint" style="margin-top:6px">
+              {{ missingPack.slice(0,12).map(p => p.pn + ' (REV ' + p.rev + ')').join(' · ') }}
+              <span v-if="missingPack.length>12"> … อีก {{ missingPack.length-12 }}</span>
+            </div>
+          </div>
+
+          <div class="msg bad" v-if="bomManualHit.length" style="margin:10px 0 0">
+            <b>ไฟล์ที่ลากมาจะทับบรรทัดที่แก้มือไว้ {{ bomManualHit.length }} บรรทัด</b><br>
+            <span class="hint mono">{{ bomManualHit.slice(0,6).map(r => r.pn + '/' + r.code).join(' · ') }}</span><br>
+            <span class="hint">การนำเข้าแทนที่ทั้ง P/N เสมอ ถ้ายังต้องการบรรทัดพวกนี้ ต้องคีย์ใหม่หลังนำเข้า</span>
+          </div>
+
+          <div class="msg warn" v-if="bomUnknownCodes.length" style="margin:10px 0 0">
+            <div class="row">
+              <div class="grow">
+                <b>{{ bomUnknownCodes.length }} รหัสใน BOM ที่ยังไม่มีในทะเบียน</b><br>
+                <span class="hint">BOM มีทั้งรหัส ชื่อ และหน่วยมาให้แล้ว
+                  ตั้งทะเบียนจากตรงนี้ได้เลย แล้วตอนคีย์รับเข้าจะกางสูตรให้ครบ</span>
+                <div class="mono hint" style="margin-top:6px">
+                  {{ bomUnknownCodes.slice(0,10).map(u => u.code).join(' · ') }}
+                  <span v-if="bomUnknownCodes.length>10"> … อีก {{ bomUnknownCodes.length-10 }}</span>
+                </div>
+              </div>
+              <button class="btn primary" @click="openRegPlan" :disabled="!regPlan.total">
+                ตั้งทะเบียนจาก BOM ({{ regPlan.total }})</button>
+            </div>
+          </div>
+
+        <!-- แก้สูตรด้วยมือ — ไฟล์ SAP ไม่ได้มาทุกครั้งที่สูตรเปลี่ยน -->
+        <div class="card" v-if="bomPn">
+          <div class="row">
+            <h2 style="margin:0">สูตรของ {{ bomPn }}</h2>
+            <span class="hint">{{ bomRowsOfPn.length }} บรรทัด</span>
+            <div class="grow"></div>
+            <label class="f" style="width:140px">ผู้แก้
+              <input v-model.trim="bomBy" placeholder="ชื่อคนแก้"></label>
+            <button class="btn" style="align-self:flex-end" @click="startBomRow(null)">+ เพิ่มบรรทัด</button>
+            <button class="btn" style="align-self:flex-end" @click="bomPn=''">ปิด</button>
+          </div>
+
+          <div class="scroll" style="margin-top:10px;max-height:44vh">
+            <table>
+              <thead><tr><th style="width:125px">รหัส</th><th>ชื่อ</th>
+                <th style="width:110px">ต่อชิ้น</th><th style="width:70px">หน่วย</th>
+                <th style="width:95px">ที่มา</th><th style="width:115px"></th></tr></thead>
+              <tbody><tr v-for="r in bomRowsOfPn" :key="r.id">
+                <td class="mono"><b>{{ r.code }}</b></td>
+                <td>{{ r.desc }}
+                  <span v-if="r.uomConfirmed === false" class="tag warn">หน่วยยังไม่ยืนยัน</span></td>
+                <td class="mono">{{ r.usage }}</td>
+                <td class="mono">{{ r.unit }}</td>
+                <td><span class="tag" :class="String(r.source||'').startsWith('มือ') ? 'warn' : ''">
+                  {{ String(r.source||'').startsWith('มือ') ? 'แก้มือ' : 'SAP' }}</span></td>
+                <td class="row" style="gap:4px;flex-wrap:nowrap">
+                  <button class="btn" style="padding:2px 9px" @click="startBomRow(r)">แก้</button>
+                  <button class="btn" style="padding:2px 9px" @click="deleteBomRow(r)">ลบ</button>
+                </td>
+              </tr></tbody>
+            </table>
+            <p v-if="!bomRowsOfPn.length" class="empty">
+              P/N นี้ยังไม่มีบรรทัดสูตร — กด "เพิ่มบรรทัด" เพื่อคีย์เอง</p>
+          </div>
+
+          <div v-if="bomEdit" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+            <div class="row">
+              <label class="f" style="width:120px">P/N
+                <input v-model.trim="bomEdit.pn" class="mono" :disabled="!bomEdit._new"></label>
+              <label class="f" style="width:185px">รหัสวัตถุดิบ
+                <div class="row" style="gap:3px;flex-wrap:nowrap">
+                  <input v-model.trim="bomEdit.code" class="mono grow"
+                         :disabled="!bomEdit._new" @change="onBomCode">
+                  <button class="btn" style="padding:6px 9px" v-if="bomEdit._new"
+                          @click="openPick(bomEdit)">🔍</button>
+                </div></label>
+              <label class="f grow" style="min-width:170px">ชื่อ
+                <input v-model.trim="bomEdit.desc"></label>
+              <label class="f" style="width:120px">ใช้ต่อชิ้น
+                <input v-model.number="bomEdit.usage" type="number" step="any" class="mono"></label>
+              <label class="f" style="width:85px">หน่วย
+                <input v-model.trim="bomEdit.unit" class="mono"></label>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <label class="f grow">หมายเหตุ
+                <input v-model.trim="bomEdit.note" placeholder="เช่น Delta แจ้งทางโทรศัพท์ รอเอกสาร"></label>
+            </div>
+            <div class="msg warn" style="margin:10px 0 0">
+              บรรทัดที่แก้มือจะถูกติดธงไว้ — ถ้านำเข้าไฟล์ SAP ของ P/N นี้อีกครั้ง
+              ระบบจะแทนที่ทั้ง P/N และบรรทัดนี้จะหายไป (จะเตือนก่อน)
+            </div>
+            <div class="row" style="margin-top:10px">
+              <div class="grow"></div>
+              <button class="btn" @click="bomEdit=null">ยกเลิก</button>
+              <button class="btn primary" @click="saveBomRow"
+                      :disabled="!bomEdit.code || !(bomEdit.usage > 0)">บันทึก</button>
+            </div>
+          </div>
+        </div>
+
+          <div class="scroll" style="margin-top:10px" v-if="bomPns.length">
+            <table>
+              <thead><tr><th style="width:120px">P/N</th><th style="width:60px">REV</th>
+                <th style="width:110px">มีผลตั้งแต่</th><th style="width:90px">บรรทัด</th>
+                <th style="width:110px">แพ็กกิ้ง</th><th style="width:130px">หน่วยไม่ยืนยัน</th>
+                <th style="width:80px"></th></tr></thead>
+              <tbody><tr v-for="p in bomPns" :key="p.pn">
+                <td class="mono"><b>{{ p.pn }}</b></td><td class="mono">{{ p.rev }}</td>
+                <td class="mono">{{ p.valid_from }}</td><td class="mono">{{ p.lines }}</td>
+                <td><span v-if="p.pack" class="tag ok">{{ p.pack }}</span>
+                    <span v-else class="tag warn">ไม่มี</span></td>
+                <td><span v-if="p.unconfirmed" class="tag warn">{{ p.unconfirmed }}</span></td>
+                <td><button class="btn" style="padding:2px 9px" @click="openBomPn(p.pn)">ดู/แก้</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+          <p v-else class="empty">ยังไม่มี BOM ในเครื่อง — ลากไฟล์จาก SAP มาวางด้านบน</p>
+        </div>
+      </template>
+
+      <!-- ════════ นับของ ════════ -->
+      <template v-else-if="tab==='count'">
+        <!-- ── ยังไม่มีรอบนับ ── -->
+        <div class="card noprint" v-if="!cs">
+          <h2>เริ่มรอบนับใหม่</h2>
+          <div class="row">
+            <label class="f" style="width:210px">ชื่อรอบนับ
+              <input v-model.trim="csNew.name" placeholder="เช่น นับเปิดระบบ 20 ส.ค."></label>
+            <label class="f" style="width:160px">คนนับ
+              <input v-model.trim="csNew.person" placeholder="ชื่อคนนับ"></label>
+            <label class="f" style="width:150px">เฉพาะหมวด
+              <select v-model="csNew.category">
+                <option value="">ทุกหมวด</option>
+                <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+              </select></label>
+            <label class="f grow" style="min-width:180px">เฉพาะที่ค้นเจอ
+              <input v-model.trim="csNew.scope" placeholder="เว้นว่างได้"></label>
+            <button class="btn primary" @click="startCount"
+                    :disabled="!csNew.person">เริ่มนับ ({{ csPreview }} รายการ)</button>
+          </div>
+          <p class="hint" style="margin:9px 0 0">
+            นับตอนของไม่เคลื่อนจะง่ายที่สุด — เสาร์หรือหลังเลิกงาน
+            ถ้าต้องนับระหว่างวันทำงาน ให้นับทีละหมวดแล้วหยุดเบิกเฉพาะหมวดนั้น</p>
+        </div>
+
+        <div class="card" v-if="!cs && countHistory.length">
+          <h2>รอบนับที่ผ่านมา</h2>
+          <table><thead><tr><th>ชื่อรอบ</th><th style="width:120px">คนนับ</th>
+            <th style="width:150px">เมื่อ</th><th style="width:110px">สถานะ</th>
+            <th style="width:90px"></th></tr></thead>
+            <tbody><tr v-for="c in countHistory" :key="c.id">
+              <td>{{ c.name }}</td><td>{{ c.person }}</td>
+              <td class="mono hint">{{ c.created_at.slice(0,16).replace('T',' ') }}</td>
+              <td><span class="tag" :class="c.status==='posted'?'ok':'warn'">{{ STATUS[c.status] }}</span></td>
+              <td><button class="btn" style="padding:3px 9px" @click="cs=c">เปิด</button></td>
+            </tr></tbody></table>
+        </div>
+
+        <!-- ── กำลังนับ ── -->
+        <template v-if="cs">
+          <div class="card noprint">
+            <div class="row">
+              <div><div class="hint">รอบนับ</div><b style="font-size:16px">{{ cs.name }}</b>
+                <span class="hint"> · คนนับ {{ cs.person }}</span></div>
+              <div class="grow"></div>
+              <span class="tag" :class="cs.status==='posted'?'ok':'warn'">{{ STATUS[cs.status] }}</span>
+              <button class="btn" @click="printSheet">🖨 พิมพ์ใบนับ</button>
+              <button class="btn" @click="cs=null">ปิด</button>
+            </div>
+            <div class="msg warn" style="margin:12px 0 0" v-if="cs.status!=='posted'">
+              <b>ใบนับไม่มีตัวเลขของระบบอยู่ในนั้น — ตั้งใจให้เป็นแบบนั้น</b><br>
+              <span class="hint">ถ้าคนนับเห็นว่าระบบบอกเท่าไหร่ เขาจะนับได้เท่านั้น
+                ไม่ใช่เพราะขี้โกงแต่เพราะสมองทำแบบนั้นเอง แล้วการนับทั้งรอบจะเสียเปล่า
+                — ส่วนต่างค่อยดูตอนคีย์ผลเข้ามาแล้ว</span>
+            </div>
+          </div>
+
+          <!-- ใบนับ (แสดงตอนพิมพ์) -->
+          <div class="card sheet">
+            <div class="printonly sheet-head">
+              <b>ใบนับของ — {{ cs.name }}</b>
+              <span>คนนับ ................................ วันที่ ..................</span>
+            </div>
+            <div class="row noprint" style="margin-bottom:8px">
+              <h2 style="margin:0">รายการที่ต้องนับ</h2>
+              <span class="tag">{{ csRows.length }} รายการ</span>
+              <div class="grow"></div>
+              <span class="hint">คีย์แล้ว {{ csFilled }} / {{ csRows.length }}</span>
+            </div>
+            <div class="scroll">
+              <table>
+                <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
+                  <th style="width:70px">หน่วย</th><th style="width:110px">นับได้</th>
+                  <th style="width:150px" class="noprint">หมายเหตุ</th></tr></thead>
+                <tbody>
+                  <tr v-for="r in csRows" :key="r.code">
+                    <td class="mono"><b>{{ r.code }}</b></td>
+                    <td>{{ r.desc }}</td>
+                    <td class="mono">{{ r.unit }}</td>
+                    <td class="countcell">
+                      <input class="mono noprint" style="width:96px" type="number" step="any"
+                             v-model.number="cs.counted[r.code].qty"
+                             :disabled="cs.status==='posted'" @change="saveCount">
+                    </td>
+                    <td class="noprint">
+                      <input v-model.trim="cs.counted[r.code].note" style="width:100%"
+                             :disabled="cs.status==='posted'" @change="saveCount">
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── ผลต่าง ── -->
+          <div class="card noprint" v-if="csFilled">
+            <div class="row">
+              <h2 style="margin:0">จะลงบัญชีแบบนี้</h2>
+              <div class="grow"></div>
+              <button class="btn primary" v-if="cs.status!=='posted'"
+                      @click="postCountNow" :disabled="csBusy || !csPlanRows.some(r=>r.kind)">
+                {{ csBusy ? 'กำลังลง...' : 'ลงบัญชี' }}</button>
+            </div>
+            <div class="row" style="gap:26px;margin-top:10px;align-items:flex-start">
+              <div><div class="hint">คีย์แล้ว</div><div class="big">{{ csSum.counted }}</div></div>
+              <div v-if="csSum.open"><div class="hint">ยกยอดมา</div>
+                <div class="big">{{ csSum.open }}</div></div>
+              <div v-if="csSum.adjust"><div class="hint">ปรับยอด</div>
+                <div class="big warn">{{ csSum.adjust }}</div>
+                <div class="hint">ขึ้น {{ csSum.up }} · ลง {{ csSum.down }}</div></div>
+              <div v-if="csSum.same"><div class="hint">ตรงกับสมุดแล้ว</div>
+                <div class="big" style="color:var(--ok)">{{ csSum.same }}</div></div>
+              <div v-if="csSum.refChecked"><div class="hint">ต่างจากระบบเดิม</div>
+                <div class="big bad">{{ csSum.refOff }}</div>
+                <div class="hint">จาก {{ csSum.refChecked }} ที่เทียบได้</div></div>
+            </div>
+
+            <div class="msg ok" v-if="csSum.refChecked" style="margin:12px 0 0">
+              เทียบกับยอดของระบบเดิมแล้ว <b>ตรงกัน {{ csSum.refMatch }}</b> ·
+              <b>ไม่ตรง {{ csSum.refOff }}</b> จาก {{ csSum.refChecked }} รหัส<br>
+              <span class="hint">ตัวเลขชุดนี้บอกว่าตัวเลขเดิมเชื่อได้แค่ไหน เก็บไว้เป็นเส้นฐาน</span>
+            </div>
+
+            <div class="scroll" style="margin-top:10px">
+              <table>
+                <thead><tr><th style="width:120px">รหัส</th><th style="width:90px">นับได้</th>
+                  <th style="width:90px">ในสมุด</th><th style="width:110px">จะลง</th>
+                  <th style="width:90px">ส่วนต่าง</th>
+                  <th style="width:110px" v-if="csRef.size">ระบบเดิม</th>
+                  <th>หมายเหตุ</th></tr></thead>
+                <tbody><tr v-for="r in csPlanRows" :key="r.code">
+                  <td class="mono"><b>{{ r.code }}</b></td>
+                  <td class="mono">{{ r.counted }}</td>
+                  <td class="mono hint">{{ r.known ? r.book : '—' }}</td>
+                  <td><span v-if="r.kind==='open'" class="tag">ยกยอดมา</span>
+                      <span v-else-if="r.kind==='adjust'" class="tag warn">ปรับยอด</span>
+                      <span v-else class="tag ok">ตรงแล้ว</span></td>
+                  <td class="mono" :style="r.delta<0?'color:var(--bad)':''">
+                    {{ r.kind==='adjust' ? (r.delta>0?'+':'') + r.delta : '' }}</td>
+                  <td v-if="csRef.size" class="mono">
+                    <span v-if="r.ref===null" class="hint">—</span>
+                    <span v-else-if="r.refDelta===0" class="tag ok">ตรง</span>
+                    <span v-else class="tag bad">{{ (r.refDelta>0?'+':'') + r.refDelta }}</span>
+                  </td>
+                  <td class="hint">{{ r.note }}</td>
+                </tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── ยอดอ้างอิงจากระบบเดิม ── -->
+          <div class="card noprint" v-if="cs.status!=='posted'">
+            <h2>ยอดอ้างอิงจากระบบเดิม (ไม่บังคับ)</h2>
+            <p class="hint">
+              วางยอดคงเหลือจาก v1 ไว้ตรงนี้เพื่อเทียบว่าของจริงต่างจากที่ระบบเดิมบอกแค่ไหน
+              <b>ตัวเลขชุดนี้ไม่เข้าสมุด</b> ใช้เทียบอย่างเดียว<br>
+              รูปแบบ: บรรทัดละหนึ่งรายการ <span class="mono">รหัส เว้นวรรค ยอด</span>
+            </p>
+            <textarea v-model="csRefText" rows="4" style="width:100%;font-family:ui-monospace,monospace;
+              font-size:13px;padding:8px;border:1px solid var(--line);border-radius:6px"
+              placeholder="3220130200 47&#10;4010600100 2.5"></textarea>
+            <div class="row" style="margin-top:8px">
+              <span class="hint">อ่านได้ {{ csRef.size }} รหัส</span>
+            </div>
+          </div>
+        </template>
+      </template>
+
+      <!-- ════════ รับเข้า ════════ -->
+      <template v-else-if="tab==='in'">
+        <div class="card">
+          <div class="row">
+            <label class="f" style="width:150px">เลข PO
+              <input v-model.trim="inH.po" class="mono" placeholder="เลขที่เอกสาร"
+                     @change="expandBom"></label>
+            <label class="f" style="width:150px">P/N
+              <input v-model.trim="inH.pn" class="mono" list="pnlist" placeholder="รหัสสินค้า"
+                     @change="expandBom"></label>
+            <label class="f" style="width:110px">จำนวนสั่ง
+              <input v-model.number="inH.order" type="number" step="any" class="mono"
+                     @change="expandBom"></label>
+            <label class="f" style="width:145px">วันที่
+              <input v-model="inH.date" type="date"></label>
+            <label class="f grow" style="min-width:130px">ผู้รับ
+              <input v-model.trim="inH.person" placeholder="ชื่อคนคีย์"></label>
+            <button class="btn" @click="addInLine">+ เพิ่มบรรทัด</button>
+          </div>
+          <p class="hint" style="margin:9px 0 0" v-if="bomHint">{{ bomHint }}</p>
+        </div>
+
+        <div class="card" v-if="inLines.length">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th style="width:130px">รหัส</th><th>ชื่อ</th>
+                <th style="width:60px">หน่วย</th><th style="width:95px">ตามสูตร</th>
+                <th style="width:95px">Delta จ่ายมา</th>
+                <th style="width:95px">รับจริง</th><th style="width:110px">ล็อต</th>
+                <th style="width:130px">วันหมดอายุ</th><th style="width:36px"></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(l,i) in inLines" :key="l.k">
+                  <td>
+                    <div class="row" style="gap:3px;flex-wrap:nowrap">
+                      <input v-model.trim="l.code" class="mono" style="width:104px" @change="fillLine(l)">
+                      <button class="btn" style="padding:3px 6px" @click="openPick(l)">🔍</button>
+                    </div>
+                  </td>
+                  <td>
+                    <span v-if="l.known">{{ l.desc }}</span>
+                    <span v-else-if="l.code" class="row" style="gap:6px">
+                      <span class="tag bad">ไม่มีในทะเบียน</span>
+                      <button class="btn" style="padding:2px 8px" @click="addFromLine(l)">เพิ่มเลย</button>
+                    </span>
+                  </td>
+                  <td class="mono">{{ l.unit }}</td>
+                  <td class="mono hint">{{ l.reqmt === null ? '' : l.reqmt }}</td>
+                  <td class="mono">{{ l.issued === null || l.issued === undefined ? '' : l.issued }}</td>
+                  <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:84px"></td>
+                  <td><input v-model.trim="l.lot" class="mono" style="width:98px" placeholder="เลขล็อต"></td>
+                  <td><input v-if="l.needExp" v-model="l.expiry" type="date" style="width:122px">
+                      <span v-else class="hint">—</span></td>
+                  <td><button class="btn" style="padding:2px 7px" @click="inLines.splice(i,1)">✕</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="row" style="margin-top:11px">
+            <span class="hint">พร้อมบันทึก {{ inReady.length }} บรรทัด</span>
+            <div class="grow"></div>
+            <button class="btn" @click="inLines=[];bomHint=''">ล้าง</button>
+            <button class="btn primary" @click="saveIn" :disabled="!inReady.length">บันทึกรับเข้า</button>
+          </div>
+          <div class="msg warn" v-if="inNoLot.length" style="margin:10px 0 0">
+            ยังไม่ได้ใส่เลขล็อต {{ inNoLot.length }} บรรทัด —
+            <span class="hint">ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป</span>
+          </div>
+        </div>
+        <div class="card" v-else><p class="empty">
+          ใส่เลข PO แล้วโปรแกรมจะดึงรายการที่ Delta จ่ายมาให้ (Kit List)<br>
+          ถ้ายังไม่มี Kit List ของ PO นั้น ใส่ P/N แล้วจะกางจากสูตรให้แทน
+          — หรือกด "เพิ่มบรรทัด" เพื่อคีย์เอง</p></div>
+      </template>
+
+      <!-- ════════ จ่ายออก ════════ -->
+      <template v-else-if="tab==='out'">
+        <div class="card">
+          <div class="row">
+            <label class="f" style="width:170px">เลข PO
+              <input v-model.trim="outH.po" class="mono" placeholder="เลขที่เอกสาร"
+                     @change="expandOut"></label>
+            <label class="f" style="width:150px">P/N
+              <input v-model.trim="outH.pn" class="mono" list="pnlist" placeholder="รหัสสินค้า"
+                     @change="expandOut"></label>
+            <label class="f" style="width:120px">จำนวนสั่ง
+              <input v-model.number="outH.order" type="number" step="any" class="mono"
+                     @change="expandOut"></label>
+            <label class="f" style="width:150px">วันที่
+              <input v-model="outH.date" type="date"></label>
+            <label class="f grow" style="min-width:130px">ผู้เบิก
+              <input v-model.trim="outH.person"></label>
+            <button class="btn" style="align-self:flex-end" @click="addOutLine">+ เพิ่มบรรทัด</button>
+          </div>
+          <p class="hint" v-if="outHint" style="margin:10px 0 0">{{ outHint }}</p>
+        </div>
+
+        <div class="card" v-if="outLines.length">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th style="width:130px">รหัส</th><th>ชื่อ</th>
+                <th style="width:60px">หน่วย</th><th style="width:90px">ตามสูตร</th>
+                <th style="width:95px">คงเหลือ</th><th style="width:95px">จ่ายออก</th>
+                <th style="width:95px">หลังจ่าย</th><th style="width:210px">ล็อต</th>
+                <th style="width:36px"></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(l,i) in outLines" :key="l.k">
+                  <td>
+                    <div class="row" style="gap:3px;flex-wrap:nowrap">
+                      <input v-model.trim="l.code" class="mono" style="width:104px"
+                             @change="fillOutLine(l)">
+                      <button class="btn" style="padding:3px 6px" @click="openPick(l)">🔍</button>
+                    </div>
+                  </td>
+                  <td>
+                    <span v-if="l.known">{{ l.desc }}</span>
+                    <span v-else-if="l.code" class="row" style="gap:6px">
+                      <span class="tag bad">ไม่มีในทะเบียน</span>
+                      <button class="btn" style="padding:2px 8px" @click="addFromOutLine(l)">เพิ่มเลย</button>
+                    </span>
+                  </td>
+                  <td class="mono">{{ l.unit }}</td>
+                  <td class="mono hint">{{ l.reqmt === null ? '' : l.reqmt }}</td>
+                  <td class="mono">{{ outBalOf(l) }}</td>
+                  <td><input v-model.number="l.qty" type="number" step="any" class="mono"
+                             style="width:84px" @change="l.inferred = false"></td>
+                  <td class="mono">
+                    <b :style="outAfterOf(l) < 0 ? 'color:var(--bad)' : ''">
+                      {{ l.qty ? outAfterOf(l) : '' }}</b></td>
+                  <td>
+                    <div class="row" style="gap:3px;flex-wrap:nowrap">
+                      <input v-model.trim="l.lot" class="mono" style="width:96px" placeholder="เว้นว่างได้">
+                      <button class="btn" style="padding:3px 7px"
+                              v-if="outSuggestOf(l) && outSuggestOf(l).picks.length"
+                              :title="outSuggestOf(l).picks.map(p => (p.lot || '(ไม่มีเลข)') + ' × ' + p.take).join(' · ')"
+                              @click="useSuggested(l)">เดาให้</button>
+                    </div>
+                    <div v-if="l.inferred" class="hint">
+                      <span class="tag warn">ระบบเดา</span></div>
+                    <div v-else-if="outSuggestOf(l) && outSuggestOf(l).short > 0" class="hint">
+                      <span class="tag bad">ของไม่พอ ขาด {{ outSuggestOf(l).short }}</span></div>
+                  </td>
+                  <td><button class="btn" style="padding:2px 7px" @click="outLines.splice(i,1)">✕</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="row" style="margin-top:11px">
+            <span class="hint">พร้อมบันทึก {{ outReady.length }} บรรทัด</span>
+            <div class="grow"></div>
+            <button class="btn" @click="outLines=[];outHint=''">ล้าง</button>
+            <button class="btn primary" @click="saveOut" :disabled="!outReady.length">บันทึกจ่ายออก</button>
+          </div>
+
+          <div class="msg warn" v-if="outNegative.length" style="margin:10px 0 0">
+            <b>{{ outNegative.length }} รายการที่ยอดจะติดลบ</b> —
+            <span class="mono">{{ outNegative.slice(0,5).map(l => l.code + ' → ' + outAfterOf(l)).join(' · ') }}</span><br>
+            <span class="hint">บันทึกได้อยู่ อาจเป็นเพราะยังไม่ได้คีย์รับเข้าย้อนหลัง</span>
+          </div>
+          <div class="hint" style="margin-top:8px">
+            ล็อตที่กด "เดาให้" มาจากลำดับการรับเข้า (ของเก่าก่อน) เพราะของไม่ได้แยกกองตามล็อตในคลังจริง
+            — ถ้ารู้ว่าหยิบจากล็อตไหน พิมพ์เองจะแม่นกว่า
+          </div>
+        </div>
+
+        <div class="card" v-else>
+          <p class="empty">
+            ใส่เลข PO แล้วโปรแกรมจะกางรายการที่ต้องเบิกให้<br>
+            ถ้ายังไม่มี Kit List ของ PO นั้น ใส่ P/N กับจำนวนสั่งแล้วจะกางจากสูตรให้แทน
+            — หรือกด "เพิ่มบรรทัด" เพื่อเบิกทีละรายการ
+          </p>
+        </div>
+      </template>
+
+      <!-- ════════ ยอดคงคลัง / การ์ด ════════ -->
+      <template v-else-if="tab==='bal'">
+
+        <!-- ── รายการยอด ── -->
+        <template v-if="!cardCode">
+          <div class="card noprint">
+            <div class="row">
+              <label class="f grow" style="min-width:230px">ค้นหา
+                <input v-model.trim="balQ" placeholder="พิมพ์รหัสหรือชื่อ"></label>
+              <label class="f">หมวด
+                <select v-model="balCat">
+                  <option value="">ทุกหมวด</option>
+                  <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+                </select></label>
+              <label class="f" style="justify-content:flex-end">
+                <span>&nbsp;</span>
+                <span class="row" style="gap:5px;flex-wrap:nowrap">
+                  <input type="checkbox" v-model="balZero" id="bz" style="width:16px;height:16px">
+                  <label for="bz" style="font-size:13px">แสดงรายการที่ยอดเป็นศูนย์ด้วย</label>
+                </span></label>
+            </div>
+            <div class="row" style="margin-top:12px;gap:28px">
+              <div><div class="hint">รหัสที่มีของอยู่</div><div class="big">{{ balSum.codes }}</div></div>
+              <div><div class="hint">ยอดติดลบ</div>
+                <div class="big" :class="balSum.negative?'bad':''">{{ balSum.negative }}</div></div>
+              <div v-if="balSum.unknown"><div class="hint">มีของแต่ไม่มีในทะเบียน</div>
+                <div class="big warn">{{ balSum.unknown }}</div></div>
+              <div v-if="oddRows.length"><div class="hint">รายการที่ควรไปดู</div>
+                <div class="big warn">{{ oddRows.length }}</div></div>
+            </div>
+          </div>
+
+          <!-- ออกไฟล์ให้คนข้างนอก — ฟอร์มต้องเหมือน v1 ทุกช่อง -->
+          <div class="card">
+            <div class="row">
+              <h2 style="margin:0">ออก Bin Card</h2>
+              <div class="grow"></div>
+              <span class="hint">{{ cardPlan.cards }} การ์ด · {{ cardPlan.lines }} บรรทัด ·
+                {{ cardPlan.byCat.size }} ไฟล์ (แยกตามหมวด)</span>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <label class="f grow" style="min-width:220px">Store Location
+                <input v-model.trim="store" @change="saveStore"
+                       placeholder="ใส่ครั้งเดียว จำไว้ให้ — ขึ้นหัวการ์ดทุกใบ"></label>
+              <button class="btn primary" @click="exportAllCards" :disabled="expBusy || !cardPlan.cards"
+                      style="align-self:flex-end">
+                {{ expBusy ? 'กำลังทำไฟล์...' : 'ออกทั้งหมดเป็น .zip' }}</button>
+            </div>
+            <p class="hint" v-if="expMsg" style="margin:10px 0 0">{{ expMsg }}</p>
+            <p class="hint" style="margin:8px 0 0">
+              ฟอร์มเหมือนของเดิมทุกช่อง — ของเสีย คืนของ ปรับยอด จะเขียนกำกับไว้ในช่อง Remark
+              เพราะฟอร์มมีแค่ฝั่งรับกับฝั่งจ่าย
+            </p>
+          </div>
+
+          <!-- ใช้แทนการนับรอบ ให้เครื่องชี้เป้าแทนคนเดินนับทั้งคลัง -->
+          <div class="card" v-if="oddRows.length">
+            <h2>รายการที่ควรไปดู</h2>
+            <p class="hint" style="margin:-4px 0 10px">
+              คำนวณจากสมุดล้วน ไม่ต้องมีใครไปนับ — ยอดติดลบแปลว่ามีบางอย่างคีย์ไม่ครบแน่ ๆ
+              ส่วนที่ไม่ขยับนานอาจเลิกใช้แล้วหรือมีคนลืมคีย์
+            </p>
+            <div class="scroll" style="max-height:34vh">
+              <table>
+                <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
+                  <th style="width:95px">คงเหลือ</th><th style="width:85px">รับเข้ารวม</th>
+                  <th style="width:85px">จ่ายออกรวม</th><th>ทำไมถึงขึ้นมา</th>
+                  <th style="width:60px"></th></tr></thead>
+                <tbody><tr v-for="o in oddRows" :key="o.code">
+                  <td class="mono"><b>{{ o.code }}</b></td>
+                  <td>{{ o.desc || '—' }}</td>
+                  <td class="mono" :class="o.bal<0?'':''">
+                    <b :style="o.bal<0?'color:var(--bad)':''">{{ o.bal }}</b> {{ o.unit }}</td>
+                  <td class="mono hint">{{ o.in }}</td>
+                  <td class="mono hint">{{ o.out }}</td>
+                  <td><span v-for="w in o.why" :key="w" class="tag warn"
+                            style="margin-right:4px">{{ w }}</span></td>
+                  <td><button class="btn" style="padding:2px 9px" @click="openCard(o.code)">การ์ด</button></td>
+                </tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row" style="margin-bottom:8px">
+              <h2 style="margin:0">ยอดคงคลัง</h2>
+              <div class="grow"></div>
+              <span class="hint">แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
+            </div>
+            <div class="scroll">
+              <table>
+                <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
+                  <th style="width:105px">หมวด</th><th style="width:110px">คงเหลือ</th>
+                  <th style="width:55px">หน่วย</th><th style="width:110px">เคลื่อนไหวล่าสุด</th>
+                  <th style="width:130px"></th></tr></thead>
+                <tbody><tr v-for="r in balShown.rows" :key="r.code">
+                  <td class="mono"><b>{{ r.code }}</b></td>
+                  <td>{{ r.desc }}
+                    <span v-if="!r.known" class="tag bad">ไม่มีในทะเบียน</span></td>
+                  <td><span v-if="r.category" class="tag">{{ r.category }}</span></td>
+                  <td class="mono"><b :style="r.qty<0?'color:var(--bad)':''">{{ r.qty }}</b></td>
+                  <td class="mono hint">{{ r.unit }}</td>
+                  <td class="mono hint">{{ r.last ? localDate(r.last) : '—' }}</td>
+                  <td class="row" style="gap:4px;flex-wrap:nowrap">
+                    <button class="btn" style="padding:2px 9px" @click="openCard(r.code)">การ์ด</button>
+                    <button class="btn" style="padding:2px 9px" @click="goIssue(r.code)">จ่ายออก</button>
+                  </td>
+                </tr></tbody>
+              </table>
+              <p v-if="!balShown.rows.length" class="empty">
+                ยังไม่มียอดคงเหลือ — เริ่มจากหน้า "นับของ" เพื่อยกยอดเข้ามาก่อน
+              </p>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── การ์ดรายตัว ── -->
+        <template v-else>
+          <div class="card noprint">
+            <div class="row">
+              <button class="btn" @click="closeCard">← กลับไปรายการ</button>
+              <div class="grow"></div>
+              <button class="btn" @click="goIssue(cardCode)">จ่ายออกรหัสนี้</button>
+              <button class="btn" @click="printSheet">พิมพ์</button>
+              <button class="btn primary" @click="exportOneCard" :disabled="expBusy || !card.length">
+                {{ expBusy ? 'กำลังทำไฟล์...' : 'เซฟเป็น Excel' }}</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="printonly">
+              <span><b>การ์ดวัตถุดิบ</b> · {{ cardCode }} · {{ cardMat ? cardMat.description : '' }}</span>
+              <span>คงเหลือ <b class="mono">{{ cardBal }}</b> {{ cardMat ? cardMat.unit : '' }} · {{ entity }}</span>
+            </div>
+            <div class="row noprint" style="gap:28px;align-items:flex-start">
+              <div>
+                <div class="mono" style="font-size:17px"><b>{{ cardCode }}</b></div>
+                <div>{{ cardMat ? cardMat.description : '' }}</div>
+                <div class="hint" v-if="cardMat">
+                  <span class="tag">{{ cardMat.category }}</span> หน่วย {{ cardMat.unit }}</div>
+                <div class="msg bad" v-else style="margin:8px 0 0">
+                  รหัสนี้มีการเคลื่อนไหวแต่ยังไม่มีในทะเบียน</div>
+              </div>
+              <div class="grow"></div>
+              <div style="text-align:right">
+                <div class="hint">คงเหลือตอนนี้</div>
+                <div class="big" :class="cardBal<0?'bad':''">{{ cardBal }}
+                  <span style="font-size:14px;font-weight:400">{{ cardMat ? cardMat.unit : '' }}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" v-if="cardLots.length">
+            <h2>ล็อตที่ยังมีของ</h2>
+            <table><thead><tr><th style="width:180px">ล็อต</th><th style="width:110px">คงเหลือ</th>
+              <th style="width:130px">รับเข้าครั้งแรก</th><th></th></tr></thead>
+              <tbody><tr v-for="l in cardLots" :key="l.lot">
+                <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต — ของก่อนเริ่มเก็บล็อต)' }}</td>
+                <td class="mono"><b>{{ l.qty }}</b></td>
+                <td class="mono hint">{{ localDate(l.first) }}</td>
+                <td class="noprint"><button class="btn" style="padding:2px 9px"
+                  @click="traceOf = (l.lot || '(ว่าง)')">ตามรอยล็อตนี้</button></td>
+              </tr></tbody></table>
+          </div>
+
+          <!-- ตามรอยย้อนกลับ — คำถามที่ลูกค้าถามตอนของมีปัญหา -->
+          <div class="card" v-if="trace">
+            <div class="row">
+              <h2 style="margin:0">ล็อต <span class="mono">{{ trace.lot || '(ไม่มีเลขล็อต)' }}</span> ไปอยู่ที่ไหนบ้าง</h2>
+              <div class="grow"></div>
+              <button class="btn noprint" style="padding:2px 9px" @click="traceOf=''">ปิด</button>
+            </div>
+            <div class="msg warn" v-if="trace.anyInferred" style="margin:10px 0">
+              <b>คำตอบนี้มีส่วนที่มาจากการเดา</b> —
+              <span class="hint">บรรทัดที่ติดป้าย "เดา" คือรายการที่ตอนจ่ายออกไม่ได้ระบุล็อต
+                ระบบไล่ให้ตามลำดับของเก่าก่อน บอกลูกค้าได้ว่า "น่าจะ" ไม่ใช่ "แน่นอน"</span>
+            </div>
+            <div class="row" style="gap:28px;margin:10px 0">
+              <div><div class="hint">รับเข้า</div><div class="big">{{ trace.received }}</div></div>
+              <div><div class="hint">ใช้ไป</div><div class="big">{{ trace.used }}</div></div>
+              <div><div class="hint">เหลือ</div><div class="big">{{ trace.remaining }}</div></div>
+            </div>
+            <table v-if="trace.jobs.length">
+              <thead><tr><th style="width:150px">ไปอยู่ในงาน</th><th style="width:110px">จำนวน</th>
+                <th style="width:120px">ครั้งแรก</th><th style="width:120px">ครั้งล่าสุด</th>
+                <th style="width:90px">ที่มาของล็อต</th></tr></thead>
+              <tbody><tr v-for="j in trace.jobs" :key="j.job">
+                <td class="mono">{{ j.job }}</td>
+                <td class="mono">{{ j.qty }}</td>
+                <td class="mono hint">{{ localDate(j.first) }}</td>
+                <td class="mono hint">{{ localDate(j.last) }}</td>
+                <td><span class="tag" :class="j.inferred?'warn':'ok'">
+                  {{ j.inferred ? 'เดา' : 'คนระบุเอง' }}</span></td>
+              </tr></tbody>
+            </table>
+            <p v-else class="hint">ยังไม่มีการจ่ายออกจากล็อตนี้</p>
+          </div>
+
+          <div class="card">
+            <div class="row" style="margin-bottom:8px">
+              <h2 style="margin:0">ความเคลื่อนไหว</h2>
+              <span class="hint">ใหม่สุดอยู่บน · ช่อง "คงเหลือ" คือยอดสะสมถึงบรรทัดนั้น</span>
+            </div>
+            <div class="scroll">
+              <table>
+                <thead><tr><th style="width:100px">วันที่</th><th style="width:85px">ประเภท</th>
+                  <th style="width:90px">เข้า/ออก</th><th style="width:95px">คงเหลือ</th>
+                  <th style="width:120px">ล็อต</th><th style="width:110px">P/N</th>
+                  <th style="width:110px">เอกสาร</th><th style="width:100px">ผู้ทำ</th>
+                  <th>หมายเหตุ</th><th style="width:70px" class="noprint"></th></tr></thead>
+                <tbody><tr v-for="r in card" :key="r.id">
+                  <td class="mono hint">{{ localDate(r.at) }}</td>
+                  <td><span class="tag">{{ r.kindLabel }}</span></td>
+                  <td class="mono"><b :style="r.moved<0?'color:var(--bad)':'color:var(--ok)'">
+                    {{ r.moved > 0 ? '+' + r.moved : r.moved }}</b></td>
+                  <td class="mono"><b>{{ r.balance }}</b></td>
+                  <!-- ล็อตที่ใช้หมดแล้วจะไม่อยู่ในตารางข้างบน แต่เป็นล็อตที่ลูกค้าถามถึงบ่อยที่สุด
+                       จึงต้องกดตามรอยจากประวัติได้ด้วย -->
+                  <td class="mono"><a v-if="r.lot" href="#" @click.prevent="traceOf = r.lot"
+                       style="color:var(--brand)">{{ r.lot }}</a><span v-else>—</span>
+                    <span v-if="r.lot_inferred" class="tag warn">เดา</span></td>
+                  <td class="mono">{{ r.part_no || '—' }}</td>
+                  <td class="mono">{{ r.doc_ref || '—' }}</td>
+                  <td>{{ r.person || '—' }}</td>
+                  <td class="hint">{{ noteCell(r) }}</td>
+                  <td class="noprint"><button class="btn" style="padding:2px 8px"
+                    @click="askVoid(r)">ยกเลิก</button></td>
+                </tr></tbody>
+              </table>
+              <p v-if="!card.length" class="empty">รหัสนี้ยังไม่มีความเคลื่อนไหว</p>
+            </div>
+          </div>
+
+          <!-- รายการที่ยกเลิกแล้วไม่นับเข้ายอด แต่ต้องเห็นได้ว่าเคยมี — INVARIANTS B -->
+          <div class="card" v-if="cardVoided.length">
+            <h2>รายการที่ถูกยกเลิก</h2>
+            <p class="hint" style="margin:-4px 0 10px">ไม่นับเข้ายอด เก็บไว้ให้ตรวจย้อนหลังได้</p>
+            <table>
+              <thead><tr><th style="width:100px">วันที่</th><th style="width:85px">ประเภท</th>
+                <th style="width:85px">จำนวน</th><th style="width:100px">ผู้บันทึก</th>
+                <th>เหตุผลที่ยกเลิก</th><th style="width:100px">ใครยกเลิก</th>
+                <th style="width:100px">เมื่อไหร่</th></tr></thead>
+              <tbody><tr v-for="v in cardVoided" :key="v.id" style="opacity:.72">
+                <td class="mono hint">{{ localDate(v.at) }}</td>
+                <td><span class="tag">{{ v.kindLabel }}</span></td>
+                <td class="mono" style="text-decoration:line-through">{{ v.qty }}</td>
+                <td>{{ v.person }}</td>
+                <td>{{ v.void_reason }}</td>
+                <td>{{ v.void_by }}</td>
+                <td class="mono hint">{{ localDate(v.void_at) }}</td>
+              </tr></tbody>
+            </table>
+          </div>
+        </template>
+      </template>
+
+      <!-- ════════ ของเสีย · คืนของ · ปรับยอด ════════ -->
+      <template v-else-if="tab==='misc'">
+        <div class="card">
+          <div class="row" style="gap:6px">
+            <button v-for="m in MISC" :key="m.k" class="btn"
+                    :class="{primary: mk.kind===m.k}" @click="mk.kind=m.k">
+              {{ KINDS[m.k].label }}</button>
+            <span class="hint" style="margin-left:8px">
+              {{ MISC.find(m => m.k===mk.kind).what }}</span>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <label class="f" style="width:190px">รหัสวัตถุดิบ
+              <div class="row" style="gap:3px;flex-wrap:nowrap">
+                <input v-model.trim="mk.code" class="mono grow" @change="onMkCode">
+                <button class="btn" style="padding:6px 9px" @click="openPick(mk)">🔍</button>
+              </div></label>
+
+            <label class="f" style="width:120px" v-if="mk.kind!=='adjust'">จำนวน
+              <input v-model.number="mk.qty" type="number" step="any" class="mono"></label>
+            <label class="f" style="width:130px" v-else>นับได้จริง
+              <input v-model.number="mk.counted" type="number" step="any" class="mono"></label>
+
+            <label class="f" style="width:150px" v-if="mk.kind!=='adjust'">ล็อต
+              <input v-model.trim="mk.lot" class="mono" placeholder="เว้นว่างได้"></label>
+            <label class="f" style="width:140px" v-if="mk.kind!=='adjust'">P/N ที่เกี่ยวข้อง
+              <input v-model.trim="mk.part_no" class="mono" list="pnlist"></label>
+
+            <label class="f" style="width:210px">เหตุผล
+              <select v-model="mk.reason">
+                <option value="">— เลือกเหตุผล —</option>
+                <option v-for="r in mkReasons" :key="r.code" :value="r.code">{{ r.label }}</option>
+              </select></label>
+            <label class="f" style="width:145px">วันที่
+              <input v-model="mk.date" type="date"></label>
+            <label class="f grow" style="min-width:120px">ผู้บันทึก
+              <input v-model.trim="mk.person"></label>
+          </div>
+
+          <div class="row" style="margin-top:8px">
+            <label class="f grow">หมายเหตุ<span v-if="mk.reason==='other'" style="color:var(--bad)">
+              — เลือก "อื่น ๆ" แล้วต้องเขียนอธิบาย</span>
+              <input v-model="mk.note" placeholder="รายละเอียดเพิ่มเติม"></label>
+          </div>
+
+          <div class="row" style="margin-top:14px;gap:26px;align-items:flex-start">
+            <div v-if="mk.code">
+              <div class="hint">{{ mkMat ? mkMat.description : 'ไม่มีในทะเบียน' }}</div>
+              <div class="hint">ยอดในสมุดตอนนี้</div>
+              <div class="big">{{ mkBook }} <span style="font-size:14px;font-weight:400">{{ mkUnit }}</span></div>
+            </div>
+            <div v-if="mk.kind==='adjust' && mkDelta !== null">
+              <div class="hint">ส่วนต่างที่จะเขียนลงสมุด</div>
+              <div class="big" :class="mkDelta<0?'bad':''">{{ mkDelta > 0 ? '+' + mkDelta : mkDelta }}</div>
+            </div>
+            <div v-else-if="mk.code && mk.qty">
+              <div class="hint">หลังบันทึก</div>
+              <div class="big" :class="mkAfter<0?'bad':''">{{ mkAfter }}</div>
+            </div>
+            <div class="grow"></div>
+            <button class="btn primary" @click="saveMisc" :disabled="!mkReady">
+              บันทึก{{ mkDef.label }}</button>
+          </div>
+
+          <!-- ปรับยอดคือชนิดเดียวที่แก้ยอดได้โดยไม่มีของขยับจริง จึงต้องอธิบายให้เห็นเต็ม ๆ ก่อนกด -->
+          <div class="msg warn" v-if="mk.kind==='adjust' && mkDelta !== null && mkDelta !== 0"
+               style="margin:12px 0 0">
+            จะเขียนลงสมุดว่า <b>นับได้ {{ mk.counted }}</b> ทั้งที่สมุดว่ามี <b>{{ mkBook }}</b>
+            → ปรับ <b class="mono">{{ mkDelta > 0 ? '+' + mkDelta : mkDelta }}</b><br>
+            <span class="hint">เก็บทั้งยอดที่นับได้และส่วนต่าง เพื่อให้อ่านย้อนหลังรู้ว่าปรับจากอะไรไปอะไร</span>
+          </div>
+          <div class="msg ok" v-if="mk.kind==='adjust' && mkDelta === 0" style="margin:12px 0 0">
+            นับได้ตรงกับสมุดพอดี — ไม่ต้องปรับอะไร
+          </div>
+          <div class="msg bad" v-if="mk.code && !mkMat" style="margin:10px 0 0">
+            รหัสนี้ยังไม่มีในทะเบียน — บันทึกได้อยู่ แต่ควรเพิ่มเข้าทะเบียนด้วย
+          </div>
+        </div>
+
+        <div class="card" v-if="mk.kind!=='adjust' && mkLots.length">
+          <h2>ล็อตที่ยังมีของ</h2>
+          <table><thead><tr><th style="width:180px">ล็อต</th><th style="width:110px">คงเหลือ</th>
+            <th style="width:130px">รับเข้าครั้งแรก</th><th style="width:80px"></th></tr></thead>
+            <tbody><tr v-for="l in mkLots" :key="l.lot">
+              <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต)' }}</td>
+              <td class="mono">{{ l.qty }}</td>
+              <td class="mono hint">{{ localDate(l.first) }}</td>
+              <td><button class="btn" style="padding:2px 9px" @click="mk.lot=l.lot">เลือก</button></td>
+            </tr></tbody></table>
+        </div>
+      </template>
+
+      <!-- ════════ รับเข้ารวมรายรอบ ════════ -->
+      <template v-else-if="tab==='wk'">
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">รับเข้ารวมรายรอบ — Tube · Chemical · Copper foil · Solder</h2>
+          </div>
+          <p class="hint" style="margin:6px 0 12px">
+            ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ เอกสารเป็น PDF สแกนจึงต้องคีย์มือ<br>
+            คีย์กระจายตาม PO ตามที่เอกสารแยกไว้ แล้วกรอกแถว Total ของแต่ละรหัส
+            ระบบจะบวกให้แล้วบอกว่าตรงกับเอกสารไหม
+          </p>
+
+          <div class="row">
+            <label class="f" style="width:150px">วันที่เอกสาร
+              <input v-model="wkH.date" type="date"></label>
+            <label class="f" style="width:170px">เลขที่เอกสาร
+              <input v-model.trim="wkH.docNo" class="mono" placeholder="0014 / WK27"></label>
+            <label class="f" style="width:100px">กลุ่ม
+              <input v-model.trim="wkH.group" class="mono" placeholder="H / U"></label>
+            <label class="f" style="width:165px">บังคับนิติบุคคลทั้งใบ
+              <select v-model="wkH.entity">
+                <option value="">— ดูจากเลข PO รายบรรทัด —</option>
+                <option v-for="c in entCodes" :key="c" :value="c">{{ c }}</option>
+              </select></label>
+            <label class="f grow" style="min-width:130px">ผู้รับ
+              <input v-model.trim="wkH.person"></label>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn" @click="wkAdd(false)">+ เพิ่มบรรทัด</button>
+            <button class="btn" @click="wkAdd(true)" :disabled="!wkLines.length">+ รหัสเดิม อีก PO</button>
+            <div class="grow"></div>
+            <label class="f" style="width:165px" v-if="chemDates.length">ดึงจาก Kit List วันที่
+              <select v-model="wkPickDate">
+                <option value="">ล่าสุด ({{ chemDates[0] }})</option>
+                <option v-for="d in chemDates" :key="d" :value="d">{{ d }}</option>
+              </select></label>
+            <button class="btn" @click="wkFromKit" :disabled="!chemDates.length"
+                    style="align-self:flex-end">
+              {{ chemDates.length ? 'ดึงจาก Kit List กลุ่มจ่ายรวม' : 'ยังไม่มี Kit List กลุ่มจ่ายรวม' }}</button>
+          </div>
+        </div>
+
+        <div class="card" v-if="wkLines.length">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th style="width:125px">รหัส</th><th>ชื่อ</th>
+                <th style="width:135px">PO</th><th style="width:80px">นิติบุคคล</th>
+                <th style="width:115px">P/N</th><th style="width:85px">ยอดสั่ง</th>
+                <th style="width:85px">Req</th><th style="width:85px">541</th>
+                <th style="width:80px">ตามสูตร</th><th style="width:70px">ต่าง</th>
+                <th style="width:90px">รับจริง</th><th style="width:100px">ล็อต</th>
+                <th style="width:125px">วันหมดอายุ</th><th style="width:36px"></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(l,i) in wkLines" :key="l.k">
+                  <td>
+                    <div class="row" style="gap:3px;flex-wrap:nowrap">
+                      <input v-model.trim="l.code" class="mono" style="width:98px" @change="wkFill(l)">
+                      <button class="btn" style="padding:3px 6px" @click="openPick(l)">🔍</button>
+                    </div>
+                  </td>
+                  <td><span v-if="l.known">{{ l.desc }}</span>
+                    <span v-else-if="l.code" class="tag bad">ไม่มีในทะเบียน</span></td>
+                  <td><input v-model.trim="l.po" class="mono" style="width:126px" @change="wkPo(l)">
+                    <div v-if="l.poFound === false"><span class="tag warn">ไม่มีในรายการ PO</span></div></td>
+                  <!-- นิติบุคคลรายบรรทัด เพราะเอกสารใบเดียวมีของสองโรงงานปนกันได้ -->
+                  <td><span v-if="l.entity" class="tag"
+                            :class="l.entity !== entity ? 'warn' : 'ok'"
+                            :title="l.entityFrom === 'forced' ? 'บังคับทั้งใบ'
+                                  : l.entityFrom === 'po' ? 'จากรายการ PO'
+                                  : l.entityFrom === 'guess' ? 'เดาจากเลข PO' : 'ตัวที่เลือกอยู่'">
+                      {{ l.entity }}<span v-if="l.entityFrom === 'guess'">*</span></span>
+                    <span v-else class="hint">—</span></td>
+                  <td><input v-model.trim="l.pn" class="mono" style="width:106px" list="pnlist"></td>
+                  <td><input v-model.number="l.orderQty" type="number" step="any" class="mono" style="width:76px"></td>
+                  <td><input v-model.number="l.req" type="number" step="any" class="mono" style="width:76px"></td>
+                  <td><input v-model.number="l.s41" type="number" step="any" class="mono" style="width:76px"></td>
+                  <td class="mono hint">{{ wkBomOf(l) === null ? '' : wkBomOf(l) }}</td>
+                  <td class="mono" :style="Math.abs(wkPctOf(l)) > 20 ? 'color:var(--bad)' : ''">
+                    {{ wkPctOf(l) === null ? '' : wkPctOf(l) + '%' }}</td>
+                  <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:80px"></td>
+                  <td><input v-model.trim="l.lot" class="mono" style="width:90px"></td>
+                  <td><input v-if="l.needExp" v-model="l.expiry" type="date" style="width:118px">
+                      <span v-else class="hint">—</span></td>
+                  <td><button class="btn" style="padding:2px 7px" @click="wkLines.splice(i,1)">✕</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="row" style="margin-top:11px">
+            <button class="btn" @click="wkUseIssued">เติมรับจริง = ยอดที่จ่ายมา</button>
+            <span class="hint">พร้อมบันทึก {{ wkCheck.ready.length }} บรรทัด</span>
+            <div class="grow"></div>
+            <button class="btn" @click="wkLines=[];wkTotals={}">ล้าง</button>
+            <button class="btn primary" @click="saveWeekly" :disabled="!wkCheck.ready.length">
+              บันทึกรับเข้ารวม</button>
+          </div>
+        </div>
+
+        <!-- รวมยอดรายรหัสเทียบกับแถว Total ในเอกสาร -->
+        <div class="card" v-if="wkCheck.summary.length">
+          <h2>ยอดรวมรายรหัส เทียบกับเอกสาร</h2>
+          <p class="hint" style="margin:-4px 0 10px">
+            กรอกยอดจากแถว "รหัส Total" ในเอกสารลงช่องขวาสุด ระบบบวกให้เองแล้วบอกว่าตรงไหม
+            — คนคีย์ไม่ต้องบวกเลขเอง
+          </p>
+          <table>
+            <thead><tr><th style="width:130px">รหัส</th><th style="width:80px">กี่ PO</th>
+              <th style="width:110px">รวม 541</th><th style="width:110px">รวมรับจริง</th>
+              <th style="width:140px">Total ในเอกสาร</th><th style="width:110px">ตรงไหม</th></tr></thead>
+            <tbody><tr v-for="x in wkCheck.summary" :key="x.code"
+                       :class="{review: x.match === false}">
+              <td class="mono"><b>{{ x.code }}</b></td>
+              <td class="mono hint">{{ x.n }}</td>
+              <td class="mono">{{ x.s41 }}</td>
+              <td class="mono"><b>{{ x.qty }}</b></td>
+              <td><input v-model="wkTotals[x.code]" type="number" step="any"
+                         class="mono" style="width:120px" placeholder="จากเอกสาร"></td>
+              <td><span v-if="x.match === true" class="tag ok">ตรง</span>
+                  <span v-else-if="x.match === false" class="tag bad">ต่าง {{ Math.round((x.doc - x.s41) * 1e5) / 1e5 }}</span>
+                  <span v-else class="hint">ยังไม่กรอก</span></td>
+            </tr></tbody>
+          </table>
+        </div>
+
+        <div class="card" v-if="wkLines.length">
+          <div class="msg warn" v-if="wkCheck.otherEntities.length">
+            <b>ใบนี้มีบรรทัดของ {{ wkCheck.otherEntities.join(' · ') }}</b>
+            ซึ่งไม่ใช่ {{ entity }} ที่เลือกอยู่<br>
+            <span class="hint">แต่ละบรรทัดจะถูกบันทึกเข้านิติบุคคลของตัวเอง ยอดไม่ปนกัน
+              — แต่บรรทัดพวกนั้นจะไม่โผล่ในหน้ายอดคงคลังของ {{ entity }}
+              ต้องสลับนิติบุคคลบนหัวจอถึงจะเห็น · เครื่องหมาย * คือค่าที่เดาจากเลข PO</span>
+          </div>
+          <div class="msg bad" v-if="wkCheck.entities.some(c => entMissing.includes(c))">
+            <b>มีนิติบุคคลที่ยังไม่มีในทะเบียน</b> —
+            <span class="mono">{{ wkCheck.entities.filter(c => entMissing.includes(c)).join(' · ') }}</span><br>
+            <span class="hint">บันทึกได้ แต่จะสลับไปดูยอดของมันจากหัวจอไม่ได้จนกว่าจะเพิ่มในหน้าตั้งค่า</span>
+          </div>
+          <div class="msg warn" v-if="wkCheck.mismatch.length">
+            {{ wkCheck.mismatch.length }} รหัสที่ยอดรวมไม่ตรงกับเอกสาร —
+            <span class="mono">{{ wkCheck.mismatch.map(m => m.code).join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="wkCheck.unknown.length">
+            {{ wkCheck.unknown.length }} รหัสยังไม่มีในทะเบียน —
+            <span class="mono">{{ wkCheck.unknown.join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="wkCheck.noLot">
+            {{ wkCheck.noLot }} บรรทัดยังไม่ใส่เลขล็อต —
+            <span class="hint">ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป</span>
+          </div>
+          <p class="hint" v-if="!wkCheck.otherEntities.length && !wkCheck.mismatch.length
+                                && !wkCheck.unknown.length && !wkCheck.noLot"
+             style="margin:0">ตรวจแล้วไม่มีอะไรค้าง</p>
+        </div>
+
+        <div class="card" v-if="!wkLines.length">
+          <p class="empty">
+            กด "เพิ่มบรรทัด" เพื่อคีย์จากเอกสาร PDF<br>
+            หรือถ้านำเข้า Kit List กลุ่มจ่ายรวมไว้แล้ว กด "ดึงจาก Kit List" ได้เลย
+          </p>
+        </div>
+      </template>
+
+      <!-- ════════ PO / Kit List ════════ -->
+      <template v-else-if="tab==='po'">
+        <div class="card">
+          <h2>ลากไฟล์จาก Delta เข้ามา</h2>
+          <div class="drop" :class="{over:impDrag}"
+               @dragover.prevent="impDrag=true" @dragleave="impDrag=false" @drop.prevent="onDropImp">
+            <p style="margin:0 0 8px">ลากไฟล์มาวางตรงนี้ หรือ
+              <label class="btn" style="cursor:pointer">เลือกไฟล์
+                <input type="file" accept=".xls,.xlsx" @change="onPickImp" style="display:none">
+              </label>
+            </p>
+            <p class="hint" style="margin:0">
+              รับได้ทั้งสามแบบ — PO รายวัน · Kit List (22-H) · Kit List กลุ่มจ่ายรวม<br>
+              ไม่ต้องบอกว่าเป็นแบบไหน โปรแกรมดูจากเนื้อในให้เอง
+            </p>
+          </div>
+          <p class="hint" v-if="impBusy" style="margin:10px 0 0">กำลังอ่านไฟล์...</p>
+        </div>
+
+        <!-- พรีวิวก่อนนำเข้า -->
+        <div class="card" v-if="imp">
+          <div class="row">
+            <h2 style="margin:0">{{ KIND_LABEL[imp.kind] }}</h2>
+            <span class="tag ok">{{ imp.fileName }}</span>
+            <div class="grow"></div>
+            <button class="btn" @click="imp=null">ยกเลิก</button>
+            <button class="btn primary" @click="applyImp" :disabled="impBusy || !imp.plan.fresh.length">
+              นำเข้า {{ imp.plan.fresh.length }} รายการ</button>
+          </div>
+
+          <div class="row" style="margin-top:12px;gap:26px">
+            <div><div class="hint">อ่านได้</div><div class="big">{{ imp.plan.total }}</div></div>
+            <div><div class="hint">ยังไม่เคยนำเข้า</div><div class="big">{{ imp.plan.fresh.length }}</div></div>
+            <div v-if="imp.plan.dup"><div class="hint">นำเข้าไปแล้ว</div>
+              <div class="big hint">{{ imp.plan.dup }}</div></div>
+            <div v-if="imp.kind!=='po'"><div class="hint">PO ที่เกี่ยวข้อง</div>
+              <div class="big">{{ imp.plan.pos.length }}</div></div>
+            <div v-if="imp.kind==='po' && imp.shorts"><div class="hint">ของขาด/รอส่ง</div>
+              <div class="big" :class="imp.freshShorts.length?'warn':''">{{ imp.freshShorts.length }}</div></div>
+          </div>
+
+          <!-- ทุกอย่างที่ตัวอ่านสงสัย ต้องขึ้นให้เห็นก่อนกดนำเข้า ไม่ใช่เงียบแล้วนำเข้าไปเลย -->
+          <div class="msg warn" v-if="imp.merged && imp.merged.length" style="margin:12px 0 0">
+            รวมยอดให้แล้ว {{ imp.merged.length }} รายการ ที่ PO กับรหัสซ้ำกันหลายบรรทัด<br>
+            <span class="hint mono">{{ imp.merged.slice(0,6).map(m => m.po + '/' + m.code + ' ×' + m.n).join(' · ') }}</span>
+          </div>
+          <div class="msg bad" v-if="imp.gaps && imp.gaps.length" style="margin:10px 0 0">
+            <b>เลข Item กระโดด {{ imp.gaps.length }} จุด — บรรทัดอาจหายตอน export</b><br>
+            <span class="hint mono">{{ imp.gaps.slice(0,5).map(g => g.sheet + ' หลัง ' + g.after + ': ขาด ' + g.missing.join(',')).join(' · ') }}</span>
+          </div>
+          <div class="msg bad" v-if="imp.blocks && imp.blocks.some(b => b.match === false)" style="margin:10px 0 0">
+            <b>ยอดรวมที่บวกเองไม่ตรงกับยอดในเอกสาร</b><br>
+            <span class="hint mono">{{ imp.blocks.filter(b => b.match === false).slice(0,4)
+              .map(b => b.code + ': เอกสาร ' + b.docTotal + ' · บวกได้ ' + b.calc).join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="imp.plan.codeNew && imp.plan.codeNew.length" style="margin:10px 0 0">
+            {{ imp.plan.codeNew.length }} รหัสยังไม่มีในทะเบียน —
+            <span class="hint mono">{{ imp.plan.codeNew.slice(0,8).join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="imp.plan.noPo && imp.plan.noPo.length" style="margin:10px 0 0">
+            {{ imp.plan.noPo.length }} PO ยังไม่มีในรายการ PO —
+            <span class="hint mono">{{ imp.plan.noPo.slice(0,8).join(' · ') }}</span>
+            <br><span class="hint">นำเข้าไฟล์ PO รายวันของวันนั้นด้วยจะครบกว่า</span>
+          </div>
+          <div class="msg warn" v-if="imp.skipped && imp.skipped.length" style="margin:10px 0 0">
+            ข้ามชีต {{ imp.skipped.length }} ชีต —
+            <span class="hint">{{ imp.skipped.map(s => s.name + ' (' + s.why + ')').join(' · ') }}</span>
+          </div>
+
+          <div class="scroll" style="margin-top:12px;max-height:38vh">
+            <table v-if="imp.kind==='po'">
+              <thead><tr><th style="width:110px">วันที่</th><th style="width:120px">PO</th>
+                <th style="width:120px">P/N</th><th style="width:90px">จำนวน</th>
+                <th>หมายเหตุ</th></tr></thead>
+              <tbody><tr v-for="p in imp.plan.fresh.slice(0,80)" :key="p.id">
+                <td class="mono hint">{{ p.date }}</td><td class="mono"><b>{{ p.po }}</b></td>
+                <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
+                <td class="hint">{{ p.remark }}</td>
+              </tr></tbody>
+            </table>
+            <table v-else>
+              <thead><tr><th style="width:120px">PO</th><th style="width:115px">รหัส</th>
+                <th>ชื่อ</th><th style="width:100px">จ่ายมา</th>
+                <th style="width:100px" v-if="imp.kind==='chem'">ตามสูตร</th>
+                <th style="width:110px" v-if="imp.kind==='chem'">ยอดสั่ง</th></tr></thead>
+              <tbody><tr v-for="k in imp.plan.fresh.slice(0,80)" :key="k.id">
+                <td class="mono"><b>{{ k.po }}</b></td><td class="mono">{{ k.code }}</td>
+                <td>{{ k.desc }}</td><td class="mono">{{ k.issue }}</td>
+                <td class="mono hint" v-if="imp.kind==='chem'">{{ k.req }}</td>
+                <td class="mono hint" v-if="imp.kind==='chem'">{{ k.orderQty }}</td>
+              </tr></tbody>
+            </table>
+            <p class="hint" v-if="imp.plan.fresh.length>80" style="margin:8px 0 0">
+              แสดง 80 จาก {{ imp.plan.fresh.length }} รายการ</p>
+          </div>
+        </div>
+
+        <!-- ของขาดที่ยังไม่ได้ -->
+        <div class="card" v-if="openShorts.length">
+          <h2>ของขาด / รอส่ง ({{ openShorts.length }})</h2>
+          <div class="scroll" style="max-height:32vh">
+            <table>
+              <thead><tr><th style="width:105px">แจ้งวันที่</th><th style="width:115px">PO</th>
+                <th style="width:115px">รหัส</th><th style="width:75px">ประเภท</th>
+                <th style="width:95px">จำนวน</th><th style="width:105px">ETA</th>
+                <th>ข้อความเต็ม</th><th style="width:80px"></th></tr></thead>
+              <tbody><tr v-for="s in openShorts" :key="s.id">
+                <td class="mono hint">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
+                <td class="mono">{{ s.code }}</td>
+                <td><span class="tag" :class="s.type==='ขาด'?'bad':'warn'">{{ s.type }}</span></td>
+                <td class="mono">{{ s.qty || '—' }} {{ s.unit }}</td>
+                <td class="mono hint">{{ s.eta || '—' }}</td>
+                <td class="hint">{{ s.note }}</td>
+                <td><button class="btn" style="padding:2px 8px" @click="toggleShort(s)">มาแล้ว</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">รายการ PO</h2>
+            <div class="grow"></div>
+            <span class="hint">วันนี้ {{ poToday.length }} PO · ทั้งหมด {{ pos.length }} ·
+              Kit List {{ kits.length }} บรรทัด</span>
+          </div>
+          <div class="scroll" style="margin-top:8px;max-height:40vh">
+            <table>
+              <thead><tr><th style="width:110px">วันที่</th><th style="width:125px">PO</th>
+                <th style="width:125px">P/N</th><th style="width:90px">จำนวน</th>
+                <th style="width:110px">Kit List</th><th>หมายเหตุ</th></tr></thead>
+              <tbody><tr v-for="p in recentPos" :key="p.id">
+                <td class="mono hint">{{ p.date }}</td><td class="mono"><b>{{ p.po }}</b></td>
+                <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
+                <td><span class="tag" :class="kits.some(k => k.po===p.po && k.src!=='chem') ? 'ok' : ''">
+                  {{ kits.filter(k => k.po===p.po && k.src!=='chem').length || 'ยังไม่มี' }}</span></td>
+                <td class="hint">{{ p.remark }}</td>
+              </tr></tbody>
+            </table>
+            <p v-if="!pos.length" class="empty">ยังไม่มี PO — ลากไฟล์ PO รายวันเข้ามาก่อน</p>
+          </div>
+        </div>
+      </template>
+
+      <!-- ════════ ซิงค์ ════════ -->
+      <template v-else-if="tab==='sync'">
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">นิติบุคคล</h2>
+            <div class="grow"></div>
+            <span class="hint">ยอดคงคลังของแต่ละนิติบุคคลแยกกันคนละชุด</span>
+            <button class="btn" @click="startEnt(null)">+ เพิ่ม</button>
+          </div>
+
+          <div class="msg warn" v-if="entMissing.length" style="margin:10px 0 0">
+            <b>มี {{ entMissing.length }} รหัสที่มีรายการอยู่ในสมุดแล้ว แต่ยังไม่มีในทะเบียนนี้</b><br>
+            <span class="hint">ยอดของรหัสพวกนี้มีอยู่จริงแต่เลือกดูจากหัวจอไม่ได้ จนกว่าจะเพิ่มเข้ามา</span>
+            <div style="margin-top:8px">
+              <button v-for="c in entMissing" :key="c" class="btn"
+                      style="padding:2px 9px;margin-right:5px" @click="addMissingEnt(c)">
+                + {{ c }}</button>
+            </div>
+          </div>
+
+          <div class="scroll" style="margin-top:10px">
+            <table>
+              <thead><tr><th style="width:110px">รหัส</th><th>ชื่อบริษัท</th>
+                <th style="width:150px">Store Location</th><th style="width:110px">Vendor No.</th>
+                <th style="width:110px">รายการในสมุด</th><th style="width:95px">สถานะ</th>
+                <th style="width:70px"></th></tr></thead>
+              <tbody><tr v-for="e in entities" :key="e.entity_code"
+                         :class="{review: e.entity_code === entity}">
+                <td class="mono"><b>{{ e.entity_code }}</b>
+                  <span v-if="e.entity_code === entity" class="tag ok">เลือกอยู่</span></td>
+                <td>{{ e.company_name || '—' }}</td>
+                <td class="hint">{{ e.store_location || '—' }}</td>
+                <td class="mono hint">{{ e.vendor_no || '—' }}</td>
+                <td class="mono">{{ entCounts.get(e.entity_code) || 0 }}</td>
+                <td><span class="tag" :class="e.active === false ? '' : 'ok'">
+                  {{ e.active === false ? 'ปิดใช้งาน' : 'ใช้งานอยู่' }}</span></td>
+                <td><button class="btn" style="padding:2px 9px" @click="startEnt(e)">แก้</button></td>
+              </tr></tbody>
+            </table>
+            <p v-if="!entities.length" class="empty">
+              ยังไม่มีนิติบุคคล — ตอนนี้ใช้ {{ entity }} เป็นค่าตั้งต้นอยู่<br>
+              เพิ่มเข้ามาเพื่อให้สลับดูยอดแต่ละโรงงานได้ และให้ Bin Card พิมพ์ Store Location ถูกใบ
+            </p>
+          </div>
+
+          <div v-if="entEdit" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+            <div class="row">
+              <label class="f" style="width:140px">รหัส
+                <input v-model.trim="entEdit.entity_code" class="mono"
+                       :disabled="!entEdit._new" placeholder="TUE-H"></label>
+              <label class="f grow" style="min-width:170px">ชื่อบริษัท
+                <input v-model.trim="entEdit.company_name"></label>
+              <label class="f" style="width:170px">Store Location
+                <input v-model.trim="entEdit.store_location" placeholder="ขึ้นหัว Bin Card"></label>
+              <label class="f" style="width:130px">Vendor No.
+                <input v-model.trim="entEdit.vendor_no" class="mono"></label>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <label class="f grow">ที่อยู่<input v-model.trim="entEdit.address"></label>
+              <label class="f" style="justify-content:flex-end"><span>&nbsp;</span>
+                <span class="row" style="gap:5px;flex-wrap:nowrap">
+                  <input type="checkbox" v-model="entEdit.active" id="ea" style="width:16px;height:16px">
+                  <label for="ea" style="font-size:13px">ใช้งานอยู่</label>
+                </span></label>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <div class="grow"></div>
+              <button class="btn" @click="entEdit=null">ยกเลิก</button>
+              <button class="btn primary" @click="saveEnt"
+                      :disabled="!entEdit.entity_code">บันทึก</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">เชื่อมกับ Google Sheets</h2>
+            <div class="grow"></div>
+            <span class="tag" :class="sync.state==='ok'?'ok':sync.state==='error'?'bad':''">
+              {{ sync.state==='busy' ? 'กำลังทำงาน' : sync.state==='ok' ? 'ปกติ'
+                 : sync.state==='error' ? 'มีปัญหา' : 'ยังไม่ได้ซิงค์' }}</span>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <label class="f grow" style="min-width:280px">URL ของ Apps Script
+              <input v-model.trim="sync.url" @change="saveSyncCfg"
+                     placeholder="https://script.google.com/macros/s/..../exec"></label>
+            <label class="f" style="width:200px">รหัสผ่าน (token)
+              <input v-model.trim="sync.token" @change="saveSyncCfg" type="password"></label>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <span class="row" style="gap:5px;flex-wrap:nowrap">
+              <input type="checkbox" v-model="sync.auto" @change="saveSyncCfg" id="au"
+                     style="width:16px;height:16px">
+              <label for="au" style="font-size:13px">ซิงค์เองทุก 2 นาที และทันทีที่เน็ตกลับมา</label>
+            </span>
+            <div class="grow"></div>
+            <button class="btn" @click="testConnection" :disabled="!sync.url">ทดสอบการเชื่อมต่อ</button>
+            <button class="btn primary" @click="syncNow(false)" :disabled="!sync.url || sync.state==='busy'">
+              ซิงค์เดี๋ยวนี้</button>
+          </div>
+
+          <div class="msg ok" v-if="fromLink" style="margin:12px 0 0">
+            รับค่าตั้งค่ามาจากลิงก์แล้ว — เครื่องนี้ไม่ต้องกรอกอะไรเพิ่ม
+          </div>
+
+          <!-- แจกลิงก์เดียวแล้วทุกเครื่องเปิดใช้ได้เลย ไม่ต้องเดินไปกรอกทีละเครื่อง -->
+          <div class="row" style="margin-top:12px" v-if="sync.url">
+            <button class="btn" @click="copyShareLink">คัดลอกลิงก์ตั้งค่าไปเครื่องอื่น</button>
+            <span class="hint" v-if="linkCopied">{{ linkCopied }}</span>
+            <span class="hint" v-else>เปิดลิงก์นี้ในเครื่องใหม่แล้วมันจะตั้งค่าให้เอง</span>
+          </div>
+          <div v-if="linkCopied" style="margin-top:8px">
+            <input :value="shareLink" readonly class="mono" style="width:100%;font-size:12px"
+                   @focus="$event.target.select()">
+            <p class="hint" style="margin:6px 0 0">
+              ⚠️ ในลิงก์มีรหัสผ่านอยู่ ส่งในไลน์กลุ่มของทีมได้ แต่อย่าเอาไปโพสต์ที่สาธารณะ
+            </p>
+          </div>
+
+          <div class="msg ok" v-if="sync.msg && sync.state!=='error'" style="margin:12px 0 0">
+            {{ sync.msg }}</div>
+          <div class="msg bad" v-if="sync.error" style="margin:12px 0 0">
+            {{ sync.error }}
+            <div v-if="sync.needDeploy" style="margin-top:6px">
+              <b>เซิร์ฟเวอร์ยังเป็นสคริปต์รุ่นเก่า</b><br>
+              <span class="hint">เปิดสเปรดชีต → ส่วนขยาย → Apps Script → วางไฟล์
+                v2/sync/apps-script.gs ทับ → Deploy → Manage deployments → กดดินสอ →
+                Version: New version → Deploy<br>
+                URL เดิมไม่เปลี่ยน ไม่ต้องมาแก้ช่องข้างบนนี้</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">ของที่รอส่งขึ้น</h2>
+            <div class="grow"></div>
+            <span class="hint" v-if="sync.lastOkAt">ซิงค์สำเร็จล่าสุด {{ localDate(sync.lastOkAt) }}
+              {{ sync.lastOkAt.slice(11,16) }}</span>
+            <span class="hint" v-else>ยังไม่เคยซิงค์สำเร็จ</span>
+          </div>
+          <div class="row" style="margin-top:12px;gap:28px">
+            <div v-for="(def,k) in TABLES" :key="k">
+              <div class="hint">{{ def.label }}</div>
+              <div class="big" :class="pending.per[k]?'warn':''">{{ pending.per[k] || 0 }}</div>
+            </div>
+          </div>
+          <p class="hint" style="margin:12px 0 0">
+            ตัวเลขนี้คือของที่ยังอยู่แค่ในเครื่องนี้ ไม่ได้แปลว่าผิด — คีย์ได้ตามปกติแม้เน็ตหลุด
+            แล้วมันจะทยอยส่งขึ้นเองเมื่อเน็ตกลับมา
+          </p>
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="pushAll" :disabled="!sync.url || sync.state==='busy'">
+              ส่งขึ้นใหม่ทั้งหมด</button>
+            <button class="btn" @click="resync" :disabled="!sync.url || sync.state==='busy'">
+              ดึงใหม่ทั้งหมดจากเซิร์ฟเวอร์</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>เปิดใช้ครั้งแรกต้องทำอะไรบ้าง</h2>
+          <ol class="hint" style="margin:0;padding-left:20px;line-height:1.9">
+            <li>สร้าง <b>สเปรดชีตใหม่</b> แยกจากของ v1 (ของเดิมเก็บไว้เป็นบันทึกย้อนหลัง ห้ามลบ)</li>
+            <li>ส่วนขยาย → Apps Script → วางไฟล์ <span class="mono">v2/sync/apps-script.gs</span> ทั้งไฟล์</li>
+            <li>แก้บรรทัด <span class="mono">var TOKEN</span> เป็นรหัสของตัวเอง แล้วกรอกให้ตรงกันในช่องข้างบน</li>
+            <li>Deploy → New deployment → Web app → Execute as: <b>Me</b> ·
+                Who has access: <b>Anyone</b> → เอา URL ที่ลงท้าย <span class="mono">/exec</span> มาใส่ข้างบน</li>
+            <li>กดทดสอบการเชื่อมต่อ ถ้าขึ้นชื่อสเปรดชีตแปลว่าใช้ได้</li>
+          </ol>
+          <p class="hint" style="margin:10px 0 0">
+            รอบถัดไปที่แก้สคริปต์ ให้ใช้ <b>Manage deployments → ดินสอ → New version</b>
+            URL จะไม่เปลี่ยน — ถ้ากด New deployment ใหม่ URL จะเปลี่ยนแล้วต้องไล่แก้ทุกเครื่อง
+          </p>
+        </div>
+      </template>
+
+      <div class="card" v-else>
+        <p class="empty">หน้านี้ยังไม่ได้ทำ — กำลังสร้างทีละส่วน</p>
+      </div>
+
+      <!-- รายการ P/N ใช้ร่วมกันหลายหน้า จึงต้องอยู่นอกแท็บ ไม่งั้นหน้าที่ไม่ได้เปิดจะหาไม่เจอ -->
+      <datalist id="pnlist"><option v-for="p in bomPnCodes" :key="p" :value="p"></option></datalist>
+
+      <!-- ════════ ตั้งทะเบียนจาก BOM ════════ -->
+      <div class="modal" v-if="regDraft" @click.self="regDraft=null">
+        <div class="modal-box" style="width:min(1100px,100%)">
+          <div class="row">
+            <h2 style="margin:0">ตั้งทะเบียนจาก BOM</h2>
+            <div class="grow"></div>
+            <span class="hint">เลือกไว้ {{ regTake.length }} จาก {{ regDraft.length }}</span>
+            <button class="btn" @click="regDraft=null">ปิด</button>
+          </div>
+
+          <p class="hint" style="margin:8px 0">
+            ทุกตัวจะถูกติดธง <b>รอตรวจ</b> ไว้ เพราะ BOM บอกวันหมดอายุไม่ได้ และหมวดเป็นแค่การเดาจากชื่อ
+            — หมวด CHEMICAL จะถูกตั้งให้ต้องกรอกวันหมดอายุอัตโนมัติ
+          </p>
+
+          <div class="msg warn" v-if="regPlan.unitVaries || regPlan.noUnit || regPlan.dupDesc">
+            <span v-if="regPlan.unitVaries"><b>{{ regPlan.unitVaries }} รหัสมีหน่วยไม่ตรงกันข้าม P/N</b>
+              — ต้องดูก่อนว่าจะเอาหน่วยไหน เพราะตัวเลขในสูตรจะคนละมาตราส่วน<br></span>
+            <span v-if="regPlan.noUnit">{{ regPlan.noUnit }} รหัสไม่มีหน่วยใน BOM เลย<br></span>
+            <span v-if="regPlan.dupDesc">{{ regPlan.dupDesc }} รหัสมีชื่อซ้ำกับรหัสที่มีอยู่แล้วในทะเบียน
+              — เช็กว่าไม่ใช่ของเดียวกันคนละรหัส (issue #26)</span>
+          </div>
+          <div class="msg ok" v-if="regPlan.inHouseSkipped.length">
+            ข้ามของที่เราทำเอง {{ regPlan.inHouseSkipped.length }} รหัสให้แล้ว
+            <span class="mono hint">{{ regPlan.inHouseSkipped.slice(0,5).join(' · ') }}</span><br>
+            <span class="hint">พวกนี้คืองานที่เราพันเอง ไม่ใช่ของที่ซื้อเข้ามา ไม่ควรอยู่ในทะเบียนวัตถุดิบ</span>
+          </div>
+
+          <div class="scroll" style="margin-top:10px;max-height:50vh">
+            <table>
+              <thead><tr>
+                <th style="width:34px"></th><th style="width:115px">รหัส</th><th>ชื่อ</th>
+                <th style="width:70px">หน่วย</th><th style="width:130px">หมวด</th>
+                <th style="width:200px">ใช้ใน P/N</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in regDraft" :key="r.code" :class="{review: r.unitVaries || r.dupDesc.length}">
+                  <td><input type="checkbox" v-model="r.take" style="width:16px;height:16px"></td>
+                  <td class="mono"><b>{{ r.code }}</b></td>
+                  <td>
+                    <input v-model.trim="r.desc" style="width:100%;font-size:13px">
+                    <div class="hint" v-if="r.descVaries">
+                      ชื่ออื่นที่พบ: <span class="mono">{{ r.otherDescs.join(' · ') }}</span></div>
+                    <div class="hint" v-if="r.dupDesc.length">
+                      <span class="tag warn">ชื่อซ้ำกับ {{ r.dupDesc.join(' · ') }}</span></div>
+                  </td>
+                  <td>
+                    <input v-model.trim="r.unit" class="mono" style="width:58px">
+                    <div v-if="r.unitVaries"><span class="tag bad">พบ {{ r.units.join('/') }}</span></div>
+                    <div v-if="r.noUnit"><span class="tag warn">ไม่มีหน่วย</span></div>
+                  </td>
+                  <td>
+                    <select v-model="r.category" style="width:118px;font-size:12px">
+                      <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
+                    </select>
+                  </td>
+                  <td class="mono hint">{{ r.pns.join(' ') }}
+                    <span v-if="r.nPn > r.pns.length">… รวม {{ r.nPn }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn" @click="regDraft.forEach(r => r.take = true)">เลือกทั้งหมด</button>
+            <button class="btn" @click="regDraft.forEach(r => r.take = false)">ไม่เลือกเลย</button>
+            <div class="grow"></div>
+            <button class="btn primary" @click="applyRegPlan" :disabled="regBusy || !regTake.length">
+              {{ regBusy ? 'กำลังเพิ่ม...' : 'เพิ่ม ' + regTake.length + ' รหัสเข้าทะเบียน' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════ ยกเลิกรายการ ════════ -->
+      <div class="modal" v-if="voidBox.row" @click.self="voidBox.row=null">
+        <div class="modal-box" style="width:min(520px,100%)">
+          <h2>ยกเลิกรายการนี้</h2>
+          <p class="hint" style="margin:-4px 0 10px">
+            รายการจะไม่ถูกลบ แต่จะไม่นับเข้ายอด และยังเห็นได้ในการ์ดว่าใครยกเลิกเพราะอะไร
+            — สมุดเขียนเพิ่มได้อย่างเดียว
+          </p>
+          <table><tbody>
+            <tr><td class="hint" style="width:90px">วันที่</td>
+                <td class="mono">{{ localDate(voidBox.row.at) }}</td></tr>
+            <tr><td class="hint">รายการ</td>
+                <td>{{ voidBox.row.kindLabel }} <b class="mono">{{ voidBox.row.qty }}</b>
+                    <span class="mono hint">{{ voidBox.row.lot ? '· ล็อต ' + voidBox.row.lot : '' }}</span></td></tr>
+            <tr><td class="hint">ผู้บันทึก</td><td>{{ voidBox.row.person }}</td></tr>
+          </tbody></table>
+          <div class="msg warn" v-if="voidAfterAdjust" style="margin:12px 0 0">
+            <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ localDate(voidAfterAdjust.at) }}</b><br>
+            <span class="hint">ส่วนต่างของการปรับยอดถูกแช่แข็งไว้ตั้งแต่ตอนบันทึกและจะไม่คำนวณใหม่
+              ยกเลิกแล้วยอดคงเหลือจะไม่ตรงกับ {{ voidAfterAdjust.counted_qty }} ที่เคยนับได้อีก
+              — ถ้าของจริงยังเท่าเดิม ให้ปรับยอดอีกครั้งหลังยกเลิก</span>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <label class="f grow">ยกเลิกเพราะอะไร
+              <input v-model="voidBox.reason" placeholder="เช่น คีย์จำนวนผิด คีย์ซ้ำ"></label>
+            <label class="f" style="width:150px">ใครสั่งยกเลิก
+              <input v-model="voidBox.by"></label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="voidBox.row=null">ไม่ยกเลิกแล้ว</button>
+            <button class="btn primary" @click="doVoid"
+                    :disabled="!voidBox.reason.trim() || !voidBox.by.trim()">ยืนยันยกเลิก</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════ ค้นหารหัส (ใช้ร่วมกันทุกหน้า) ════════ -->
+      <div class="modal" v-if="pick" @click.self="pick=null">
+        <div class="modal-box">
+          <div class="row">
+            <input v-model.trim="pickQ" class="grow" placeholder="พิมพ์รหัสหรือชื่อ" ref="pickInput">
+            <button class="btn" @click="pick=null">ปิด</button>
+          </div>
+          <div class="scroll" style="margin-top:10px;max-height:52vh">
+            <table>
+              <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
+                <th style="width:60px">หน่วย</th><th style="width:110px">หมวด</th></tr></thead>
+              <tbody><tr v-for="m in pickResults" :key="m.material_code"
+                         style="cursor:pointer" @click="choosePick(m)">
+                <td class="mono"><b>{{ m.material_code }}</b></td>
+                <td>{{ m.description }}
+                  <span v-if="m.dupDesc" class="tag warn">ชื่อซ้ำ — ดูรหัส</span></td>
+                <td class="mono">{{ m.unit }}</td>
+                <td><span class="tag">{{ m.category }}</span></td>
+              </tr></tbody>
+            </table>
+            <p v-if="!pickResults.length" class="empty">ไม่เจอ — พิมพ์รหัสลงช่องแล้วกด "เพิ่มเลย" ได้</p>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <div class="toast" :class="{bad:toast.bad}" v-if="toast.show">{{ toast.text }}</div>
+  </template>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
