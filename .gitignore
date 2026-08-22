@@ -3,6 +3,10 @@
 # Ignore everything by default, then explicitly allow the deploy files.
 /*
 !/.gitignore
+# หน้ารวมลิงก์ที่ GitHub Pages เสิร์ฟเป็นหน้าแรกของ /store/
+!/index.html
+# ปิด Jekyll — ไม่งั้น Pages จะข้ามไฟล์หรือโฟลเดอร์ที่ขึ้นต้นด้วย _ ให้เงียบ ๆ
+!/.nojekyll
 !/Stock-log.html
 !/ทะเบียนวัตถุดิบ.html
 !/แปลง BOM จาก SAP.html
