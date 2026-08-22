@@ -6,7 +6,7 @@
 <!-- เวอร์ชันของไฟล์นี้ — ประกาศที่เดียว โค้ดอ่านจากตรงนี้ ห้ามเขียนซ้ำที่อื่น
      ต้องบัมป์ทุกครั้งที่แก้ไฟล์นี้ (CI จะตรวจให้ ถ้าลืมบัมป์ PR จะแดง)
      รูปแบบ: YYYY-MM-DD.ลำดับของวันนั้น -->
-<meta name="app-version" content="2026-08-22.1">
+<meta name="app-version" content="2026-08-22.2">
 <title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -3266,7 +3266,10 @@ createApp({
     // พอเอามาเทียบกันด้วย === หรือ Map.has() จึงไม่ตรงแบบเงียบ ๆ ไม่มี error ให้เห็นสักตัว
     // เคยทำให้คอลัมน์ "Reqmt (สูตร)" ในหน้ารับเข้าว่างทั้งใบ ทั้งที่ BOM มีข้อมูลครบ (issue #36)
     // ➜ ทุกแถวที่มาจากเซิร์ฟเวอร์ ไฟล์สำรอง หรือที่เก็บในเครื่อง ต้องผ่านตัวนี้ก่อนเสมอ
-    const KEY_COLS = ['material_code', 'part_no', 'code', 'pn', 'po', 'entity', 'entity_code'];
+    // doc_ref = ช่อง PO ของรายการเคลื่อนไหว ต้องอยู่ในลิสต์นี้ด้วยเสมอ
+    // เพราะมันถูกเอาไปเทียบกับ closes.po / poList.po / kits.po ที่ถูกบังคับเป็นข้อความไปแล้ว
+    // ถ้าตกตัวนี้ไป PO ที่เป็นเลขล้วนจะเทียบไม่ติด แล้ว isPoClosed / lockLeaks จะเงียบ (C1/C2/B4)
+    const KEY_COLS = ['material_code', 'part_no', 'doc_ref', 'code', 'pn', 'po', 'entity', 'entity_code'];
     function normKeys(row){
       if (row) for (const c of KEY_COLS) if (typeof row[c] === 'number') row[c] = String(row[c]);
       return row;
