@@ -6,7 +6,7 @@
 <!-- เวอร์ชันของไฟล์นี้ — ประกาศที่เดียว โค้ดอ่านจากตรงนี้ ห้ามเขียนซ้ำที่อื่น
      ต้องบัมป์ทุกครั้งที่แก้ไฟล์นี้ (CI จะตรวจให้ ถ้าลืมบัมป์ PR จะแดง)
      รูปแบบ: YYYY-MM-DD.ลำดับของวันนั้น -->
-<meta name="app-version" content="2026-08-14.1">
+<meta name="app-version" content="2026-08-22.2">
 <title>บันทึกสต็อกวัตถุดิบ — ระบบ Bin Card</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1887,11 +1887,12 @@ createApp({
 
       if (kit.length) {
         // ยึด Kit List เป็นหลัก แล้วเติม reqmt จาก BOM ถ้ามี
+        // ⚠️ รหัสจาก Kit List กับรหัสใน BOM ต้องเป็นข้อความทั้งคู่ก่อนเทียบเสมอ (issue #36)
         inLines.value = kit.map(k => mk(k.code, { desc:k.desc, unit:k.unit, issued:k.issue,
-          reqmt: reqOf.has(k.code) ? reqOf.get(k.code) : null,
-          varies: variesOf.get(k.code), fromKit:true }));
+          reqmt: reqOf.has(String(k.code)) ? reqOf.get(String(k.code)) : null,
+          varies: variesOf.get(String(k.code)), fromKit:true }));
         // วัตถุดิบที่ BOM บอกว่าต้องใช้ แต่ Kit List ไม่มี — แสดงไว้ให้เห็นว่า Delta ไม่ได้จ่ายมา
-        const inKit = new Set(kit.map(k => k.code));
+        const inKit = new Set(kit.map(k => String(k.code)));
         const missing = bomList.filter(b => !inKit.has(b.code));
         inLines.value.push(...missing.map(b => mk(b.code, { unit:b.unit,
           reqmt: reqOf.get(b.code), varies:b.varies })));
@@ -2419,8 +2420,8 @@ createApp({
         try {
           const d = JSON.parse(ev.target.result);
           if (!confirm(`กู้คืนข้อมูล ${(d.txns||[]).length} รายการ ทับของเดิมทั้งหมด?`)) return;
-          materials.value = d.materials || []; entities.value = d.entities || [];
-          bom.value = d.bom || []; people.value = d.people || []; txns.value = d.txns || [];
+          materials.value = normKeysAll(d.materials); entities.value = normKeysAll(d.entities);
+          bom.value = normKeysAll(d.bom); people.value = d.people || []; txns.value = normKeysAll(d.txns);
           if (entities.value.length) entity.value = entities.value[0].entity_code;
           persist(); flash('กู้คืนข้อมูลแล้ว');
         } catch (err) { flash('ไฟล์สำรองเสียหาย: ' + err.message, true); }
@@ -2732,7 +2733,7 @@ createApp({
           const have = new Set(kits.value.map(k => k.id));
           const fresh = p.rows.filter(k => !have.has(k.id));
           // เทียบกับรายการวัตถุดิบที่ใช้งานอยู่ (โปรแกรมนี้เก็บเฉพาะที่ active)
-          const codeNew = [...new Set(p.rows.map(k => k.code).filter(c => !matMap.value.has(c)))];
+          const codeNew = [...new Set(p.rows.map(k => String(k.code)).filter(c => !matMap.value.has(c)))];
           const pos = [...new Set(p.rows.map(k => k.po))];
           const noPo = pos.filter(po => !poList.value.some(x => x.po === po));
           kitImp.value = { fileName:f.name, ...p, fresh, dup:p.rows.length - fresh.length,
@@ -3259,11 +3260,28 @@ createApp({
       return o;
     }
 
+    // ═══════════ บังคับชนิดของคอลัมน์ที่ใช้เป็น "กุญแจ" ═══════════
+    // Google Sheets เก็บรหัสวัตถุดิบ / P·N ที่เป็นเลขล้วนไว้เป็นตัวเลข และ getValues() ก็คืนมาเป็นตัวเลข
+    // ฝั่ง pullSetup (ทะเบียน/BOM) แปลงเป็นข้อความให้แล้ว แต่ pullRows/pullTxns คืนค่าดิบมาตรง ๆ
+    // พอเอามาเทียบกันด้วย === หรือ Map.has() จึงไม่ตรงแบบเงียบ ๆ ไม่มี error ให้เห็นสักตัว
+    // เคยทำให้คอลัมน์ "Reqmt (สูตร)" ในหน้ารับเข้าว่างทั้งใบ ทั้งที่ BOM มีข้อมูลครบ (issue #36)
+    // ➜ ทุกแถวที่มาจากเซิร์ฟเวอร์ ไฟล์สำรอง หรือที่เก็บในเครื่อง ต้องผ่านตัวนี้ก่อนเสมอ
+    // doc_ref = ช่อง PO ของรายการเคลื่อนไหว ต้องอยู่ในลิสต์นี้ด้วยเสมอ
+    // เพราะมันถูกเอาไปเทียบกับ closes.po / poList.po / kits.po ที่ถูกบังคับเป็นข้อความไปแล้ว
+    // ถ้าตกตัวนี้ไป PO ที่เป็นเลขล้วนจะเทียบไม่ติด แล้ว isPoClosed / lockLeaks จะเงียบ (C1/C2/B4)
+    const KEY_COLS = ['material_code', 'part_no', 'doc_ref', 'code', 'pn', 'po', 'entity', 'entity_code'];
+    function normKeys(row){
+      if (row) for (const c of KEY_COLS) if (typeof row[c] === 'number') row[c] = String(row[c]);
+      return row;
+    }
+    const normKeysAll = list => Array.isArray(list) ? list.map(normKeys) : [];
+
     /** รวมรายการที่ดึงมา — ใครแก้ทีหลังชนะ แต่ห้ามทับของที่เรายังส่งไม่สำเร็จ */
     function mergeIncoming(rows){
       const byId = new Map(txns.value.map(t => [t.id, t]));
       let added = 0, updated = 0;
       for (const r of rows) {
+        normKeys(r);
         const local = byId.get(r.id);
         if (!local) { txns.value.push({ ...r, _dirty:false }); added++; continue; }
         if (local._dirty) continue;                       // ของเรายังไม่ได้ส่ง อย่าเพิ่งทับ
@@ -3279,6 +3297,7 @@ createApp({
       const byId = new Map(listRef.value.map(x => [x.id, x]));
       let n = 0;
       for (const r of rows) {
+        normKeys(r);
         const local = byId.get(r.id);
         if (!local) { listRef.value.push({ ...r, _dirty:false }); n++; continue; }
         if (local._dirty) continue;
@@ -3368,14 +3387,14 @@ createApp({
       try {
         sync.state = 'busy';
         const d = await api('pullSetup');
-        if (d.materials && d.materials.length) materials.value = d.materials;
-        if (d.entities && d.entities.length)   entities.value  = d.entities;
-        if (d.bom)                             bom.value       = d.bom;
+        if (d.materials && d.materials.length) materials.value = normKeysAll(d.materials);
+        if (d.entities && d.entities.length)   entities.value  = normKeysAll(d.entities);
+        if (d.bom)                             bom.value       = normKeysAll(d.bom);
         if (d.people)                          people.value    = d.people;
-        if (d.poList)                          poList.value    = d.poList;
-        if (d.shorts)                          shorts.value    = d.shorts;
-        if (d.kits)                            kits.value      = d.kits;
-        if (d.closes)                          closes.value    = d.closes;
+        if (d.poList)                          poList.value    = normKeysAll(d.poList);
+        if (d.shorts)                          shorts.value    = normKeysAll(d.shorts);
+        if (d.kits)                            kits.value      = normKeysAll(d.kits);
+        if (d.closes)                          closes.value    = normKeysAll(d.closes);
         if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
         sync.state='ok'; persist();
         flash(`ดึงข้อมูลตั้งต้นแล้ว · วัตถุดิบ ${materials.value.length} · BOM ${bom.value.length}`);
@@ -3475,10 +3494,12 @@ createApp({
     onMounted(() => {
       try {
         const s = JSON.parse(localStorage.getItem(K_SETUP) || 'null');
-        if (s) { materials.value=s.materials||[]; entities.value=s.entities||[];
-                 bom.value=s.bom||[]; people.value=s.people||[];
-                 poList.value=s.poList||[]; shorts.value=s.shorts||[]; kits.value=s.kits||[];
-                 closes.value=s.closes||[]; }
+        // normKeysAll ตรงนี้ทำหน้าที่ซ่อมข้อมูลที่ค้างในเครื่องมาตั้งแต่ก่อนแก้ issue #36 ด้วย
+        // ถ้าซ่อมแค่ขาเข้า แถวเก่าที่ updated_at ไม่ขยับจะไม่ถูกเขียนทับ แล้วจะพังค้างอยู่อย่างนั้นตลอด
+        if (s) { materials.value=normKeysAll(s.materials); entities.value=normKeysAll(s.entities);
+                 bom.value=normKeysAll(s.bom); people.value=s.people||[];
+                 poList.value=normKeysAll(s.poList); shorts.value=normKeysAll(s.shorts);
+                 kits.value=normKeysAll(s.kits); closes.value=normKeysAll(s.closes); }
         // ข้อมูลที่นำเข้าก่อนเวอร์ชันนี้ยังไม่มี id — เติมให้ แล้วมาร์คส่งขึ้นเซิร์ฟเวอร์
         const stampNow = new Date().toISOString();
         poList.value.forEach(p => { if (!p.id) {
@@ -3486,7 +3507,7 @@ createApp({
         shorts.value.forEach(x => { if (!x.id) {
           x.id = 'S' + x.date + '-' + x.po + '-' + x.code + '-' + hash(x.note);
           x.updated_at = stampNow; x._dirty = true; } });
-        txns.value = JSON.parse(localStorage.getItem(K_TXN) || '[]');
+        txns.value = normKeysAll(JSON.parse(localStorage.getItem(K_TXN) || '[]'));
       } catch (e) { /* ข้อมูลเสีย เริ่มใหม่ */ }
       if (!entity.value && entities.value.length) entity.value = entities.value[0].entity_code;
       storageBytes.value = (localStorage.getItem(K_SETUP)||'').length + (localStorage.getItem(K_TXN)||'').length;
