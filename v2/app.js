@@ -22,6 +22,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript } from './core/sync.js';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
          importPlan as importPlanKit } from './master/po-kit.js';
+import { entityOfPo, bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -37,6 +38,7 @@ const TABS = [
   // สามชนิดที่เหลือรวมไว้หน้าเดียว เพราะแบบฟอร์มเหมือนกันเกือบหมด
   // และแยกเป็นสามแท็บจะทำให้แถบบนยาวจนหาของไม่เจอบนจอโรงงาน
   { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' },
+  { k: 'wk',    label: 'รับเข้ารวมรายรอบ' },
   { k: 'po',    label: 'PO / Kit List' },
   { k: 'sync',  label: 'ซิงค์' }
 ];
@@ -767,6 +769,130 @@ createApp({
         .map(e => ({ ...e, kindLabel: (KINDS[e.kind] || {}).label || e.kind }));
     });
 
+    // ── รับเข้ารวมรายสัปดาห์ ───────────────────────────────────────
+    // Tube · Chemical · Copper foil · Solder — Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ
+    // กฎทั้งหมดอยู่ใน master/weekly.js ที่นี่มีแค่การต่อสายเข้าหน้าจอ
+    const wkH = reactive({ date: todayLocal(), docNo: '', group: '', person: '' });
+    const wkLines = ref([]);
+    const wkTotals = ref({});          // รหัส -> ยอดรวมตามแถว Total ในเอกสาร (คีย์เอง)
+    let wkSeq = 0;
+
+    function wkBlank(copyFrom) {
+      return { k: 'W' + (++wkSeq),
+               code: copyFrom ? copyFrom.code : '', desc: '', unit: '',
+               po: '', pn: '', entity: '', orderQty: null,
+               req: null, s41: null, qty: null, lot: '', expiry: '',
+               needExp: false, known: false, poFound: null, remark: '' };
+    }
+    function wkFill(l) {
+      const m = matOf(l.code);
+      l.known = !!m;
+      l.desc = m ? m.description : '';
+      l.unit = m ? m.unit : '';
+      l.needExp = m ? m.requires_expiry === true : false;
+    }
+    function wkAdd(copyCode) {
+      const prev = wkLines.value[wkLines.value.length - 1];
+      const l = wkBlank(copyCode ? prev : null);
+      if (copyCode && prev) { wkFill(l); }
+      wkLines.value.push(l);
+    }
+
+    /** กรอก PO แล้วดึง P/N กับยอดสั่งจากรายการ PO ที่นำเข้าไว้ */
+    function wkPo(l) {
+      const hit = pos.value.find(p => p.po === l.po);
+      l.poFound = l.po ? !!hit : null;
+      // นิติบุคคลรายบรรทัด — เอกสารใบเดียวมีของสองโรงงานปนกันได้
+      l.entity = entityOfPo(l.po);
+      if (!hit) return;
+      if (!l.pn) l.pn = hit.pn;
+      if (!l.orderQty) l.orderQty = hit.qty;
+    }
+
+    /**
+     * ดึงรายการจาก Kit List กลุ่มจ่ายรวมที่นำเข้าไว้แล้ว
+     * เอกสารจริงเป็น PDF สแกนจึงต้องคีย์มือ แต่ถ้าวันไหนได้ไฟล์ Excel มาด้วย
+     * ก็ไม่มีเหตุผลให้คีย์ซ้ำ — ดึงมาแล้วแก้ทับได้เหมือนกัน
+     */
+    const chemDates = computed(() =>
+      [...new Set(kits.value.filter(k => k.src === 'chem').map(k => k.date))]
+        .filter(Boolean).sort().reverse());
+    const wkPickDate = ref('');
+
+    function wkFromKit() {
+      const d = wkPickDate.value || chemDates.value[0];
+      const rows = kits.value.filter(k => k.src === 'chem' && (!d || k.date === d));
+      if (!rows.length) { flash('ยังไม่มี Kit List กลุ่มจ่ายรวมของวันนั้น', true); return; }
+      wkLines.value = rows.map(k => {
+        const l = wkBlank(null);
+        l.code = String(k.code); l.po = k.po; l.pn = k.pn || '';
+        l.orderQty = k.orderQty; l.req = k.req; l.s41 = k.issue;
+        l.qty = k.issue;                       // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
+        l.remark = k.remark || '';
+        wkFill(l); wkPo(l);
+        return l;
+      });
+      if (d) wkH.date = d;
+      if (!wkH.group && rows[0].group) wkH.group = rows[0].group;
+      flash(`ดึงจาก Kit List ${rows.length} บรรทัด — แก้ยอดนับจริงแล้วบันทึกได้เลย`);
+    }
+
+    const wkBomOf = l => bomExpect(bom.value, l.pn, l.code, l.orderQty);
+    const wkPctOf = l => pctDiff(l, wkBomOf(l));
+
+    const wkCheck = computed(() => checkWeekly(wkLines.value, {
+      totals: wkTotals.value, materials: materials.value, entity: entity.value }));
+
+    function wkUseIssued() {
+      for (const l of wkLines.value) {
+        if (l.qty === null || l.qty === '') l.qty = l.s41;
+      }
+    }
+
+    async function saveWeekly() {
+      const c = wkCheck.value;
+      if (!wkH.docNo) { flash('ยังไม่ได้กรอกเลขที่เอกสาร', true); return; }
+      if (!wkH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
+      if (!c.ready.length) { flash('ยังไม่มีบรรทัดที่กรอกครบ', true); return; }
+
+      // ทุกข้อเตือนแล้วไปต่อได้ — INVARIANTS A4
+      if (c.mismatch.length && !confirm(
+        `มี ${c.mismatch.length} รหัสที่ยอดรวมไม่ตรงกับเอกสาร\nบันทึกต่อไหม`)) return;
+      if (c.unknown.length && !confirm(
+        `มี ${c.unknown.length} รหัสที่ยังไม่มีในทะเบียน\nบันทึกต่อไหม`)) return;
+      if (c.otherEntities.length && !confirm(
+        [`ใบนี้มีบรรทัดของ ${c.otherEntities.join(' · ')} ปนอยู่`,
+         `แต่ตอนนี้โปรแกรมตั้งนิติบุคคลไว้เป็น ${entity.value}`,
+         'ถ้าบันทึกต่อ ของทั้งใบจะถูกนับเป็นของ ' + entity.value,
+         '', 'บันทึกต่อไหม'].join('\n'))) return;
+      const badExp = c.ready.filter(l => l.needExp && !l.expiry);
+      if (badExp.length) { flash(`ต้องกรอกวันหมดอายุอีก ${badExp.length} รายการ`, true); return; }
+      if (c.noLot && !confirm(
+        [`มี ${c.noLot} บรรทัดที่ยังไม่ใส่เลขล็อต`,
+         'ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป',
+         '', 'บันทึกต่อไหม'].join('\n'))) return;
+
+      try {
+        const posted = c.ready.map(l => makeEntry({
+          entity: entity.value, kind: 'receive',
+          material_code: l.code, qty: Number(l.qty),
+          lot: l.lot || '(ไม่ระบุ)',
+          doc_kind: 'po', doc_ref: l.po, part_no: l.pn || '',
+          at: atFrom(wkH.date), person: wkH.person, device: device.value,
+          expiry_date: l.expiry || '',
+          reqmt_qty: l.req === null || l.req === '' ? null : Number(l.req),
+          issued_qty: l.s41 === null || l.s41 === '' ? null : Number(l.s41),
+          note: ['รับรวมรายรอบ ' + wkH.docNo, l.entity && l.entity !== entity.value
+                 ? 'PO เป็นของ ' + l.entity : '', l.remark].filter(Boolean).join(' · ')
+        }));
+        await db.put('entries', posted);
+        entries.value.push(...posted);
+        db.announce('entries');
+        flash(`บันทึกรับเข้ารวม ${posted.length} รายการ · เอกสาร ${wkH.docNo}`);
+        wkLines.value = []; wkTotals.value = {}; wkH.docNo = '';
+      } catch (err) { flash(err.message, true); }
+    }
+
     // ── นำเข้า PO / Kit List ───────────────────────────────────────
     // ไฟล์จาก Delta สามแบบ อ่านด้วยตัวอ่านคนละตัว แต่เข้าท่อเดียวกัน
     const pos = ref([]);
@@ -1167,6 +1293,8 @@ createApp({
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
              sync, pending, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
+             wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
+             wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, recentPos, toggleShort,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,

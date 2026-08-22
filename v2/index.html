@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-16.3">
+<meta name="app-version" content="2026-08-16.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1029,6 +1029,156 @@ textarea{font:inherit}
               <td class="mono hint">{{ localDate(l.first) }}</td>
               <td><button class="btn" style="padding:2px 9px" @click="mk.lot=l.lot">เลือก</button></td>
             </tr></tbody></table>
+        </div>
+      </template>
+
+      <!-- ════════ รับเข้ารวมรายรอบ ════════ -->
+      <template v-else-if="tab==='wk'">
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">รับเข้ารวมรายรอบ — Tube · Chemical · Copper foil · Solder</h2>
+          </div>
+          <p class="hint" style="margin:6px 0 12px">
+            ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ เอกสารเป็น PDF สแกนจึงต้องคีย์มือ<br>
+            คีย์กระจายตาม PO ตามที่เอกสารแยกไว้ แล้วกรอกแถว Total ของแต่ละรหัส
+            ระบบจะบวกให้แล้วบอกว่าตรงกับเอกสารไหม
+          </p>
+
+          <div class="row">
+            <label class="f" style="width:150px">วันที่เอกสาร
+              <input v-model="wkH.date" type="date"></label>
+            <label class="f" style="width:170px">เลขที่เอกสาร
+              <input v-model.trim="wkH.docNo" class="mono" placeholder="0014 / WK27"></label>
+            <label class="f" style="width:100px">กลุ่ม
+              <input v-model.trim="wkH.group" class="mono" placeholder="H / U"></label>
+            <label class="f grow" style="min-width:130px">ผู้รับ
+              <input v-model.trim="wkH.person"></label>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn" @click="wkAdd(false)">+ เพิ่มบรรทัด</button>
+            <button class="btn" @click="wkAdd(true)" :disabled="!wkLines.length">+ รหัสเดิม อีก PO</button>
+            <div class="grow"></div>
+            <label class="f" style="width:165px" v-if="chemDates.length">ดึงจาก Kit List วันที่
+              <select v-model="wkPickDate">
+                <option value="">ล่าสุด ({{ chemDates[0] }})</option>
+                <option v-for="d in chemDates" :key="d" :value="d">{{ d }}</option>
+              </select></label>
+            <button class="btn" @click="wkFromKit" :disabled="!chemDates.length"
+                    style="align-self:flex-end">
+              {{ chemDates.length ? 'ดึงจาก Kit List กลุ่มจ่ายรวม' : 'ยังไม่มี Kit List กลุ่มจ่ายรวม' }}</button>
+          </div>
+        </div>
+
+        <div class="card" v-if="wkLines.length">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th style="width:125px">รหัส</th><th>ชื่อ</th>
+                <th style="width:135px">PO</th><th style="width:80px">นิติบุคคล</th>
+                <th style="width:115px">P/N</th><th style="width:85px">ยอดสั่ง</th>
+                <th style="width:85px">Req</th><th style="width:85px">541</th>
+                <th style="width:80px">ตามสูตร</th><th style="width:70px">ต่าง</th>
+                <th style="width:90px">รับจริง</th><th style="width:100px">ล็อต</th>
+                <th style="width:125px">วันหมดอายุ</th><th style="width:36px"></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(l,i) in wkLines" :key="l.k">
+                  <td>
+                    <div class="row" style="gap:3px;flex-wrap:nowrap">
+                      <input v-model.trim="l.code" class="mono" style="width:98px" @change="wkFill(l)">
+                      <button class="btn" style="padding:3px 6px" @click="openPick(l)">🔍</button>
+                    </div>
+                  </td>
+                  <td><span v-if="l.known">{{ l.desc }}</span>
+                    <span v-else-if="l.code" class="tag bad">ไม่มีในทะเบียน</span></td>
+                  <td><input v-model.trim="l.po" class="mono" style="width:126px" @change="wkPo(l)">
+                    <div v-if="l.poFound === false"><span class="tag warn">ไม่มีในรายการ PO</span></div></td>
+                  <!-- นิติบุคคลรายบรรทัด เพราะเอกสารใบเดียวมีของสองโรงงานปนกันได้ -->
+                  <td><span v-if="l.entity" class="tag"
+                            :class="l.entity !== entity ? 'bad' : 'ok'">{{ l.entity }}</span>
+                    <span v-else class="hint">—</span></td>
+                  <td><input v-model.trim="l.pn" class="mono" style="width:106px" list="pnlist"></td>
+                  <td><input v-model.number="l.orderQty" type="number" step="any" class="mono" style="width:76px"></td>
+                  <td><input v-model.number="l.req" type="number" step="any" class="mono" style="width:76px"></td>
+                  <td><input v-model.number="l.s41" type="number" step="any" class="mono" style="width:76px"></td>
+                  <td class="mono hint">{{ wkBomOf(l) === null ? '' : wkBomOf(l) }}</td>
+                  <td class="mono" :style="Math.abs(wkPctOf(l)) > 20 ? 'color:var(--bad)' : ''">
+                    {{ wkPctOf(l) === null ? '' : wkPctOf(l) + '%' }}</td>
+                  <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:80px"></td>
+                  <td><input v-model.trim="l.lot" class="mono" style="width:90px"></td>
+                  <td><input v-if="l.needExp" v-model="l.expiry" type="date" style="width:118px">
+                      <span v-else class="hint">—</span></td>
+                  <td><button class="btn" style="padding:2px 7px" @click="wkLines.splice(i,1)">✕</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="row" style="margin-top:11px">
+            <button class="btn" @click="wkUseIssued">เติมรับจริง = ยอดที่จ่ายมา</button>
+            <span class="hint">พร้อมบันทึก {{ wkCheck.ready.length }} บรรทัด</span>
+            <div class="grow"></div>
+            <button class="btn" @click="wkLines=[];wkTotals={}">ล้าง</button>
+            <button class="btn primary" @click="saveWeekly" :disabled="!wkCheck.ready.length">
+              บันทึกรับเข้ารวม</button>
+          </div>
+        </div>
+
+        <!-- รวมยอดรายรหัสเทียบกับแถว Total ในเอกสาร -->
+        <div class="card" v-if="wkCheck.summary.length">
+          <h2>ยอดรวมรายรหัส เทียบกับเอกสาร</h2>
+          <p class="hint" style="margin:-4px 0 10px">
+            กรอกยอดจากแถว "รหัส Total" ในเอกสารลงช่องขวาสุด ระบบบวกให้เองแล้วบอกว่าตรงไหม
+            — คนคีย์ไม่ต้องบวกเลขเอง
+          </p>
+          <table>
+            <thead><tr><th style="width:130px">รหัส</th><th style="width:80px">กี่ PO</th>
+              <th style="width:110px">รวม 541</th><th style="width:110px">รวมรับจริง</th>
+              <th style="width:140px">Total ในเอกสาร</th><th style="width:110px">ตรงไหม</th></tr></thead>
+            <tbody><tr v-for="x in wkCheck.summary" :key="x.code"
+                       :class="{review: x.match === false}">
+              <td class="mono"><b>{{ x.code }}</b></td>
+              <td class="mono hint">{{ x.n }}</td>
+              <td class="mono">{{ x.s41 }}</td>
+              <td class="mono"><b>{{ x.qty }}</b></td>
+              <td><input v-model="wkTotals[x.code]" type="number" step="any"
+                         class="mono" style="width:120px" placeholder="จากเอกสาร"></td>
+              <td><span v-if="x.match === true" class="tag ok">ตรง</span>
+                  <span v-else-if="x.match === false" class="tag bad">ต่าง {{ Math.round((x.doc - x.s41) * 1e5) / 1e5 }}</span>
+                  <span v-else class="hint">ยังไม่กรอก</span></td>
+            </tr></tbody>
+          </table>
+        </div>
+
+        <div class="card" v-if="wkLines.length">
+          <div class="msg bad" v-if="wkCheck.otherEntities.length">
+            <b>ใบนี้มีบรรทัดของ {{ wkCheck.otherEntities.join(' · ') }} ปนอยู่</b>
+            แต่ตอนนี้โปรแกรมตั้งนิติบุคคลไว้เป็น {{ entity }}<br>
+            <span class="hint">เอกสารใบเดียวมีของสองโรงงานปนกันได้ — ถ้าบันทึกต่อ
+              ของทั้งใบจะถูกนับเป็นของ {{ entity }} และจะเขียนกำกับไว้ในหมายเหตุว่า PO เป็นของใคร</span>
+          </div>
+          <div class="msg warn" v-if="wkCheck.mismatch.length">
+            {{ wkCheck.mismatch.length }} รหัสที่ยอดรวมไม่ตรงกับเอกสาร —
+            <span class="mono">{{ wkCheck.mismatch.map(m => m.code).join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="wkCheck.unknown.length">
+            {{ wkCheck.unknown.length }} รหัสยังไม่มีในทะเบียน —
+            <span class="mono">{{ wkCheck.unknown.join(' · ') }}</span>
+          </div>
+          <div class="msg warn" v-if="wkCheck.noLot">
+            {{ wkCheck.noLot }} บรรทัดยังไม่ใส่เลขล็อต —
+            <span class="hint">ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป</span>
+          </div>
+          <p class="hint" v-if="!wkCheck.otherEntities.length && !wkCheck.mismatch.length
+                                && !wkCheck.unknown.length && !wkCheck.noLot"
+             style="margin:0">ตรวจแล้วไม่มีอะไรค้าง</p>
+        </div>
+
+        <div class="card" v-if="!wkLines.length">
+          <p class="empty">
+            กด "เพิ่มบรรทัด" เพื่อคีย์จากเอกสาร PDF<br>
+            หรือถ้านำเข้า Kit List กลุ่มจ่ายรวมไว้แล้ว กด "ดึงจาก Kit List" ได้เลย
+          </p>
         </div>
       </template>
 
