@@ -161,7 +161,16 @@ export async function getMeta(k, dflt = null) {
   });
 }
 
-export const setMeta = (k, v) => put('meta', { k, v });
+/**
+ * เก็บค่าตั้งค่าเล็ก ๆ
+ *
+ * ⚠️ ถอดความเป็น reactive ออกให้ตรงนี้ที่เดียว
+ * หน้าจอส่ง object ที่ Vue ห่อด้วย Proxy เข้ามาได้ง่ายมาก ซึ่ง IndexedDB โคลนไม่ได้
+ * เคยพลาดแล้วเงียบสนิทเพราะฝั่งที่เรียกดัก error ไว้ ผลคือกรอกค่าแล้วดูเหมือนติด
+ * แต่พอปิดเปิดโปรแกรมใหม่ค่าหายหมด — ทำที่นี่แล้วไม่มีใครลืมได้อีก
+ */
+export const setMeta = (k, v) =>
+  put('meta', { k, v: v === undefined ? null : JSON.parse(JSON.stringify(v)) });
 
 /**
  * ประมาณพื้นที่ที่ใช้ไป — ให้มาตรวัดบอกความจริง

@@ -6,7 +6,8 @@
  * ซึ่งเป็นความเสียหายที่ไม่มีใครเห็นจนกว่าจะมีคนทักว่ายอดไม่ตรง
  */
 import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced,
-         chunk, toWire, syncPlan, looksLikeOldScript } from '../v2/core/sync.js';
+         chunk, toWire, syncPlan, looksLikeOldScript, normKeys, normKeysAll,
+         KEY_COLS } from '../v2/core/sync.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -101,6 +102,33 @@ console.log('\n=== E. เซิร์ฟเวอร์ยังเป็นส�
 ok('จับข้อความว่ายังไม่ได้อัปสคริปต์ได้', looksLikeOldScript('ไม่รู้จักคำสั่ง: pullTable'));
 ok('จับตารางที่ยังไม่มีได้', looksLikeOldScript('ไม่รู้จักตาราง: materials'));
 ok('ข้อผิดพลาดอื่นไม่ถูกเหมารวม', !looksLikeOldScript('token ไม่ถูกต้อง'));
+
+console.log('\n=== F. รหัสที่กลับมาเป็นตัวเลข (v1 issue #36) ===');
+// Google Sheets เก็บรหัสเลขล้วนเป็นตัวเลข พอเทียบกับข้อความจะไม่ตรงแบบเงียบ ๆ
+// ของจริงทำให้คอลัมน์ยอดตามสูตรในหน้ารับเข้าว่างทั้งใบ ทั้งที่ BOM มีข้อมูลครบ
+const raw = { material_code: 4010600100, part_no: 2870627900, doc_ref: 5266177,
+              code: 4020204800, pn: 123, po: 456, entity: 7, qty: 12.5 };
+const fixed = normKeys({ ...raw });
+ok('รหัสวัตถุดิบกลายเป็นข้อความ',
+   fixed.material_code === '4010600100' && typeof fixed.material_code === 'string');
+ok('P/N กับเลขเอกสารก็ด้วย',
+   typeof fixed.part_no === 'string' && typeof fixed.doc_ref === 'string');
+ok('ช่อง po / code / pn / entity ครบ',
+   ['code', 'pn', 'po', 'entity'].every(c => typeof fixed[c] === 'string'));
+// จำนวนต้องยังเป็นตัวเลข ไม่งั้นการบวกยอดจะกลายเป็นการต่อสตริง
+ok('แต่จำนวนต้องยังเป็นตัวเลข', fixed.qty === 12.5 && typeof fixed.qty === 'number');
+ok('doc_ref อยู่ในลิสต์เสมอ — เป็นช่อง PO ที่เอาไปเทียบกับ Kit List',
+   KEY_COLS.includes('doc_ref'));
+ok('ค่าที่เป็นข้อความอยู่แล้วไม่ถูกแตะ', normKeys({ code: '0012' }).code === '0012');
+ok('แถวว่างไม่พัง', normKeys(null) === null && normKeysAll(null) === null);
+
+// ต้องซ่อมตอนรวมข้อมูลด้วย ไม่ใช่แค่ตอนโหลดจากเครื่อง
+const inc = mergeIncoming([], [{ id: 'K1', code: 4020204800, updated_at: '2' }], 'id');
+ok('แถวที่รับมาจากเซิร์ฟเวอร์ถูกซ่อมชนิดก่อนเก็บ',
+   typeof inc.added[0].code === 'string', typeof inc.added[0].code);
+// เทียบด้วย Map เหมือนที่หน้าคีย์รับเข้าทำจริง
+ok('จับคู่กับ BOM ติดหลังซ่อม',
+   new Map([['4020204800', { usage: 1 }]]).has(inc.added[0].code));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

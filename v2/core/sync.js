@@ -48,6 +48,31 @@ export const asNum = v => {
   return isFinite(n) ? n : null;
 };
 
+/**
+ * คอลัมน์ที่ถูกเอาไปเทียบกับคอลัมน์อื่นเสมอ จึงต้องเป็นข้อความเท่านั้น
+ *
+ * ── บั๊กที่ทำให้ต้องมีบรรทัดพวกนี้ (v1 issue #36) ────────────────
+ * Google Sheets เก็บรหัสที่เป็นเลขล้วนไว้เป็น "ตัวเลข" พอดึงกลับมาแล้วเอาไปเทียบ
+ * กับรหัสที่เป็น "ข้อความ" ด้วย === หรือ Map.has() จะไม่ตรงแบบเงียบ ๆ ไม่มี error สักตัว
+ * ของจริงทำให้คอลัมน์ยอดตามสูตรในหน้ารับเข้าว่างทั้งใบ ทั้งที่ BOM มีข้อมูลครบ
+ *
+ * ⚠️ ต้องซ่อมที่ขาเข้าทุกทาง ไม่ใช่แค่ตอนซิงค์
+ * แถวที่ค้างอยู่ในเครื่องมาก่อนแล้วมี updated_at ไม่ขยับ จะไม่ถูกเขียนทับจากการซิงค์
+ * ถ้าไม่ซ่อมตอนโหลดขึ้นมาด้วย มันจะพังค้างอยู่อย่างนั้นตลอดไป
+ *
+ * doc_ref ต้องอยู่ในลิสต์นี้ด้วยเสมอ เพราะเป็นช่อง PO ของรายการเคลื่อนไหว
+ * ซึ่งถูกเอาไปเทียบกับ po ของ Kit List และรายการ PO ที่บังคับเป็นข้อความไปแล้ว
+ */
+export const KEY_COLS = ['material_code', 'part_no', 'doc_ref', 'code', 'pn', 'po',
+                         'entity', 'entity_code', 'lot', 'id'];
+
+export function normKeys(row) {
+  if (row) for (const c of KEY_COLS) if (typeof row[c] === 'number') row[c] = String(row[c]);
+  return row;
+}
+
+export const normKeysAll = list => Array.isArray(list) ? list.map(normKeys) : list;
+
 /** แถวที่ยังไม่ได้ส่งขึ้น */
 export const dirtyRows = list => list.filter(r => r && r.dirty === true);
 
@@ -63,6 +88,7 @@ export function mergeIncoming(local, incoming, key = 'id') {
   const added = [], updated = [];
   let heldBack = 0;
   for (const raw of incoming) {
+    normKeys(raw);                    // ซ่อมชนิดก่อนเทียบเสมอ — issue #36
     const k = asText(raw[key]);
     if (!k) continue;
     const cur = byKey.get(k);

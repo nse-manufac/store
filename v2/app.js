@@ -10,7 +10,8 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
          searchMaterials, duplicateDescriptions, normCode } from './master/materials.js';
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan, registryPlan } from './master/bom.js';
+         importPlan, registryPlan, makeManualRow, manualRowsOf,
+         bomId } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
@@ -19,7 +20,7 @@ import { balances, cardRows, oddBalances } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
-         syncPlan, looksLikeOldScript } from './core/sync.js';
+         syncPlan, looksLikeOldScript, normKeysAll } from './core/sync.js';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
          importPlan as importPlanKit } from './master/po-kit.js';
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
@@ -30,20 +31,34 @@ const { createApp, ref, reactive, computed, watch } = Vue;
 
 const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
 const SHOW_MAX = 300;
-const TABS = [
-  { k: 'mat',   label: 'ทะเบียนวัตถุดิบ' },
-  { k: 'bom',   label: 'BOM' },
-  { k: 'count', label: 'นับของ' },
-  { k: 'in',    label: 'รับเข้า' },
-  { k: 'out',   label: 'จ่ายออก' },
-  { k: 'bal',   label: 'ยอดคงคลัง' },
-  // สามชนิดที่เหลือรวมไว้หน้าเดียว เพราะแบบฟอร์มเหมือนกันเกือบหมด
-  // และแยกเป็นสามแท็บจะทำให้แถบบนยาวจนหาของไม่เจอบนจอโรงงาน
-  { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' },
-  { k: 'wk',    label: 'รับเข้ารวมรายรอบ' },
-  { k: 'po',    label: 'PO / Kit List' },
-  { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
+/**
+ * แท็บจัดเป็นกลุ่ม เพราะสิบแท็บเรียงยาวเป็นแถวเดียวหาของไม่เจอบนจอโรงงาน
+ * จัดตามจังหวะการทำงานจริง ไม่ใช่ตามโครงข้อมูล
+ *   งานประจำวัน  สิ่งที่พนักงานเปิดทุกวัน
+ *   ข้อมูลตั้งต้น ของที่ตั้งครั้งเดียวแล้วแก้เป็นครั้งคราว
+ *   ระบบ         ของเจ้าของ
+ */
+const GROUPS = [
+  { k: 'day',  label: 'งานประจำวัน', tabs: [
+    { k: 'home',  label: 'หน้าแรก' },
+    { k: 'in',    label: 'รับเข้า' },
+    { k: 'out',   label: 'จ่ายออก' },
+    { k: 'bal',   label: 'ยอดคงคลัง' },
+    { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' },
+    { k: 'wk',    label: 'รับเข้ารวมรายรอบ' }
+  ] },
+  { k: 'data', label: 'ข้อมูลตั้งต้น', tabs: [
+    { k: 'mat',   label: 'ทะเบียนวัตถุดิบ' },
+    { k: 'bom',   label: 'BOM' },
+    { k: 'po',    label: 'PO / Kit List' },
+    { k: 'count', label: 'นับของ' }
+  ] },
+  { k: 'sys',  label: 'ระบบ', tabs: [
+    { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
+  ] }
 ];
+
+const TABS = GROUPS.flatMap(g => g.tabs);
 
 /** สามชนิดที่หน้า misc ดูแล — เรียงตามความถี่ที่ใช้จริง */
 const MISC = [
@@ -57,7 +72,10 @@ createApp({
     const ready = ref(false);
     const bootMsg = ref('กำลังเปิดฐานข้อมูล...');
     const bootError = ref('');
-    const tab = ref('mat');
+    const tab = ref('home');
+    const groupOf = k => (GROUPS.find(g => g.tabs.some(t => t.k === k)) || GROUPS[0]).k;
+    const openGroup = ref('day');
+    watch(tab, k => { openGroup.value = groupOf(k); });
     const entity = ref('');
 
     const materials = ref([]);
@@ -87,14 +105,16 @@ createApp({
       try {
         bootMsg.value = 'กำลังโหลดข้อมูลจากเครื่อง...';
         const data = await db.loadAll();
-        materials.value = data.materials || [];
-        entries.value = data.entries || [];
-        bom.value = data.bom || [];
+        // normKeysAll ตรงนี้ซ่อมข้อมูลที่ค้างในเครื่องมาตั้งแต่ก่อนแก้ issue #36 ด้วย
+        // แถวพวกนั้นมี updated_at ไม่ขยับ การซิงค์จึงไม่เขียนทับให้
+        materials.value = normKeysAll(data.materials || []);
+        entries.value = normKeysAll(data.entries || []);
+        bom.value = normKeysAll(data.bom || []);
         counts.value = data.counts || [];
-        pos.value = data.pos || [];
-        kits.value = data.kits || [];
-        shorts.value = data.shorts || [];
-        entities.value = data.entities || [];
+        pos.value = normKeysAll(data.pos || []);
+        kits.value = normKeysAll(data.kits || []);
+        shorts.value = normKeysAll(data.shorts || []);
+        entities.value = normKeysAll(data.entities || []);
         entity.value = await db.getMeta('entity', '') || '';
         // ยังไม่มีหน้าตั้งค่า — ตั้งค่าเริ่มต้นไว้ก่อนเพื่อให้หน้าที่ต้องใช้ entity ทำงานได้
         if (!entity.value) {
@@ -107,6 +127,20 @@ createApp({
           sync.url = cfg.url || ''; sync.token = cfg.token || '';
           sync.auto = cfg.auto !== false;
           sync.since = Object.assign({}, cfg.since || {});
+        }
+        // รับค่าตั้งค่าจากลิงก์ได้ เช่น  .../v2/#url=...&token=...&entity=TUE-H
+        // แจกเป็นบุ๊กมาร์กเดียวแล้วทุกเครื่องเปิดใช้ได้เลย ไม่ต้องเดินไปกรอกทีละเครื่อง
+        // ล้าง hash ทิ้งทันทีหลังรับค่า เพื่อไม่ให้รหัสค้างอยู่บนแถบที่อยู่ให้คนเดินผ่านเห็น
+        if (location.hash.length > 1) {
+          const h = new URLSearchParams(location.hash.slice(1));
+          if (h.get('url')) sync.url = h.get('url');
+          if (h.get('token')) sync.token = h.get('token');
+          if (h.get('entity')) { entity.value = h.get('entity'); await db.setMeta('entity', entity.value); }
+          if (h.get('url') || h.get('token')) {
+            saveSyncCfg();
+            history.replaceState(null, '', location.pathname + location.search);
+            fromLink.value = true;
+          }
         }
         device.value = await db.getMeta('device', '') || '';
         if (!device.value) {
@@ -126,9 +160,9 @@ createApp({
     // อีกแท็บบนเครื่องเดียวกันเขียนข้อมูล ต้องรู้ตัว ไม่งั้นสองแท็บจะเห็นคนละยอด
     db.onChange(async () => {
       try {
-        materials.value = await db.all('materials');
-        entries.value = await db.all('entries');
-        bom.value = await db.all('bom');
+        materials.value = normKeysAll(await db.all('materials'));
+        entries.value = normKeysAll(await db.all('entries'));
+        bom.value = normKeysAll(await db.all('bom'));
       } catch { /* อ่านไม่ได้ก็ปล่อยไป รอบหน้าค่อยว่ากัน */ }
     });
 
@@ -260,6 +294,65 @@ createApp({
       } catch (err) { flash(err.message, true); }
       finally { bomBusy.value = false; }
     }
+
+    // ── แก้ BOM ด้วยมือ ────────────────────────────────────────────
+    // ไฟล์ SAP ไม่ได้มาทุกครั้งที่สูตรเปลี่ยน บางทีแก้ปากเปล่าหน้างานก่อนแล้วเอกสารตามมาทีหลัง
+    // ถ้าแก้เองไม่ได้ ช่วงนั้นจะคีย์รับเข้าโดยไม่มียอดตามสูตรให้เทียบเลย
+    const bomPn = ref('');            // P/N ที่กางดูอยู่
+    const bomEdit = ref(null);
+    const bomBy = ref('');
+
+    const bomRowsOfPn = computed(() => bom.value
+      .filter(r => String(r.pn) === String(bomPn.value) && !r.deleted)
+      .sort((a, b) => String(a.code).localeCompare(String(b.code))));
+
+    function openBomPn(pn) { bomPn.value = String(pn); bomEdit.value = null; }
+    function startBomRow(r) {
+      bomEdit.value = r
+        ? { ...r, _new: false }
+        : { pn: bomPn.value, code: '', desc: '', usage: null, unit: '', note: '', _new: true };
+    }
+    // เลือกรหัสจากช่องค้นหาร่วม แล้วเติมชื่อกับหน่วยจากทะเบียนให้เลย
+    function onBomCode() {
+      const e = bomEdit.value;
+      if (!e) return;
+      const m = matOf(e.code);
+      if (m) { if (!e.desc) e.desc = m.description; if (!e.unit) e.unit = m.unit; }
+    }
+
+    async function saveBomRow() {
+      const e = bomEdit.value;
+      if (!e) return;
+      try {
+        const rec = makeManualRow({ ...e, by: bomBy.value || 'หน้างาน' }, bom.value);
+        await db.put('bom', rec);
+        const i = bom.value.findIndex(r => r.id === rec.id);
+        if (i >= 0) bom.value.splice(i, 1, rec); else bom.value.push(rec);
+        db.announce('bom');
+        flash(`บันทึกสูตร ${rec.pn} · ${rec.code} แล้ว`);
+        bomEdit.value = null;
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /**
+     * ลบบรรทัดสูตร — ติดธง deleted ไม่ใช่ลบทิ้งจากเครื่อง
+     * ถ้าลบจริง เครื่องอื่นที่ยังมีแถวนั้นอยู่จะซิงค์มันกลับมาให้ใหม่รอบหน้า
+     */
+    async function deleteBomRow(r) {
+      if (!confirm(`ลบ ${r.code} ออกจากสูตรของ ${r.pn} ไหม`)) return;
+      const rec = { ...plain(r), deleted: true, imported_at: new Date().toISOString() };
+      await db.put('bom', rec);
+      const i = bom.value.findIndex(x => x.id === r.id);
+      bom.value.splice(i, 1, rec);
+      db.announce('bom');
+      flash('ลบแล้ว');
+    }
+
+    /** บรรทัดที่แก้มือไว้ และกำลังจะถูกไฟล์ที่ลากมาทับ */
+    const bomManualHit = computed(() => {
+      const docs = bomDocs.value.filter(d => d.ok);
+      return docs.length ? manualRowsOf(bom.value, docs.map(d => d.pn)) : [];
+    });
 
     // ── ตั้งทะเบียนจาก BOM ─────────────────────────────────────────
     // BOM ที่ Delta ให้มามีครบสามอย่างที่ทะเบียนต้องใช้ คือ รหัส ชื่อ หน่วย
@@ -409,8 +502,9 @@ createApp({
       const t = pick.value;
       if (!t) return;
       t.code = m.material_code;
-      if (t === out) onOutCode();
-      else if (t === mk) onMkCode();
+      if (t === mk) onMkCode();
+      else if (t === bomEdit.value) onBomCode();
+      else if (outLines.value.includes(t)) fillOutLine(t);
       else fillLine(t);
       pick.value = null;
     }
@@ -546,48 +640,116 @@ createApp({
     }
 
     // ── จ่ายออก ────────────────────────────────────────────────────
-    const out = reactive({ code: '', qty: null, lot: '', part_no: '', doc_ref: '',
-                           date: todayLocal(), person: '', _inferred: false });
+    // ทำเป็นใบเหมือนหน้ารับเข้า — ใส่เลข PO แล้วกางรายการขึ้นมาให้คีย์ทีเดียวจบ
+    // ของเดิมคีย์ได้ทีละรหัส ซึ่งแปลว่างานเบิกหนึ่งใบต้องกดบันทึกสิบกว่ารอบ
+    const outH = reactive({ po: '', pn: '', order: null, date: todayLocal(), person: '' });
+    const outLines = ref([]);
+    const outHint = ref('');
 
-    const outKnown = computed(() => !!matOf(out.code));
-    const outDesc = computed(() => (matOf(out.code) || {}).description || '');
-    const outBal = computed(() =>
-      out.code && entity.value ? (bookBalances.value.get(normCode(out.code)) || 0) : 0);
-    const outAfter = computed(() => Math.round((outBal.value - (Number(out.qty) || 0)) * 1e5) / 1e5);
-    const outLots = computed(() =>
-      out.code && entity.value ? lotsOf(entries.value, entity.value, normCode(out.code)) : []);
-    const outSuggest = computed(() =>
-      out.code && Number(out.qty) > 0 && entity.value
-        ? suggestLots(entries.value, entity.value, normCode(out.code), Number(out.qty)) : null);
+    function outBlank(code = '') {
+      return { k: 'O' + (++lineSeq), code, desc: '', unit: '', reqmt: null,
+               qty: null, lot: '', inferred: false, known: false };
+    }
+    function fillOutLine(l) {
+      const m = matOf(l.code);
+      l.known = !!m;
+      l.desc = m ? m.description : '';
+      l.unit = m ? m.unit : '';
+    }
+    const addOutLine = () => outLines.value.push(outBlank());
 
-    function onOutCode() { out.lot = ''; out._inferred = false; }
-    function onOutQty() { out._inferred = false; }
+    /** ยอดคงเหลือของบรรทัดนี้ ณ ตอนนี้ */
+    const outBalOf = l =>
+      l.code && entity.value ? (bookBalances.value.get(normCode(l.code)) || 0) : 0;
+    const outAfterOf = l =>
+      Math.round((outBalOf(l) - (Number(l.qty) || 0)) * 1e5) / 1e5;
 
-    function addFromOut() {
-      edit.value = { _new: true, material_code: out.code, description: '', unit: '',
+    /** ระบบเดาให้ว่าน่าจะหยิบจากล็อตไหน — ของเก่าก่อน */
+    const outSuggestOf = l =>
+      l.code && Number(l.qty) > 0 && entity.value
+        ? suggestLots(entries.value, entity.value, normCode(l.code), Number(l.qty)) : null;
+    function useSuggested(l) {
+      const s = outSuggestOf(l);
+      if (s && s.picks.length) { l.lot = s.picks[0].lot; l.inferred = true; }
+    }
+
+    /**
+     * กางรายการที่ต้องเบิกของใบนี้ — ใช้ที่มาชุดเดียวกับหน้ารับเข้า
+     * Kit List บอกว่า Delta จ่ายอะไรมาให้ PO นี้ ซึ่งก็คือของที่ต้องเบิกไปผลิต
+     * ถ้ายังไม่มี Kit List ก็กางจากสูตรตามจำนวนสั่ง
+     */
+    function expandOut() {
+      const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
+      const rows = outH.pn ? bom.value.filter(r => String(r.pn) === String(outH.pn) && !r.deleted) : [];
+      const order = Number(outH.order) || 0;
+      const bomOf = new Map(rows.map(r => [String(r.code), r]));
+
+      if (kit.length) {
+        if (!outH.pn && kit[0].pn) outH.pn = kit[0].pn;
+        outLines.value = kit.map(k => {
+          const l = outBlank(String(k.code));
+          fillOutLine(l);
+          if (!l.known) { l.desc = k.desc; l.unit = k.unit; }
+          const b = bomOf.get(String(k.code));
+          l.reqmt = b && order ? Math.round(b.usage * order * 1e5) / 1e5 : null;
+          // ตั้งยอดเบิกไว้เท่าที่ Delta จ่ายมา แล้วให้แก้ทับตามที่หยิบจริง
+          l.qty = k.issue;
+          return l;
+        });
+        outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — แก้เป็นยอดที่เบิกจริงได้เลย`;
+        return;
+      }
+      if (!rows.length) {
+        outHint.value = outH.po
+          ? `ยังไม่มีทั้ง Kit List ของ PO ${outH.po} และสูตรของ ${outH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
+          : 'ใส่เลข PO หรือ P/N แล้วโปรแกรมจะกางรายการให้';
+        return;
+      }
+      outLines.value = rows.map(r => {
+        const l = outBlank(String(r.code));
+        fillOutLine(l);
+        if (!l.known) { l.desc = r.desc; l.unit = r.unit; }
+        l.reqmt = order ? Math.round(r.usage * order * 1e5) / 1e5 : null;
+        l.qty = l.reqmt;
+        return l;
+      });
+      outHint.value = `กางสูตร ${rows.length} รายการ`
+        + (outH.po ? ` · ยังไม่มี Kit List ของ PO ${outH.po} จึงใช้สูตรแทน` : '')
+        + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร');
+    }
+
+    const outReady = computed(() => outLines.value.filter(l => l.code && Number(l.qty) > 0));
+    const outNegative = computed(() => outReady.value.filter(l => outAfterOf(l) < 0));
+
+    function addFromOutLine(l) {
+      edit.value = { _new: true, material_code: l.code, description: '', unit: '',
                      category: 'OTHER', requires_expiry: false, active: true };
       tab.value = 'mat';
     }
 
     async function saveOut() {
-      if (!out.person) { flash('ยังไม่ได้ใส่ชื่อผู้เบิก', true); return; }
+      if (!outH.person) { flash('ยังไม่ได้ใส่ชื่อผู้เบิก', true); return; }
+      if (!outReady.value.length) { flash('ยังไม่มีบรรทัดที่กรอกจำนวน', true); return; }
       // ยอดติดลบเตือนได้ แต่ห้ามบล็อก — INVARIANTS A4
       // ของจริงมีกรณีคีย์รับเข้าย้อนหลัง ถ้าห้ามบันทึกพนักงานจะไปจดใส่กระดาษแล้วลืมคีย์
-      if (outAfter.value < 0 &&
-          !confirm(`ยอดจะติดลบเป็น ${outAfter.value}\nยืนยันบันทึกไหม`)) return;
+      const neg = outNegative.value;
+      if (neg.length && !confirm(
+        [`มี ${neg.length} รายการที่ยอดจะติดลบ`,
+         neg.slice(0, 5).map(l => l.code + ' → ' + outAfterOf(l)).join('\n'),
+         '', 'ยืนยันบันทึกไหม'].join('\n'))) return;
       try {
-        const e = makeEntry({
-          entity: entity.value, kind: 'issue', material_code: out.code, qty: Number(out.qty),
-          lot: out.lot, lot_inferred: out._inferred && !!out.lot,
-          doc_kind: out.doc_ref ? 'po' : '', doc_ref: out.doc_ref, part_no: out.part_no,
-          at: atFrom(out.date),
-          person: out.person, device: device.value
-        });
-        await db.put('entries', e);
-        entries.value.push(e);
+        const posted = outReady.value.map(l => makeEntry({
+          entity: entity.value, kind: 'issue', material_code: l.code, qty: Number(l.qty),
+          lot: l.lot, lot_inferred: l.inferred && !!l.lot,
+          doc_kind: outH.po ? 'po' : '', doc_ref: outH.po, part_no: outH.pn,
+          at: atFrom(outH.date), person: outH.person, device: device.value
+        }));
+        await db.put('entries', posted);
+        entries.value.push(...posted);
         db.announce('entries');
-        flash(`บันทึกจ่ายออก ${out.qty} ${(matOf(out.code) || {}).unit || ''}`);
-        out.code = ''; out.qty = null; out.lot = ''; out._inferred = false;
+        flash(`บันทึกจ่ายออก ${posted.length} รายการ`
+              + (outH.po ? ` · PO ${outH.po}` : ''));
+        outLines.value = []; outHint.value = '';
       } catch (err) { flash(err.message, true); }
     }
 
@@ -1071,6 +1233,64 @@ createApp({
       shorts.value.splice(i, 1, rec);
     }
 
+    // ── หน้าแรก ────────────────────────────────────────────────────
+    // เป็นรายการงานของวันนี้ ไม่ใช่แค่ตัวเลขสวย ๆ
+    // พนักงานเปิดมาแล้วต้องรู้ทันทีว่าวันนี้เหลืออะไรที่ยังไม่ได้ทำ
+    const homeToday = computed(() => todayLocal());
+
+    const homePoToday = computed(() =>
+      pos.value.filter(p => p.date === homeToday.value));
+
+    const homeKitToday = computed(() =>
+      kits.value.some(k => k.src !== 'chem' && k.date === homeToday.value));
+
+    /** PO ของวันนี้ที่คีย์รับเข้าไปแล้วอย่างน้อยหนึ่งบรรทัด */
+    const homePoKeyed = computed(() => {
+      const keyed = new Set(entries.value
+        .filter(e => e.entity === entity.value && alive(e) && e.kind === 'receive' && e.doc_ref)
+        .map(e => String(e.doc_ref)));
+      return homePoToday.value.filter(p => keyed.has(String(p.po))).length;
+    });
+
+    const homeCountToday = kind => entries.value.filter(e =>
+      e.entity === entity.value && alive(e) && e.kind === kind
+      && localDate(e.at) === homeToday.value).length;
+
+    const homeIn = computed(() => homeCountToday('receive'));
+    const homeOut = computed(() => homeCountToday('issue'));
+
+    /** สิ่งที่ค้างอยู่ทั้งระบบ — เรียงตามความเร่งด่วนของงานหน้าคลัง */
+    const homeTasks = computed(() => [
+      { k: 'po', label: 'นำเข้าไฟล์ PO ของวันนี้', tab: 'po',
+        done: homePoToday.value.length > 0,
+        detail: homePoToday.value.length
+          ? `พบ ${homePoToday.value.length} PO ของวันนี้แล้ว` : 'ยังไม่พบไฟล์ PO ของวันนี้' },
+      { k: 'kit', label: 'นำเข้า Kit List (22-H)', tab: 'po',
+        done: homeKitToday.value,
+        detail: homeKitToday.value ? 'นำเข้าของวันนี้แล้ว' : 'ยังไม่พบ Kit List ของวันนี้' },
+      { k: 'in', label: 'คีย์รับเข้า', tab: 'in',
+        done: homePoToday.value.length > 0 && homePoKeyed.value >= homePoToday.value.length,
+        detail: homePoToday.value.length
+          ? `คีย์แล้ว ${homePoKeyed.value} จาก ${homePoToday.value.length} PO ของวันนี้`
+          : `วันนี้คีย์รับเข้าไป ${homeIn.value} รายการ` },
+      { k: 'out', label: 'คีย์จ่ายออก', tab: 'out',
+        done: homeOut.value > 0,
+        detail: `วันนี้จ่ายออกไป ${homeOut.value} รายการ` },
+      { k: 'wk', label: 'รับเข้ารวมรายรอบ', tab: 'wk',
+        done: null,
+        detail: chemDates.value.length
+          ? `Kit List กลุ่มจ่ายรวมล่าสุด ${chemDates.value[0]}` : 'ยังไม่มี Kit List กลุ่มจ่ายรวม' }
+    ]);
+
+    /** เรื่องที่ต้องตามแก้ — ตัวเลขที่ไม่ควรค้างไว้นาน */
+    const homeAlerts = computed(() => [
+      { n: openShorts.value.length, label: 'ของขาด / รอส่ง', tab: 'po', bad: false },
+      { n: oddRows.value.length, label: 'รายการที่ควรไปดู', tab: 'bal', bad: true },
+      { n: needReview.value, label: 'รหัสรอตรวจในทะเบียน', tab: 'mat', bad: false },
+      { n: bomUnknownCodes.value.length, label: 'รหัสใน BOM ที่ยังไม่มีในทะเบียน', tab: 'bom', bad: false },
+      { n: pending.value.total, label: 'รายการที่ยังไม่ได้ซิงค์', tab: 'sync', bad: false }
+    ].filter(x => x.n > 0));
+
     // ── ซิงค์ขึ้น Google Sheets ────────────────────────────────────
     // ตรรกะการรวมข้อมูลอยู่ใน core/sync.js ที่นี่มีแค่การยิงเน็ตและต่อสายเข้าหน้าจอ
     const sync = reactive({ url: '', token: '', auto: true,
@@ -1093,9 +1313,45 @@ createApp({
     }));
     const pending = computed(() => syncPlan(syncStore.value));
 
+    const fromLink = ref(false);
+    const linkCopied = ref('');
+
+    /**
+     * ลิงก์สำหรับแจกให้เครื่องอื่น
+     * ⚠️ มีรหัสผ่านอยู่ในลิงก์ ส่งในไลน์กลุ่มของทีมได้ แต่อย่าเอาไปโพสต์ที่สาธารณะ
+     */
+    const shareLink = computed(() => {
+      if (!sync.url) return '';
+      const p = new URLSearchParams();
+      p.set('url', sync.url);
+      if (sync.token) p.set('token', sync.token);
+      if (entity.value) p.set('entity', entity.value);
+      return location.origin + location.pathname + '#' + p.toString();
+    });
+
+    async function copyShareLink() {
+      if (!shareLink.value) return;
+      try {
+        await navigator.clipboard.writeText(shareLink.value);
+        linkCopied.value = 'คัดลอกแล้ว — เอาไปเปิดในเครื่องอื่นได้เลย';
+      } catch {
+        // บางเบราว์เซอร์ห้ามคัดลอกถ้าไม่ได้กดเอง — โชว์ให้ลากคลุมเอง
+        linkCopied.value = 'คัดลอกอัตโนมัติไม่ได้ — ลากคลุมข้อความข้างล่างแล้วก๊อปเอง';
+      }
+      setTimeout(() => { linkCopied.value = ''; }, 6000);
+    }
+
+    /**
+     * เก็บค่าตั้งค่าซิงค์ลงเครื่อง
+     *
+     * ⚠️ ต้องถอด reactive ออกก่อน — sync.since เป็น Proxy ซึ่ง IndexedDB โคลนไม่ได้
+     * เคยพลาดตรงนี้แล้วเงียบสนิท เพราะ .catch() กลืน error ทิ้ง
+     * ผลคือกรอก URL แล้วดูเหมือนติด แต่พอปิดเปิดโปรแกรมใหม่ค่าหายหมด
+     * ตอนนี้ถ้าเซฟไม่ได้ต้องบอกให้เห็น ไม่ใช่กลืนแล้วปล่อยให้คนคิดว่าเรียบร้อย
+     */
     const saveSyncCfg = () => db.setMeta('sync', {
       url: sync.url, token: sync.token, auto: sync.auto, since: sync.since
-    }).catch(() => {});
+    }).catch(err => flash('เก็บค่าตั้งค่าไม่สำเร็จ: ' + err.message, true));
 
     /**
      * ยิงคำสั่งไปที่ Apps Script
@@ -1342,13 +1598,20 @@ createApp({
       } finally { expBusy.value = false; }
     }
 
-    const saveStore = () => db.setMeta('store', store.value).catch(() => {});
+    const saveStore = () => db.setMeta('store', store.value)
+      .catch(err => flash('เก็บค่าไม่สำเร็จ: ' + err.message, true));
 
     function openCard(code) { cardCode.value = String(code); traceOf.value = ''; tab.value = 'bal'; }
     function closeCard() { cardCode.value = ''; traceOf.value = ''; }
-    function goIssue(code) { out.code = String(code); onOutCode(); tab.value = 'out'; }
+    function goIssue(code) {
+      const l = outBlank(String(code));
+      fillOutLine(l);
+      outLines.value.push(l);
+      outHint.value = 'เพิ่ม ' + code + ' เข้าใบเบิกแล้ว';
+      tab.value = 'out';
+    }
 
-    return { APP_VERSION, TABS, CATEGORIES, SHOW_MAX, STATUS,
+    return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity,
              materials, entries, bom, q, fCat, fState, edit, toast,
              activeCount, needReview, shown, codeCheck, dupOf,
@@ -1356,19 +1619,24 @@ createApp({
              bomDocs, bomPlan, bomBusy, dragOver, bomSum, bomPns, missingPack,
              bomUnknownCodes, bomUnconfirmed, onDropBom, onPickBom, applyBom,
              regPlan, regDraft, regBusy, regTake, openRegPlan, applyRegPlan,
+             bomPn, bomEdit, bomBy, bomRowsOfPn, openBomPn, startBomRow, onBomCode,
+             saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick,
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, fillLine, saveIn, addFromLine,
-             out, outKnown, outDesc, outBal, outAfter, outLots, outSuggest,
-             onOutCode, onOutQty, saveOut, addFromOut,
+             outH, outLines, outHint, addOutLine, fillOutLine, expandOut,
+             outBalOf, outAfterOf, outSuggestOf, useSuggested,
+             outReady, outNegative, saveOut, addFromOutLine,
              balQ, balCat, balZero, balShown, balSum, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
+             homeTasks, homeAlerts, homeIn, homeOut, homeToday,
              sync, pending, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
+             shareLink, copyShareLink, fromLink, linkCopied,
              entities, entEdit, entCodes, entInfo, entMissing, entCounts,
              switchEntity, startEnt, saveEnt, addMissingEnt,
              wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,

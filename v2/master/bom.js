@@ -85,6 +85,55 @@ export function unknownCodes(rows, materials) {
 const normDesc = s => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
 
 /**
+ * สร้างหรือแก้บรรทัด BOM ด้วยมือ
+ *
+ * ── ทำไมต้องแก้มือได้ ────────────────────────────────────────────
+ * ไฟล์ SAP ไม่ได้มาทุกครั้งที่สูตรเปลี่ยน บางทีแก้กันปากเปล่าหน้างานก่อน
+ * แล้วเอกสารตามมาทีหลังเป็นสัปดาห์ ถ้าแก้เองไม่ได้ พนักงานจะคีย์รับเข้าโดยไม่มียอดตามสูตร
+ * ให้ดูเทียบทั้งช่วงนั้น ซึ่งแปลว่าของเกินสูตรจะมองไม่เห็นไปด้วย
+ *
+ * ⚠️ ติดธง source ว่า 'มือ' ไว้เสมอ
+ * เพราะการนำเข้าไฟล์ SAP รอบหน้าจะ "แทนที่ทั้ง P/N" ซึ่งจะลบบรรทัดที่แก้มือทิ้งไปด้วย
+ * ถ้าไม่รู้ว่าบรรทัดไหนแก้มือ จะเตือนก่อนทับไม่ได้เลย
+ */
+export function makeManualRow(input, existing = []) {
+  const pn = String(input.pn || '').trim();
+  const code = normCode(input.code);
+  if (!pn) throw new Error('ต้องระบุ P/N');
+  if (!code) throw new Error('ต้องระบุรหัสวัตถุดิบ');
+  const usage = Number(input.usage);
+  if (!isFinite(usage) || usage <= 0) throw new Error('ยอดต่อชิ้นต้องเป็นตัวเลขมากกว่าศูนย์');
+  const now = new Date().toISOString();
+  const prev = existing.find(r => r.id === bomId(pn, code));
+  return {
+    ...(prev || {}),
+    id: bomId(pn, code),
+    pn, code,
+    desc: String(input.desc || '').trim(),
+    usage,
+    unit: String(input.unit || '').trim().toUpperCase(),
+    lines: prev ? prev.lines : 1,
+    altPct: prev ? prev.altPct : null,
+    // แก้มือแปลว่าคนยืนยันหน่วยเองแล้ว ไม่ใช่ค่าที่ระบบเดามาจากตาราง UOM
+    uomConfirmed: true,
+    uomWhy: '',
+    rawQpa: usage, rawUom: String(input.unit || '').trim().toUpperCase(),
+    rev: String(input.rev || (prev ? prev.rev : '') || 'มือ'),
+    valid_from: String(input.valid_from || (prev ? prev.valid_from : '') || now.slice(0, 10)),
+    source: 'มือ · ' + String(input.by || 'หน้างาน'),
+    imported_at: now,
+    deleted: false,
+    note: String(input.note || '').trim()
+  };
+}
+
+/** บรรทัดที่แก้มือไว้ของ P/N พวกนี้ — ใช้เตือนก่อนนำเข้าไฟล์ทับ */
+export const manualRowsOf = (rows, pns) => {
+  const set = new Set(pns.map(String));
+  return rows.filter(r => set.has(String(r.pn)) && String(r.source || '').startsWith('มือ'));
+};
+
+/**
  * ตั้งทะเบียนวัตถุดิบจาก BOM ที่นำเข้ามาแล้ว
  *
  * ── ทำไมถึงคุ้ม ──────────────────────────────────────────────────
