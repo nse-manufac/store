@@ -24,7 +24,8 @@ export const TABLES = {
   bom:       { key: 'id',            label: 'BOM',              sheet: 'BOM' },
   pos:       { key: 'id',            label: 'รายการ PO',        sheet: 'POs' },
   kits:      { key: 'id',            label: 'Kit List',         sheet: 'Kits' },
-  shorts:    { key: 'id',            label: 'ของขาด',           sheet: 'Shorts' }
+  shorts:    { key: 'id',            label: 'ของขาด',           sheet: 'Shorts' },
+  entities:  { key: 'entity_code',   label: 'นิติบุคคล',        sheet: 'Entities' }
 };
 
 /**

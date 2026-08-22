@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-16.4">
+<meta name="app-version" content="2026-08-16.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -32,6 +32,10 @@ header .ver{font-size:11px;opacity:.75;padding:1px 7px;border:1px solid rgba(255
   border-radius:99px;font-variant-numeric:tabular-nums}
 header .grow{flex:1}
 header .who{font-size:12px;opacity:.9}
+header .who-pick{font:inherit;font-size:13px;font-weight:600;padding:4px 8px;
+  background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);
+  border-radius:6px}
+header .who-pick option{color:var(--ink)}
 .tabs{display:flex;gap:3px;flex-wrap:wrap}
 .tabs button{background:rgba(255,255,255,.12);color:#fff;border:0;padding:7px 14px;
   border-radius:5px 5px 0 0;font:inherit;font-size:13px;cursor:pointer}
@@ -121,7 +125,11 @@ textarea{font:inherit}
         </button>
       </div>
       <div class="grow"></div>
-      <span class="who">{{ entity || 'ยังไม่เลือกนิติบุคคล' }}</span>
+      <!-- เปลี่ยนตัวนี้ = เปลี่ยนความหมายของทุกยอดบนหน้าจอ ไม่ใช่แค่การกรอง -->
+      <select class="who-pick" :value="entity" @change="switchEntity($event.target.value)"
+              title="นิติบุคคล — ยอดคงคลังของแต่ละโรงงานแยกกัน">
+        <option v-for="c in entCodes" :key="c" :value="c">{{ c }}</option>
+      </select>
     </header>
 
     <main>
@@ -1051,6 +1059,11 @@ textarea{font:inherit}
               <input v-model.trim="wkH.docNo" class="mono" placeholder="0014 / WK27"></label>
             <label class="f" style="width:100px">กลุ่ม
               <input v-model.trim="wkH.group" class="mono" placeholder="H / U"></label>
+            <label class="f" style="width:165px">บังคับนิติบุคคลทั้งใบ
+              <select v-model="wkH.entity">
+                <option value="">— ดูจากเลข PO รายบรรทัด —</option>
+                <option v-for="c in entCodes" :key="c" :value="c">{{ c }}</option>
+              </select></label>
             <label class="f grow" style="min-width:130px">ผู้รับ
               <input v-model.trim="wkH.person"></label>
           </div>
@@ -1096,7 +1109,11 @@ textarea{font:inherit}
                     <div v-if="l.poFound === false"><span class="tag warn">ไม่มีในรายการ PO</span></div></td>
                   <!-- นิติบุคคลรายบรรทัด เพราะเอกสารใบเดียวมีของสองโรงงานปนกันได้ -->
                   <td><span v-if="l.entity" class="tag"
-                            :class="l.entity !== entity ? 'bad' : 'ok'">{{ l.entity }}</span>
+                            :class="l.entity !== entity ? 'warn' : 'ok'"
+                            :title="l.entityFrom === 'forced' ? 'บังคับทั้งใบ'
+                                  : l.entityFrom === 'po' ? 'จากรายการ PO'
+                                  : l.entityFrom === 'guess' ? 'เดาจากเลข PO' : 'ตัวที่เลือกอยู่'">
+                      {{ l.entity }}<span v-if="l.entityFrom === 'guess'">*</span></span>
                     <span v-else class="hint">—</span></td>
                   <td><input v-model.trim="l.pn" class="mono" style="width:106px" list="pnlist"></td>
                   <td><input v-model.number="l.orderQty" type="number" step="any" class="mono" style="width:76px"></td>
@@ -1151,11 +1168,17 @@ textarea{font:inherit}
         </div>
 
         <div class="card" v-if="wkLines.length">
-          <div class="msg bad" v-if="wkCheck.otherEntities.length">
-            <b>ใบนี้มีบรรทัดของ {{ wkCheck.otherEntities.join(' · ') }} ปนอยู่</b>
-            แต่ตอนนี้โปรแกรมตั้งนิติบุคคลไว้เป็น {{ entity }}<br>
-            <span class="hint">เอกสารใบเดียวมีของสองโรงงานปนกันได้ — ถ้าบันทึกต่อ
-              ของทั้งใบจะถูกนับเป็นของ {{ entity }} และจะเขียนกำกับไว้ในหมายเหตุว่า PO เป็นของใคร</span>
+          <div class="msg warn" v-if="wkCheck.otherEntities.length">
+            <b>ใบนี้มีบรรทัดของ {{ wkCheck.otherEntities.join(' · ') }}</b>
+            ซึ่งไม่ใช่ {{ entity }} ที่เลือกอยู่<br>
+            <span class="hint">แต่ละบรรทัดจะถูกบันทึกเข้านิติบุคคลของตัวเอง ยอดไม่ปนกัน
+              — แต่บรรทัดพวกนั้นจะไม่โผล่ในหน้ายอดคงคลังของ {{ entity }}
+              ต้องสลับนิติบุคคลบนหัวจอถึงจะเห็น · เครื่องหมาย * คือค่าที่เดาจากเลข PO</span>
+          </div>
+          <div class="msg bad" v-if="wkCheck.entities.some(c => entMissing.includes(c))">
+            <b>มีนิติบุคคลที่ยังไม่มีในทะเบียน</b> —
+            <span class="mono">{{ wkCheck.entities.filter(c => entMissing.includes(c)).join(' · ') }}</span><br>
+            <span class="hint">บันทึกได้ แต่จะสลับไปดูยอดของมันจากหัวจอไม่ได้จนกว่าจะเพิ่มในหน้าตั้งค่า</span>
           </div>
           <div class="msg warn" v-if="wkCheck.mismatch.length">
             {{ wkCheck.mismatch.length }} รหัสที่ยอดรวมไม่ตรงกับเอกสาร —
@@ -1328,6 +1351,78 @@ textarea{font:inherit}
 
       <!-- ════════ ซิงค์ ════════ -->
       <template v-else-if="tab==='sync'">
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">นิติบุคคล</h2>
+            <div class="grow"></div>
+            <span class="hint">ยอดคงคลังของแต่ละนิติบุคคลแยกกันคนละชุด</span>
+            <button class="btn" @click="startEnt(null)">+ เพิ่ม</button>
+          </div>
+
+          <div class="msg warn" v-if="entMissing.length" style="margin:10px 0 0">
+            <b>มี {{ entMissing.length }} รหัสที่มีรายการอยู่ในสมุดแล้ว แต่ยังไม่มีในทะเบียนนี้</b><br>
+            <span class="hint">ยอดของรหัสพวกนี้มีอยู่จริงแต่เลือกดูจากหัวจอไม่ได้ จนกว่าจะเพิ่มเข้ามา</span>
+            <div style="margin-top:8px">
+              <button v-for="c in entMissing" :key="c" class="btn"
+                      style="padding:2px 9px;margin-right:5px" @click="addMissingEnt(c)">
+                + {{ c }}</button>
+            </div>
+          </div>
+
+          <div class="scroll" style="margin-top:10px">
+            <table>
+              <thead><tr><th style="width:110px">รหัส</th><th>ชื่อบริษัท</th>
+                <th style="width:150px">Store Location</th><th style="width:110px">Vendor No.</th>
+                <th style="width:110px">รายการในสมุด</th><th style="width:95px">สถานะ</th>
+                <th style="width:70px"></th></tr></thead>
+              <tbody><tr v-for="e in entities" :key="e.entity_code"
+                         :class="{review: e.entity_code === entity}">
+                <td class="mono"><b>{{ e.entity_code }}</b>
+                  <span v-if="e.entity_code === entity" class="tag ok">เลือกอยู่</span></td>
+                <td>{{ e.company_name || '—' }}</td>
+                <td class="hint">{{ e.store_location || '—' }}</td>
+                <td class="mono hint">{{ e.vendor_no || '—' }}</td>
+                <td class="mono">{{ entCounts.get(e.entity_code) || 0 }}</td>
+                <td><span class="tag" :class="e.active === false ? '' : 'ok'">
+                  {{ e.active === false ? 'ปิดใช้งาน' : 'ใช้งานอยู่' }}</span></td>
+                <td><button class="btn" style="padding:2px 9px" @click="startEnt(e)">แก้</button></td>
+              </tr></tbody>
+            </table>
+            <p v-if="!entities.length" class="empty">
+              ยังไม่มีนิติบุคคล — ตอนนี้ใช้ {{ entity }} เป็นค่าตั้งต้นอยู่<br>
+              เพิ่มเข้ามาเพื่อให้สลับดูยอดแต่ละโรงงานได้ และให้ Bin Card พิมพ์ Store Location ถูกใบ
+            </p>
+          </div>
+
+          <div v-if="entEdit" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+            <div class="row">
+              <label class="f" style="width:140px">รหัส
+                <input v-model.trim="entEdit.entity_code" class="mono"
+                       :disabled="!entEdit._new" placeholder="TUE-H"></label>
+              <label class="f grow" style="min-width:170px">ชื่อบริษัท
+                <input v-model.trim="entEdit.company_name"></label>
+              <label class="f" style="width:170px">Store Location
+                <input v-model.trim="entEdit.store_location" placeholder="ขึ้นหัว Bin Card"></label>
+              <label class="f" style="width:130px">Vendor No.
+                <input v-model.trim="entEdit.vendor_no" class="mono"></label>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <label class="f grow">ที่อยู่<input v-model.trim="entEdit.address"></label>
+              <label class="f" style="justify-content:flex-end"><span>&nbsp;</span>
+                <span class="row" style="gap:5px;flex-wrap:nowrap">
+                  <input type="checkbox" v-model="entEdit.active" id="ea" style="width:16px;height:16px">
+                  <label for="ea" style="font-size:13px">ใช้งานอยู่</label>
+                </span></label>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <div class="grow"></div>
+              <button class="btn" @click="entEdit=null">ยกเลิก</button>
+              <button class="btn primary" @click="saveEnt"
+                      :disabled="!entEdit.entity_code">บันทึก</button>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="row">
             <h2 style="margin:0">เชื่อมกับ Google Sheets</h2>

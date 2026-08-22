@@ -70,6 +70,15 @@ var TABLES = {
     cols: ['id','date','po','code','type','qty','unit','eta','note','done','updated_at'],
     bools: ['done'],
     texts: ['id','date','po','code','eta','updated_at']
+  },
+  // ทะเบียนนิติบุคคล — ยอดคงคลังของแต่ละโรงงานแยกกันด้วยรหัสนี้
+  // store_location ขึ้นหัว Bin Card ทุกใบ จึงต้องผูกกับนิติบุคคล ไม่ใช่ตั้งรวมทั้งโปรแกรม
+  Entities: {
+    key: 'entity_code',
+    cols: ['entity_code','company_name','address','store_location','vendor_no',
+           'active','created_at','updated_at'],
+    bools: ['active'],
+    texts: ['entity_code','vendor_no','created_at','updated_at']
   }
 };
 

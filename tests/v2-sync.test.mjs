@@ -82,7 +82,7 @@ ok('นับแยกรายตาราง ไม่ใช่ยอดรว
 ok('ตารางที่ยังไม่มีข้อมูลก็ต้องมีในสรุป ไม่ใช่หายไป',
    plan.per.pos === 0 && plan.per.shorts === 0, JSON.stringify(plan.per));
 ok('ซิงค์ครบทุกตารางที่ต้องแชร์กันข้ามเครื่อง',
-   Object.keys(TABLES).join(',') === 'entries,materials,bom,pos,kits,shorts',
+   Object.keys(TABLES).join(',') === 'entries,materials,bom,pos,kits,shorts,entities',
    Object.keys(TABLES).join(','));
 ok('ทุกตารางบอกชื่อชีตปลายทางไว้ครบ',
    Object.values(TABLES).every(t => t.sheet && t.key && t.label));

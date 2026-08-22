@@ -22,7 +22,9 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript } from './core/sync.js';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
          importPlan as importPlanKit } from './master/po-kit.js';
-import { entityOfPo, bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
+import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
+import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
+         unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -40,7 +42,7 @@ const TABS = [
   { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' },
   { k: 'wk',    label: 'รับเข้ารวมรายรอบ' },
   { k: 'po',    label: 'PO / Kit List' },
-  { k: 'sync',  label: 'ซิงค์' }
+  { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
 ];
 
 /** สามชนิดที่หน้า misc ดูแล — เรียงตามความถี่ที่ใช้จริง */
@@ -92,9 +94,13 @@ createApp({
         pos.value = data.pos || [];
         kits.value = data.kits || [];
         shorts.value = data.shorts || [];
+        entities.value = data.entities || [];
         entity.value = await db.getMeta('entity', '') || '';
         // ยังไม่มีหน้าตั้งค่า — ตั้งค่าเริ่มต้นไว้ก่อนเพื่อให้หน้าที่ต้องใช้ entity ทำงานได้
-        if (!entity.value) { entity.value = 'NSE'; await db.setMeta('entity', 'NSE'); }
+        if (!entity.value) {
+          entity.value = DEFAULT_ENTITY;
+          await db.setMeta('entity', DEFAULT_ENTITY);
+        }
         store.value = await db.getMeta('store', '') || '';
         const cfg = await db.getMeta('sync', null);
         if (cfg) {
@@ -769,10 +775,68 @@ createApp({
         .map(e => ({ ...e, kindLabel: (KINDS[e.kind] || {}).label || e.kind }));
     });
 
+    // ── นิติบุคคล ──────────────────────────────────────────────────
+    // ⚠️ เปลี่ยนตัวที่เลือกอยู่ = เปลี่ยนความหมายของทุกยอดบนหน้าจอ
+    // ไม่ใช่แค่การกรอง — ยอดคงเหลือ การ์ด และ Bin Card ที่ออกไป เป็นคนละชุดกันเลย
+    const entities = ref([]);
+    const entEdit = ref(null);
+
+    const entCodes = computed(() => {
+      const list = activeCodes(entities.value);
+      // ตัวที่เลือกอยู่ต้องมีในรายการเสมอ ไม่งั้นช่องเลือกจะว่างแล้วยอดหายทั้งจอ
+      return list.includes(entity.value) ? list : [entity.value, ...list].filter(Boolean);
+    });
+    const entInfo = computed(() => infoOf(entities.value, entity.value));
+
+    /** นิติบุคคลที่โผล่ในสมุดแล้ว แต่ยังไม่มีในทะเบียน */
+    const entUsed = computed(() => [...new Set(entries.value.map(e => e.entity))]);
+    const entMissing = computed(() => unknownEntities(entities.value, entUsed.value));
+
+    /** จำนวนรายการของแต่ละนิติบุคคล — ใช้ดูว่ายอดไปกองอยู่ที่ไหนบ้าง */
+    const entCounts = computed(() => {
+      const m = new Map();
+      for (const e of entries.value) {
+        if (!alive(e)) continue;
+        m.set(e.entity, (m.get(e.entity) || 0) + 1);
+      }
+      return m;
+    });
+
+    async function switchEntity(code) {
+      entity.value = code;
+      await db.setMeta('entity', code);
+      // ล้างของที่กำลังคี่ค้างอยู่ไม่ได้ แต่ต้องเตือนว่าหน้าจอเปลี่ยนความหมายแล้ว
+      flash(`เปลี่ยนเป็น ${code} — ยอดคงเหลือและการ์ดทุกหน้าเป็นของ ${code} แล้ว`);
+    }
+
+    function startEnt(e) {
+      entEdit.value = e ? { ...e, _new: false }
+                        : { entity_code: '', company_name: '', address: '',
+                            store_location: '', vendor_no: '', active: true, _new: true };
+    }
+    async function saveEnt() {
+      const e = entEdit.value;
+      if (!e) return;
+      try {
+        const rec = makeEntity(e);
+        if (e._new && entities.value.some(x => x.entity_code === rec.entity_code)) {
+          flash('รหัสนี้มีอยู่แล้ว', true); return;
+        }
+        await db.put('entities', rec);
+        const i = entities.value.findIndex(x => x.entity_code === rec.entity_code);
+        if (i >= 0) entities.value.splice(i, 1, rec); else entities.value.push(rec);
+        db.announce('entities');
+        flash(`บันทึก ${rec.entity_code} แล้ว`);
+        entEdit.value = null;
+      } catch (err) { flash(err.message, true); }
+    }
+    /** สร้างจากรหัสที่โผล่ในข้อมูลแล้ว — พิมพ์ซ้ำไม่มีประโยชน์ */
+    const addMissingEnt = code => startEnt({ entity_code: code, active: true });
+
     // ── รับเข้ารวมรายสัปดาห์ ───────────────────────────────────────
     // Tube · Chemical · Copper foil · Solder — Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ
     // กฎทั้งหมดอยู่ใน master/weekly.js ที่นี่มีแค่การต่อสายเข้าหน้าจอ
-    const wkH = reactive({ date: todayLocal(), docNo: '', group: '', person: '' });
+    const wkH = reactive({ date: todayLocal(), docNo: '', group: '', person: '', entity: '' });
     const wkLines = ref([]);
     const wkTotals = ref({});          // รหัส -> ยอดรวมตามแถว Total ในเอกสาร (คีย์เอง)
     let wkSeq = 0;
@@ -803,11 +867,18 @@ createApp({
       const hit = pos.value.find(p => p.po === l.po);
       l.poFound = l.po ? !!hit : null;
       // นิติบุคคลรายบรรทัด — เอกสารใบเดียวมีของสองโรงงานปนกันได้
-      l.entity = entityOfPo(l.po);
+      // เก็บที่มาไว้ด้วย เพื่อให้หน้าจอบอกได้ว่าค่าไหนเดามา ค่าไหนมาจากไฟล์ของ Delta
+      const r = resolveEntity(l.po, { forced: wkH.entity, poList: pos.value,
+                                      current: entity.value });
+      l.entity = r.code;
+      l.entityFrom = r.from;
       if (!hit) return;
       if (!l.pn) l.pn = hit.pn;
       if (!l.orderQty) l.orderQty = hit.qty;
     }
+
+    // บังคับทั้งใบแล้วต้องมีผลกับทุกบรรทัดทันที ไม่ใช่รอให้ไปแก้ช่อง PO ทีละบรรทัด
+    watch(() => wkH.entity, () => wkLines.value.forEach(wkPo));
 
     /**
      * ดึงรายการจาก Kit List กลุ่มจ่ายรวมที่นำเข้าไว้แล้ว
@@ -861,9 +932,10 @@ createApp({
       if (c.unknown.length && !confirm(
         `มี ${c.unknown.length} รหัสที่ยังไม่มีในทะเบียน\nบันทึกต่อไหม`)) return;
       if (c.otherEntities.length && !confirm(
-        [`ใบนี้มีบรรทัดของ ${c.otherEntities.join(' · ')} ปนอยู่`,
-         `แต่ตอนนี้โปรแกรมตั้งนิติบุคคลไว้เป็น ${entity.value}`,
-         'ถ้าบันทึกต่อ ของทั้งใบจะถูกนับเป็นของ ' + entity.value,
+        [`ใบนี้มีบรรทัดของ ${c.otherEntities.join(' · ')} ซึ่งไม่ใช่ ${entity.value} ที่เลือกอยู่`,
+         'แต่ละบรรทัดจะถูกบันทึกเข้านิติบุคคลของตัวเอง ยอดไม่ปนกัน',
+         `ผลคือบรรทัดพวกนั้นจะไม่โผล่ในหน้ายอดคงคลังของ ${entity.value}`,
+         'ต้องสลับนิติบุคคลบนหัวจอถึงจะเห็น',
          '', 'บันทึกต่อไหม'].join('\n'))) return;
       const badExp = c.ready.filter(l => l.needExp && !l.expiry);
       if (badExp.length) { flash(`ต้องกรอกวันหมดอายุอีก ${badExp.length} รายการ`, true); return; }
@@ -874,7 +946,10 @@ createApp({
 
       try {
         const posted = c.ready.map(l => makeEntry({
-          entity: entity.value, kind: 'receive',
+          // ⚠️ ใช้นิติบุคคลของบรรทัดนั้น ไม่ใช่ตัวที่เลือกอยู่บนหน้าจอ
+          // เอกสารใบเดียวมีของสองโรงงานปนกันได้ ถ้าเขียนเป็นตัวเดียวกันหมด
+          // ยอดจะข้ามโรงงานกันโดยไม่มีอะไรเตือน และตามแก้ทีหลังแทบไม่ได้
+          entity: l.entity || entity.value, kind: 'receive',
           material_code: l.code, qty: Number(l.qty),
           lot: l.lot || '(ไม่ระบุ)',
           doc_kind: 'po', doc_ref: l.po, part_no: l.pn || '',
@@ -882,8 +957,7 @@ createApp({
           expiry_date: l.expiry || '',
           reqmt_qty: l.req === null || l.req === '' ? null : Number(l.req),
           issued_qty: l.s41 === null || l.s41 === '' ? null : Number(l.s41),
-          note: ['รับรวมรายรอบ ' + wkH.docNo, l.entity && l.entity !== entity.value
-                 ? 'PO เป็นของ ' + l.entity : '', l.remark].filter(Boolean).join(' · ')
+          note: ['รับรวมรายรอบ ' + wkH.docNo, l.remark].filter(Boolean).join(' · ')
         }));
         await db.put('entries', posted);
         entries.value.push(...posted);
@@ -1180,8 +1254,10 @@ createApp({
 
     const cardInfo = code => {
       const m = matOf(code) || {};
+      // store location ผูกกับนิติบุคคล ถ้ายังไม่ได้ตั้งค่อยตกมาที่ค่ารวมของเครื่อง
       return { code, description: m.description || '', unit: m.unit || '',
-               store: store.value, entity: entity.value };
+               store: (entInfo.value && entInfo.value.store_location) || store.value,
+               entity: entity.value };
     };
 
     /** ออกการ์ดใบเดียวจากหน้าที่เปิดดูอยู่ */
@@ -1293,6 +1369,8 @@ createApp({
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
              sync, pending, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
+             entities, entEdit, entCodes, entInfo, entMissing, entCounts,
+             switchEntity, startEnt, saveEnt, addMissingEnt,
              wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,

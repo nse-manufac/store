@@ -14,21 +14,9 @@
  * ทุกข้อมาจากการเจอของจริงแล้วเจ็บมาก่อน
  */
 import { round5 } from '../core/ledger.js';
-
-/**
- * เดานิติบุคคลจากเลขที่ PO
- *
- * ตัวอักษรตำแหน่งที่ 7 คือตัวท้ายของรหัสนิติบุคคล
- *   TM5266H177 → TUE-H · TM4267U025 → TUE-U · TM....A... → TUE-A
- * v1 ตรวจกับ Po Balance วันที่ 27 ก.ค. แล้วครบทั้ง 747 ใบ ไม่มีข้อยกเว้น
- *
- * ⚠️ เอกสารใบเดียวมีของทั้ง TUE-H และ TUE-U ปนกันได้ (เจอจริงในไฟล์ 25 ก.ค.)
- * จึงต้องดูรายบรรทัด ไม่ใช่ตั้งทั้งใบ ไม่งั้นยอดข้ามโรงงานกันโดยไม่มีอะไรเตือน
- */
-export function entityOfPo(po) {
-  const m = /^TM\w{4}([A-Z])/i.exec(String(po || '').trim());
-  return m ? 'TUE-' + m[1].toUpperCase() : '';
-}
+// นิติบุคคลมีที่นิยามที่เดียวคือ entities.js — ที่นี่ส่งต่อให้ของเดิมที่เรียกใช้อยู่
+import { entityOfPo } from './entities.js';
+export { entityOfPo };
 
 /** ยอดที่สูตรบอกว่าควรได้ = usage ต่อชิ้น × ยอดสั่งของ PO นั้น */
 export function bomExpect(bomRows, pn, code, orderQty) {

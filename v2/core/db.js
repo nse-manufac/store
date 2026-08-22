@@ -18,12 +18,14 @@
 
 export const DB_NAME = 'bincard-v2';
 // 2 — เพิ่มตาราง counts (รอบนับของ)
-export const DB_VERSION = 2;
+// 3 — เพิ่มตาราง entities (แยกยอดตามนิติบุคคล)
+export const DB_VERSION = 3;
 
 /** ตารางทั้งหมด — keyPath ทุกตัวคือ id ยกเว้นที่ระบุ */
 const STORES = {
   entries:   { keyPath: 'id', indexes: [['by_code', 'material_code'], ['by_at', 'at']] },
   materials: { keyPath: 'material_code', indexes: [['by_cat', 'category']] },
+  entities:  { keyPath: 'entity_code' },
   bom:       { keyPath: 'id', indexes: [['by_pn', 'pn']] },
   pos:       { keyPath: 'id' },
   kits:      { keyPath: 'id' },
@@ -106,7 +108,7 @@ export async function loadAll() {
  * ผลคือรายการนั้นอยู่แค่ในเครื่องเดียวตลอดไปโดยไม่มีอะไรเตือน
  * มีที่เดียวที่ผ่านโดยไม่ติดธงคือตัวซิงค์เอง ซึ่งส่ง synced: true มา
  */
-const SYNCED = new Set(['entries', 'materials', 'bom', 'pos', 'kits', 'shorts']);
+const SYNCED = new Set(['entries', 'materials', 'bom', 'pos', 'kits', 'shorts', 'entities']);
 
 export async function put(store, rows, { synced = false } = {}) {
   const list = Array.isArray(rows) ? rows : [rows];
