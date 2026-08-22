@@ -35,10 +35,22 @@ for (const now of clocks) {
 ok('เลือกวันไหน แปลงกลับก็ได้วันนั้นเสมอ ไม่ว่าคีย์ตอนกี่โมง', allBack);
 
 // วิธีที่ v1 เตือนไว้ว่าห้ามทำ — ต่อสตริงวันที่เครื่องเข้ากับเวลา UTC
-const bad = (d, now) => d + now.toISOString().slice(10);
-const nightBad = localDate(bad('2026-08-16', new Date(Date.UTC(2026, 7, 15, 22, 0))));
-ok('พิสูจน์ว่าวิธีต่อสตริงเลื่อนวันจริง (จึงต้องมี atFrom)',
-   nightBad !== '2026-08-16', 'ได้ ' + nightBad);
+//
+// ⚠️ ข้อนี้ขึ้นกับโซนเวลาของเครื่องที่รันเทส
+// เครื่องที่อยู่โซน UTC พอดี (เช่น GitHub Actions) วิธีผิดจะดูเหมือนถูก เพราะไม่มีส่วนต่างให้เลื่อน
+// เครื่องที่โรงงานอยู่ +7 จึงเจอของจริง — เทสจึงต้องนับจากส่วนต่างของเครื่องเอง
+// ไม่ใช่ล็อกเวลาไว้ตายตัวแล้วหวังว่าทุกเครื่องจะให้ผลเหมือนกัน
+const naive = (d, now) => d + now.toISOString().slice(10);
+const hours = Array.from({ length: 24 }, (_, h) => new Date(2026, 7, 16, h, 30));
+const naiveBroken = hours.filter(now => localDate(naive('2026-08-16', now)) !== '2026-08-16').length;
+const atFromBroken = hours.filter(now => localDate(atFrom('2026-08-16', now)) !== '2026-08-16').length;
+const utc = new Date().getTimezoneOffset() === 0;
+
+ok('atFrom ไม่เลื่อนวันสักชั่วโมงเดียวในยี่สิบสี่ชั่วโมง', atFromBroken === 0, String(atFromBroken));
+ok(utc ? 'เครื่องนี้อยู่โซน UTC พอดี วิธีต่อสตริงจึงยังไม่แสดงอาการ (ที่โรงงาน +7 จะเลื่อนจริง)'
+       : 'พิสูจน์ว่าวิธีต่อสตริงเลื่อนวันจริง (จึงต้องมี atFrom)',
+   utc ? naiveBroken === 0 : naiveBroken > 0,
+   'เลื่อน ' + naiveBroken + ' จาก 24 ชั่วโมง');
 
 ok('ไม่มีเวลาก็คืนค่าว่าง ไม่ใช่ NaN', localDate('') === '' && localTime('') === '');
 ok('เวลาพังก็ไม่ระเบิด', localDate('ไม่ใช่วันที่') === '');
