@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-24.1">
+<meta name="app-version" content="2026-08-24.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1830,6 +1830,11 @@ textarea{font:inherit}
 
           <div class="msg ok" v-if="sync.msg && sync.state!=='error'" style="margin:12px 0 0">
             {{ sync.msg }}</div>
+          <div class="msg bad" v-if="wiringGap.length" style="margin:12px 0 0">
+            <b>โปรแกรมรุ่นนี้มีบั๊ก — ตาราง {{ wiringGap.join(' · ') }} ยังไม่ได้ต่อสายกับข้อมูลในเครื่อง</b><br>
+            <span class="hint">ไม่ใช่ปัญหาการตั้งค่าของคุณ ซิงค์จะพังทุกครั้งจนกว่าจะแก้ที่โปรแกรม</span>
+          </div>
+
           <div class="msg bad" v-if="sync.error" style="margin:12px 0 0">
             {{ sync.error }}
             <div v-if="sync.needDeploy" style="margin-top:6px">
