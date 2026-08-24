@@ -7,7 +7,7 @@
  */
 import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced,
          chunk, toWire, syncPlan, looksLikeOldScript, normKeys, normKeysAll,
-         KEY_COLS, missingTables } from '../v2/core/sync.js';
+         KEY_COLS, missingTables, normalizeScriptUrl } from '../v2/core/sync.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -129,6 +129,45 @@ ok('แถวที่รับมาจากเซิร์ฟเวอร์�
 // เทียบด้วย Map เหมือนที่หน้าคีย์รับเข้าทำจริง
 ok('จับคู่กับ BOM ติดหลังซ่อม',
    new Map([['4020204800', { usage: 1 }]]).has(inc.added[0].code));
+
+console.log('\n=== ล้าง URL ของ Apps Script ===');
+// อาการที่ทำให้ต้องมีฟังก์ชันนี้ — เครื่องหนึ่งได้ HTTP 404 ตอนซิงค์
+// ทั้งที่ deployment ถูกต้อง และยิงคำสั่งเดียวกันจากที่อื่นได้ 200 ปกติ
+// สาเหตุคืออักขระที่มองไม่เห็นติดมาตอนก๊อป URL ข้ามหน้าจอ
+//
+// ⚠️ ห้ามใช้ deployment id ของจริงเป็นค่าตัวอย่าง repo นี้เป็น public
+// และ id ตัวนี้คือกุญแจเข้าถึงสเปรดชีตในตัวมันเอง แม้แต่บางส่วนก็ไม่ควรมี
+const GOOD = 'https://script.google.com/macros/s/EXAMPLE_DEPLOYMENT_ID/exec';
+const nu = raw => normalizeScriptUrl(raw);
+
+ok('URL สะอาดผ่านฉลุย ไม่มีคำเตือนกวน',
+   nu(GOOD).url === GOOD && !nu(GOOD).problems.length && !nu(GOOD).fatal);
+ok('ช่องว่างหน้าหลังถูกตัด และบอกให้รู้',
+   nu('  ' + GOOD + '  ').url === GOOD && nu(' ' + GOOD).problems.length === 1);
+ok('ขึ้นบรรทัดท้ายถูกตัด', nu(GOOD + '\n').url === GOOD);
+ok('zero-width space ถูกตัด', nu(GOOD + '​').url === GOOD);
+ok('BOM ถูกตัด', nu('﻿' + GOOD).url === GOOD);
+ok('non-breaking space ถูกตัด', nu(GOOD + ' ').url === GOOD);
+ok('อักขระที่มองไม่เห็นถูกฟ้อง ไม่ใช่แก้เงียบ ๆ',
+   nu(GOOD + '​').problems.some(p => p.includes('มองไม่เห็น')));
+ok('/ เกินท้าย /exec ถูกตัดและฟ้อง',
+   nu(GOOD + '/').url === GOOD && nu(GOOD + '/').problems.some(p => p.includes('/ เกิน')));
+ok('เครื่องหมายคำพูดจากการก๊อปในเอกสารถูกตัด', nu('"' + GOOD + '"').url === GOOD);
+ok('อัญประกาศโค้งก็ตัด', nu('“' + GOOD + '”').url === GOOD);
+ok('ช่องว่างกลาง URL ถูกตัด',
+   nu(GOOD.slice(0, 30) + ' ' + GOOD.slice(30)).url === GOOD);
+
+ok('URL ของ /dev ถูกปฏิเสธพร้อมบอกว่าต้องใช้ /exec',
+   nu(GOOD.replace('/exec', '/dev')).fatal.includes('/exec'));
+ok('ของที่ไม่ใช่ Apps Script ถูกปฏิเสธ',
+   !!nu('https://example.com/exec').fatal);
+ok('ช่องว่างเปล่าไม่ถือว่าพัง แค่ยังไม่ได้กรอก',
+   nu('').fatal === 'ยังไม่ได้ใส่ URL' && nu('  ').url === '');
+ok('ส่ง null มาก็ไม่ระเบิด', nu(null).url === '' && nu(undefined).url === '');
+// เคยพลาดมาแล้วกับ regex ที่มีธง g แล้วเรียก test ซ้ำ — lastIndex ค้างทำให้ครั้งที่สองหลุด
+ok('เรียกซ้ำได้ผลเหมือนเดิมทุกครั้ง',
+   nu(GOOD + '​').url === nu(GOOD + '​').url &&
+   nu(GOOD + '​').problems.length === nu(GOOD + '​').problems.length);
 
 console.log('\n=== ตารางที่ประกาศไว้ ต้องต่อสายครบทุกตัว ===');
 // บั๊กจริง 24 ส.ค. 2026 — เพิ่ม entities เข้า TABLES แล้วลืมต่อสายฝั่งแอป
