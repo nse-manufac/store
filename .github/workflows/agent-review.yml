@@ -23,7 +23,7 @@ jobs:
       contents: read
       pull-requests: write
       # claude-code-action แลก GitHub token ผ่าน OIDC — ขาดบรรทัดนี้ action จะ fail
-      # ตั้งแต่ก่อนเริ่มคิด ไม่เกี่ยวกับ ANTHROPIC_API_KEY
+      # ตั้งแต่ก่อนเริ่มคิด ไม่เกี่ยวกับกุญแจที่ใช้เรียก Claude
       id-token: write
 
     steps:
@@ -33,7 +33,7 @@ jobs:
 
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # ใช้ token ที่ GitHub ออกให้ workflow นี้โดยตรง แทนการติดตั้ง Claude GitHub App
           # ผลคือขอบเขตสิทธิ์ = permissions ด้านบนเป๊ะ ๆ ไม่ใช่สิทธิ์ของ app ที่กว้างกว่า
           github_token: ${{ secrets.GITHUB_TOKEN }}
