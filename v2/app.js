@@ -20,7 +20,7 @@ import { balances, cardRows, oddBalances } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
-         syncPlan, looksLikeOldScript, normKeysAll } from './core/sync.js';
+         syncPlan, looksLikeOldScript, normKeysAll, missingTables } from './core/sync.js';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
          importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
@@ -1538,9 +1538,23 @@ createApp({
       } catch (err) { sync.state = 'error'; sync.error = err.message; }
     }
 
-    /** ตารางในเครื่องกับกล่องข้อมูลของมัน — ชื่อชีตอยู่ใน TABLES แล้ว */
-    const LIST_OF = { entries, materials, bom, pos, kits, shorts };
-    const listOf = t => LIST_OF[t];
+    /**
+     * ตารางในเครื่องกับกล่องข้อมูลของมัน — ชื่อชีตอยู่ใน TABLES แล้ว
+     *
+     * ⚠️ เพิ่มตารางใน TABLES เมื่อไหร่ ต้องมาเพิ่มที่นี่ด้วยเสมอ
+     * ลืม entities มารอบหนึ่งแล้ว ซิงค์วิ่งไปหกตารางแล้วพังที่ตารางที่เจ็ด
+     * ด้วยข้อความที่ไม่บอกว่าตารางไหน — ตอนนี้ missingTables() จะฟ้องตั้งแต่เปิดโปรแกรม
+     */
+    const LIST_OF = { entries, materials, bom, pos, kits, shorts, entities };
+    const listOf = t => {
+      const l = LIST_OF[t];
+      if (!l) throw new Error(`ตาราง ${t} ยังไม่ได้ต่อสายกับข้อมูลในเครื่อง — เป็นบั๊กของโปรแกรม ไม่ใช่การตั้งค่า`);
+      return l;
+    };
+
+    // ตรวจตั้งแต่เปิดโปรแกรม ไม่ต้องรอให้คนกดซิงค์แล้วเจอ error ที่อ่านไม่รู้เรื่อง
+    const wiringGap = missingTables(LIST_OF);
+    if (wiringGap.length) console.error('ตารางที่ประกาศไว้แต่ยังไม่ได้ต่อสาย:', wiringGap);
 
     async function syncNow(silent = false) {
       if (!sync.url || syncing) return;
@@ -1792,7 +1806,7 @@ createApp({
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
              homeTasks, homeAlerts, homeIn, homeOut, homeToday,
-             sync, pending, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
+             sync, pending, wiringGap, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
              shareLink, copyShareLink, fromLink, linkCopied,
              entities, entEdit, entCodes, entInfo, entMissing, entCounts,
              switchEntity, startEnt, saveEnt, addMissingEnt,

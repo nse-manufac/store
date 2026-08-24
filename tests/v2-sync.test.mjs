@@ -7,7 +7,7 @@
  */
 import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced,
          chunk, toWire, syncPlan, looksLikeOldScript, normKeys, normKeysAll,
-         KEY_COLS } from '../v2/core/sync.js';
+         KEY_COLS, missingTables } from '../v2/core/sync.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -129,6 +129,22 @@ ok('แถวที่รับมาจากเซิร์ฟเวอร์�
 // เทียบด้วย Map เหมือนที่หน้าคีย์รับเข้าทำจริง
 ok('จับคู่กับ BOM ติดหลังซ่อม',
    new Map([['4020204800', { usage: 1 }]]).has(inc.added[0].code));
+
+console.log('\n=== ตารางที่ประกาศไว้ ต้องต่อสายครบทุกตัว ===');
+// บั๊กจริง 24 ส.ค. 2026 — เพิ่ม entities เข้า TABLES แล้วลืมต่อสายฝั่งแอป
+// ซิงค์วิ่งไปหกตารางแล้วพังที่ตารางที่เจ็ด ด้วยข้อความ
+// "Cannot read properties of undefined (reading 'value')"
+// ซึ่งไม่บอกว่าตารางไหน และดูเหมือนเป็นความผิดของคนตั้งค่า ทั้งที่เป็นบั๊กของโปรแกรม
+const wired = {};
+for (const t of Object.keys(TABLES)) wired[t] = { value: [] };
+ok('ต่อครบแล้วไม่ฟ้อง', missingTables(wired).length === 0);
+delete wired.entities;
+ok('ขาดตารางไหน บอกชื่อตารางนั้น',
+   missingTables(wired).join(',') === 'entities', missingTables(wired).join(','));
+ok('ไม่ได้ส่งอะไรมาเลย ถือว่าขาดทั้งหมด ไม่ใช่ปล่อยผ่าน',
+   missingTables(undefined).length === Object.keys(TABLES).length);
+ok('ตอนนี้ประกาศไว้เจ็ดตาราง — เพิ่มเมื่อไหร่ต้องไปต่อสายใน app.js ด้วย',
+   Object.keys(TABLES).length === 7, String(Object.keys(TABLES).length));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
