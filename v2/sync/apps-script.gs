@@ -44,11 +44,14 @@ var TABLES = {
   },
   BOM: {
     key: 'id',
+    // source_po / source_company มาจากทางเข้าใบเบิกวัตถุดิบ ใช้ตามรอยว่าเลขนี้มาจากใบไหน
+    // ⚠️ คอลัมน์ที่ไม่อยู่ในลิสต์นี้จะถูกตัดทิ้งตอนซิงค์โดยไม่มีอะไรฟ้อง
+    // เพิ่มฟิลด์ใหม่ในแอปเมื่อไหร่ ต้องมาเติมที่นี่ด้วยเสมอ
     cols: ['id','pn','code','desc','usage','unit','rev','valid_from','lines','altPct',
-           'uomConfirmed','uomWhy','rawQpa','rawUom','source','imported_at',
-           'deleted','updated_at'],
+           'uomConfirmed','uomWhy','rawQpa','rawUom','source','source_po','source_company',
+           'imported_at','deleted','updated_at'],
     bools: ['uomConfirmed','deleted'],
-    texts: ['id','pn','code','valid_from','imported_at','updated_at']
+    texts: ['id','pn','code','valid_from','source_po','imported_at','updated_at']
   },
   // สามตารางนี้มาจากไฟล์ที่ Delta ส่งมา เครื่องไหนนำเข้าก็ได้ แต่ทุกเครื่องต้องเห็นเหมือนกัน
   // ถ้าไม่ซิงค์ เครื่องที่ไม่ได้นำเข้าจะกางรายการรับเข้าจากสูตรแทน Kit List โดยไม่รู้ตัว

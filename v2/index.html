@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-22.1">
+<meta name="app-version" content="2026-08-24.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -318,7 +318,180 @@ textarea{font:inherit}
       <!-- ════════ BOM ════════ -->
       <template v-else-if="tab==='bom'">
         <div class="card">
-          <div class="drop" :class="{over:dragOver}"
+          <div class="drop" :class="{over:incDrag}"
+               @dragover.prevent="incDrag=true" @dragleave="incDrag=false"
+               @drop.prevent="onDropInc">
+            <b style="font-size:16px">ลากไฟล์ใบเบิกวัตถุดิบมาวางตรงนี้</b>
+            <p class="hint" style="margin:6px 0 0">
+              ไฟล์ .xlsx ที่ออกใหม่ทุกสัปดาห์ (Rawmat Income wk__) — ชีตละหนึ่งใบ
+              โปรแกรมจะเลือกใบล่าสุดของแต่ละ P/N ให้เอง</p>
+            <p style="margin:12px 0 0">
+              <input type="file" accept=".xlsx,.xls" @change="onPickInc" :disabled="incBusy"></p>
+            <p v-if="incBusy" class="hint" style="margin:8px 0 0">กำลังอ่าน...</p>
+          </div>
+        </div>
+
+        <!-- ── ผลการอ่านใบเบิก รอตรวจก่อนนำเข้า ── -->
+        <template v-if="inc">
+          <div class="card">
+            <div class="row">
+              <h2 style="margin:0">อ่านแล้ว — ตรวจก่อนนำเข้า</h2>
+              <span class="tag mono">{{ inc.fileName }}</span>
+              <div class="grow"></div>
+              <button class="btn primary" @click="applyIncome" :disabled="incBusy || !incPicked.length">
+                {{ incBusy ? 'กำลังนำเข้า...' : 'นำเข้า ' + incPicked.length + ' P/N' }}</button>
+              <button class="btn" @click="inc=null">ยกเลิก</button>
+            </div>
+
+            <div class="row" style="gap:26px;align-items:flex-start;margin-top:12px">
+              <div><div class="hint">จะนำเข้า</div>
+                <div class="big">{{ incPickedLines.toLocaleString() }}</div>
+                <div class="hint">บรรทัด จาก {{ incPicked.length }} P/N</div></div>
+              <div><div class="hint">ใบในไฟล์</div>
+                <div class="big">{{ inc.sum.sheets }}</div>
+                <div class="hint">ทิ้งใบเก่าไป {{ inc.sum.dropped }}</div></div>
+              <div v-if="inc.sum.conflicts"><div class="hint">ใบของ P/N เดียวกันค่าไม่ตรง</div>
+                <div class="big bad">{{ inc.sum.conflicts }}</div><div class="hint">บรรทัด</div></div>
+              <div v-if="inc.sum.outliers"><div class="hint">หลุดค่ากลางของรหัสนั้น</div>
+                <div class="big warn">{{ inc.sum.outliers }}</div><div class="hint">บรรทัด</div></div>
+            </div>
+            <p class="hint" style="margin:10px 0 0">
+              ใบในไฟล์ลงวันที่ {{ inc.sum.from }} ถึง {{ inc.sum.to }} ·
+              หัวกระดาษเป็น
+              <span v-for="(n,c) in inc.sum.companies" :key="c" class="mono">{{ c }} {{ n }}&nbsp;</span>
+            </p>
+
+            <div class="msg bad" v-if="inc.sum.failed.length" style="margin:12px 0 0">
+              <b>ใบที่อ่านไม่ได้ {{ inc.sum.failed.length }} ใบ — ต้องแก้ที่ไฟล์ต้นทาง</b>
+              <div v-for="f in inc.sum.failed" :key="f.sheet" class="hint">
+                ชีต <b class="mono">{{ f.sheet }}</b> — {{ f.error }}</div>
+            </div>
+
+            <div class="msg bad" v-if="inc.sum.badUnits.length" style="margin:10px 0 0">
+              <b>⚠️ บรรทัดที่ไม่ให้เข้าเพราะหน่วยไม่รู้จัก</b>
+              <table style="margin:8px 0 0;max-width:620px;background:#fff">
+                <thead><tr><th style="width:90px">หน่วยในใบ</th><th style="width:80px">บรรทัด</th><th>ตัวอย่าง</th></tr></thead>
+                <tbody><tr v-for="u in inc.sum.badUnits" :key="u.unit">
+                  <td class="mono"><b>{{ u.unit }}</b></td><td class="mono">{{ u.n }}</td>
+                  <td class="hint mono">{{ u.sample.join(' · ') }}</td></tr></tbody>
+              </table>
+              <span class="hint">ไม่เดาแทนให้ เพราะเดาถูกเก้าครั้งไม่ได้ชดเชยครั้งที่สิบ —
+                แก้หน่วยในไฟล์แล้วลากเข้ามาใหม่</span>
+            </div>
+
+            <div class="msg warn" v-if="inc.sum.noUsage.length" style="margin:10px 0 0">
+              <b>{{ inc.sum.noUsage.length }} บรรทัดไม่ได้กรอกยอดต่อชิ้น จึงไม่เข้า</b>
+              <div class="hint mono" style="margin-top:4px">
+                {{ inc.sum.noUsage.slice(0,8).map(r => r.pn + '/' + r.code).join(' · ') }}
+                <span v-if="inc.sum.noUsage.length>8"> … อีก {{ inc.sum.noUsage.length-8 }}</span>
+              </div>
+            </div>
+
+            <div class="msg bad" v-if="bomManualHit.length" style="margin:10px 0 0">
+              <b>P/N ที่ติ๊กไว้จะทับบรรทัดที่แก้มือไว้ {{ bomManualHit.length }} บรรทัด</b><br>
+              <span class="hint mono">{{ bomManualHit.slice(0,6).map(r => r.pn + '/' + r.code).join(' · ') }}</span><br>
+              <span class="hint">การนำเข้าแทนที่ทั้ง P/N เสมอ ถ้ายังต้องการบรรทัดพวกนี้ ต้องคีย์ใหม่หลังนำเข้า</span>
+            </div>
+
+            <div class="msg warn" v-if="inc.sum.conflicts || inc.sum.outliers" style="margin:10px 0 0">
+              <b>P/N ที่มีบรรทัดโดนทัก ยังไม่ติ๊กไว้ให้</b><br>
+              <span class="hint">ไฟล์นี้เป็นแหล่งเดียวแล้ว ไม่มี SAP ไว้เทียบ ตัวเลขที่ผิดสิบเท่าจึงไม่มีอะไรจับได้
+                นอกจากตัวข้อมูลเอง — กด "ดู" ข้างล่างเพื่อเทียบก่อนตัดสิน</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row">
+              <h2 style="margin:0">ราย P/N</h2>
+              <div class="grow"></div>
+              <button class="btn" @click="incPickAll(true)">ติ๊กทั้งหมด</button>
+              <button class="btn" @click="incPickAll(false)">ล้างทั้งหมด</button>
+            </div>
+            <div class="scroll" style="margin-top:10px;max-height:56vh">
+              <table>
+                <thead><tr><th style="width:44px"></th><th style="width:120px">P/N</th>
+                  <th style="width:70px">ชีต</th><th style="width:105px">วันที่ในใบ</th>
+                  <th style="width:75px">จะเข้า</th><th style="width:125px">ทับของเดิม</th>
+                  <th>ที่ต้องดู</th></tr></thead>
+                <tbody><template v-for="p in inc.plan" :key="p.pn">
+                  <tr>
+                    <td style="text-align:center">
+                      <input type="checkbox" v-model="incPick[p.pn]"></td>
+                    <td class="mono"><b>{{ p.pn }}</b></td>
+                    <td class="mono hint">{{ p.sheet }}</td>
+                    <td class="mono">{{ p.date || '—' }}</td>
+                    <td class="mono">{{ p.incoming }}</td>
+                    <td><span v-if="p.isNew" class="tag ok">P/N ใหม่</span>
+                        <span v-else class="tag warn">ทิ้งของเดิม {{ p.replacing }}</span></td>
+                    <td>
+                      <span v-if="incFlagsOf(p.pn).length" class="tag bad">
+                        {{ incFlagsOf(p.pn).length }} บรรทัดน่าสงสัย</span>
+                      <span v-else-if="p.rejected" class="hint">ไม่เข้า {{ p.rejected }} บรรทัด</span>
+                      <span v-else class="hint">—</span>
+                      <button v-if="incFlagsOf(p.pn).length" class="btn" style="padding:2px 9px;margin-left:6px"
+                              @click="incOpen = incOpen===p.pn ? '' : p.pn">
+                        {{ incOpen===p.pn ? 'ปิด' : 'ดู' }}</button>
+                    </td>
+                  </tr>
+                  <tr v-if="incOpen===p.pn">
+                    <td></td>
+                    <td colspan="6" style="background:var(--soft,#f4f7fb)">
+                      <table style="background:#fff">
+                        <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
+                          <th style="width:110px">อาการ</th><th style="width:80px">ต่างกัน</th>
+                          <th>ค่าที่เจอ</th></tr></thead>
+                        <tbody><tr v-for="(f,i) in incFlagsOf(p.pn)" :key="i">
+                          <td class="mono"><b>{{ f.code }}</b></td>
+                          <td class="hint">{{ f.desc }}</td>
+                          <td><span class="tag" :class="f.kind==='ขัดกันเอง' ? 'bad' : 'warn'">{{ f.kind }}</span></td>
+                          <td class="mono">{{ Math.round(f.ratio) }} เท่า</td>
+                          <td class="mono hint">{{ f.detail }}</td>
+                        </tr></tbody>
+                      </table>
+                      <p class="hint" style="margin:8px 0 2px">
+                        ถ้าตัวเลขในใบล่าสุดถูก ให้ติ๊กเอาเข้าได้เลย ถ้าผิดต้องไปแก้ในไฟล์ต้นทางก่อน
+                        — โปรแกรมไม่เลือกให้เอง เพราะเลือกผิดแล้วจะไม่มีอะไรฟ้องอีกเลย
+                      </p>
+                    </td>
+                  </tr>
+                </template></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ── ทะเบียนวัตถุดิบจากชีต data ── -->
+          <div class="card" v-if="inc.data && inc.data.ok">
+            <h2>ทะเบียนวัตถุดิบจากชีต data</h2>
+            <p class="hint" style="margin:2px 0 10px">
+              ชีตนี้มี {{ inc.data.items.length.toLocaleString() }} รหัสที่ใช้ได้
+              (ตัดของทำเองช่วง 28 ออกแล้ว {{ inc.data.skipped.inhouse.toLocaleString() }} รหัส
+              และรหัสซ้ำอีก {{ inc.data.skipped.dup.toLocaleString() }})
+            </p>
+            <div class="row" style="gap:26px;align-items:flex-start">
+              <div><div class="hint">สูตรใช้จริงแต่ทะเบียนยังไม่มี</div>
+                <div class="big">{{ incRegUsed.length.toLocaleString() }}</div></div>
+              <div><div class="hint">ทั้งหมดที่ทะเบียนยังไม่มี</div>
+                <div class="big hint">{{ incRegAll.length.toLocaleString() }}</div></div>
+              <div class="grow"></div>
+              <button class="btn primary" @click="applyIncomeRegistry('used')"
+                      :disabled="incBusy || !incRegUsed.length">
+                เพิ่มเฉพาะที่สูตรใช้จริง ({{ incRegUsed.length }})</button>
+              <button class="btn" @click="applyIncomeRegistry('all')"
+                      :disabled="incBusy || !incRegAll.length">เพิ่มทั้งหมด</button>
+            </div>
+            <p class="hint" style="margin:10px 0 0">
+              ทุกรหัสที่เพิ่มจะติดธงรอตรวจไว้ เพราะชีตนี้ไม่มีวันหมดอายุ และหมวดเป็นแค่การเดาจากชื่อ
+            </p>
+          </div>
+        </template>
+
+        <!-- ── ทางเข้าเดิมจาก SAP — เก็บไว้เป็นทางสำรอง ── -->
+        <details class="card" style="padding:12px 16px">
+          <summary style="cursor:pointer;font-weight:600">
+            นำเข้าจากไฟล์ SAP (ทางเดิม)
+            <span class="hint" style="font-weight:400"> — ชุดล่าสุดที่มีคือ 27 ก.ค. 2026</span>
+          </summary>
+          <div class="drop" :class="{over:dragOver}" style="margin-top:12px"
                @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
                @drop.prevent="onDropBom">
             <b style="font-size:16px">ลากไฟล์ BOM จาก SAP มาวางตรงนี้</b>
@@ -326,7 +499,7 @@ textarea{font:inherit}
               1 ไฟล์ = 1 P/N · ลากพร้อมกันหลายไฟล์ได้ · ไฟล์ .html ที่ออกจาก REPORT YTRPBOM1</p>
             <p style="margin:12px 0 0"><input type="file" accept=".html,.htm" multiple @change="onPickBom"></p>
           </div>
-        </div>
+        </details>
 
         <!-- ── ผลการอ่าน รอกดยืนยัน ── -->
         <template v-if="bomPlan">

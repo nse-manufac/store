@@ -23,6 +23,8 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll } from './core/sync.js';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
          importPlan as importPlanKit } from './master/po-kit.js';
+import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
+         makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
@@ -295,6 +297,147 @@ createApp({
       finally { bomBusy.value = false; }
     }
 
+    // ── นำเข้า BOM จากใบเบิกวัตถุดิบ (.xlsx) ────────────────────────
+    // ทางเข้าหลักตั้งแต่ ส.ค. 2026 เพราะไฟล์ Indented BOM จาก SAP ไม่อัปเดตแล้ว
+    // ชุดล่าสุดลงวันที่ 27 ก.ค. 2026 และ REV ข้างในบางตัวย้อนไปถึงปี 2022
+    //
+    // ⚠️ ไม่มี SAP ไว้เทียบอีกแล้ว ด่านกันเลขผิดจึงอยู่ในไฟล์นี้ทั้งหมด
+    // P/N ที่มีบรรทัดโดนทัก จะไม่ถูกติ๊กไว้ให้ตั้งแต่แรก — คนต้องเปิดดูแล้วติ๊กเอง
+    const inc = ref(null);
+    const incBusy = ref(false);
+    const incDrag = ref(false);
+    const incPick = reactive({});          // pn → เอาเข้าไหม
+    const incOpen = ref('');               // P/N ที่กางดูรายละเอียดอยู่
+
+    const incPicked = computed(() =>
+      inc.value ? inc.value.latest.filter(d => incPick[d.pn]) : []);
+    const incPickedLines = computed(() =>
+      incPicked.value.reduce((a, d) => a + d.lines.length, 0));
+
+    /** รหัสที่โดนทักของ P/N หนึ่ง — ใช้ทั้งกันติ๊กอัตโนมัติและกางให้ดูรายตัว */
+    const incFlagsOf = pn => {
+      if (!inc.value) return [];
+      return [
+        ...inc.value.conf.filter(c => c.pn === pn).map(c => ({
+          kind: 'ขัดกันเอง', code: c.code, desc: c.desc, ratio: c.ratio,
+          detail: c.values.map(v => `ชีต ${v.sheet} = ${v.usage}`).join(' · ') })),
+        ...inc.value.out.filter(o => o.pn === pn).map(o => ({
+          kind: 'หลุดค่ากลาง', code: o.code, desc: o.desc, ratio: o.ratio,
+          detail: `ใบนี้ = ${o.usage} · P/N อื่นใช้ราว ${o.median}` }))
+      ];
+    };
+
+    async function readIncomeFile(file) {
+      incBusy.value = true;
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const buf = await file.arrayBuffer();
+        // cellDates ให้วันที่กลับมาเป็น Date ไม่ใช่ serial — dateOf รับได้ทั้งสองแบบ
+        // แต่ Date อ่านง่ายกว่าตอนไล่ดูปัญหา
+        const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+        const aoaOf = n => XLSX.utils.sheet_to_json(wb.Sheets[n],
+                             { header: 1, defval: null, blankrows: true });
+
+        const sheets = wb.SheetNames.filter(n => n !== 'data').map(n => ({ name: n, aoa: aoaOf(n) }));
+        // ชีตที่ไม่ใช่ใบเบิกทิ้งไปเงียบ ๆ ส่วนใบเบิกที่พังต้องโผล่ในรายการเตือน
+        const all = readIncomeBook(sheets);
+        const docs = all.filter(d => d.ok || !d.notForm);
+        if (!docs.length) throw new Error('ไม่เจอใบ Raw material Income ในไฟล์นี้เลย');
+
+        const latest = pickLatest(docs);
+        const conf = conflictsWithinPn(docs);
+        const out = peerOutliers(latest);
+        const flagged = flaggedKeys(conf, out);
+
+        const data = wb.Sheets.data ? parseDataSheet(aoaOf('data')) : null;
+
+        for (const k of Object.keys(incPick)) delete incPick[k];
+        for (const d of latest) {
+          // ใบที่มีบรรทัดโดนทัก ไม่ติ๊กให้ — ให้คนเปิดดูก่อน
+          incPick[d.pn] = !d.lines.some(l => flagged.has(d.pn + '|' + l.code));
+        }
+        incOpen.value = '';
+        inc.value = {
+          fileName: file.name, docs, latest, conf, out, flagged, data,
+          sum: summarizeIncome(docs, latest, conf, out),
+          plan: incomePlan(latest, bom.value)
+        };
+      } catch (err) {
+        flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true);
+        inc.value = null;
+      } finally { incBusy.value = false; }
+    }
+    const onDropInc = e => { incDrag.value = false;
+      if (e.dataTransfer.files[0]) readIncomeFile(e.dataTransfer.files[0]); };
+    const onPickInc = e => { if (e.target.files[0]) readIncomeFile(e.target.files[0]); e.target.value = ''; };
+
+    const incPickAll = v => { for (const d of inc.value.latest) incPick[d.pn] = v; };
+
+    async function applyIncome() {
+      const picked = incPicked.value;
+      if (!picked.length) { flash('ยังไม่ได้ติ๊ก P/N ไหนเลย', true); return; }
+      incBusy.value = true;
+      try {
+        // แทนที่ทั้ง P/N เหมือนทางเข้า SAP ด้วยเหตุผลเดียวกัน
+        // บรรทัดที่หายไปจากสูตรใหม่ต้องหายจริง ไม่ใช่ค้างอยู่แล้วทำให้ยอดเบิ้ล
+        const pns = new Set(picked.map(d => d.pn));
+        const stale = bom.value.filter(r => pns.has(r.pn)).map(r => r.id);
+        if (stale.length) await db.del('bom', stale);
+
+        const rows = plain(picked.flatMap(d => makeIncomeRows(d)));
+        await db.put('bom', rows);
+        bom.value = [...bom.value.filter(r => !pns.has(r.pn)), ...rows];
+        db.announce('bom');
+        inc.value = null;
+        flash(`นำเข้า ${rows.length} บรรทัด จาก ${pns.size} P/N แล้ว`);
+      } catch (err) { flash(err.message, true); }
+      finally { incBusy.value = false; }
+    }
+
+    /**
+     * ทะเบียนวัตถุดิบจากชีต data
+     *
+     * ── ทำไมต้องมีสองปุ่ม ────────────────────────────────────────
+     * ชีตนี้มีเกือบแปดพันรหัส ซึ่งเป็นจำนวนเดียวกับที่ทำให้ v1 พัง
+     * ไม่ใช่เพราะเก็บไม่ไหว (IndexedDB เก็บได้สบาย) แต่เพราะช่องค้นหาจะกลายเป็นกองฟาง
+     * ค่าตั้งต้นจึงเป็น "เฉพาะที่ BOM ใช้จริง" ส่วนทั้งก้อนต้องตั้งใจกดเอง
+     */
+    const incRegUsed = computed(() => {
+      if (!inc.value || !inc.value.data || !inc.value.data.ok) return [];
+      const have = new Set(materials.value.map(m => normCode(m.material_code)));
+      const used = new Set(bom.value.map(r => normCode(r.code)));
+      for (const d of incPicked.value) for (const l of d.lines) used.add(normCode(l.code));
+      return inc.value.data.items.filter(i => used.has(normCode(i.code)) && !have.has(normCode(i.code)));
+    });
+    const incRegAll = computed(() => {
+      if (!inc.value || !inc.value.data || !inc.value.data.ok) return [];
+      const have = new Set(materials.value.map(m => normCode(m.material_code)));
+      return inc.value.data.items.filter(i => !have.has(normCode(i.code)));
+    });
+
+    async function applyIncomeRegistry(scope) {
+      const list = scope === 'all' ? incRegAll.value : incRegUsed.value;
+      if (!list.length) { flash('ไม่มีรหัสใหม่ให้เพิ่ม', true); return; }
+      if (scope === 'all' && !confirm(
+            `กำลังจะเพิ่ม ${list.length.toLocaleString()} รหัสเข้าทะเบียนทั้งก้อน\n\n` +
+            'ส่วนใหญ่เป็นของที่ไม่ได้ใช้ในสายการผลิตตอนนี้ และจะไปโผล่ในช่องค้นหาทุกครั้งที่คีย์\n' +
+            'ปกติควรใช้ปุ่ม "เฉพาะที่สูตรใช้จริง" แทน\n\nยืนยันว่าจะเพิ่มทั้งหมด?')) return;
+      incBusy.value = true;
+      try {
+        // หน่วยที่แปลงไม่ได้ปล่อยว่างไว้ ไม่เดา — ธงรอตรวจจะพาคนมาเติมเอง
+        const recs = list.map(i => makeMaterial({
+          material_code: i.code, description: i.desc, unit: i.unit,
+          active: true, needs_review: true, source: 'ใบเบิก',
+          note: 'ตั้งจากชีต data ของใบเบิกวัตถุดิบ' + (i.note ? ' · ' + i.note : '')
+        }));
+        await db.put('materials', plain(recs));
+        materials.value.push(...recs);
+        db.announce('materials');
+        flash(`เพิ่ม ${recs.length.toLocaleString()} รหัสเข้าทะเบียนแล้ว — ติดธงรอตรวจไว้ทุกตัว`);
+      } catch (err) { flash(err.message, true); }
+      finally { incBusy.value = false; }
+    }
+
     // ── แก้ BOM ด้วยมือ ────────────────────────────────────────────
     // ไฟล์ SAP ไม่ได้มาทุกครั้งที่สูตรเปลี่ยน บางทีแก้ปากเปล่าหน้างานก่อนแล้วเอกสารตามมาทีหลัง
     // ถ้าแก้เองไม่ได้ ช่วงนั้นจะคีย์รับเข้าโดยไม่มียอดตามสูตรให้เทียบเลย
@@ -349,9 +492,20 @@ createApp({
     }
 
     /** บรรทัดที่แก้มือไว้ และกำลังจะถูกไฟล์ที่ลากมาทับ */
+    /**
+     * บรรทัดที่แก้มือไว้ แล้วกำลังจะโดนทับ
+     *
+     * ⚠️ ต้องดูทั้งสองทางเข้า ไม่ใช่แค่ทาง SAP
+     * ทั้งคู่ "แทนที่ทั้ง P/N" เหมือนกัน จึงกลืนบรรทัดที่แก้มือได้เหมือนกัน
+     * และตั้งแต่ ส.ค. 2026 ทางที่ใช้จริงคือทางใบเบิก ถ้าเช็คแค่ทาง SAP
+     * คำเตือนนี้จะไม่เคยขึ้นอีกเลย ทั้งที่ของหายจริงทุกครั้งที่นำเข้า
+     */
     const bomManualHit = computed(() => {
-      const docs = bomDocs.value.filter(d => d.ok);
-      return docs.length ? manualRowsOf(bom.value, docs.map(d => d.pn)) : [];
+      const pns = [
+        ...bomDocs.value.filter(d => d.ok).map(d => d.pn),
+        ...incPicked.value.map(d => d.pn)
+      ];
+      return pns.length ? manualRowsOf(bom.value, pns) : [];
     });
 
     // ── ตั้งทะเบียนจาก BOM ─────────────────────────────────────────
@@ -1619,6 +1773,9 @@ createApp({
              bomDocs, bomPlan, bomBusy, dragOver, bomSum, bomPns, missingPack,
              bomUnknownCodes, bomUnconfirmed, onDropBom, onPickBom, applyBom,
              regPlan, regDraft, regBusy, regTake, openRegPlan, applyRegPlan,
+             inc, incBusy, incDrag, incPick, incOpen, incPicked, incPickedLines,
+             incFlagsOf, onDropInc, onPickInc, incPickAll, applyIncome,
+             incRegUsed, incRegAll, applyIncomeRegistry,
              bomPn, bomEdit, bomBy, bomRowsOfPn, openBomPn, startBomRow, onBomCode,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
