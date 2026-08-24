@@ -20,7 +20,9 @@ import { balances, cardRows, oddBalances } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
-         syncPlan, looksLikeOldScript, normKeysAll, missingTables } from './core/sync.js';
+         syncPlan, looksLikeOldScript, normKeysAll, missingTables,
+         normalizeScriptUrl } from './core/sync.js';
+import { versionFromHtml, isStale, filesToBust } from './core/version.js';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
          importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
@@ -1503,9 +1505,43 @@ createApp({
      * ผลคือกรอก URL แล้วดูเหมือนติด แต่พอปิดเปิดโปรแกรมใหม่ค่าหายหมด
      * ตอนนี้ถ้าเซฟไม่ได้ต้องบอกให้เห็น ไม่ใช่กลืนแล้วปล่อยให้คนคิดว่าเรียบร้อย
      */
-    const saveSyncCfg = () => db.setMeta('sync', {
-      url: sync.url, token: sync.token, auto: sync.auto, since: sync.since
-    }).catch(err => flash('เก็บค่าตั้งค่าไม่สำเร็จ: ' + err.message, true));
+    /**
+     * ล้าง URL ทุกครั้งที่เก็บ ไม่ใช่ตอนกดทดสอบอย่างเดียว
+     *
+     * ของที่ติดมาตอนก๊อป (ช่องว่าง ขึ้นบรรทัด zero-width) ทำให้ Google ตอบ 404
+     * ซึ่งหน้าตาเหมือน URL ผิดทุกประการ คนจะไปไล่ deploy ใหม่ทั้งที่ deployment ไม่ได้ผิด
+     * ถ้าล้างตั้งแต่ตอนเก็บ ค่าที่ค้างในเครื่องจะสะอาดตลอด ไม่ใช่สะอาดแค่ตอนกดปุ่ม
+     */
+    const urlNote = ref('');
+
+    /**
+     * notify = true เฉพาะตอนคนแก้ช่อง URL เอง
+     *
+     * saveSyncCfg ถูกเรียกทุกครั้งที่ซิงค์สำเร็จด้วย (เพื่อเก็บ since)
+     * ถ้าอัปเดตข้อความทุกครั้งที่เรียก คำเตือน "ล้างให้แล้ว..." จะหายไปเองภายในสองนาที
+     * ทั้งที่คนยังไม่ทันได้อ่าน — ของที่บอกว่าเราไปแก้ค่าที่เขาวางมา ต้องอยู่จนเขาแก้เอง
+     */
+    function cleanSyncUrl(notify = false) {
+      const r = normalizeScriptUrl(sync.url);
+      if (r.url !== sync.url) sync.url = r.url;
+      if (notify) {
+        urlNote.value = [
+          r.problems.length ? 'ล้างให้แล้ว: ' + r.problems.join(' · ') : '',
+          r.fatal && sync.url ? r.fatal : ''
+        ].filter(Boolean).join(' — ');
+      }
+      return r;
+    }
+
+    /** คนแก้ช่อง URL เอง — ล้าง บอกว่าล้างอะไร แล้วเก็บ */
+    const onSyncUrl = () => { cleanSyncUrl(true); saveSyncCfg(); };
+
+    const saveSyncCfg = () => {
+      cleanSyncUrl(false);
+      return db.setMeta('sync', {
+        url: sync.url, token: sync.token, auto: sync.auto, since: sync.since
+      }).catch(err => flash('เก็บค่าตั้งค่าไม่สำเร็จ: ' + err.message, true));
+    };
 
     /**
      * ยิงคำสั่งไปที่ Apps Script
@@ -1522,7 +1558,23 @@ createApp({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action, token: sync.token, device: device.value, ...body })
       });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      /**
+       * "HTTP 404" ลอย ๆ ไม่บอกอะไรกับใครเลย
+       *
+       * ของจริงเจอมาแล้ว — URL กับ deployment ถูกทุกอย่าง แต่มีอักขระที่มองไม่เห็น
+       * ติดมาตอนก๊อป Google เลยตอบ 404 ซึ่งหน้าตาเหมือน "URL ผิด" ทุกประการ
+       * ข้อความจึงต้องบอกว่าให้ไปดูอะไรต่อ ไม่ใช่บอกแค่ว่าพัง
+       */
+      if (!res.ok) {
+        const hint = res.status === 404
+          ? ' — Google หา deployment นี้ไม่เจอ · ลองลบ URL ในช่องให้เกลี้ยงแล้ววางใหม่ '
+            + 'เพราะอักขระที่มองไม่เห็นติดมาตอนก๊อปทำให้เป็นแบบนี้ได้ '
+            + 'ถ้ายังไม่หาย ให้ไป Deploy → Manage deployments แล้วก๊อป URL ที่ลงท้าย /exec มาใหม่'
+          : (res.status === 401 || res.status === 403)
+          ? ' — ตอน Deploy ต้องตั้ง Who has access เป็น Anyone'
+          : '';
+        throw new Error('HTTP ' + res.status + hint);
+      }
       const d = await res.json();
       if (!d.ok) throw new Error(d.error || 'เซิร์ฟเวอร์ตอบกลับผิดพลาด');
       return d;
@@ -1643,6 +1695,73 @@ createApp({
     // ไม่ใช่รอให้พนักงานนึกได้ว่าต้องกดปุ่ม
     setInterval(() => { if (sync.auto && sync.url && !syncing) syncNow(true); }, 120000);
     window.addEventListener('online', () => { if (sync.auto && sync.url) syncNow(true); });
+
+    // ── ตรวจเวอร์ชัน ───────────────────────────────────────────────
+    // เครื่องที่ cache ไฟล์เก่าค้างไว้ทำให้แก้บั๊กแล้วผู้ใช้ยังเจอปัญหาเดิม
+    // และคนแจ้งซ้ำเรื่องที่แก้ไปแล้ว โดยไม่มีใครรู้ว่าคนละเวอร์ชันกันอยู่
+    //
+    // ⚠️ v2 ต่างจาก v1 ตรงที่เป็นหลายไฟล์ ไม่ใช่ไฟล์เดียว
+    // v1 โหลด index.html ใหม่ก็ได้โค้ดใหม่ทั้งก้อน แต่ v2 มี ES module อีกสิบกว่าไฟล์
+    // ที่เบราว์เซอร์ cache แยกกัน — โหลด index.html ใหม่แล้วยังหยิบ app.js เก่ามาใช้ได้สบาย
+    // ผลคือดูเหมือนอัปเดตแล้วแต่บั๊กยังอยู่ ซึ่งแย่กว่าไม่มีปุ่มอัปเดตเลย
+    const newVersion = ref('');
+    const verBusy = ref(false);
+
+    // เครื่องที่เปิดแท็บค้างไว้ทั้งวันต้องรู้เองว่ามีของใหม่ ไม่ใช่รอให้พนักงานกด
+    // แต่ตรวจถี่ = ยิงเน็ตบ่อย เน็ตโรงงานไม่ไหว จึงตรวจห่าง ๆ เท่านั้น
+    const UPDATE_EVERY = 30 * 60 * 1000;   // ระยะห่างขั้นต่ำระหว่างการตรวจสองครั้ง
+    const UPDATE_TICK  =  5 * 60 * 1000;   // จังหวะเดินมาดูว่าถึงเวลาหรือยัง — ไม่ยิงเน็ต
+    let lastCheck = 0;
+
+    /**
+     * ดึง index.html แบบข้าม cache แล้วเทียบเวอร์ชันกับที่รันอยู่
+     * regex จับ meta ตัวแรกซึ่งอยู่ใน head ก่อนสคริปต์เสมอ จึงไม่ไปจับตัวเอง
+     */
+    async function checkUpdate(silent = true) {
+      lastCheck = Date.now();
+      try {
+        const res = await fetch('index.html?v=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const onServer = versionFromHtml(await res.text());
+        if (!onServer) throw new Error('ไม่พบเวอร์ชันในไฟล์บนเซิร์ฟเวอร์');
+        if (isStale(APP_VERSION, onServer)) {
+          newVersion.value = onServer;
+          if (!silent) flash(`มีเวอร์ชันใหม่ ${onServer} — กดปุ่มด้านบนเพื่อโหลดใหม่`, true);
+        } else {
+          newVersion.value = '';
+          if (!silent) flash(`ใช้เวอร์ชันล่าสุดอยู่แล้ว · ${APP_VERSION}`);
+        }
+      } catch (err) {
+        // ออฟไลน์อยู่ก็แค่ตรวจไม่ได้ ห้ามทำให้แอปใช้งานไม่ได้
+        if (!silent) flash('ตรวจอัปเดตไม่ได้ — อาจไม่มีอินเทอร์เน็ต', true);
+      }
+    }
+
+    /** ตรวจซ้ำเงียบ ๆ เมื่อถึงเวลาเท่านั้น — แท็บที่ถูกซ่อนอยู่ไม่ต้องตรวจ */
+    function checkUpdateIfDue() {
+      if (document.hidden) return;
+      if (Date.now() - lastCheck < UPDATE_EVERY) return;
+      checkUpdate(true);
+    }
+
+    /** ทิ้ง cache ของทุกไฟล์ที่แอปนี้โหลดมา แล้วค่อยโหลดใหม่ — ตรรกะเลือกไฟล์อยู่ใน core/version.js */
+    async function reloadApp() {
+      verBusy.value = true;
+      try {
+        const here = new URL('.', location.href).href;
+        const files = filesToBust(
+          performance.getEntriesByType('resource').map(e => e.name), here);
+        // ยิงพร้อมกันได้ ไม่ต้องรอทีละไฟล์ และถ้าตัวไหนพลาดก็ไม่ควรขวางการโหลดใหม่
+        await Promise.allSettled(files.map(f => fetch(f, { cache: 'reload' })));
+      } catch (err) { /* ไม่มีเน็ตก็ลองโหลดไปเลย ดีกว่าค้างอยู่กับของเก่า */ }
+      location.reload();
+    }
+
+    // ตรวจครั้งแรกหลังเปิดโปรแกรมสักพัก ไม่แย่งเน็ตกับตอนโหลดข้อมูลตั้งต้น
+    setTimeout(() => checkUpdate(true), 3000);
+    setInterval(checkUpdateIfDue, UPDATE_TICK);
+    document.addEventListener('visibilitychange', checkUpdateIfDue);
+    window.addEventListener('online', () => checkUpdate(true));
 
     // ── ออกไฟล์ Bin Card ───────────────────────────────────────────
     // ไฟล์ที่ออกไปมีคนรับต่อ ฟอร์มจึงต้องเหมือน v1 ทุกช่อง — ดู export/bincard.js
@@ -1806,7 +1925,8 @@ createApp({
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
              homeTasks, homeAlerts, homeIn, homeOut, homeToday,
-             sync, pending, wiringGap, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
+             sync, pending, wiringGap, urlNote, onSyncUrl, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
+             newVersion, verBusy, checkUpdate, reloadApp,
              shareLink, copyShareLink, fromLink, linkCopied,
              entities, entEdit, entCodes, entInfo, entMissing, entCounts,
              switchEntity, startEnt, saveEnt, addMissingEnt,

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-24.2">
+<meta name="app-version" content="2026-08-24.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -127,7 +127,15 @@ textarea{font:inherit}
   <template v-else>
     <header>
       <h1>ระบบ Bin Card</h1>
-      <span class="ver">v{{ APP_VERSION }}</span>
+      <span class="ver" style="cursor:pointer" @click="checkUpdate(false)"
+            title="กดเพื่อตรวจว่ามีเวอร์ชันใหม่ไหม">v{{ APP_VERSION }}</span>
+      <!-- เครื่องที่ cache ไฟล์เก่าค้างไว้ทำให้แจ้งบั๊กซ้ำเรื่องที่แก้ไปแล้ว
+           โดยไม่มีใครรู้ว่ากำลังคุยกันคนละเวอร์ชัน -->
+      <button v-if="newVersion" class="btn" :disabled="verBusy" @click="reloadApp"
+              title="เครื่องนี้ยังใช้ไฟล์เก่าอยู่ กดเพื่อโหลดเวอร์ชันล่าสุด"
+              style="background:var(--warn,#a15c00);color:#fff;border-color:transparent;margin-left:10px">
+        {{ verBusy ? 'กำลังโหลด...' : 'มีเวอร์ชันใหม่ ' + newVersion + ' — โหลดใหม่' }}
+      </button>
       <div class="tabs">
         <button v-for="g in GROUPS" :key="g.k"
                 :class="{on: openGroup===g.k}" @click="openGroup=g.k">{{ g.label }}</button>
@@ -1793,11 +1801,14 @@ textarea{font:inherit}
 
           <div class="row" style="margin-top:10px">
             <label class="f grow" style="min-width:280px">URL ของ Apps Script
-              <input v-model.trim="sync.url" @change="saveSyncCfg"
+              <input v-model.trim="sync.url" @change="onSyncUrl"
                      placeholder="https://script.google.com/macros/s/..../exec"></label>
             <label class="f" style="width:200px">รหัสผ่าน (token)
               <input v-model.trim="sync.token" @change="saveSyncCfg" type="password"></label>
           </div>
+          <!-- อักขระที่มองไม่เห็นติดมาตอนก๊อป ทำให้ Google ตอบ 404 ซึ่งดูเหมือน URL ผิด
+               ต้องบอกว่าล้างอะไรให้ ไม่ใช่แก้เงียบ ๆ แล้วปล่อยให้งงว่าทำไมเดี๋ยวได้เดี๋ยวไม่ได้ -->
+          <div class="msg warn" v-if="urlNote" style="margin:8px 0 0">{{ urlNote }}</div>
           <div class="row" style="margin-top:10px">
             <span class="row" style="gap:5px;flex-wrap:nowrap">
               <input type="checkbox" v-model="sync.auto" @change="saveSyncCfg" id="au"
