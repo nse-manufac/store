@@ -46,16 +46,30 @@ jobs:
 
           FAIL=0
 
+          # ── PR นี้มาจาก agent หรือเปล่า ────────────────────────────
+          # ⚠️ ห้ามตัดสินจากชื่อ branch อย่างเดียว
+          # ชื่อ branch เป็นสิ่งที่ agent ตั้งเอง = ถามผู้ต้องสงสัยว่าตัวเองเป็นผู้ต้องสงสัยไหม
+          # ของจริง 25 ส.ค. 2026 ที่ repo plan — ช่างซ่อมตั้งชื่อ feat/21-wip-stage-filter
+          # ทั้งที่ prompt สั่งให้ใช้ fix/ ผลคือด่านข้างล่างนี้ไม่ทำงานเลยสักข้อ
+          #
+          # คนเปิด PR เป็นสิ่งที่ agent เลือกไม่ได้ จึงยึดตัวนั้นเป็นหลัก
+          # ยังดูชื่อ branch ด้วยแบบ "อย่างใดอย่างหนึ่งก็นับ" จะได้ไม่มีอะไรอ่อนลงกว่าเดิม
+          IS_AGENT=no
+          if [ "$PR_AUTHOR" = "github-actions[bot]" ] || [ "$PR_AUTHOR" = "github-actions" ]; then
+            IS_AGENT=yes
+          fi
+          case "$HEAD_REF" in fix/*|claude/*) IS_AGENT=yes ;; esac
+          echo "ถือเป็น PR ของ agent: $IS_AGENT"
+          echo ""
+
           # ── 1. PR จาก agent ห้ามแตะ .github/ เด็ดขาด ──
-          case "$HEAD_REF" in
-            fix/*|claude/*)
-              if echo "$CHANGED" | grep -q '^\.github/'; then
-                echo "::error::PR จาก branch ของ agent ($HEAD_REF) แก้ไฟล์ใน .github/ — ไม่อนุญาตเด็ดขาด"
-                echo "$CHANGED" | grep '^\.github/' | sed 's/^/::error::  แตะ: /'
-                FAIL=1
-              fi
-              ;;
-          esac
+          if [ "$IS_AGENT" = yes ]; then
+            if echo "$CHANGED" | grep -q '^\.github/'; then
+              echo "::error::PR จาก agent (โดย $PR_AUTHOR branch $HEAD_REF) แก้ไฟล์ใน .github/ — ไม่อนุญาตเด็ดขาด"
+              echo "$CHANGED" | grep '^\.github/' | sed 's/^/::error::  แตะ: /'
+              FAIL=1
+            fi
+          fi
 
           # ── 2. ห้ามมี secret หลุดเข้ามาในทุก PR (repo นี้เป็น public) ──
           # ตรวจเฉพาะบรรทัดที่ "เพิ่มเข้ามา" เพื่อไม่ให้ของเก่าทำ PR ใหม่แดง
@@ -75,16 +89,14 @@ jobs:
           # prompt บอกช่างซ่อมไว้ว่าเกิน ~80 บรรทัดในไฟล์แอปให้หยุดถามเจ้าของก่อน
           # แต่นั่นเป็น "คำสั่ง" ซึ่ง agent เลือกไม่ทำตามได้ ด่านนี้คือเส้นที่เลือกไม่ได้
           # ตั้งไว้ 150 ไม่ใช่ 80 เพราะ 80 คือจุดที่ควรหยุดถาม ส่วน 150 คือจุดที่เลยเถิดแล้ว
-          case "$HEAD_REF" in
-            fix/*|claude/*)
+          if [ "$IS_AGENT" = yes ]; then
               APPLINES=$(git diff --numstat "$BASE...HEAD" -- '*.html' | awk '{a+=$1; d+=$2} END {print (a+d)+0}')
               echo "บรรทัดที่เปลี่ยนในไฟล์แอป: $APPLINES"
               if [ "$APPLINES" -gt 150 ]; then
                 echo "::error::PR จาก agent แก้ไฟล์แอปไป $APPLINES บรรทัด (เพดาน 150) — ใหญ่เกินกว่าจะตรวจตอนพักเที่ยง ต้องหยุดถามเจ้าของก่อนแก้ใหญ่ขนาดนี้"
                 FAIL=1
               fi
-              ;;
-          esac
+          fi
 
           # ── 4. ห้ามให้หลักฐานจากที่ส่วนตัวหลุดเข้ามาใน repo public ──
           # workflow ของหัวหน้าทีมดึงรูปจาก nse-manufac/intake มาไว้ที่ evidence/

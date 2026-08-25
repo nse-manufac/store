@@ -143,8 +143,8 @@ jobs:
           # ผลคือได้ PR สองใบสำหรับเรื่องเดียวกัน และจ่ายค่า opus สองรอบ
           # ══════════════════════════════════════════════════════════════
           if [ "$go" = "yes" ]; then
-            open_pr=$(gh pr list -R "$REPO" --state open --json headRefName                         --jq "[.[] | select(.headRefName | startswith(\"fix/$issue-\"))] | length")
-            branch=$(gh api "repos/$REPO/branches?per_page=100"                        --jq "[.[].name | select(startswith(\"fix/$issue-\"))] | length")
+            open_pr=$(gh pr list -R "$REPO" --state open --json headRefName                         --jq "[.[] | select(.headRefName | test(\"^[A-Za-z]+/$issue-\"))] | length")
+            branch=$(gh api "repos/$REPO/branches?per_page=100"                        --jq "[.[].name | select(test(\"^[A-Za-z]+/$issue-\"))] | length")
             if [ "$open_pr" -gt 0 ] || [ "$branch" -gt 0 ]; then
               echo "::warning::มีงานของ issue #$issue อยู่แล้ว (PR เปิดอยู่ $open_pr · branch $branch) — ไม่ทำซ้ำ"
               go=no

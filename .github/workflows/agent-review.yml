@@ -14,7 +14,13 @@ concurrency:
 jobs:
   review:
     name: ตรวจตาม INVARIANTS
-    if: startsWith(github.head_ref, 'fix/') || startsWith(github.head_ref, 'claude/')
+    # PR ที่เจ้าของทำเองไม่ต้องเสีย token — แต่ต้องรู้ให้แน่ว่า "ไม่ใช่ของ agent"
+    # ชื่อ branch เชื่อไม่ได้ (agent ตั้งเอง) จึงดูคนเปิด PR เป็นหลัก
+    # ของจริงเคยหลุด: branch feat/21-... ทำให้ผู้ตรวจข้าม PR ของช่างซ่อมไปทั้งใบ
+    if: >-
+      github.event.pull_request.user.login == 'github-actions[bot]'
+      || startsWith(github.head_ref, 'fix/')
+      || startsWith(github.head_ref, 'claude/')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
