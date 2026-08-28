@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader,
          importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -759,6 +759,23 @@ createApp({
         + (inH.po ? ` · ยังไม่มี Kit List ของ PO ${inH.po} จึงใช้สูตรแทน` : '')
         + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร')
         + (un ? ` · ⚠️ ${un} รายการใช้หน่วยที่ยังไม่ยืนยันกับ Delta` : '');
+    }
+
+    /**
+     * คีย์เลข PO เสร็จ — เติม P/N · จำนวนสั่ง · วันที่ จากไฟล์ PO รายวัน แล้วกางรายการต่อเลย
+     *
+     * ยกวิธีมาจาก v1 (`pickPo`) ตรง ๆ เพราะพนักงานคีย์แค่ PO แล้วคาดหวังว่ารายการจะกางเอง
+     * ถ้าไม่เติม P/N ให้ก่อน `expandBom` จะไม่มีสูตรให้กาง เมื่อ PO นั้นยังไม่มี Kit List
+     * ไม่พบ PO ในไฟล์ = ปล่อยช่องที่คีย์ไว้เดิม ไม่ล้างทิ้ง แล้วให้ expandBom ไปบอกเองว่าคีย์เองได้
+     */
+    function pickPo() {
+      const h = poHeader(pos.value, inH.po);
+      if (h) {
+        if (h.pn) inH.pn = h.pn;
+        if (h.order) inH.order = h.order;
+        if (h.date) inH.date = h.date;
+      }
+      expandBom();
     }
 
     const inReady = computed(() => inLines.value.filter(l => l.code && Number(l.qty) > 0));
@@ -1916,7 +1933,7 @@ createApp({
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick,
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
-             addInLine, expandBom, fillLine, saveIn, addFromLine,
+             addInLine, expandBom, pickPo, fillLine, saveIn, addFromLine,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut,
              outBalOf, outAfterOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,

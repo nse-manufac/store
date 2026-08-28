@@ -8,7 +8,7 @@
  * หมวด B กับ D สำคัญที่สุด — ทั้งคู่คือกรณี "บรรทัดซ้ำต้องรวมยอด"
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate } from '../v2/master/po-kit.js';
 
 let pass = 0, fail = 0;
@@ -160,6 +160,27 @@ ok('บอก PO ที่ยังไม่มีในรายการ PO',
    plan.noPo.length === 1 && plan.noPo[0] === 'PO-9002', JSON.stringify(plan.noPo));
 ok('รวมยอดที่ Delta จ่ายมาทั้งไฟล์', plan.totalIssue === 240.8, String(plan.totalIssue));
 ok('ไฟล์เปล่าไม่พัง', importPlan([]).total === 0);
+
+console.log('\n=== G. คีย์แค่ PO ต้องรู้ว่าเป็น P/N อะไร (issue #51) ===');
+// หน้ารับเข้าของ v2 กางสูตรได้ก็ต่อเมื่อรู้ P/N — ถ้าไม่เติมให้จากไฟล์ PO รายวัน
+// พนักงานที่คีย์แค่เลข PO จะไม่เห็นรายการอะไรเลย ทั้งที่ข้อมูลมีอยู่ในเครื่องแล้ว
+const poRows = [
+  { id: 'P2026-07-27-PO-9001', date: '2026-07-27', sub: 'TUE-TPP', pn: '5267', po: 'PO-9001', qty: 100 },
+  { id: 'P2026-07-28-PO-9001', date: '2026-07-28', sub: 'TUE-TPP', pn: '5267', po: 'PO-9001', qty: 120 },
+  { id: 'P2026-07-27-PO-9002', date: '2026-07-27', sub: 'TUE-TPP', pn: '5301', po: 'PO-9002', qty: 40 }
+];
+const h1 = poHeader(poRows, 'PO-9002');
+ok('คีย์เลข PO แล้วได้ P/N · จำนวนสั่ง · วันที่',
+   h1 && h1.pn === '5301' && h1.order === 40 && h1.date === '2026-07-27', JSON.stringify(h1));
+// ของทยอยมา PO ใบเดิมจึงโผล่ได้หลายวัน — ต้องยึดวันล่าสุดที่ Delta ยืนยัน
+ok('PO ที่โผล่หลายวัน ยึดแถวของวันล่าสุด',
+   poHeader(poRows, 'PO-9001').date === '2026-07-28' && poHeader(poRows, 'PO-9001').order === 120,
+   JSON.stringify(poHeader(poRows, 'PO-9001')));
+ok('เว้นวรรคหน้าหลังเลข PO ก็ยังหาเจอ', poHeader(poRows, '  PO-9002  ').pn === '5301');
+// ไม่พบ = ต้องคืน null ให้ผู้เรียกปล่อยช่องเดิมไว้ ห้ามเดา P/N ให้ (G3 — คีย์เองต่อได้)
+ok('PO ที่ยังไม่ได้นำเข้า ตอบ null ไม่ใช่เดาค่า', poHeader(poRows, 'PO-ไม่มี') === null);
+ok('ช่อง PO ว่างหรือยังไม่มีไฟล์ PO เลย ก็ไม่พัง',
+   poHeader(poRows, '') === null && poHeader([], 'PO-9001') === null && poHeader(null, 'PO-9001') === null);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
