@@ -6,7 +6,7 @@
  * ในโปรแกรมคลัง เพราะกว่าจะรู้ก็ผ่านไปหลายเดือนแล้ว
  */
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5 } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, overBom } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, overBom, receivedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -120,6 +120,31 @@ const over = overBom([
 ], E, { bomFor: pn => (pn === '2800404400' ? bom : null), orderOf: () => 100 });
 ok('เบิก 20 ทั้งที่สูตรบอก 15 = เกิน 5', over.length === 1 && over[0].over === 5,
    JSON.stringify(over));
+
+console.log('\n=== K. ยอดที่เคยคีย์รับไปแล้วของ PO ใบเดียวกัน (issue #52) ===');
+const rcv = [
+  mk({ kind: 'receive', qty: 10, lot: 'L1', doc_ref: 'PO1' }),
+  mk({ kind: 'receive', qty: 0.2, lot: 'L2', doc_ref: 'PO1' }),
+  mk({ kind: 'receive', qty: 7, lot: 'L3', doc_ref: 'PO1', material_code: 'OTHERCODE' }),
+  mk({ kind: 'receive', qty: 99, lot: 'L4', doc_ref: 'PO2' }),
+  mk({ kind: 'issue',   qty: 3, doc_ref: 'PO1' }),
+  voidEntry(mk({ kind: 'receive', qty: 500, lot: 'L5', doc_ref: 'PO1' }),
+            { by: 'เจ้าของ', reason: 'คีย์ผิด' }),
+  makeEntry({ ...base, entity: 'OTHER', kind: 'receive', qty: 888, lot: 'L6', doc_ref: 'PO1' })
+];
+const got = receivedOfDoc(rcv, E, 'PO1');
+ok('รวมยอดรับของ PO ใบเดียวกันทุกรอบ (A2)', got.get(base.material_code).qty === 10.2,
+   String(got.get(base.material_code).qty));
+ok('บอกได้ว่าเคยคีย์รับกี่ครั้ง', got.get(base.material_code).times === 2);
+ok('แยกตามรหัสวัตถุดิบ', got.get('OTHERCODE').qty === 7);
+ok('PO ใบอื่นไม่ปนเข้ามา', receivedOfDoc(rcv, E, 'PO2').get(base.material_code).qty === 99);
+ok('รายการที่ยกเลิกไม่นับ (B1)', got.get(base.material_code).qty === 10.2);
+ok('จ่ายออกที่อ้าง PO เดียวกันไม่นับเป็นรับแล้ว', got.size === 2, [...got.keys()].join(','));
+ok('ของนิติบุคคลอื่นไม่ปนเข้ามา (A3)', !receivedOfDoc(rcv, 'OTHER', 'PO1').get(base.material_code)
+   || receivedOfDoc(rcv, 'OTHER', 'PO1').get(base.material_code).qty === 888);
+throws('receivedOfDoc ก็ลืมส่ง entity ไม่ได้ (A3)', () => receivedOfDoc(rcv, '', 'PO1'), 'นิติบุคคล');
+ok('ไม่ได้ใส่เลข PO = ไม่มีอะไรให้แสดง', receivedOfDoc(rcv, E, '').size === 0);
+ok('เก็บเวลาที่เคยรับไว้ให้ฝั่งแสดงผลแปลงเป็นวันที่', got.get(base.material_code).ats.length === 2);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

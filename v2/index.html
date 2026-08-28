@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-28.1">
+<meta name="app-version" content="2026-08-28.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -909,6 +909,7 @@ textarea{font:inherit}
               <thead><tr>
                 <th style="width:130px">รหัส</th><th>ชื่อ</th>
                 <th style="width:60px">หน่วย</th><th style="width:95px">ตามสูตร</th>
+                <th style="width:90px">รับแล้ว</th>
                 <th style="width:95px">Delta จ่ายมา</th>
                 <th style="width:95px">รับจริง</th><th style="width:110px">ล็อต</th>
                 <th style="width:130px">วันหมดอายุ</th><th style="width:36px"></th>
@@ -930,6 +931,9 @@ textarea{font:inherit}
                   </td>
                   <td class="mono">{{ l.unit }}</td>
                   <td class="mono hint">{{ l.reqmt === null ? '' : l.reqmt }}</td>
+                  <td class="mono hint" :title="l.recvInfo">
+                    <span v-if="l.recv" class="tag ok">{{ l.recv }}</span><span v-else>—</span>
+                  </td>
                   <td class="mono">{{ l.issued === null || l.issued === undefined ? '' : l.issued }}</td>
                   <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:84px"></td>
                   <td><input v-model.trim="l.lot" class="mono" style="width:98px" placeholder="เลขล็อต"></td>
