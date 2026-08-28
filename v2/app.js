@@ -16,7 +16,7 @@ import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } fro
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive } from './core/ledger.js';
-import { balances, cardRows, oddBalances } from './core/balance.js';
+import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
@@ -691,7 +691,8 @@ createApp({
 
     function blankLine(code = '') {
       return { k: 'L' + (++lineSeq), code, desc: '', unit: '', reqmt: null, issued: null,
-               qty: null, lot: '', expiry: '', needExp: false, known: false };
+               qty: null, lot: '', expiry: '', needExp: false, known: false,
+               recv: 0, recvInfo: '' };
     }
     function fillLine(l) {
       const m = matOf(l.code);
@@ -701,6 +702,37 @@ createApp({
       l.needExp = m ? m.requires_expiry === true : false;
     }
     const addInLine = () => inLines.value.push(blankLine());
+
+    const recvInfoOf = r =>
+      `รับไปแล้ว ${r.times} ครั้ง: ${[...new Set(r.ats.map(localDate))].sort().join(', ')}`;
+
+    /**
+     * เติมยอดที่เคยคีย์รับไปแล้วของ PO ใบนี้ลงในบรรทัดที่กางไว้ — issue #52
+     *
+     * รหัสที่เคยรับไปแล้วแต่ไม่มีทั้งใน Kit List และสูตร ต้องกางขึ้นมาด้วย
+     * ไม่งั้นยอดเดิมของรหัสนั้นจะหายไปจากจอทั้งที่มันอยู่ในสมุด
+     */
+    function markReceived(recv) {
+      if (!recv.size) return;
+      const shown = new Set();
+      for (const l of inLines.value) {
+        const r = recv.get(String(l.code));
+        shown.add(String(l.code));
+        l.recv = r ? r.qty : 0;
+        l.recvInfo = r ? recvInfoOf(r) : '';
+      }
+      for (const [code, r] of recv) {
+        if (shown.has(code)) continue;
+        const l = blankLine(code);
+        fillLine(l);
+        l.recv = r.qty; l.recvInfo = recvInfoOf(r);
+        inLines.value.push(l);
+      }
+      const last = [...recv.values()].flatMap(r => r.ats).sort().pop();
+      bomHint.value = `⚠ PO ${inH.po} นี้เคยคีย์รับไปแล้ว (ล่าสุด ${localDate(last)})`
+        + ' — คอลัมน์ "รับแล้ว" คือยอดสะสมจากรอบก่อน คีย์เฉพาะของที่เพิ่งมาเพิ่ม'
+        + (bomHint.value ? ' · ' + bomHint.value : '');
+    }
 
     /**
      * กางรายการให้คีย์ — ยึด Kit List ก่อน แล้วค่อยตกมาที่ BOM
@@ -714,6 +746,8 @@ createApp({
      */
     function expandBom() {
       const kit = inH.po ? kitsOfPo(kits.value, inH.po) : [];
+      const recv = inH.po && entity.value
+        ? receivedOfDoc(entries.value, entity.value, inH.po) : new Map();
       const rows = inH.pn ? bom.value.filter(r => r.pn === String(inH.pn)) : [];
       const order = Number(inH.order) || 0;
       const bomOf = new Map(rows.map(r => [String(r.code), r]));
@@ -736,6 +770,7 @@ createApp({
         const missing = rows.filter(r => !kit.some(k => String(k.code) === String(r.code)));
         bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมยอดที่ Delta จ่ายให้แล้ว)`
           + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้จ่ายมา` : '');
+        markReceived(recv);
         return;
       }
 
@@ -743,6 +778,7 @@ createApp({
         bomHint.value = inH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${inH.po} และสูตรของ ${inH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`;
+        markReceived(recv);
         return;
       }
 
@@ -759,6 +795,7 @@ createApp({
         + (inH.po ? ` · ยังไม่มี Kit List ของ PO ${inH.po} จึงใช้สูตรแทน` : '')
         + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร')
         + (un ? ` · ⚠️ ${un} รายการใช้หน่วยที่ยังไม่ยืนยันกับ Delta` : '');
+      markReceived(recv);
     }
 
     /**
