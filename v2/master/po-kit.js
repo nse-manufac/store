@@ -311,6 +311,24 @@ export function parseKitChem(book) {
 export const kitsOfPo = (kits, po) =>
   kits.filter(k => k.po === String(po || '').trim() && k.src !== 'chem');
 
+/**
+ * PO ใบนี้คือ P/N อะไร จำนวนเท่าไหร่ วันที่ไหน — จากไฟล์ PO รายวันที่นำเข้าไว้
+ *
+ * 1 PO ต่อ 1 P/N เสมอ แต่ PO ใบเดียวโผล่ได้หลายวันในไฟล์ (ของทยอยมา)
+ * จึงเอาแถวของวันล่าสุดเป็นตัวตอบ เพราะเป็นข้อมูลที่ Delta ยืนยันครั้งหลังสุด
+ * ไม่พบ = คืน null ให้ผู้เรียกปล่อยช่องเดิมไว้ ห้ามเดาค่าให้
+ */
+export function poHeader(poList, po) {
+  const key = String(po == null ? '' : po).trim();
+  if (!key) return null;
+  const hit = (poList || [])
+    .filter(p => p && String(p.po == null ? '' : p.po).trim() === key)
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+    .pop();
+  return hit ? { pn: String(hit.pn || ''), order: Number(hit.qty) || null,
+                 date: String(hit.date || '') } : null;
+}
+
 /** แผนการนำเข้า — บอกก่อนกดว่าอะไรใหม่ อะไรซ้ำ อะไรยังไม่รู้จัก */
 export function importPlan(rows, { existing = [], materials = [], poList = [] } = {}) {
   const have = new Set(existing.map(x => String(x.id)));

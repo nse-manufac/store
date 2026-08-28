@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-08-24.3">
+<meta name="app-version" content="2026-08-28.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -887,7 +887,7 @@ textarea{font:inherit}
           <div class="row">
             <label class="f" style="width:150px">เลข PO
               <input v-model.trim="inH.po" class="mono" placeholder="เลขที่เอกสาร"
-                     @change="expandBom"></label>
+                     @change="pickPo"></label>
             <label class="f" style="width:150px">P/N
               <input v-model.trim="inH.pn" class="mono" list="pnlist" placeholder="รหัสสินค้า"
                      @change="expandBom"></label>
