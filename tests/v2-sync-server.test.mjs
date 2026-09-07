@@ -34,6 +34,8 @@ class Sheet {
     const s = this;
     return {
       getValues() {
+        // จำลองว่าการอ่านชีตจริงกินเวลา — ใช้พิสูจน์ว่า serverTime ถูกประทับก่อนอ่าน
+        if (s.onRead) s.onRead();
         const out = [];
         for (let i = 0; i < nr; i++) {
           const row = [];
@@ -72,23 +74,41 @@ class SS {
   getName() { return this.name; }
 }
 
-function loadScript() {
-  const src = fs.readFileSync(new URL('../v2/sync/apps-script.gs', import.meta.url), 'utf8');
+const REAL_SRC = fs.readFileSync(new URL('../v2/sync/apps-script.gs', import.meta.url), 'utf8');
+
+/* token ที่ใช้ในเทส — ต้องไม่ใช่ค่าตั้งต้น
+ *
+ * ⚠️ สคริปต์ปฏิเสธทุกคำสั่งถ้า TOKEN ยังเป็นค่าตั้งต้น (ด่านที่เพิ่มมาเพื่อกันคนลืมเปลี่ยน)
+ *    เทสจึงต้องแทนค่าในซอร์สก่อนรัน ไม่ใช่ส่งค่าตั้งต้นเข้าไปแล้วหวังว่าจะผ่าน
+ *    ถ้าวันหนึ่งด่านนี้ถูกถอดออก เทส "ยังใช้ token ค่าตั้งต้นต้องถูกปฏิเสธ" จะตกทันที */
+const TEST_TOKEN = 'เทส-token-ที่ไม่ใช่ค่าตั้งต้น';
+
+function loadScript(opts = {}) {
+  const src = opts.keepDefaultToken
+    ? REAL_SRC
+    : REAL_SRC.replace("var TOKEN = 'CHANGE-ME-1234';", "var TOKEN = '" + TEST_TOKEN + "';");
+  if (!opts.keepDefaultToken && src === REAL_SRC) {
+    throw new Error('แทนค่า TOKEN ในซอร์สไม่สำเร็จ — รูปแบบบรรทัดเปลี่ยนไปแล้ว เทสทั้งชุดจะไม่ได้ตรวจอะไรเลย');
+  }
   const book = new SS();
+  const locks = { taken: 0, available: opts.lockAvailable !== false };
   const env = {
     SpreadsheetApp: { getActiveSpreadsheet: () => book, flush() {} },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
+    LockService: { getScriptLock: () => ({
+      tryLock: () => { locks.taken++; return locks.available; }, releaseLock() {} }) },
     ContentService: { MimeType: { JSON: 'json' },
       createTextOutput: t => ({ setMimeType: () => ({ body: t }) }) }
   };
+  // นาฬิกาฉีดเข้าไปในสโคปของสคริปต์ — ปล่อยว่างไว้จะใช้ Date ตัวจริง
+  const DateImpl = opts.Date || Date;
   // คืน handle ออกมาเพื่อยิงคำสั่งเหมือนของจริง
-  const fn = new Function('SpreadsheetApp', 'LockService', 'ContentService',
+  const fn = new Function('SpreadsheetApp', 'LockService', 'ContentService', 'Date',
     src + '\n;return { handle: handle, book: null };');
-  const api = fn(env.SpreadsheetApp, env.LockService, env.ContentService);
+  const api = fn(env.SpreadsheetApp, env.LockService, env.ContentService, DateImpl);
   const call = (action, body = {}) =>
     JSON.parse(api.handle({ parameter: {} },
-      Object.assign({ action, token: 'CHANGE-ME-1234' }, body)).body);
-  return { call, book };
+      Object.assign({ action, token: opts.token || TEST_TOKEN }, body)).body);
+  return { call, book, locks };
 }
 
 const { call, book } = loadScript();
@@ -150,6 +170,70 @@ ok('แถวใหม่ต้องถูกส่งมา แม้เวล
    JSON.stringify(delta.rows.map(r => r.id)));
 ok('ไม่ได้ส่งมาทั้งตารางทุกครั้ง — เวลาที่ไกลกว่านั้นได้ศูนย์แถว',
    call('pullTable', { table: 'Entries', since: '2099-01-01T00:00:00.000Z' }).rows.length === 0);
+
+console.log('\n=== D2. pull ต้องไม่ประทับเวลาที่ใหม่กว่าของที่มันเห็น ===');
+/* เหตุการณ์จริงที่กันอยู่:
+ *   เครื่อง A กด push 300 แถว — doPushTable ประทับ stamp ตอนเริ่ม แล้วเขียนทีละแถวกินเวลาหลายวินาที
+ *   เครื่อง B auto-sync ทุก 2 นาที ดึงระหว่างนั้นพอดี ได้แถวไปครึ่งเดียว
+ *   ถ้า pull ประทับเวลา "ตอนอ่านเสร็จ" B จะได้เวลาที่ใหม่กว่าแถวที่ A ยังเขียนไม่ถึง
+ *   B เก็บเวลานั้นเป็น since รอบหน้า -> แถวที่เหลือของ A มี updated_at เก่ากว่า since ตลอดไป
+ *   = B ไม่ได้รับแถวพวกนั้นอีกเลย จนกว่าจะมีคนไปแก้มัน หรือกด "ดึงใหม่ทั้งหมด" ซึ่งไม่มีอะไรบอกให้กด
+ *
+ * เทสนี้ฉีดนาฬิกาที่เดินทุกครั้งที่อ่านชีต เพื่อจำลองว่าการอ่านกินเวลา
+ * แล้วยืนยันว่า serverTime ที่คืนมา ต้องไม่ใหม่กว่าเวลาตอนที่ยังไม่ทันอ่าน */
+{
+  let tick = 0;
+  const stamp = n => '2026-09-06T00:00:' + String(n).padStart(2, '0') + '.000Z';
+  class FakeDate {
+    constructor() { this.n = ++tick; }
+    toISOString() { return stamp(this.n); }
+  }
+  const s2 = loadScript({ Date: FakeDate });
+  s2.call('pushTable', { table: 'Materials', rows: [
+    { material_code: '4010600100', description: 'WIRE', unit: 'KGM', category: 'WIRE',
+      active: true, needs_review: false, requires_expiry: false }
+  ] });
+
+  // ให้ทุกการอ่านชีตเดินนาฬิกา = การอ่านกินเวลาเหมือนของจริง
+  for (const sh of s2.book.sheets.values()) sh.onRead = () => { tick++; };
+
+  const before = tick;                       // เวลาก่อนเริ่มดึง
+  const got = s2.call('pullTable', { table: 'Materials', since: '' });
+  ok('pull ต้องได้แถวที่มีอยู่', got.rows.length === 1, JSON.stringify(got));
+  ok('serverTime ต้องไม่ใหม่กว่าเวลาตอนเริ่มดึง — ไม่งั้นแถวที่ push ยังเขียนไม่เสร็จจะหายจากเครื่องนั้นถาวร',
+     got.serverTime <= stamp(before + 1),
+     'ได้ ' + got.serverTime + ' แต่เริ่มดึงตอน ' + stamp(before + 1));
+}
+
+{
+  // pull ต้องจับล็อกตัวเดียวกับ push ไม่งั้นอ่านเจอชีตที่ push เขียนไปได้ครึ่งเดียว
+  const s3 = loadScript();
+  const taken0 = s3.locks.taken;
+  s3.call('pullTable', { table: 'Materials', since: '' });
+  ok('pull ต้องจับล็อกด้วย', s3.locks.taken > taken0, 'จับไป ' + (s3.locks.taken - taken0) + ' ครั้ง');
+
+  const busy = loadScript({ lockAvailable: false });
+  const r = busy.call('pullTable', { table: 'Materials', since: '' });
+  ok('ล็อกไม่ว่างต้องบอกให้ลองใหม่ ไม่ใช่คืนข้อมูลครึ่ง ๆ กลาง ๆ',
+     r.ok === false && /ซิงค์อยู่/.test(r.error || ''), JSON.stringify(r));
+}
+
+console.log('\n=== A2. ลืมเปลี่ยน token ค่าตั้งต้น ===');
+/* Web App ตัวนี้ตั้งเป็น "Anyone" ตาม README · token คือด่านเดียวที่กั้นอยู่
+ * และค่าตั้งต้นเขียนอยู่ในไฟล์สาธารณะบน GitHub ทุกคนอ่านได้
+ * ลืมเปลี่ยนแล้วปล่อยไว้ = ใครเดา URL ได้ก็อ่าน/เขียน/ยกเลิกข้อมูลได้ทั้งโรงงาน */
+{
+  const def = loadScript({ keepDefaultToken: true, token: 'CHANGE-ME-1234' });
+  const r1 = def.call('ping');
+  ok('ยังใช้ token ค่าตั้งต้น -> ping ต้องถูกปฏิเสธ แม้ส่ง token มาถูก',
+     r1.ok === false && /ค่าตั้งต้น/.test(r1.error || ''), JSON.stringify(r1));
+  const r2 = def.call('pushTable', { table: 'Materials', rows: [
+    { material_code: 'X', description: 'ของปลอม', unit: 'EA', category: 'X',
+      active: true, needs_review: false, requires_expiry: false }
+  ] });
+  ok('และต้องเขียนข้อมูลไม่ได้ด้วย', r2.ok === false, JSON.stringify(r2));
+  ok('ไม่มีชีตไหนถูกสร้างหรือถูกเขียนเลย', def.book.sheets.size === 0, String(def.book.sheets.size));
+}
 
 console.log('\n=== E. ทะเบียนต้องไม่หายเพราะปิดใช้งาน (รากของ INVARIANTS E3) ===');
 call('pushTable', { table: 'Materials', rows: [

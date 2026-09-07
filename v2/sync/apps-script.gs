@@ -13,6 +13,16 @@
 // ═══════════ ตั้งค่า ═══════════
 var TOKEN = 'CHANGE-ME-1234';   // ⚠️ ต้องเปลี่ยน และต้องตรงกับที่กรอกในโปรแกรม
 
+/* ค่าตั้งต้นที่ต้องเปลี่ยนก่อนใช้จริง — ถ้าลืม สคริปต์จะปฏิเสธทุกคำสั่ง
+ *
+ * ⚠️ Web App ตัวนี้ตั้งเป็น "Anyone" ตาม README ใครก็ตามที่เดา URL ได้จะยิงเข้ามาได้
+ *    token คือด่านเดียวที่กั้นอยู่ · ถ้าลืมเปลี่ยนแล้วปล่อยไว้ ก็เท่ากับไม่มีด่านเลย
+ *    เพราะค่านี้เขียนอยู่ในไฟล์สาธารณะบน GitHub ทุกคนอ่านได้
+ *
+ *    ปฏิเสธทั้งหมดดีกว่าปล่อยผ่าน — คนที่ลืมจะรู้ตัวทันทีตอนกดซิงค์ครั้งแรก
+ *    ไม่ใช่รู้ตอนข้อมูลถูกคนอื่นแก้ */
+var DEFAULT_TOKEN = 'CHANGE-ME-1234';
+
 /**
  * คอลัมน์ของแต่ละตาราง
  *
@@ -96,6 +106,8 @@ function doPost(e) {
 function handle(e, body) {
   var p = (e && e.parameter) ? e.parameter : {};
   var action = body.action || p.action || 'ping';
+  if (TOKEN === DEFAULT_TOKEN) return json({ ok: false,
+    error: 'สคริปต์นี้ยังใช้ token ค่าตั้งต้นอยู่ — เปิด Apps Script แล้วเปลี่ยนค่า TOKEN ก่อนใช้งาน' });
   if ((body.token || p.token || '') !== TOKEN) return json({ ok: false, error: 'token ไม่ถูกต้อง' });
   try {
     switch (action) {
@@ -194,11 +206,34 @@ function doPing() {
   return { ok: true, serverTime: nowIso(), counts: counts, spreadsheet: ss().getName() };
 }
 
-/** ดึงเฉพาะแถวที่เปลี่ยนหลังเวลา since */
+/** ดึงเฉพาะแถวที่เปลี่ยนหลังเวลา since
+ *
+ * ⚠️ ประทับ serverTime "ก่อน" อ่านชีตเสมอ ห้ามย้ายไปไว้ตอนท้าย
+ *
+ *    doPushTable ประทับ stamp ตอนเริ่ม แล้วเขียนทีละแถวซึ่งกินเวลาหลายวินาที
+ *    ถ้า pull ประทับเวลาตอนอ่านเสร็จ จะได้เวลาที่ "ใหม่กว่า" แถวที่ push ยังเขียนไม่ถึง
+ *    เครื่องที่ดึงเอาเวลานั้นไปเก็บเป็น since รอบหน้า แล้วแถวที่เหลือของ push ก้อนนั้น
+ *    จะมี updated_at เก่ากว่า since ตลอดไป = เครื่องนั้นไม่ได้รับแถวพวกนั้นอีกเลย
+ *    จนกว่าจะมีคนไปแก้มัน หรือกด "ดึงใหม่ทั้งหมด" ซึ่งไม่มีอะไรบอกให้กด
+ *
+ *    ประทับก่อนอ่านแปลว่าอาจส่งซ้ำในรอบถัดไป ซึ่งไม่มีผลอะไร (รวมข้อมูลซ้ำได้อยู่แล้ว)
+ *    ส่งซ้ำเสียแค่แบนด์วิดท์ ส่งขาดคือข้อมูลหาย — สองอย่างนี้ราคาไม่เท่ากัน
+ *
+ * ⚠️ จับ lock ตัวเดียวกับ push ด้วย ไม่งั้นยังอ่านชีตที่ push เขียนไปได้ครึ่งเดียวอยู่ดี
+ *    ได้ภาพที่ไม่เคยมีอยู่จริงสักขณะ */
 function doPullTable(table, since) {
   var def = TABLES[table];
   if (!def) return { ok: false, error: 'ไม่รู้จักตาราง: ' + table };
-  var rows = readObjects(sheetOf(table));
+
+  var stamp = nowIso();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(25000)) return { ok: false, error: 'มีเครื่องอื่นกำลังซิงค์อยู่ ลองใหม่อีกครั้ง' };
+  var rows;
+  try {
+    rows = readObjects(sheetOf(table));
+  } finally {
+    lock.releaseLock();
+  }
   var out = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
@@ -213,7 +248,7 @@ function doPullTable(table, since) {
     }
     out.push(r);
   }
-  return { ok: true, serverTime: nowIso(), rows: out };
+  return { ok: true, serverTime: stamp, rows: out };
 }
 
 /**
