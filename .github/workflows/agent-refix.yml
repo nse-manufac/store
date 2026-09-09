@@ -17,7 +17,7 @@ on:
 #    GitHub มีกฎกันลูป: **event ที่เกิดจาก GITHUB_TOKEN ไม่สร้าง workflow run ใหม่**
 #    ถ้า push ด้วย GITHUB_TOKEN จะไม่มี event synchronize เลย ซึ่งแปลว่า
 #      · ผู้ตรวจไม่ตรวจซ้ำ  → วงจรตายตั้งแต่รอบแรก
-#      · smoke / version-bump / agent-guard ไม่รันบน commit ใหม่
+#      · smoke.yml (ทั้งสอง job) กับ agent-guard ไม่รันบน commit ใหม่
 #        → เช็คที่ตั้งเป็น required หายไปทั้งสามตัว → **PR merge ไม่ได้ตลอดกาล**
 #
 #    ข้อหลังคือตัวที่อันตรายจริง: มันไม่ได้แค่ทำให้ฟีเจอร์ไม่ทำงาน
@@ -29,10 +29,17 @@ on:
 #    ซึ่งพังด่าน "ต้องมีคนอนุมัติ 1 คน" ของ branch protection ทั้งด่าน
 # ═══════════════════════════════════════════════════════════════
 
-# ทีละใบเท่านั้นทั้ง repo — ตัวนี้แพงพอ ๆ กับช่างซ่อมปกติ
+# แยกเลนรายใบ ไม่ใช่เลนเดียวทั้ง repo
+#
+# เคยตั้งเป็น group: agent-refix เลนเดียว เพื่อกันไม่ให้รันพร้อมกันหลายตัว
+# แต่ GitHub เก็บคิวรอได้ตัวเดียว ใบที่ 3 ขึ้นไปจะถูก **ยกเลิก**
+# แล้ว run ที่ถูกยกเลิกจะข้ามทุกขั้นที่เป็น !cancelled()
+# = ใบนั้นเหลือป้ายค้างโดยไม่มีคอมเมนต์บอกอะไรเลย ซึ่งคือสภาพที่ตั้งใจจะกันตั้งแต่แรก
+#
+# เรื่องค่าใช้จ่ายมีเพดานต่อวันคุมอยู่แล้ว (REFIX_MAX_RUNS_PER_DAY)
 # cancel-in-progress: false เพราะงานที่กำลังแก้อยู่ห้ามถูกฆ่ากลางคัน
 concurrency:
-  group: agent-refix
+  group: agent-refix-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
@@ -181,7 +188,11 @@ jobs:
       # กำลังทำงานอยู่ทั้งที่ไม่มีอะไรเกิดขึ้น ซึ่งแย่กว่าไม่มีป้ายเลย
       # ═══════════════════════════════════════════════════════════════
       - name: ถอดป้ายและบอกเหตุผลเมื่อไม่ได้ทำ
-        if: steps.gate.outputs.go != 'yes' && steps.gate.outputs.stop_reason != 'ป้ายถูกถอดไปแล้วระหว่างรอคิว'
+        # ⚠️ ต้องมี !cancelled() นำหน้า — if: ที่ไม่มีฟังก์ชันสถานะ
+        #    GitHub จะ AND success() ให้โดยปริยาย แปลว่าถ้าขั้นตอน "ด่าน" ล้มเอง
+        #    (API ล่ม / rate limit) ขั้นตอนนี้จะถูกข้าม -> ป้ายค้าง ไม่มีคอมเมนต์
+        #    ซึ่งคือสภาพที่หัวข้อข้างบนบอกว่า "แย่กว่าไม่มีป้ายเลย"
+        if: ${{ !cancelled() && steps.gate.outputs.go != 'yes' && steps.gate.outputs.stop_reason != 'ป้ายถูกถอดไปแล้วระหว่างรอคิว' }}
         env:
           GH_TOKEN: ${{ secrets.AGENT_PUSH_PAT || secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -194,7 +205,8 @@ jobs:
           {
             echo "⏸️ **ช่างซ่อมไม่ได้แก้ตามรีวิวรอบนี้**"
             echo ""
-            echo "เหตุผล: $REASON"
+            # ด่านล้มเองจะไม่มี stop_reason ออกมา ต้องมีข้อความสำรอง ไม่ใช่บรรทัดว่าง
+            echo "เหตุผล: ${REASON:-ขั้นตอนตรวจด่านล้มเอง (ดู log ของ run)}"
             echo ""
             if [ "$REASON" = "ชนเพดาน $MAX_ROUNDS รอบ" ]; then
               echo "แก้ไปแล้ว $MAX_ROUNDS รอบแต่ผู้ตรวจยังเจอของที่ต้องแก้อยู่"
@@ -239,9 +251,21 @@ jobs:
           node-version: '20'
 
       - name: เตรียมเครื่องมือทดสอบ
-        run: |
-          npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
+        run: npm install --no-audit --no-fund
+
+      # ═══════════════════════════════════════════════════════════════
+      # เบราว์เซอร์ล้มได้ ห้ามให้มันฆ่าทั้ง job
+      #
+      # 9 ก.ย. 2026 คำสั่งนี้ล้มสามรอบติดบน runner — --with-deps เรียก apt-get update
+      # แล้วชนกับ repo ของ Google Chrome (Hash Sum mismatch) ซึ่งไม่เกี่ยวกับ repo เราเลย
+      #
+      # งานส่วนใหญ่ของช่างซ่อมเป็นตรรกะล้วน และ `npm run test:core` ไม่ต้องใช้เบราว์เซอร์
+      # ตายก่อนได้อ่านรีวิวเพราะติดตั้งเบราว์เซอร์ไม่ได้ คือการเสียรอบไปฟรี ๆ
+      # ถ้าติดตั้งไม่สำเร็จ ด่าน smoke บน PR จะเป็นตัวจับแทนตอนที่มันกลับมาปกติ
+      # ═══════════════════════════════════════════════════════════════
+      - name: เตรียมเบราว์เซอร์ (ล้มได้)
+        continue-on-error: true
+        run: npx playwright install --with-deps chromium
 
       - name: จำ commit ตั้งต้นไว้เทียบทีหลัง
         id: before
@@ -259,12 +283,23 @@ jobs:
           allowed_bots: "github-actions[bot]"
           # ⚠️ **ไม่มี Bash(git push:*)** — ขั้นตอนหลังจากนี้เป็นคน push
           #    เพราะ push ต้องใช้ PAT และ Claude ต้องไม่ถือ PAT (ดูหัวไฟล์)
-          # ⚠️ **ไม่มี Bash(gh pr:*)** ทุกแบบ — ช่างซ่อมไม่มีเรื่องต้องยุ่งกับตัว PR
-          #    อ่าน PR ใช้ gh api ซึ่งเป็น read-only ในระดับ permissions อยู่แล้ว
+          # ⚠️ **ไม่มี Bash(gh pr:*)** แบบกว้าง — ให้เฉพาะ `gh pr view` ซึ่งอ่านอย่างเดียวจริง
+          #    ไม่มีแฟล็กไหนของมันเขียนอะไรได้เลย
+          #
+          # 🛑 **ห้ามใส่ `Bash(gh api:*)` กลับเข้ามา** (เคยมีอยู่ เพิ่งเอาออกรอบนี้)
+          #    เคยเขียนกำกับไว้ว่า "gh api เป็น read-only ในระดับ permissions อยู่แล้ว"
+          #    **ประโยคนั้นไม่จริง** — `gh api` เป็นทางเข้า REST API ทั้งชุด รวม `-X POST`
+          #    และ job นี้มี `pull-requests: write` เท่ากับช่างซ่อมทำได้ทั้งหมดนี้
+          #      gh api -X POST .../pulls/N/reviews -f event=APPROVE  -> approve งานตัวเอง
+          #      gh api -X DELETE .../issues/comments/<id>            -> ลบรายงานของผู้ตรวจ
+          #      gh api -X DELETE .../issues/N/labels/...             -> ถอดป้ายตัวเอง
+          #    ข้อแรกพังด่าน "ต้องมีคนอนุมัติ 1 คน" ซึ่งเป็นด่านเดียวกับที่หัวไฟล์นี้
+          #    บอกว่ากันไว้ด้วยการไม่ให้ PAT — การไม่ให้ PAT กันได้แค่ทางหนึ่ง ทางนี้เปิดอยู่
+          #    (ผู้ตรวจอัตโนมัติเป็นคนจับได้ในรอบแรกที่วงจรนี้ถูกตรวจ)
           claude_args: |
             --model claude-opus-5
             --max-turns 80
-            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git add:*),Bash(git commit:*),Bash(gh api:*),Bash(gh issue view:*),Bash(node:*),Bash(npm run test:core),Bash(npm test),Bash(npx playwright:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(awk:*),Bash(wc:*),Bash(sed:*),Bash(sort:*),Bash(uniq:*),Bash(diff:*),Bash(mkdir:*),Bash(cp:*),Bash(mv:*)"
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git add:*),Bash(git commit:*),Bash(gh pr view:*),Bash(gh issue view:*),Bash(node:*),Bash(npm run test:core),Bash(npm test),Bash(npx playwright:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(awk:*),Bash(wc:*),Bash(sed:*),Bash(sort:*),Bash(uniq:*),Bash(diff:*),Bash(mkdir:*),Bash(cp:*),Bash(mv:*)"
           prompt: |
             แก้ PR #${{ github.event.pull_request.number }} ของ ${{ github.repository }}
             ตามที่ผู้ตรวจทักไว้ — นี่คือ**รอบที่ ${{ needs.resolve.outputs.round }}**
@@ -276,7 +311,7 @@ jobs:
             ## ขั้นที่ 1 — อ่านให้ครบก่อนแตะอะไร
 
             ```
-            gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments --jq '.[].body'
+            gh pr view ${{ github.event.pull_request.number }} -R ${{ github.repository }} --json comments -q '.comments[].body'
             ```
 
             **คอมเมนต์ล่าสุดของผู้ตรวจคือรายการงานของคุณ** หัวข้อ "ต้องแก้ก่อน merge"
@@ -317,6 +352,11 @@ jobs:
             npm run test:core     # เร็ว ไม่ต้องใช้เบราว์เซอร์
             npm test              # ทั้งชุดรวม playwright
             ```
+
+            ⚠️ ถ้า `npm test` ล้มที่ขั้น playwright ด้วยข้อความเรื่องเบราว์เซอร์หรือ apt
+            แปลว่าเครื่องนี้ติดตั้งเบราว์เซอร์ไม่สำเร็จ **ไม่ใช่โค้ดคุณผิด**
+            ให้ใช้ `npm run test:core` แทน แล้วเขียนไว้ในสรุปว่ารันชุด playwright ไม่ได้
+            ด่าน smoke บน PR จะเป็นตัวตรวจส่วนนั้นให้เอง
 
             ของที่แก้แล้ว **ถ้าไม่มีเทสครอบ ให้เขียนเทสเพิ่ม** — ไม่งั้นรอบหน้าพังซ้ำที่เดิม
             และเทสที่เขียนต้อง **แดงกับโค้ดเดิม** ไม่ใช่เขียวทั้งก่อนและหลัง

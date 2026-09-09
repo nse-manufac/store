@@ -35,7 +35,7 @@ jobs:
     # ⚠️ ถ้าวันหนึ่งมีคนนอกมาช่วยเขียนโค้ดจริง ต้องกลับมาคิดเรื่องนี้ใหม่
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    # 25 นาที ไม่ใช่ 15 — ตั้งแต่รอบนี้ผู้ตรวจ "รันของจริง" ไม่ใช่อ่านแล้วเดา
+    # 30 นาที ไม่ใช่ 15 — ตั้งแต่รอบนี้ผู้ตรวจ "รันของจริง" ไม่ใช่อ่านแล้วเดา
     # การติดตั้ง dependency + รันเทสชุด core กินไปราว 2-3 นาทีก่อนเริ่มคิด
     timeout-minutes: 30
 
@@ -99,10 +99,18 @@ jobs:
           # Bash(gh pr:*) กว้างเกินไป — มันครอบ `gh pr review --approve` และ `gh pr merge` ด้วย
           # ผู้ตรวจต้องไม่มีสิทธิ์ผ่านงานของตัวเอง จึงระบุคำสั่งย่อยที่อนุญาตเป็นรายตัว
           # (รอบที่วัดได้มี permission_denials_count = 7 จึงเติมคำสั่งอ่านอย่างเดียวเข้าไปด้วย)
+          #
+          # 🛑 **ห้ามใส่ `Bash(gh api:*)` กลับเข้ามา** (เคยมีอยู่ เพิ่งเอาออก)
+          #    `gh api` ไม่ใช่คำสั่งอ่านอย่างเดียว มันเป็นทางเข้า REST API ทั้งชุด
+          #    รวม `-X POST` `-X PATCH` `-X DELETE` และ job นี้มี `pull-requests: write`
+          #    เท่ากับเปิดทางให้ทำสิ่งที่บรรทัดข้างบนตั้งใจกันไว้พอดี
+          #      gh api -X POST .../pulls/N/reviews -f event=APPROVE   -> ผ่านงานตัวเอง
+          #      gh api -X DELETE .../issues/comments/<id>             -> ลบรายงานของตัวเอง
+          #    การตัดคำสั่ง `gh pr review` ออกแต่เปิด `gh api` ไว้ คือล็อกประตูแล้วเปิดหน้าต่าง
           claude_args: |
             --model claude-opus-5
             --max-turns 70
-            --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git fetch:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh api:*),Bash(node:*),Bash(npm run test:core),Bash(npm test),Bash(npx playwright:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(awk:*),Bash(wc:*),Bash(sed:*),Bash(sort:*),Bash(uniq:*),Bash(diff:*)"
+            --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git fetch:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(node:*),Bash(npm run test:core),Bash(npm test),Bash(npx playwright:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(awk:*),Bash(wc:*),Bash(sed:*),Bash(sort:*),Bash(uniq:*),Bash(diff:*)"
           prompt: |
             ตรวจ PR #${{ github.event.pull_request.number }} ของ ${{ github.repository }}
             ก่อนที่เจ้าของจะอ่าน
@@ -194,8 +202,12 @@ jobs:
             `v2/core/*.js` และ `v2/master/*.js` เป็น ES module ธรรมดา **import เข้ามารันตรง ๆ ได้**
 
             ```
-            node --input-type=module -e "import {round5} from './v2/core/balance.js'; console.log(round5(0.1+0.2))"
+            node --input-type=module -e "import {round5} from './v2/core/ledger.js'; console.log(round5(0.1+0.2))"
             ```
+
+            ⚠️ `round5` อยู่ที่ `ledger.js` ไม่ใช่ `balance.js` (balance.js import มาใช้อีกที)
+            เช็คก่อนเสมอว่าไฟล์ไหน export อะไร — `grep -n "^export" v2/core/ledger.js`
+            ไม่งั้นได้ SyntaxError แล้วเสียเทิร์นฟรี
 
             หาเคสที่เทสในชุดไม่ได้ครอบ — ค่าว่าง · `null` · `0` · ยอดติดลบ · จำนวนที่มีทศนิยมยาว ·
             ข้อความที่มี `<` หรือ `"` · entity ที่เพิ่งถูกลบ · txn ที่ `voided` แล้ว ·
@@ -288,8 +300,12 @@ jobs:
       # ═══════════════════════════════════════════════════════════════
       # ส่งรายงานเอง ไม่ให้ผู้ตรวจส่ง
       #
-      # เหตุผล: if: always() แปลว่าขั้นตอนนี้ทำงานแม้ผู้ตรวจจะหมดเทิร์น หมดเวลา
+      # เหตุผล: !cancelled() แปลว่าขั้นตอนนี้ทำงานแม้ผู้ตรวจจะหมดเทิร์น หมดเวลา
       # หรือล้มกลางคัน — รายงานเท่าที่เขียนไว้จะยังถึงมือเจ้าของ
+      #
+      # ใช้ !cancelled() ไม่ใช่ always() เพราะ concurrency ตั้ง cancel-in-progress: true
+      # push ที่ตามมาติด ๆ จะฆ่ารอบเก่า และ always() จะทำให้รอบที่ถูกฆ่า
+      # ไปคอมเมนต์ว่า "ผู้ตรวจทำงานไม่จบ" ทุกครั้ง = เสียงเตือนปลอม
       # ถ้าให้ผู้ตรวจส่งเอง รอบที่หมดเทิร์นก่อนถึงขั้นส่ง = จ่ายเงินแล้วไม่ได้อะไรเลย
       #
       # และ **ถ้าไม่มีไฟล์รายงานเลย ต้องบอกให้เห็น ไม่ใช่จบเงียบเหมือนผ่าน**
@@ -347,20 +363,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          raw=$(cat review-verdict.txt 2>/dev/null || echo "")
-          # ยอมให้เขียนเกินมานิดหน่อยได้ เช่น backtick หรือคำอธิบายต่อท้าย
-          # เทียบ fix ก่อน pass เสมอ — "ต้องแก้" สำคัญกว่าและ pass ไม่มี fix อยู่ข้างใน
+          # ⚠️ เทียบแบบ **ตรงตัว** ไม่ใช่ *fix* แบบหาคำแทรก
+          #    เคยเขียนเป็น case *fix*) มาก่อน ซึ่งพังกับไฟล์ที่มีคำอธิบายต่อท้าย
+          #    เช่น "pass — ไม่มีอะไรที่ต้อง fix" จะถูกอ่านเป็น fix
+          #    แล้วไปปลุกช่างซ่อมมาแก้ของที่ไม่ได้พัง
+          #    ลอกแค่ช่องว่างกับ backtick ออก แล้วต้องเหลือคำเดียวเป๊ะ
+          raw=$(tr -d ' \t\n\r`"'"'"'' < review-verdict.txt 2>/dev/null || echo "")
           case "$raw" in
-            *fix*)  verdict=fix ;;
-            *pass*) verdict=pass ;;
-            *)      verdict= ;;
+            fix)  verdict=fix ;;
+            pass) verdict=pass ;;
+            *)    verdict= ;;
           esac
 
           # ไม่มีไฟล์คำตัดสิน = ผู้ตรวจทำงานไม่จบ = **ไม่ปลุกช่างซ่อม**
           # ปลุกไปก็ไม่มีรายการให้แก้ เสียเงินฟรี
           # ขั้นตอนก่อนหน้าคอมเมนต์เตือนเจ้าของไว้แล้วว่าใบนี้ยังไม่ถูกตรวจ
           if [ "$verdict" != "fix" ] && [ "$verdict" != "pass" ]; then
-            echo "::warning::ไม่มีคำตัดสินที่อ่านได้ (ได้ '$verdict') — ไม่แตะป้าย"
+            # โชว์เนื้อที่อ่านได้จริง ไม่ใช่ตัวแปรที่ว่างอยู่แล้ว
+            # เตือนที่ไม่บอกว่าเห็นอะไร ทำให้ตามต่อไม่ได้ว่าผู้ตรวจเขียนอะไรลงไป
+            echo "::warning::คำตัดสินอ่านไม่ออก ไม่แตะป้าย · ในไฟล์มี: '${raw:0:80}'"
             exit 0
           fi
 
