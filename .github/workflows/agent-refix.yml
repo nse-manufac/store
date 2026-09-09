@@ -153,18 +153,38 @@ jobs:
           if [ "$go" = "yes" ]; then
             used=0
             ok=1
-            for r in $(gh api "repos/$REPO/actions/workflows/agent-refix.yml/runs?created=%3E%3D$(date -u +%Y-%m-%d)&per_page=50" \
-                         --jq '.workflow_runs[].id' 2>/dev/null); do
-              # เขียนเป็น if ไม่ใช่ `[ ... ] && continue` — พิสูจน์กลไกด้วยการรันจริงแล้ว
-              #   กลางสคริปต์  AND-list ที่เงื่อนไขเป็นเท็จ **ไม่ทำให้ set -e ออก**
-              #                (POSIX: -e ถูกละเว้นกับคำสั่งที่ไม่ใช่ตัวสุดท้ายของ AND-OR list)
-              #   ตัวสุดท้าย   รหัสออกของสคริปต์กลายเป็น 1 -> **step ล้มทั้งที่ทุกอย่างถูก**
-              # ตรงนี้อยู่กลางลูปจึงยังไม่พัง แต่ใช้ if ไว้เพราะย้ายโค้ดทีหลังแล้วไม่กลายเป็นระเบิด
-              if [ "$r" = "$GITHUB_RUN_ID" ]; then continue; fi
-              n=$(gh api "repos/$REPO/actions/runs/$r/jobs" \
-                    --jq '[.jobs[] | select(.name | startswith("แก้ตามรีวิว")) | select(.conclusion != "skipped")] | length' 2>/dev/null) || { ok=0; break; }
-              used=$((used + n))
-            done
+
+            # ⚠️ ห้ามวาง gh ไว้ใน word list ของ for แบบ  for r in $(gh api ...)
+            #    รหัสออกของคำสั่งใน word list **ถูกทิ้ง** และ set -e ไม่จับ
+            #    เดิมเขียนแบบนั้นพร้อม 2>/dev/null ปิดปาก ผลคือ API ล้ม -> ลูปวนศูนย์รอบ
+            #    -> used=0 -> ผ่านเพดานไปเฉย ๆ **ทั้งที่คอมเมนต์ข้างล่างบอกว่า fail closed**
+            #    ผู้ตรวจอัตโนมัติเป็นคนจับได้ · ชุดเทสเดิมก็พลาดเพราะจำลองแค่ /jobs ล้ม
+            #    ไม่ได้จำลองตัวขอรายการ run ล้ม ซึ่งเป็นคนละบรรทัดคนละกลไก
+            #
+            #    และเอา 2>/dev/null ออกด้วย — ข้อความล้มควรอยู่ใน log ให้ตามได้
+            runs=$(gh api "repos/$REPO/actions/workflows/agent-refix.yml/runs?created=%3E%3D$(date -u +%Y-%m-%d)&per_page=50" \
+                     --jq '.workflow_runs[].id') || ok=0
+
+            # ── หมายเหตุ: created=>= ใช้วันที่แบบ UTC
+            #    งานที่รันช่วง 00:00-07:00 เวลาไทย จะถูกนับรวมกับ "เมื่อวาน" ของเจ้าของ
+            #    ไม่ผิดอะไร แต่ถ้าวันไหนชนเพดานตอนเช้าแล้วงง ให้จำข้อนี้ไว้
+
+            if [ "$ok" = "1" ]; then
+              for r in $runs; do
+                # เขียนเป็น if ไม่ใช่ `[ ... ] && continue` — พิสูจน์กลไกด้วยการรันจริงแล้ว
+                #   กลางสคริปต์  AND-list ที่เงื่อนไขเป็นเท็จ **ไม่ทำให้ set -e ออก**
+                #                (POSIX: -e ถูกละเว้นกับคำสั่งที่ไม่ใช่ตัวสุดท้ายของ AND-OR list)
+                #   ตัวสุดท้าย   รหัสออกของสคริปต์กลายเป็น 1 -> **step ล้มทั้งที่ทุกอย่างถูก**
+                if [ "$r" = "$GITHUB_RUN_ID" ]; then continue; fi
+
+                n=$(gh api "repos/$REPO/actions/runs/$r/jobs" \
+                      --jq '[.jobs[] | select(.name | startswith("แก้ตามรีวิว")) | select(.conclusion != "skipped")] | length') || { ok=0; break; }
+
+                # สำเร็จแต่คืนค่าว่างก็ต้องหยุด — bash ตีตัวแปรว่างในบริบทเลขเป็น 0 เงียบ ๆ
+                if [ -z "$n" ]; then ok=0; break; fi
+                used=$((used + n))
+              done
+            fi
 
             if [ "$ok" = "0" ]; then
               # นับไม่ได้ = ไม่รู้ว่าเกินงบหรือยัง = ถือว่าเกิน (fail closed)
