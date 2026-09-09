@@ -230,7 +230,16 @@ jobs:
         #    ซึ่งคือสภาพที่หัวข้อข้างบนบอกว่า "แย่กว่าไม่มีป้ายเลย"
         if: ${{ !cancelled() && steps.gate.outputs.go != 'yes' && steps.gate.outputs.stop_reason != 'ป้ายถูกถอดไปแล้วระหว่างรอคิว' }}
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PUSH_PAT || secrets.GITHUB_TOKEN }}
+          # ⚠️ ใช้ GITHUB_TOKEN **โดยตั้งใจ** ห้ามเปลี่ยนเป็น AGENT_PUSH_PAT
+          #
+          # เคยใช้ `AGENT_PUSH_PAT || GITHUB_TOKEN` ที่นี่ ซึ่งทำให้คอมเมนต์ของช่างซ่อม
+          # มี author.login เป็นบัญชีเจ้าของ (PAT เป็นของเจ้าของ) ไม่ใช่ github-actions
+          # แล้วตัวกรองผู้เขียนใน prompt ขั้นที่ 1 ก็ตัดสรุปของช่างซ่อมเองทิ้งทุกครั้ง
+          # = กลไกที่ควรทำให้มัน "ไม่ลองวิธีเดิมซ้ำ" ตายเงียบ
+          #
+          # การคอมเมนต์กับการถอดป้ายไม่ต้องปลุก workflow ไหนเลย จึงไม่ต้องใช้ PAT
+          # PAT จำเป็นเฉพาะ --add-label ของผู้ตรวจ (event เดียวที่ต้องปลุกตัวนี้) กับ push
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           REASON: ${{ steps.gate.outputs.stop_reason }}
@@ -465,6 +474,9 @@ jobs:
       # ═══════════════════════════════════════════════════════════════
       # push ด้วย PAT — ขั้นตอนเดียวในไฟล์นี้ที่แตะกุญแจตัวนั้น
       #
+      # (เคยไม่จริง — มีอีกสามขั้นตอนที่เขียน `AGENT_PUSH_PAT || GITHUB_TOKEN` ไว้
+      #  ทั้งที่ไม่ต้องใช้ · ผู้ตรวจอัตโนมัติจับได้ตอนไล่ดูว่าทำไมตัวกรองผู้เขียนถึงพัง)
+      #
       # push แบบธรรมดา ไม่ force
       # ถ้าใครขยับ branch ระหว่างที่ช่างซ่อมทำงาน ให้ล้มดังกว่าทับงานเขาทิ้ง
       # ═══════════════════════════════════════════════════════════════
@@ -492,7 +504,16 @@ jobs:
       - name: รายงานผล
         if: ${{ !cancelled() }}
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PUSH_PAT || secrets.GITHUB_TOKEN }}
+          # ⚠️ ใช้ GITHUB_TOKEN **โดยตั้งใจ** ห้ามเปลี่ยนเป็น AGENT_PUSH_PAT
+          #
+          # เคยใช้ `AGENT_PUSH_PAT || GITHUB_TOKEN` ที่นี่ ซึ่งทำให้คอมเมนต์ของช่างซ่อม
+          # มี author.login เป็นบัญชีเจ้าของ (PAT เป็นของเจ้าของ) ไม่ใช่ github-actions
+          # แล้วตัวกรองผู้เขียนใน prompt ขั้นที่ 1 ก็ตัดสรุปของช่างซ่อมเองทิ้งทุกครั้ง
+          # = กลไกที่ควรทำให้มัน "ไม่ลองวิธีเดิมซ้ำ" ตายเงียบ
+          #
+          # การคอมเมนต์กับการถอดป้ายไม่ต้องปลุก workflow ไหนเลย จึงไม่ต้องใช้ PAT
+          # PAT จำเป็นเฉพาะ --add-label ของผู้ตรวจ (event เดียวที่ต้องปลุกตัวนี้) กับ push
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           ROUND: ${{ needs.resolve.outputs.round }}
@@ -515,6 +536,16 @@ jobs:
               echo "อ่านรีวิวแล้วแต่ไม่ได้ commit อะไรออกมา"
               echo "เหตุผลน่าจะอยู่ในสรุปข้างล่าง ถ้าไม่มีสรุปแปลว่าหมดเทิร์นก่อน"
               echo "([ดู run]($RUN_URL))"
+            elif [ -z "${CHANGED:-}" ]; then
+              # job ตายก่อนขั้นตอน "ตรวจสิ่งที่ห้ามแตะ" จะได้รัน
+              # (npm install ล้ม · claude-code-action ล้มเอง · ติดตั้งเบราว์เซอร์ล้ม)
+              # เดิมตกเข้า else แล้วบอกว่า "มี commit ออกมาแต่ไม่ได้ push เพราะแตะ .github/"
+              # ทั้งที่ไม่มี commit และไม่เกี่ยวกับ .github/ เลย
+              # **คอมเมนต์ที่ยืนยันเรื่องผิด แย่กว่าไม่มีคอมเมนต์**
+              echo "⚠️ **ช่างซ่อมล้มก่อนได้ลงมือ — รอบที่ $ROUND**"
+              echo ""
+              echo "job ตายก่อนถึงขั้นตรวจผลงาน จึงยังไม่รู้ว่ามันแก้อะไรไปหรือยัง"
+              echo "ดูสาเหตุที่ [run นี้]($RUN_URL) — มักเป็นการติดตั้ง dependency หรือตัว agent เอง"
             else
               echo "⚠️ **ช่างซ่อมล้มกลางทาง — รอบที่ $ROUND**"
               echo ""
@@ -548,7 +579,16 @@ jobs:
         # การถอดป้ายไม่ส่งเสียงอะไร จึงไม่มีปัญหาเรื่องเตือนปลอมแบบขั้นตอน "รายงานผล"
         if: ${{ always() && steps.push.outputs.pushed != 'yes' }}
         env:
-          GH_TOKEN: ${{ secrets.AGENT_PUSH_PAT || secrets.GITHUB_TOKEN }}
+          # ⚠️ ใช้ GITHUB_TOKEN **โดยตั้งใจ** ห้ามเปลี่ยนเป็น AGENT_PUSH_PAT
+          #
+          # เคยใช้ `AGENT_PUSH_PAT || GITHUB_TOKEN` ที่นี่ ซึ่งทำให้คอมเมนต์ของช่างซ่อม
+          # มี author.login เป็นบัญชีเจ้าของ (PAT เป็นของเจ้าของ) ไม่ใช่ github-actions
+          # แล้วตัวกรองผู้เขียนใน prompt ขั้นที่ 1 ก็ตัดสรุปของช่างซ่อมเองทิ้งทุกครั้ง
+          # = กลไกที่ควรทำให้มัน "ไม่ลองวิธีเดิมซ้ำ" ตายเงียบ
+          #
+          # การคอมเมนต์กับการถอดป้ายไม่ต้องปลุก workflow ไหนเลย จึงไม่ต้องใช้ PAT
+          # PAT จำเป็นเฉพาะ --add-label ของผู้ตรวจ (event เดียวที่ต้องปลุกตัวนี้) กับ push
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: gh pr edit "$PR" -R "$REPO" --remove-label "ต้องแก้ตามรีวิว" || true
