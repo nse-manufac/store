@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened]
     branches: [main]
 
-# รันเฉพาะ PR ที่มาจาก branch ของ agent — PR ที่เจ้าของทำเองไม่ต้องเสีย token
+# รันทุก PR ที่เข้า main ไม่มีข้อยกเว้น
 # (concurrency กันรันซ้ำเวลามี push ตามเข้ามาติด ๆ)
 concurrency:
   group: agent-review-${{ github.event.pull_request.number }}
@@ -14,13 +14,26 @@ concurrency:
 jobs:
   review:
     name: ตรวจตาม INVARIANTS
-    # PR ที่เจ้าของทำเองไม่ต้องเสีย token — แต่ต้องรู้ให้แน่ว่า "ไม่ใช่ของ agent"
-    # ชื่อ branch เชื่อไม่ได้ (agent ตั้งเอง) จึงดูคนเปิด PR เป็นหลัก
-    # ของจริงเคยหลุด: branch feat/21-... ทำให้ผู้ตรวจข้าม PR ของช่างซ่อมไปทั้งใบ
-    if: >-
-      github.event.pull_request.user.login == 'github-actions[bot]'
-      || startsWith(github.head_ref, 'fix/')
-      || startsWith(github.head_ref, 'claude/')
+    # ⚠️ ห้ามใส่เงื่อนไข if ที่พยายามข้าม "PR ที่เจ้าของทำเอง" กลับเข้ามาอีก
+    #
+    # เคยพยายามประหยัด token ด้วยวิธีนั้นมาสองรอบแล้ว และหลุดทั้งสองรอบ
+    #   รอบแรก  ตัดสินจากชื่อ branch  -> ช่างซ่อมตั้งชื่อ feat/21-... ผู้ตรวจข้ามทั้งใบ
+    #   รอบสอง  ตัดสินจากคนเปิด PR    -> agent ที่รันในเครื่องเปิด PR ด้วยบัญชีเจ้าของ
+    #
+    # 🛑 9 ก.ย. 2026 — repo นี้ยังติดอยู่ที่รอบสอง และหลุดจริงอีก
+    #    #57 branch follow/00-server-cols   merge เข้า main โดยมีคอมเมนต์ 0 อัน
+    #    #58 branch follow/01-pending-count ข้ามเหมือนกัน
+    #    นับรวมข้าม 25 รอบ ตรวจจริง 14 — และการข้ามนั้น **เงียบ ไม่ใช่แดง**
+    #
+    # ทุกเกณฑ์ที่ใช้แยก "ของ agent" กับ "ของคน" ฝั่งที่ถูกตรวจเลือกเองได้ทั้งนั้น
+    # = ถามผู้ต้องสงสัยว่าตัวเองเป็นผู้ต้องสงสัยไหม
+    # ค่าตรวจสัปดาห์ละราว $10 ถูกกว่าปล่อยของพังขึ้น production ที่พนักงานใช้ทุกวัน
+    #
+    # ข้อยกเว้นเดียวที่มีได้คือ PR จาก fork — fork ไม่ได้รับ secret ผู้ตรวจจึงรันไม่ได้เลย
+    # เงื่อนไขนี้ต่างจากที่เพิ่งเอาออก เพราะ GitHub เป็นคนกำหนดว่า PR มาจาก repo ไหน
+    # คนเปิด PR เลือกเองไม่ได้ จึงไม่ใช่การถามผู้ต้องสงสัย
+    # ⚠️ ถ้าวันหนึ่งมีคนนอกมาช่วยเขียนโค้ดจริง ต้องกลับมาคิดเรื่องนี้ใหม่
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
