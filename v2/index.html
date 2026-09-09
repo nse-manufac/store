@@ -533,7 +533,7 @@ textarea{font:inherit}
             </div>
 
             <div class="msg bad" v-if="bomPlan.failed.length" style="margin:12px 0 0">
-              <b>อ่านไม่ได้ {{ bomPlan.failed.length }} ไฟล์</b>
+              <b>อ่านไม่ได้ {{ bomPlan.failed.length }} ไฟล์ — ต้องแก้ที่ไฟล์ต้นทาง</b>
               <div v-for="(f,i) in bomPlan.failed" :key="i" class="hint">{{ f.fileName }}: {{ f.error }}</div>
             </div>
             <div class="msg warn" v-if="bomPlan.dupInBatch.length" style="margin:10px 0 0">
