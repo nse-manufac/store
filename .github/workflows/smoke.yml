@@ -84,8 +84,30 @@ jobs:
       - name: ติดตั้ง dependency ของเทส
         run: npm install --no-audit --no-fund
 
+      # ═══════════════════════════════════════════════════════════════
+      # 🛑 9 ก.ย. 2026 — ขั้นนี้ล้มสามรอบติดโดยไม่เกี่ยวกับโค้ดใน repo เลย
+      #
+      #   E: Failed to fetch https://dl.google.com/linux/chrome-stable/deb/...
+      #      /Packages.gz  Hash Sum mismatch
+      #   Failed to install browsers · Installation process exited with code: 100
+      #
+      # ต้นเหตุคือ --with-deps เรียก apt-get update ซึ่งไปอ่าน repo ของ Google Chrome
+      # ที่ติดมากับเครื่อง runner **เราไม่ได้ใช้ Chrome ตัวนั้นเลย** แต่ apt ล้มทั้งคำสั่ง
+      #
+      # ผลคือด่านที่บังคับว่า PR ทุกใบต้องผ่าน กลายเป็นแดงถาวรจากเรื่องนอก repo
+      # ซึ่งแปลว่า **merge อะไรไม่ได้เลยทั้ง repo** จนกว่าฝั่ง Google จะหาย
+      #
+      # ทางแก้: ถ้าติดตั้งพร้อม deps ไม่ได้ ให้ลองแบบไม่เอา deps
+      # เครื่อง ubuntu-latest ของ GitHub มี lib ที่ chromium ต้องใช้มาให้อยู่แล้ว
+      # ถ้าขาดจริง chromium จะเปิดไม่ขึ้นแล้วเทสแดงพร้อมข้อความของตัวเอง
+      # — ดังกว่าและตรงจุดกว่าการล้มที่ขั้นติดตั้ง
+      # ═══════════════════════════════════════════════════════════════
       - name: ติดตั้งเบราว์เซอร์
-        run: npx playwright install --with-deps chromium
+        run: |
+          npx playwright install --with-deps chromium || {
+            echo "::warning::ติดตั้งพร้อม deps ไม่สำเร็จ (มักเป็น apt repo ของ Google ล่ม) — ลองแบบไม่เอา deps"
+            npx playwright install chromium
+          }
 
       - name: รัน smoke test
         run: npm test
