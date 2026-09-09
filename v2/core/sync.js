@@ -24,7 +24,9 @@ export const TABLES = {
   bom:       { key: 'id',            label: 'BOM',              sheet: 'BOM' },
   pos:       { key: 'id',            label: 'รายการ PO',        sheet: 'POs' },
   kits:      { key: 'id',            label: 'Kit List',         sheet: 'Kits' },
-  shorts:    { key: 'id',            label: 'ของขาด',           sheet: 'Shorts' },
+  // ชีตชื่อ Shorts มาแต่เดิม แต่ตั้งแต่ ก.ย. 2026 เก็บงานตามสามแบบ (ขาด · เกิน · ซื้อทดแทน)
+  // ⚠️ ห้ามเปลี่ยน sheet — ข้อมูลของพนักงานอยู่ใต้ชื่อนั้น เปลี่ยนแล้วเครื่องที่ยังไม่อัปเดตจะมองคนละชีต
+  shorts:    { key: 'id',            label: 'ตามงานวัตถุดิบ',   sheet: 'Shorts' },
   entities:  { key: 'entity_code',   label: 'นิติบุคคล',        sheet: 'Entities' }
 };
 
