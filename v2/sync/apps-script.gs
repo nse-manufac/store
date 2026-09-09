@@ -78,11 +78,21 @@ var TABLES = {
     bools: [],
     texts: ['id','date','po','pn','code','updated_at']
   },
+  // ตารางนี้ชื่อ Shorts มาแต่เดิม แต่ตั้งแต่ ก.ย. 2026 เก็บงานตามสามแบบ
+  // ของขาดรอส่ง (short) · ของเกินรอคืน (over) · ซื้อทดแทนของเสีย (buy)
+  // ห้ามเปลี่ยนชื่อชีต — ข้อมูลของพนักงานอยู่ใต้ชื่อนี้ และการเปลี่ยนชื่อตาราง
+  // จะทำให้สคริปต์รุ่นเก่ากับรุ่นใหม่มองคนละชีตกัน
   Shorts: {
     key: 'id',
-    cols: ['id','date','po','code','type','qty','unit','eta','note','done','updated_at'],
-    bools: ['done'],
-    texts: ['id','date','po','code','eta','updated_at']
+    cols: ['id','date','po','code','type','qty','unit','eta','note','done','updated_at',
+           'entity','kind','source','part_no','order_qty','bom_qty','recv_qty',
+           'done_qty','done_at','done_by','created_by','created_at',
+           'return_entry_id','receive_entry_id','scrap_entry_id','next_po',
+           'voided','void_reason','void_by','void_at'],
+    bools: ['done','voided'],
+    texts: ['id','date','po','code','eta','updated_at',
+            'part_no','created_at','done_at','void_at','next_po',
+            'return_entry_id','receive_entry_id','scrap_entry_id']
   },
   // ทะเบียนนิติบุคคล — ยอดคงคลังของแต่ละโรงงานแยกกันด้วยรหัสนี้
   // store_location ขึ้นหัว Bin Card ทุกใบ จึงต้องผูกกับนิติบุคคล ไม่ใช่ตั้งรวมทั้งโปรแกรม

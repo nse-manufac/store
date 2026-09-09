@@ -282,5 +282,77 @@ ok('ping นับจำนวนแถวรายตารางได้', ca
    JSON.stringify(call('ping').counts));
 void book;
 
+console.log('\n=== H. ตารางตามงานวัตถุดิบ (ชีต Shorts) ===');
+/* ชีตนี้เดิมเก็บแค่ของขาด ตอนนี้เก็บงานตามสามแบบ จึงต่อคอลัมน์เพิ่ม
+ * เรื่องที่ต้องพิสูจน์คือ "ชีตที่พนักงานใช้อยู่แล้ว" ต้องรอดจากการต่อคอลัมน์
+ * ไม่ใช่แค่ชีตที่สร้างใหม่จากสคริปต์รุ่นนี้ทำงานได้ */
+{
+  const s = loadScript();
+  const row = {
+    id: 'F1', entity: 'NSE', kind: 'over', source: 'auto', date: '2026-09-09',
+    po: 'TMU001A', code: '4010600100', part_no: '2870627900', unit: 'MTR',
+    qty: 20, done_qty: 0, done: false,
+    order_qty: 500, bom_qty: 100, recv_qty: 120,
+    created_at: '2026-09-09T01:00:00.000Z', created_by: 'สมชาย',
+    voided: false, updated_at: ''
+  };
+  s.call('pushTable', { table: 'Shorts', rows: [row] });
+  const got = s.call('pullTable', { table: 'Shorts', since: '' }).rows[0];
+  ok('ช่องใหม่ทุกช่องเดินทางไปกลับได้ครบ',
+     got && got.entity === 'NSE' && got.kind === 'over' && got.source === 'auto' &&
+     got.order_qty === 500 && got.bom_qty === 100 && got.recv_qty === 120 &&
+     got.created_by === 'สมชาย',
+     JSON.stringify(got));
+  ok('รหัสวัตถุดิบยังเป็นข้อความหลังวิ่งผ่านชีต (issue #36)',
+     got && got.code === '4010600100', typeof (got || {}).code);
+  ok('P/N ยังเป็นข้อความ ไม่ถูกชีตแปลงเป็นตัวเลข',
+     got && got.part_no === '2870627900', typeof (got || {}).part_no);
+  ok('voided กลับมาเป็น boolean ไม่ใช่ข้อความ TRUE/FALSE',
+     got && got.voided === false, JSON.stringify((got || {}).voided));
+
+  s.call('pushTable', { table: 'Shorts', rows: [
+    Object.assign({}, got, { voided: true, void_reason: 'คีย์ผิด', void_by: 'หัวหน้า',
+                             void_at: '2026-09-09T02:00:00.000Z' }) ] });
+  const v = s.call('pullTable', { table: 'Shorts', since: '' }).rows[0];
+  ok('ยกเลิกแล้วยังอยู่ในชีต ไม่ถูกลบทิ้ง',
+     v && v.voided === true && v.void_reason === 'คีย์ผิด');
+  ok('เวลาที่ยกเลิกยังเป็นข้อความ ISO ไม่ถูกแปลงเป็นวันที่',
+     v && v.void_at === '2026-09-09T02:00:00.000Z', JSON.stringify((v || {}).void_at));
+}
+
+{
+  /* ⚠️ ข้อนี้คือหัวใจ — จำลองชีตที่พนักงานใช้อยู่จริงซึ่งมีแค่ 11 คอลัมน์เดิม
+   *    ถ้าการต่อคอลัมน์ทำให้ข้อมูลเดิมเลื่อน ยอดของขาดทั้งชีตจะเพี้ยนพร้อมกันทีเดียว */
+  const s = loadScript();
+  const OLD = ['id','date','po','code','type','qty','unit','eta','note','done','updated_at'];
+  const sh = s.book.insertSheet('Shorts');
+  sh.getRange(1, 1, 1, OLD.length).setValues([OLD]);
+  // ชีตจริงของเดิมตั้งคอลัมน์พวกนี้เป็นข้อความไว้แล้ว (markTextColumns ของสคริปต์รุ่นก่อน)
+  [1, 2, 3, 4, 8, 11].forEach(c => sh.getRange(2, c, 999, 1).setNumberFormat('@'));
+  sh.getRange(2, 1, 1, OLD.length).setValues([[
+    'S-เก่า', '2026-08-01', 'TMU001A', '4010600100', 'ขาด', 5, 'PCE',
+    '2026-08-05', 'ข้อความจากไฟล์ PO', 'FALSE', '2026-08-01T00:00:00.000Z']]);
+
+  const before = sh.getLastColumn();
+  const rows = s.call('pullTable', { table: 'Shorts', since: '' }).rows;
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+
+  ok('ชีตเดิมสิบเอ็ดคอลัมน์ได้หัวใหม่ต่อท้ายให้เอง',
+     before === 11 && sh.getLastColumn() > 11, before + ' → ' + sh.getLastColumn());
+  ok('หัวคอลัมน์เดิมยังอยู่ที่ตำแหน่งเดิมทุกช่อง',
+     OLD.every((c, i) => head[i] === c), JSON.stringify(head.slice(0, 11)));
+  const old = rows.find(r => r.id === 'S-เก่า');
+  ok('ข้อมูลเดิมยังอ่านได้ครบและไม่เลื่อนตำแหน่ง',
+     old && old.po === 'TMU001A' && old.code === '4010600100' &&
+     old.type === 'ขาด' && old.qty === 5 && old.note === 'ข้อความจากไฟล์ PO',
+     JSON.stringify(old));
+  ok('แถวเดิมที่ยังไม่มีช่องใหม่ อ่านออกมาเป็นค่าว่าง ไม่ใช่พัง',
+     old && old.entity === '' && old.kind === '', JSON.stringify(old && old.entity));
+  /* ⚠️ ทุกแถวที่พนักงานมีอยู่วันนี้ไม่มีช่อง voided เลย
+   *    ถ้าอ่านกลับมาเป็นค่าว่างแทน false ตัวกรอง "ยังไม่ยกเลิก" จะกรองไม่ตรงทั้งชีต */
+  ok('แถวเดิมที่ไม่เคยมีช่อง voided ต้องอ่านกลับเป็น false ไม่ใช่ค่าว่าง',
+     old && old.voided === false, JSON.stringify(old && old.voided));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
