@@ -30,6 +30,7 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
+import { migrateAll, statusOf, closeFollow, reopenFollow } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -119,6 +120,20 @@ createApp({
         kits.value = normKeysAll(data.kits || []);
         shorts.value = normKeysAll(data.shorts || []);
         entities.value = normKeysAll(data.entities || []);
+
+        /* ซ่อมแถวงานตามที่เกิดก่อนโครงใหม่ — เติม kind / source / เวลา / นิติบุคคล
+         *
+         * ⚠️ ต้องอยู่หลัง pos.value เพราะการเติมนิติบุคคลอ่านจากคอลัมน์ที่ไฟล์ PO พกมา
+         *
+         * ⚠️ รันทุกครั้งที่เปิดโปรแกรม ไม่ใช่ครั้งเดียวแล้วปักธงไว้
+         *    เพราะแถวที่ดึงมาทีหลังจากเครื่องที่ยังใช้รุ่นเก่าก็ต้องซ่อมด้วย
+         *    migrateAll คืนแถวเดิมทั้งตัวเมื่อไม่มีอะไรต้องเติม จึงเขียนลงฐานข้อมูล
+         *    เฉพาะแถวที่เปลี่ยนจริง ไม่ติดธง dirty ให้ทั้งกองฟรี ๆ ทุกครั้งที่บูต */
+        const fixed = migrateAll(shorts.value, { poList: pos.value });
+        if (fixed.changed.length) {
+          shorts.value = fixed.rows;
+          await db.put('shorts', fixed.changed);
+        }
         entity.value = await db.getMeta('entity', '') || '';
         // ยังไม่มีหน้าตั้งค่า — ตั้งค่าเริ่มต้นไว้ก่อนเพื่อให้หน้าที่ต้องใช้ entity ทำงานได้
         if (!entity.value) {
@@ -1414,8 +1429,11 @@ createApp({
           await db.put('pos', p.plan.fresh.map(plain));
           pos.value.push(...p.plan.fresh);
           if (p.freshShorts.length) {
-            await db.put('shorts', p.freshShorts.map(plain));
-            shorts.value.push(...p.freshShorts);
+            // ซ่อมด้วยตัวเดียวกับตอนบูต · ต้องอยู่หลัง pos.value.push ข้างบน
+            // ไม่งั้นแถวของ PO ที่เพิ่งนำเข้าจะหานิติบุคคลของตัวเองไม่เจอ
+            const rows = migrateAll(p.freshShorts, { poList: pos.value }).rows;
+            await db.put('shorts', rows.map(plain));
+            shorts.value.push(...rows);
           }
           flash(`นำเข้า PO ${p.plan.fresh.length} รายการ · ของขาด ${p.freshShorts.length} รายการ`);
         } else {
@@ -1428,7 +1446,10 @@ createApp({
       finally { impBusy.value = false; }
     }
 
-    const openShorts = computed(() => shorts.value.filter(s => !s.done));
+    /* ค้างอยู่ = ยังไม่ปิด หรือปิดไปบางส่วน · ที่ยกเลิกแล้วไม่นับ
+     * ⚠️ ของเดิมดูแค่ !s.done จึงนับแถวที่ยกเลิกแล้วเป็นงานค้างด้วย */
+    const openShorts = computed(() =>
+      shorts.value.filter(s => statusOf(s) === 'open' || statusOf(s) === 'partial'));
     const poToday = computed(() => {
       const d = todayLocal();
       return pos.value.filter(p => p.date === d);
@@ -1436,8 +1457,20 @@ createApp({
     const recentPos = computed(() =>
       [...pos.value].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 40));
 
+    /**
+     * ติ๊ก "มาแล้ว" / เอากลับ
+     *
+     * ⚠️ ของเดิมเขียนแค่ done: !s.done ทำให้ไม่มีร่องรอยเลยว่าปิดเมื่อไหร่
+     *    ตอนนี้ closeFollow ติด done_at · done_qty · updated_at ให้ครบ
+     *
+     * ⚠️ done_by ยังว่างอยู่โดยตั้งใจ — ปุ่มนี้กดทีเดียวจบ ไม่มีช่องกรอกชื่อ
+     *    และการบังคับให้เปิดกล่องถามชื่อทุกครั้งขัดกับ INVARIANTS G2
+     *    ช่องนั้นจะถูกกรอกจริงเมื่อหน้า Mat Follow up มีฟอร์มของตัวเอง
+     *    เก็บชื่อเครื่องมาใส่แทนไม่ได้ — ช่องที่บอกว่า "ใคร" แต่ข้างในเป็น "เครื่องไหน"
+     *    จะหลอกคนอ่านย้อนหลังหนักกว่าการปล่อยว่าง
+     */
     async function toggleShort(s) {
-      const rec = { ...plain(s), done: !s.done };
+      const rec = s.done ? reopenFollow(plain(s)) : closeFollow(plain(s));
       await db.put('shorts', rec);
       const i = shorts.value.findIndex(x => x.id === s.id);
       shorts.value.splice(i, 1, rec);
