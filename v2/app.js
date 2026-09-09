@@ -1518,11 +1518,6 @@ createApp({
      */
     const plain = r => JSON.parse(JSON.stringify(r));
 
-    const syncStore = computed(() => ({
-      entries: entries.value, materials: materials.value, bom: bom.value
-    }));
-    const pending = computed(() => syncPlan(syncStore.value));
-
     const fromLink = ref(false);
     const linkCopied = ref('');
 
@@ -1661,6 +1656,20 @@ createApp({
     // ตรวจตั้งแต่เปิดโปรแกรม ไม่ต้องรอให้คนกดซิงค์แล้วเจอ error ที่อ่านไม่รู้เรื่อง
     const wiringGap = missingTables(LIST_OF);
     if (wiringGap.length) console.error('ตารางที่ประกาศไว้แต่ยังไม่ได้ต่อสาย:', wiringGap);
+
+    /**
+     * ตัวนับ "รายการที่ยังไม่ได้ซิงค์" — อ่านจาก LIST_OF ตัวเดียวกับที่ซิงค์ใช้จริง
+     *
+     * ⚠️ ของเดิมเขียนรายชื่อตารางซ้ำไว้อีกที่ และเขียนไว้แค่ entries/materials/bom
+     *    ตัวนับจึงตาบอดกับ pos · kits · shorts · entities มาตลอด
+     *    ของขาดที่พนักงานติ๊กไว้ค้างอยู่ได้โดยหน้าจอขึ้น 0 และหน้าซิงค์ก็โชว์ 0 ตามไปด้วย
+     *
+     *    ย้ายมาอยู่ตรงนี้เพื่อให้ derive จาก LIST_OF ได้ตรง ๆ — จะได้ไม่มีรายชื่อตารางชุดที่สอง
+     *    ให้ใครลืมอัปเดตอีก และ missingTables() ข้างบนก็กลายเป็นด่านของตัวนับนี้ไปด้วยเลย
+     */
+    const syncStore = computed(() =>
+      Object.fromEntries(Object.entries(LIST_OF).map(([t, l]) => [t, l.value])));
+    const pending = computed(() => syncPlan(syncStore.value));
 
     async function syncNow(silent = false) {
       if (!sync.url || syncing) return;
