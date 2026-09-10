@@ -149,7 +149,17 @@ export function resolveText(text, now = new Date()) {
 
 /** แก้ทุกไฟล์ในชุด · ถ้ามีไฟล์ไหนแก้ไม่ได้ จะไม่เขียนไฟล์ไหนเลย */
 export function resolveFiles(paths, { now = new Date(), read = readFileSync, write = writeFileSync } = {}) {
-  const results = paths.map((p) => ({ path: p, ...resolveText(read(p, 'utf8'), now) }));
+  const results = paths.map((p) => {
+    // ชนแบบลบหรือเปลี่ยนชื่อไฟล์ — git ใส่ path ไว้ในรายการที่ชน แต่ไม่มีตัวไฟล์ใน worktree
+    // ถ้าปล่อยให้โยน error stack trace ภาษาอังกฤษจะไปโผล่ในคอมเมนต์บน PR
+    let text;
+    try {
+      text = read(p, 'utf8');
+    } catch (e) {
+      return { path: p, ok: false, reason: `อ่านไฟล์ไม่ได้ (${e.code || 'error'}) — มักเป็นการชนแบบลบหรือเปลี่ยนชื่อไฟล์` };
+    }
+    return { path: p, ...resolveText(text, now) };
+  });
   const failed = results.filter((r) => !r.ok);
   if (failed.length === 0) {
     for (const r of results) write(r.path, r.text, 'utf8');

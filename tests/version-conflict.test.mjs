@@ -150,6 +150,18 @@ const ok2 = run(spaced);
 ok('บรรทัดคำสั่ง: แก้ได้ → รหัสออก 0 และไฟล์ชื่อมีเว้นวรรคถูกเขียน',
    ok2.status === 0 && !fs.readFileSync(spaced, 'utf8').includes('<<<<<<<'), ok2.stdout + ok2.stderr);
 ok('บรรทัดคำสั่ง: ไม่ส่งไฟล์มา → รหัสออก 2', run().status === 2);
+
+// ชนแบบลบไฟล์ — path อยู่ในรายการที่ชนแต่ไม่มีตัวไฟล์ใน worktree
+const gone = run(path.join(dir, 'ไม่มีไฟล์นี้.html'));
+ok('บรรทัดคำสั่ง: ไฟล์ที่ชนไม่มีอยู่ → รหัสออก 2 พร้อมเหตุผลภาษาไทย ไม่ใช่ stack trace',
+   gone.status === 2 && gone.stdout.includes('อ่านไฟล์ไม่ได้') && !/node:internal|\n\s+at /.test(gone.stdout + gone.stderr),
+   gone.stdout + gone.stderr);
+const r4 = resolveFiles(['x.html', 'y.html'], {
+  now: NOW,
+  read: (p) => { if (p === 'x.html') { const e = new Error('nope'); e.code = 'ENOENT'; throw e; } return block('2026-09-10.6', '2026-09-10.5'); },
+  write: () => { throw new Error('ไม่ควรถูกเรียก'); },
+});
+ok('อ่านไฟล์หนึ่งไม่ได้ → ไม่โยน error และไม่เขียนไฟล์อื่นในชุด', r4.ok === false && r4.results[0].reason.includes('ENOENT'));
 fs.rmSync(dir, { recursive: true, force: true });
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

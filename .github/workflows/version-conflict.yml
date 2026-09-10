@@ -68,10 +68,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${PUSH_TOKEN:-}" ]; then
-            echo "::error::ไม่มี secret AGENT_PUSH_PAT — push แก้ conflict ไม่ได้"
-            exit 1
-          fi
+          # ไม่เช็ค AGENT_PUSH_PAT ตรงนี้ — เช็คตอนจะ push จริงในงานต่อใบเท่านั้น
+          # ถ้าเช็คแล้ว exit 1 ตรงนี้ รอบที่ไม่มีใบไหนชนเลยก็จะแดงทุก 30 นาที
+          # เจ้าของได้เมลล้มเหลวชั่วโมงละสองฉบับโดยไม่มีงานค้างจริง
 
           export TRUSTED="$GITHUB_WORKSPACE/.github/scripts/version-conflict.mjs"
           export RESULTS="$RUNNER_TEMP/results.txt"
@@ -166,7 +165,10 @@ jobs:
             marker="<!-- ชนเลขรุ่น-แก้เองไม่ได้ head=${head_sha:0:7} -->"
             # ห้ามเขียนเป็น gh ... | grep -q — grep ออกก่อน gh โดน SIGPIPE
             # แล้ว pipefail ทำให้ได้ผลว่า "ไม่เจอ" ทั้งที่เจอ = คอมเมนต์ซ้ำทุก 30 นาที
-            bodies=$(gh pr view "$num" -R "$REPO" --json comments --jq '.comments[].body')
+            # gh api --paginate ไม่ใช่ gh pr view --json comments — อย่างหลังมีเพดานจำนวนคอมเมนต์
+            # PR ที่วนตรวจ-แก้หลายรอบมีคอมเมนต์เยอะ ถ้า marker อยู่เกินเพดานจะมองไม่เห็น
+            # แล้วคอมเมนต์ซ้ำทุก 30 นาที
+            bodies=$(gh api --paginate "repos/$REPO/issues/$num/comments" --jq '.[].body')
             if grep -qF -- "$marker" <<< "$bodies"; then
               note "ชนเรื่องอื่นด้วย แก้เองไม่ได้ (เคยคอมเมนต์บอกแล้วที่ commit นี้)"
               exit 0
@@ -192,6 +194,12 @@ jobs:
             exit 0
           fi
 
+          if [ -z "${PUSH_TOKEN:-}" ]; then
+            git merge --abort >/dev/null 2>&1 || true
+            echo "::error::#$num แก้ได้แต่ push ไม่ได้ — ไม่มี secret AGENT_PUSH_PAT"
+            exit 1
+          fi
+
           git add -- "${conflicted[@]}"
           left=$(git diff --name-only --diff-filter=U)
           if [ -n "$left" ]; then
@@ -204,13 +212,11 @@ jobs:
             exit 1
           fi
 
-          git commit -q -F - <<MSG
-          เมิจ main เข้ามา แก้ conflict ที่ชนแค่บรรทัด app-version
-
-          $out
-
-          แก้โดย workflow version-conflict.yml — ไม่มีการเปลี่ยนแปลงอื่นนอกจากการเมิจ main
-          MSG
+          # ข้อความ commit ส่งผ่าน printf %s ลงไฟล์ ไม่ใช่ heredoc
+          # $out มีชื่อไฟล์จาก branch ของ PR ปนอยู่ · heredoc แบบไม่มี quote ไม่ขยายค่าของตัวแปรซ้ำก็จริง
+          # (พิสูจน์แล้ว 10 ก.ย. 2026) แต่คนอ่านต้องหยุดคิดทุกครั้งใน step ที่ถือ PAT — เขียนแบบที่ไม่ต้องคิด
+          printf 'เมิจ main เข้ามา แก้ conflict ที่ชนแค่บรรทัด app-version\n\n%s\n\nแก้โดย workflow version-conflict.yml — ไม่มีการเปลี่ยนแปลงอื่นนอกจากการเมิจ main\n' "$out" > "$RUNNER_TEMP/msg-$num.txt"
+          git commit -q -F "$RUNNER_TEMP/msg-$num.txt"
 
           if ! git push -q "https://x-access-token:${PUSH_TOKEN}@github.com/${REPO}.git" "HEAD:refs/heads/${head}"; then
             now_sha=$(git ls-remote "https://github.com/${REPO}.git" "refs/heads/${head}" | cut -f1)
