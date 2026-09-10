@@ -30,7 +30,8 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
-import { migrateAll, statusOf, closeFollow, reopenFollow } from './master/follow.js';
+import { migrateAll, makeFollow, statusOf, remainOf, overdue,
+         closeFollow, reopenFollow, SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -57,6 +58,11 @@ const GROUPS = [
     { k: 'bom',   label: 'BOM' },
     { k: 'po',    label: 'PO / Kit List' },
     { k: 'count', label: 'นับของ' }
+  ] },
+  /* แท็บย่อยของ Mat Follow up จะเพิ่มทีละหน้าตามที่ทำเสร็จ
+     over รอคืน กับ ซื้อแมททดแทน ยังไม่มีแผงรองรับ ถ้าใส่ปุ่มไว้ก่อนจะกดแล้วได้จอเปล่า */
+  { k: 'follow', label: 'Mat Follow up', tabs: [
+    { k: 'fshort', label: 'short รอส่ง' }
   ] },
   { k: 'sys',  label: 'ระบบ', tabs: [
     { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
@@ -1447,9 +1453,17 @@ createApp({
     }
 
     /* ค้างอยู่ = ยังไม่ปิด หรือปิดไปบางส่วน · ที่ยกเลิกแล้วไม่นับ
-     * ⚠️ ของเดิมดูแค่ !s.done จึงนับแถวที่ยกเลิกแล้วเป็นงานค้างด้วย */
-    const openShorts = computed(() =>
-      shorts.value.filter(s => statusOf(s) === 'open' || statusOf(s) === 'partial'));
+     *
+     * ⚠️ กรองตามนิติบุคคลด้วย (INVARIANTS A3) — ตั้งแต่แถวมีช่อง entity แล้วก็ต้องกรอง
+     *    ไม่งั้นตัวเลข "ของขาด" บนหน้าแรกจะเป็นยอดรวมทุกโรงงาน แต่ตารางที่กดเข้าไปดูเป็นของโรงงานเดียว
+     *
+     * ⚠️ แถวที่ยังไม่มี entity ต้องเห็นในทุกนิติบุคคล ไม่ใช่ถูกกรองหาย
+     *    มันเป็นงานของใครคนหนึ่งแน่ ๆ แค่ยังไม่รู้ว่าใคร · ซ่อนแล้วจะไม่มีใครมาเลือกให้เลย */
+    const openShorts = computed(() => shorts.value.filter(s => {
+      const st = statusOf(s);
+      if (st !== 'open' && st !== 'partial') return false;
+      return !s.entity || s.entity === entity.value;
+    }));
     const poToday = computed(() => {
       const d = todayLocal();
       return pos.value.filter(p => p.date === d);
@@ -1457,23 +1471,121 @@ createApp({
     const recentPos = computed(() =>
       [...pos.value].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 40));
 
+    /* ── หน้า short รอส่ง (Mat Follow up) ───────────────────────────
+     * ย้ายมาจากการ์ดที่เคยแปะอยู่ท้ายหน้า PO / Kit List
+     * ที่นั่นเห็นได้เฉพาะตอนเข้าไปนำเข้าไฟล์ ทั้งที่เป็นงานที่ต้องไล่ทุกวัน */
+    const fsSearch = ref('');
+    const fsShowDone = ref(false);
+    const fsBy = ref('');
+    /** ยอดที่รับมาแล้วของแต่ละแถว — เว้นว่างไว้แปลว่าปิดทั้งใบ */
+    const fsGot = reactive({});
+
     /**
-     * ติ๊ก "มาแล้ว" / เอากลับ
+     * แถวที่ยังไม่รู้ว่าเป็นของนิติบุคคลไหน
      *
-     * ⚠️ ของเดิมเขียนแค่ done: !s.done ทำให้ไม่มีร่องรอยเลยว่าปิดเมื่อไหร่
-     *    ตอนนี้ closeFollow ติด done_at · done_qty · updated_at ให้ครบ
-     *
-     * ⚠️ done_by ยังว่างอยู่โดยตั้งใจ — ปุ่มนี้กดทีเดียวจบ ไม่มีช่องกรอกชื่อ
-     *    และการบังคับให้เปิดกล่องถามชื่อทุกครั้งขัดกับ INVARIANTS G2
-     *    ช่องนั้นจะถูกกรอกจริงเมื่อหน้า Mat Follow up มีฟอร์มของตัวเอง
-     *    เก็บชื่อเครื่องมาใส่แทนไม่ได้ — ช่องที่บอกว่า "ใคร" แต่ข้างในเป็น "เครื่องไหน"
-     *    จะหลอกคนอ่านย้อนหลังหนักกว่าการปล่อยว่าง
+     * ⚠️ เกิดจากการย้ายข้อมูลเก่าที่ไฟล์ PO ไม่ได้บอกหน่วยมา — ห้ามเดาให้ (A3)
+     *    ต้องขึ้นเป็นแถบเตือนแยก ไม่ใช่ปล่อยให้ปนอยู่ในตารางเฉย ๆ
+     *    ไม่งั้นคนจะคีย์ยอดของโรงงานตัวเองใส่แถวของโรงงานอื่นโดยไม่รู้
      */
-    async function toggleShort(s) {
-      const rec = s.done ? reopenFollow(plain(s)) : closeFollow(plain(s));
+    const fsNoEntity = computed(() =>
+      shorts.value.filter(s => !s.entity && statusOf(s) !== 'cancelled'));
+
+    /** แถวที่ตารางจะแสดง — เรียงของที่เลย ETA ขึ้นก่อน แล้วไล่ตาม ETA ที่ใกล้ที่สุด */
+    const fsRows = computed(() => {
+      const q = fsSearch.value.trim().toLowerCase();
+      const today = todayLocal();
+      return shorts.value
+        .filter(s => {
+          const st = statusOf(s);
+          if (st === 'cancelled') return false;
+          if (!fsShowDone.value && st === 'done') return false;
+          if (s.entity && s.entity !== entity.value) return false;
+          if (!q) return true;
+          return [s.po, s.code, s.note].join(' ').toLowerCase().includes(q);
+        })
+        .map(s => ({ s, st: statusOf(s), late: overdue(s, today), remain: remainOf(s) }))
+        .sort((a, b) => (b.late - a.late)
+          || String(a.s.eta || '9999-99-99').localeCompare(String(b.s.eta || '9999-99-99'))
+          || String(a.s.date).localeCompare(String(b.s.date)))
+        .slice(0, SHOW_MAX);
+    });
+
+    const fsSum = computed(() => {
+      const today = todayLocal();
+      return {
+        open: openShorts.value.filter(s => statusOf(s) === 'open').length,
+        partial: openShorts.value.filter(s => statusOf(s) === 'partial').length,
+        late: openShorts.value.filter(s => overdue(s, today)).length
+      };
+    });
+
+    /** เขียนแถวที่แก้แล้วกลับเข้าที่เดิม — ธง dirty ต้องติดบนตัวที่หน้าจอถืออยู่ */
+    async function fsPut(rec) {
       await db.put('shorts', rec);
-      const i = shorts.value.findIndex(x => x.id === s.id);
-      shorts.value.splice(i, 1, rec);
+      const i = shorts.value.findIndex(x => x.id === rec.id);
+      if (i >= 0) shorts.value.splice(i, 1, rec);
+      else shorts.value.push(rec);
+    }
+
+    async function fsAssign(row) {
+      if (!entity.value) { flash('ยังไม่ได้เลือกนิติบุคคลที่หัวจอ', true); return; }
+      await fsPut({ ...plain(row), entity: entity.value,
+                    updated_at: new Date().toISOString() });
+      flash(`ย้าย ${row.po || row.code} ไปนิติบุคคล ${entity.value} แล้ว`);
+    }
+
+    /**
+     * ปิดเรื่อง — เว้นช่องยอดไว้ = ปิดทั้งใบ · ใส่ยอด = ของมาบางส่วน
+     *
+     * ⚠️ ต้องมี try/catch · closeFollow โยน error ได้ทั้งกรณีปิดเกินยอดที่ค้าง
+     *    และกรณีแถวถูกยกเลิกไปแล้ว · ปล่อยให้ promise reject เงียบ ๆ แปลว่า
+     *    คนกดปุ่มแล้วไม่มีอะไรเกิดขึ้นและไม่รู้ว่าทำไม ซึ่งขัด INVARIANTS G3
+     */
+    async function fsClose(row) {
+      const raw = fsGot[row.id];
+      try {
+        const rec = closeFollow(plain(row), {
+          qty: raw === '' || raw == null ? undefined : Number(raw),
+          by: fsBy.value
+        });
+        await fsPut(rec);
+        fsGot[row.id] = '';
+        flash(statusOf(rec) === 'done'
+          ? `ปิดเรื่อง ${rec.po || rec.code} แล้ว`
+          : `รับมาแล้ว ${rec.done_qty} · ยังค้าง ${remainOf(rec)}`);
+      } catch (err) { flash(err.message, true); }
+    }
+
+    async function fsReopen(row) {
+      try {
+        await fsPut(reopenFollow(plain(row)));
+        flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง');
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /* ── คีย์เรื่องใหม่เอง ──────────────────────────────────────────
+     * ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L ของไฟล์ PO
+     * เรื่องที่ Delta แจ้งทางโทรศัพท์หรือทาง LINE จึงไม่มีที่ให้ลง */
+    const fu = reactive({ code: '', qty: null, unit: '', po: '', type: 'ขาด',
+                          eta: '', note: '', desc: '', known: false });
+    const onFuCode = () => fillLine(fu);
+    const fuReady = computed(() =>
+      !!(entity.value && fu.code && fu.po && Number(fu.qty) > 0));
+
+    async function fuSave() {
+      try {
+        const row = makeFollow({
+          kind: 'short', entity: entity.value, code: fu.code, qty: Number(fu.qty),
+          unit: fu.unit, po: fu.po, type: fu.type, eta: fu.eta, note: fu.note,
+          source: 'manual', by: fsBy.value
+        });
+        await fsPut(row);
+        flash(`เพิ่มเรื่อง ${row.po} · ${row.code} แล้ว`);
+        // คง po กับ type ไว้โดยตั้งใจ — ไฟล์เดียวมักแจ้งของขาดหลายรหัสใน PO เดียวกัน
+        // คนคีย์จะได้ไม่ต้องพิมพ์ PO ซ้ำทุกแถว
+        Object.assign(fu, { code: '', qty: null, unit: '', eta: '', note: '',
+                            desc: '', known: false });
+      } catch (err) { flash(err.message, true); }
     }
 
     // ── หน้าแรก ────────────────────────────────────────────────────
@@ -1527,7 +1639,7 @@ createApp({
 
     /** เรื่องที่ต้องตามแก้ — ตัวเลขที่ไม่ควรค้างไว้นาน */
     const homeAlerts = computed(() => [
-      { n: openShorts.value.length, label: 'ของขาด / รอส่ง', tab: 'po', bad: false },
+      { n: openShorts.value.length, label: 'ของขาด / รอส่ง', tab: 'fshort', bad: false },
       { n: oddRows.value.length, label: 'รายการที่ควรไปดู', tab: 'bal', bad: true },
       { n: needReview.value, label: 'รหัสรอตรวจในทะเบียน', tab: 'mat', bad: false },
       { n: bomUnknownCodes.value.length, label: 'รหัสใน BOM ที่ยังไม่มีในทะเบียน', tab: 'bom', bad: false },
@@ -2029,7 +2141,10 @@ createApp({
              wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
-             applyImp, openShorts, poToday, recentPos, toggleShort,
+             applyImp, openShorts, poToday, recentPos,
+      fsSearch, fsShowDone, fsBy, fsGot, fsNoEntity, fsRows, fsSum,
+      fsAssign, fsClose, fsReopen,
+      fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
