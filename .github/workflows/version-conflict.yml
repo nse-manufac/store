@@ -43,6 +43,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      # อ่านคอมเมนต์ผ่าน REST /issues/N/comments (ตัวกันคอมเมนต์ซ้ำ) — ใส่ไว้ชัด ๆ
+      # เมื่อประกาศบล็อก permissions แล้ว สิทธิ์ที่ไม่ได้ระบุจะเป็น none
+      # ถ้า GitHub ไม่นับ pull-requests ว่าครอบ endpoint นี้ จะได้ 403 -> แดงทุก 30 นาที
+      # และคอมเมนต์ปฏิเสธไม่ถูกโพสต์ ซึ่งเกิดกับใบที่ตัวนี้มีไว้ช่วยพอดี
+      issues: read
       actions: read
 
     steps:
