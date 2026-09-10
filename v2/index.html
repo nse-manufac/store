@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-10.3">
+<meta name="app-version" content="2026-09-10.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1800,38 +1800,6 @@ textarea{font:inherit}
             — ปิดได้ทั้งใบเท่านั้น</p>
         </div>
 
-        <div class="card">
-          <h2>เพิ่มเรื่องเอง</h2>
-          <p class="hint" style="margin:0 0 10px">ของที่ Delta แจ้งมาทางอื่น
-            ซึ่งไม่ได้อยู่ในคอลัมน์หมายเหตุของไฟล์ PO</p>
-          <div class="row">
-            <label class="f" style="width:190px">รหัสวัตถุดิบ
-              <div class="row" style="gap:3px;flex-wrap:nowrap">
-                <input v-model.trim="fu.code" class="mono grow" @change="onFuCode">
-                <button class="btn" style="padding:6px 9px" @click="openPick(fu)">🔍</button>
-              </div></label>
-            <label class="f" style="width:140px">PO
-              <input v-model.trim="fu.po" class="mono"></label>
-            <label class="f" style="width:125px">จำนวนที่ขาด
-              <input v-model.number="fu.qty" type="number" step="any" class="mono"></label>
-            <label class="f" style="width:120px">ประเภท
-              <select v-model="fu.type">
-                <option v-for="t in SHORT_TYPES" :key="t" :value="t">{{ t }}</option>
-              </select></label>
-            <label class="f" style="width:155px">ETA ที่ Delta แจ้ง
-              <input v-model="fu.eta" type="date"></label>
-          </div>
-          <div class="row" style="margin-top:8px">
-            <label class="f grow">หมายเหตุ
-              <input v-model="fu.note" placeholder="เช่น แจ้งทางไลน์ 10 ก.ย."></label>
-            <button class="btn primary" :disabled="!fuReady" @click="fuSave">เพิ่มเรื่อง</button>
-          </div>
-          <p class="hint" style="margin:8px 0 0" v-if="fu.code">
-            {{ fu.known ? fu.desc : 'ไม่มีรหัสนี้ในทะเบียน — เพิ่มได้ แต่ตรวจให้แน่ก่อน' }}
-            <span v-if="fu.unit">· หน่วย {{ fu.unit }}</span></p>
-          <p class="hint" style="margin:8px 0 0" v-if="!entity">
-            ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — เพิ่มเรื่องไม่ได้</p>
-        </div>
       </template>
 
       <!-- ════════ ซิงค์ ════════ -->
