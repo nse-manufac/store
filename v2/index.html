@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-10.1">
+<meta name="app-version" content="2026-09-10.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -70,6 +70,7 @@ th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid va
   font-size:11px;color:var(--muted);white-space:nowrap;position:sticky;top:0}
 td{padding:6px 8px;border-bottom:1px solid #f0f3f6;vertical-align:top}
 tr.review td{background:#fffdf3}
+tr.late td{background:var(--badbg)}
 .mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
 .scroll{max-height:60vh;overflow:auto}
 .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
@@ -1673,26 +1674,11 @@ textarea{font:inherit}
           </div>
         </div>
 
-        <!-- ของขาดที่ยังไม่ได้ -->
         <div class="card" v-if="openShorts.length">
-          <h2>ของขาด / รอส่ง ({{ openShorts.length }})</h2>
-          <div class="scroll" style="max-height:32vh">
-            <table>
-              <thead><tr><th style="width:105px">แจ้งวันที่</th><th style="width:115px">PO</th>
-                <th style="width:115px">รหัส</th><th style="width:75px">ประเภท</th>
-                <th style="width:95px">จำนวน</th><th style="width:105px">ETA</th>
-                <th>ข้อความเต็ม</th><th style="width:80px"></th></tr></thead>
-              <tbody><tr v-for="s in openShorts" :key="s.id">
-                <td class="mono hint">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
-                <td class="mono">{{ s.code }}</td>
-                <td><span class="tag" :class="s.type==='ขาด'?'bad':'warn'">{{ s.type }}</span></td>
-                <td class="mono">{{ s.qty || '—' }} {{ s.unit }}</td>
-                <td class="mono hint">{{ s.eta || '—' }}</td>
-                <td class="hint">{{ s.note }}</td>
-                <td><button class="btn" style="padding:2px 8px" @click="toggleShort(s)">มาแล้ว</button></td>
-              </tr></tbody>
-            </table>
-          </div>
+          <p class="hint" style="margin:0">ของขาด / รอส่ง <b>{{ openShorts.length }}</b> เรื่อง
+            ย้ายไปอยู่แท็บ <b>Mat Follow up</b> แล้ว
+            <button class="btn" style="padding:2px 9px;margin-left:6px"
+                    @click="tab='fshort'">ไปดู</button></p>
         </div>
 
         <div class="card">
@@ -1718,6 +1704,102 @@ textarea{font:inherit}
             <p v-if="!pos.length" class="empty">ยังไม่มี PO — ลากไฟล์ PO รายวันเข้ามาก่อน</p>
           </div>
         </div>
+      </template>
+
+      <!-- ════════ Mat Follow up · short รอส่ง ════════ -->
+      <template v-else-if="tab==='fshort'">
+
+        <div class="card" v-if="fsNoEntity.length">
+          <div class="msg warn">ยังไม่รู้ว่าเป็นของนิติบุคคลไหน <b>{{ fsNoEntity.length }}</b> เรื่อง —
+            มาจากไฟล์ PO ที่ไม่ได้บอกหน่วยไว้ · ระบบไม่เดาให้ เพราะเดาผิดแล้วเรื่องจะไปโผล่ผิดโรงงาน
+            โดยไม่มีอะไรฟ้อง · <b>ตั้งนิติบุคคลที่หัวจอให้ถูกก่อน แล้วกดปุ่มในแถว</b></div>
+          <div class="scroll" style="max-height:26vh">
+            <table>
+              <thead><tr><th style="width:110px">แจ้งวันที่</th><th style="width:125px">PO</th>
+                <th style="width:125px">รหัส</th><th style="width:105px">จำนวน</th>
+                <th>ข้อความเต็ม</th><th style="width:150px"></th></tr></thead>
+              <tbody><tr v-for="s in fsNoEntity" :key="s.id">
+                <td class="mono hint">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
+                <td class="mono">{{ s.code }}</td>
+                <td class="mono">{{ s.qty || '—' }} {{ s.unit }}</td>
+                <td class="hint">{{ s.note }}</td>
+                <td><button class="btn" style="padding:2px 8px" :disabled="!entity"
+                            @click="fsAssign(s)">เป็นของ {{ entity || '—' }}</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>ของขาด / รอส่ง</h2>
+          <div class="row" style="gap:26px;align-items:flex-end">
+            <div><div class="hint">ยังไม่ได้ของ</div><div class="big">{{ fsSum.open }}</div></div>
+            <div><div class="hint">ได้มาบางส่วน</div>
+              <div class="big" :class="fsSum.partial?'warn':''">{{ fsSum.partial }}</div></div>
+            <div><div class="hint">เลย ETA แล้ว</div>
+              <div class="big" :class="fsSum.late?'bad':''">{{ fsSum.late }}</div></div>
+            <div class="grow"></div>
+            <label class="f" style="width:220px">ค้นหา PO · รหัส · ข้อความ
+              <input v-model="fsSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
+            <label class="f" style="width:150px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด"></label>
+            <label style="font-weight:600;font-size:12.5px">
+              <input type="checkbox" v-model="fsShowDone"> แสดงที่ปิดแล้ว</label>
+          </div>
+
+          <div class="scroll" style="max-height:52vh;margin-top:10px">
+            <table>
+              <thead><tr>
+                <th style="width:105px">แจ้งวันที่</th><th style="width:120px">PO</th>
+                <th style="width:120px">รหัส</th><th style="width:80px">ประเภท</th>
+                <th style="width:100px">ที่แจ้งมา</th><th style="width:100px">ยังค้าง</th>
+                <th style="width:150px">ETA</th><th>ข้อความเต็ม</th>
+                <th style="width:200px"></th></tr></thead>
+              <tbody>
+                <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}">
+                  <td class="mono hint">{{ r.s.date }}</td>
+                  <td class="mono">{{ r.s.po }}</td>
+                  <td class="mono">{{ r.s.code }}</td>
+                  <td><span class="tag" :class="r.s.type==='ขาด'?'bad':'warn'">{{ r.s.type }}</span></td>
+                  <td class="mono">{{ r.s.qty || '—' }} {{ r.s.unit }}</td>
+                  <td class="mono">
+                    <b v-if="r.st==='partial'">{{ r.remain }}</b>
+                    <span v-else-if="r.st==='done'" class="tag ok">ครบแล้ว</span>
+                    <span v-else class="hint">—</span></td>
+                  <td class="mono hint">{{ r.s.eta || '—' }}
+                    <span v-if="r.late" class="tag bad">เลยแล้ว</span></td>
+                  <td class="hint">{{ r.s.note }}</td>
+                  <td>
+                    <template v-if="r.st==='done'">
+                      <span class="hint">ปิด {{ (r.s.done_at || '').slice(0,10) }}
+                        {{ r.s.done_by }}</span>
+                      <button class="btn" style="padding:2px 8px;margin-left:5px"
+                              @click="fsReopen(r.s)">เอากลับ</button>
+                    </template>
+                    <template v-else>
+                      <input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]" type="number" step="any"
+                             class="mono" style="width:76px" placeholder="ทั้งใบ"
+                             @keyup.enter="fsClose(r.s)">
+                      <span v-else class="hint"
+                            title="ไฟล์ PO ไม่ได้บอกจำนวนมา ปิดได้ทั้งใบเท่านั้น">ไม่ระบุจำนวน</span>
+                      <button class="btn" style="padding:2px 8px;margin-left:4px"
+                              @click="fsClose(r.s)">มาแล้ว</button>
+                    </template>
+                  </td>
+                </tr>
+                <tr v-if="!fsRows.length"><td colspan="9" class="empty">
+                  ไม่มีเรื่องค้าง 🎉<span v-if="fsSearch"> — หรือคำค้นไม่ตรงกับอะไรเลย</span>
+                  <span v-else-if="!fsShowDone"> · ที่ปิดแล้วดูได้จากช่องติ๊กด้านบน</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="hint" style="margin:8px 0 0">
+            เว้นช่องยอดไว้แล้วกด <b>มาแล้ว</b> = ปิดทั้งเรื่อง ·
+            ใส่ยอดก่อนกด (หรือกด Enter ในช่อง) = ของมาบางส่วน แล้วจะเหลือค้างตามส่วนต่าง<br>
+            แถวที่ขึ้นว่า <b>ไม่ระบุจำนวน</b> คือแถวที่ไฟล์ PO บอกแค่ว่ายังไม่ส่ง ไม่ได้บอกจำนวน
+            — ปิดได้ทั้งใบเท่านั้น</p>
+        </div>
+
       </template>
 
       <!-- ════════ ซิงค์ ════════ -->

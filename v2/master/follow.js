@@ -232,6 +232,83 @@ export function migrateFollow(row, { poList = [], now } = {}) {
   return Object.keys(patch).length ? { ...row, ...patch } : row;
 }
 
+/**
+ * กรองนิติบุคคลของกองงานตาม
+ *
+ * ⚠️ แถวที่ยังไม่มี entity ต้องเห็นในทุกนิติบุคคล ไม่ใช่ถูกกรองหาย
+ *    มันเป็นงานของใครคนหนึ่งแน่ ๆ แค่ยังไม่รู้ว่าใคร ซ่อนแล้วจะไม่มีใครมาเลือกให้เลย
+ *
+ * ⚠️ ยังไม่ได้เลือกนิติบุคคล = เห็นได้แค่แถวที่ยังไม่มีเจ้าของ
+ *    ห้ามแปลว่า "ไม่กรอง" เพราะนั่นคือการโชว์ยอดข้ามนิติบุคคล ซึ่งเป็นอาการของ A3 ที่เงียบที่สุด
+ */
+const sameEntity = (row, entity) =>
+  entity ? (!row.entity || row.entity === entity) : !row.entity;
+
+const matchKind = (row, kind) => !kind || row.kind === kind;
+
+/**
+ * แถวที่หน้าจอจะแสดง — เรียงของที่เลยกำหนดขึ้นก่อน แล้วไล่ตาม ETA ที่ใกล้ที่สุด
+ *
+ * ⚠️ อยู่ในไฟล์นี้ ไม่ใช่ใน app.js เพราะการกรองนิติบุคคล (A3) เป็นกฎที่พังแล้วเงียบที่สุด
+ *    และตรรกะที่เทสแตะไม่ถึง คือตรรกะที่คนถัดไปแก้แล้วไม่มีอะไรฟ้อง
+ *
+ * ⚠️ ต้องกรอง kind ด้วย · ตารางนี้เก็บงานตามสามแบบในกองเดียว
+ *    ไม่กรองแล้วเรื่องของเกิน/ซื้อทดแทนจะไหลมาโผล่ในหน้าของขาด
+ */
+export function listFollow(rows, { kind = '', entity = '', q = '',
+                                   showDone = false, today = '', limit = 0 } = {}) {
+  const needle = String(q || '').trim().toLowerCase();
+  const out = (rows || []).filter(s => {
+    if (!matchKind(s, kind)) return false;
+    if (!sameEntity(s, entity)) return false;
+    const st = statusOf(s);
+    if (st === 'cancelled') return false;
+    if (!showDone && st === 'done') return false;
+    if (!needle) return true;
+    return [s.po, s.code, s.note].join(' ').toLowerCase().includes(needle);
+  }).map(s => ({ s, st: statusOf(s), late: overdue(s, today), remain: remainOf(s) }));
+
+  out.sort((a, b) => (Number(b.late) - Number(a.late))
+    || String(a.s.eta || '9999-99-99').localeCompare(String(b.s.eta || '9999-99-99'))
+    || String(a.s.date || '').localeCompare(String(b.s.date || '')));
+  return limit > 0 ? out.slice(0, limit) : out;
+}
+
+/** เรื่องที่ยังต้องตามของนิติบุคคลนี้ — ตัวเลขที่ขึ้นหน้าแรก */
+export function openFollow(rows, { kind = '', entity = '' } = {}) {
+  return (rows || []).filter(s => {
+    if (!matchKind(s, kind)) return false;
+    if (!sameEntity(s, entity)) return false;
+    const st = statusOf(s);
+    return st === 'open' || st === 'partial';
+  });
+}
+
+/**
+ * แถวที่ยังไม่รู้ว่าเป็นของนิติบุคคลไหน
+ *
+ * ⚠️ เอาแค่ที่ยังต้องตาม · เรื่องที่ปิดจบไปแล้วไม่มีใครต้องมาเลือกนิติบุคคลให้อีก
+ *    ปล่อยไว้จะค้างในแถบเตือนของทุกนิติบุคคลตลอดไป แล้วคนจะเลิกอ่านแถบนั้น
+ */
+export function orphanFollow(rows, { kind = '' } = {}) {
+  return (rows || []).filter(s => {
+    if (s.entity) return false;
+    if (!matchKind(s, kind)) return false;
+    const st = statusOf(s);
+    return st === 'open' || st === 'partial';
+  });
+}
+
+/** สามตัวเลขบนหัวหน้าจอ */
+export function sumFollow(rows, { today = '' } = {}) {
+  const list = rows || [];
+  return {
+    open: list.filter(s => statusOf(s) === 'open').length,
+    partial: list.filter(s => statusOf(s) === 'partial').length,
+    late: list.filter(s => overdue(s, today)).length
+  };
+}
+
 /** ซ่อมทั้งกอง — คืนเฉพาะแถวที่เปลี่ยนจริง ให้ผู้เรียกเอาไปเขียนลงฐานข้อมูล */
 export function migrateAll(rows, opts = {}) {
   const out = [], changed = [];
