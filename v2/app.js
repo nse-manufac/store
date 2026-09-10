@@ -30,8 +30,9 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
-import { migrateAll, statusOf, remainOf, closeFollow, reopenFollow,
-         listFollow, openFollow, orphanFollow, sumFollow } from './master/follow.js';
+import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
+         listFollow, openFollow, orphanFollow, sumFollow,
+         SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -1526,6 +1527,30 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ── คีย์เรื่องใหม่เอง ──────────────────────────────────────────
+     * ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L ของไฟล์ PO
+     * เรื่องที่ Delta แจ้งทางโทรศัพท์หรือทาง LINE จึงไม่มีที่ให้ลง */
+    const fu = reactive({ code: '', qty: null, unit: '', po: '', type: 'ขาด',
+                          eta: '', note: '', desc: '', known: false });
+    const onFuCode = () => fillLine(fu);
+    const fuReady = computed(() =>
+      !!(entity.value && fu.code && fu.po && Number(fu.qty) > 0));
+
+    async function fuSave() {
+      try {
+        const row = makeFollow({
+          kind: 'short', entity: entity.value, code: fu.code, qty: Number(fu.qty),
+          unit: fu.unit, po: fu.po, type: fu.type, eta: fu.eta, note: fu.note,
+          source: 'manual', by: fsBy.value
+        });
+        await fsPut(row);
+        flash(`เพิ่มเรื่อง ${row.po} · ${row.code} แล้ว`);
+        // คง po กับ type ไว้โดยตั้งใจ — ไฟล์เดียวมักแจ้งของขาดหลายรหัสใน PO เดียวกัน
+        // คนคีย์จะได้ไม่ต้องพิมพ์ PO ซ้ำทุกแถว
+        Object.assign(fu, { code: '', qty: null, unit: '', eta: '', note: '',
+                            desc: '', known: false });
+      } catch (err) { flash(err.message, true); }
+    }
 
     // ── หน้าแรก ────────────────────────────────────────────────────
     // เป็นรายการงานของวันนี้ ไม่ใช่แค่ตัวเลขสวย ๆ
@@ -2083,6 +2108,7 @@ createApp({
              applyImp, openShorts, poToday, recentPos,
       fsSearch, fsShowDone, fsBy, fsGot, fsNoEntity, fsRows, fsSum,
       fsAssign, fsClose, fsReopen,
+      fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
