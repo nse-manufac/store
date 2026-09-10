@@ -308,5 +308,22 @@ ok('date ที่ผู้เรียกส่งมาชนะวันท�
    JSON.stringify({ date: dz.date, created_at: dz.created_at }));
 
 
+console.log('\n=== I. ปุ่ม 🔍 ในการ์ด "เพิ่มเรื่องเอง" ต้องไม่ถูกช่องถัดไปทับ ===');
+/* ⚠️ ช่องรหัสอยู่ใน label กว้าง 190px และเป็น flex item ที่ min-width ตั้งต้นเป็น auto
+ *    ขนาดในตัวของ input (20 ตัวอักษร) จึงกว้างกว่า label กล่องข้างในล้นออกมา
+ *    ปุ่ม 🔍 ไปนั่งนอกคอลัมน์ตัวเอง แล้วโดนช่อง PO (มาทีหลังใน DOM) วาดทับจนกดไม่ได้
+ *    ผู้ตรวจ #68 รอบ 2 วัดในเบราว์เซอร์จริง: ปุ่ม x 235..271 · ช่อง PO x 233..373
+ *    node เรนเดอร์ไม่ได้ จึงตรวจที่ตัวโค้ดว่ามี min-width:0 ให้ช่องหดได้ */
+const htmlSrc = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+const iCard = htmlSrc.indexOf('<h2>เพิ่มเรื่องเอง</h2>');
+ok('หาการ์ด "เพิ่มเรื่องเอง" ใน index.html เจอ', iCard >= 0);
+const cardSrc = iCard < 0 ? '' : htmlSrc.slice(iCard, htmlSrc.indexOf('</div>\n\n', iCard));
+ok('การ์ดนี้มีปุ่ม 🔍 เปิดทะเบียนจริง', /🔍/.test(cardSrc) && /openPick\(fu\)/.test(cardSrc));
+const codeInput = (cardSrc.match(/<input[^>]*fu\.code[^>]*>/) || [''])[0];
+ok('ช่องรหัสวัตถุดิบหดลงมาให้พอดี label ได้ (min-width:0) ปุ่ม 🔍 จึงไม่ถูกช่อง PO ทับ',
+   /min-width:\s*0/.test(codeInput),
+   codeInput || 'ไม่เจอช่องรหัสในการ์ด');
+
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
