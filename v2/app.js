@@ -1473,7 +1473,8 @@ createApp({
     const fsShowDone = ref(false);
     const fsBy = ref('');
     // บันทึกตอนออกจากช่อง ไม่ใช่ทุกครั้งที่กดแป้น — แบบเดียวกับ saveStore
-    const saveFsBy = () => db.setMeta('followBy', fsBy.value || '');
+    const saveFsBy = () => db.setMeta('followBy', fsBy.value || '')
+      .catch(err => flash('เก็บชื่อผู้บันทึกไม่สำเร็จ: ' + err.message, true));
     /** ยอดที่รับมาแล้วของแต่ละแถว — เว้นว่างไว้แปลว่าปิดทั้งใบ */
     const fsGot = reactive({});
 
