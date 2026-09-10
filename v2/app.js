@@ -30,8 +30,9 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
-import { migrateAll, makeFollow, statusOf, remainOf, overdue,
-         closeFollow, reopenFollow, SHORT_TYPES } from './master/follow.js';
+import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
+         listFollow, openFollow, orphanFollow, sumFollow,
+         SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -1452,18 +1453,9 @@ createApp({
       finally { impBusy.value = false; }
     }
 
-    /* ค้างอยู่ = ยังไม่ปิด หรือปิดไปบางส่วน · ที่ยกเลิกแล้วไม่นับ
-     *
-     * ⚠️ กรองตามนิติบุคคลด้วย (INVARIANTS A3) — ตั้งแต่แถวมีช่อง entity แล้วก็ต้องกรอง
-     *    ไม่งั้นตัวเลข "ของขาด" บนหน้าแรกจะเป็นยอดรวมทุกโรงงาน แต่ตารางที่กดเข้าไปดูเป็นของโรงงานเดียว
-     *
-     * ⚠️ แถวที่ยังไม่มี entity ต้องเห็นในทุกนิติบุคคล ไม่ใช่ถูกกรองหาย
-     *    มันเป็นงานของใครคนหนึ่งแน่ ๆ แค่ยังไม่รู้ว่าใคร · ซ่อนแล้วจะไม่มีใครมาเลือกให้เลย */
-    const openShorts = computed(() => shorts.value.filter(s => {
-      const st = statusOf(s);
-      if (st !== 'open' && st !== 'partial') return false;
-      return !s.entity || s.entity === entity.value;
-    }));
+    /* ตัวเลข "ของขาด" บนหน้าแรก — กฎการกรองอยู่ใน master/follow.js ที่เทสถึง */
+    const openShorts = computed(() =>
+      openFollow(shorts.value, { kind: 'short', entity: entity.value }));
     const poToday = computed(() => {
       const d = todayLocal();
       return pos.value.filter(p => p.date === d);
@@ -1480,44 +1472,16 @@ createApp({
     /** ยอดที่รับมาแล้วของแต่ละแถว — เว้นว่างไว้แปลว่าปิดทั้งใบ */
     const fsGot = reactive({});
 
-    /**
-     * แถวที่ยังไม่รู้ว่าเป็นของนิติบุคคลไหน
-     *
-     * ⚠️ เกิดจากการย้ายข้อมูลเก่าที่ไฟล์ PO ไม่ได้บอกหน่วยมา — ห้ามเดาให้ (A3)
-     *    ต้องขึ้นเป็นแถบเตือนแยก ไม่ใช่ปล่อยให้ปนอยู่ในตารางเฉย ๆ
-     *    ไม่งั้นคนจะคีย์ยอดของโรงงานตัวเองใส่แถวของโรงงานอื่นโดยไม่รู้
-     */
-    const fsNoEntity = computed(() =>
-      shorts.value.filter(s => !s.entity && statusOf(s) !== 'cancelled'));
+    /** แถวที่ยังไม่มีเจ้าของ — ขึ้นแถบเตือนแยก ไม่ปล่อยปนในตาราง
+     *  ไม่งั้นคนจะคีย์ยอดของโรงงานตัวเองใส่แถวของโรงงานอื่นโดยไม่รู้ */
+    const fsNoEntity = computed(() => orphanFollow(shorts.value, { kind: 'short' }));
 
-    /** แถวที่ตารางจะแสดง — เรียงของที่เลย ETA ขึ้นก่อน แล้วไล่ตาม ETA ที่ใกล้ที่สุด */
-    const fsRows = computed(() => {
-      const q = fsSearch.value.trim().toLowerCase();
-      const today = todayLocal();
-      return shorts.value
-        .filter(s => {
-          const st = statusOf(s);
-          if (st === 'cancelled') return false;
-          if (!fsShowDone.value && st === 'done') return false;
-          if (s.entity && s.entity !== entity.value) return false;
-          if (!q) return true;
-          return [s.po, s.code, s.note].join(' ').toLowerCase().includes(q);
-        })
-        .map(s => ({ s, st: statusOf(s), late: overdue(s, today), remain: remainOf(s) }))
-        .sort((a, b) => (b.late - a.late)
-          || String(a.s.eta || '9999-99-99').localeCompare(String(b.s.eta || '9999-99-99'))
-          || String(a.s.date).localeCompare(String(b.s.date)))
-        .slice(0, SHOW_MAX);
-    });
+    const fsRows = computed(() => listFollow(shorts.value, {
+      kind: 'short', entity: entity.value, q: fsSearch.value,
+      showDone: fsShowDone.value, today: todayLocal(), limit: SHOW_MAX
+    }));
 
-    const fsSum = computed(() => {
-      const today = todayLocal();
-      return {
-        open: openShorts.value.filter(s => statusOf(s) === 'open').length,
-        partial: openShorts.value.filter(s => statusOf(s) === 'partial').length,
-        late: openShorts.value.filter(s => overdue(s, today)).length
-      };
-    });
+    const fsSum = computed(() => sumFollow(openShorts.value, { today: todayLocal() }));
 
     /** เขียนแถวที่แก้แล้วกลับเข้าที่เดิม — ธง dirty ต้องติดบนตัวที่หน้าจอถืออยู่ */
     async function fsPut(rec) {

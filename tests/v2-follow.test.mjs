@@ -8,7 +8,8 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
-         statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow }
+         statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
+         listFollow, openFollow, orphanFollow, sumFollow }
   from '../v2/master/follow.js';
 
 let pass = 0, fail = 0;
@@ -182,6 +183,86 @@ ok('ยกเลิกแล้วบันทึกเหตุผลกับ�
    v1.voided === true && v1.void_reason === 'คีย์ผิดใบ' && v1.void_by === 'หัวหน้า' && !!v1.void_at);
 ok('สถานะอ่านได้ว่ายกเลิกแล้ว', statusOf(v1) === 'cancelled');
 throws('ยกเลิกแล้วปิดต่อไม่ได้', () => closeFollow(v1, { qty: 1 }), 'ยกเลิกไปแล้ว');
+
+console.log('\n=== F. กรอง · เรียง · สรุป (หน้าจอ Mat Follow up) ===');
+/* หมวดนี้คุมกฎที่พังแล้วเงียบที่สุดในหน้านี้ — การกรองนิติบุคคล (A3)
+ * และการกรองชนิดงาน ซึ่งจะสำคัญจริงเมื่อหน้า over/buy เข้ามาใช้กองเดียวกัน */
+const TD = '2026-09-10';
+const row = (id, o) => Object.assign({
+  id, kind: 'short', entity: 'NSE', code: CODE, qty: 10, done_qty: 0,
+  done: false, po: 'PO-' + id, date: '2026-09-01', eta: '', note: ''
+}, o);
+const pool = [
+  row('a', { eta: '2026-09-01' }),                    // ของเรา เลยกำหนด
+  row('b', { entity: 'TUE-H' }),                      // ของอีกนิติบุคคล
+  row('c', { entity: '' }),                           // ยังไม่มีเจ้าของ
+  row('d', { done: true, done_qty: 10 }),             // ปิดแล้ว
+  row('e', { done_qty: 4, eta: '2026-12-31' }),       // ปิดบางส่วน ยังไม่เลย
+  row('f', { voided: true }),                         // ยกเลิกแล้ว
+  row('g', { kind: 'over', part_no: '2870627900' }),  // งานตามอีกชนิด
+  row('h', { entity: '', done: true, done_qty: 10 })  // ไม่มีเจ้าของ แต่ปิดจบแล้ว
+];
+const ids = list => list.map(r => (r.s || r).id).join(',');
+
+const shown = listFollow(pool, { kind: 'short', entity: 'NSE', today: TD });
+ok('ของนิติบุคคลอื่นไม่โผล่ — A3', !ids(shown).includes('b'), ids(shown));
+ok('แถวที่ยังไม่มีเจ้าของโผล่ทุกนิติบุคคล', ids(shown).includes('c'), ids(shown));
+ok('แถวที่ปิดแล้วไม่โผล่ถ้าไม่ได้ขอดู', !ids(shown).includes('d'), ids(shown));
+ok('แถวที่ยกเลิกไม่โผล่เลย', !ids(shown).includes('f'), ids(shown));
+ok('งานตามชนิดอื่นไม่ไหลมาโผล่ในหน้าของขาด', !ids(shown).includes('g'), ids(shown));
+ok('เลยกำหนดขึ้นก่อน แล้วไล่ตาม ETA ที่ใกล้ที่สุด', ids(shown) === 'a,e,c', ids(shown));
+/* แถวที่ไม่มี ETA เลยต้องตกท้าย — ของที่ Delta นัดวันไว้แล้วต้องมาก่อนของที่ยังไม่นัด
+ * (แถว c ไม่มี ETA จึงอยู่หลังแถว e ที่นัดไว้สิ้นปี) */
+ok('แถวที่ไม่มี ETA ตกท้ายสุด', shown[shown.length - 1].s.id === 'c', ids(shown));
+ok('บอกสถานะกับยอดค้างมาให้พร้อม',
+   shown[1].st === 'partial' && shown[1].remain === 6, JSON.stringify(shown[1].remain));
+ok('บอกด้วยว่าแถวไหนเลยกำหนด', shown[0].late === true && shown[1].late === false);
+
+/* ⚠️ ข้อข้างบนพิสูจน์เกณฑ์ "เลยกำหนดขึ้นก่อน" ไม่ได้ — แถวที่เลยกำหนดมี ETA เก่าที่สุดอยู่แล้ว
+ *    เรียงด้วย ETA เพียว ๆ ก็ได้ลำดับเดียวกัน (ถอดเกณฑ์ออกแล้วเทสยังเขียว ลองมาแล้ว)
+ *    เคสที่แยกสองเกณฑ์ออกจากกันได้จริงคือ "แถวที่ปิดแล้วมี ETA เก่ากว่าแถวที่ยังค้าง" */
+const mix = [row('x', { eta: '2026-08-01', done: true, done_qty: 10 }),
+             row('y', { eta: '2026-09-05' })];
+const mixed = listFollow(mix, { kind: 'short', entity: 'NSE', showDone: true, today: TD });
+ok('เรื่องที่ยังค้างและเลยกำหนด ขึ้นก่อนเรื่องที่ปิดแล้ว แม้ ETA จะเก่ากว่า',
+   ids(mixed) === 'y,x', ids(mixed));
+
+ok('ขอดูที่ปิดแล้วก็เห็น',
+   ids(listFollow(pool, { kind: 'short', entity: 'NSE', showDone: true, today: TD }))
+     .includes('d'));
+ok('ค้นหาตรง PO ได้',
+   ids(listFollow(pool, { kind: 'short', entity: 'NSE', q: 'po-a', today: TD })) === 'a');
+ok('ค้นหาไม่เจอก็คืนกองว่าง ไม่ใช่คืนทั้งกอง',
+   listFollow(pool, { kind: 'short', entity: 'NSE', q: 'ไม่มีคำนี้' }).length === 0);
+ok('จำกัดจำนวนแถวได้',
+   listFollow(pool, { kind: 'short', entity: 'NSE', today: TD, limit: 2 }).length === 2);
+ok('ไม่ระบุชนิดก็ได้ทุกชนิดที่เหลือ',
+   ids(listFollow(pool, { entity: 'NSE', today: TD })).includes('g'));
+
+/* ยังไม่ได้เลือกนิติบุคคล ห้ามแปลว่า "ไม่กรอง"
+ * การโชว์ยอดข้ามนิติบุคคลคืออาการของ A3 ที่ไม่มีอะไรฟ้อง */
+const noEnt = listFollow(pool, { kind: 'short', entity: '', today: TD });
+ok('ยังไม่เลือกนิติบุคคล เห็นได้แค่แถวที่ยังไม่มีเจ้าของ — A3',
+   ids(noEnt) === 'c', ids(noEnt));
+
+const openList = openFollow(pool, { kind: 'short', entity: 'NSE' });
+ok('งานค้างนับเฉพาะของนิติบุคคลนี้บวกที่ยังไม่มีเจ้าของ',
+   ids(openList) === 'a,c,e', ids(openList));
+ok('งานค้างไม่นับที่ปิดแล้วและที่ยกเลิก',
+   !ids(openList).includes('d') && !ids(openList).includes('f'));
+
+const orph = orphanFollow(pool, { kind: 'short' });
+ok('แถวไม่มีเจ้าของที่ยังต้องตาม ขึ้นแถบเตือน', ids(orph) === 'c', ids(orph));
+ok('แถวไม่มีเจ้าของที่ปิดจบแล้ว ต้องหายจากแถบเตือน ไม่ค้างตลอดไป',
+   !ids(orph).includes('h'), ids(orph));
+
+const sum = sumFollow(openList, { today: TD });
+ok('สรุปสามตัวเลขถูก',
+   sum.open === 2 && sum.partial === 1 && sum.late === 1, JSON.stringify(sum));
+ok('ส่งกองว่างมาก็ไม่พัง',
+   listFollow(null).length === 0 && openFollow(null).length === 0 &&
+   orphanFollow(null).length === 0 && sumFollow(null).open === 0);
+
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
