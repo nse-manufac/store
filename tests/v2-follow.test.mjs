@@ -7,6 +7,7 @@
  * ถ้าย้ายผิด แถวจะไปโผล่ผิดนิติบุคคลแบบเงียบ ๆ (ละเมิด INVARIANTS A3)
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
+import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow }
@@ -282,6 +283,29 @@ ok('แถวที่ยอดปิดเท่ากับยอดหลั�
    statusOf({ qty: 0.1 + 0.2, done_qty: 0.3 }) === 'done');
 ok('ต่างกันจริงในห้าตำแหน่ง ยังนับว่าค้าง ไม่ใช่ปัดทิ้งจนกลายเป็นเสร็จ',
    statusOf({ qty: 10, done_qty: 9.9999 }) === 'partial');
+
+
+console.log('\n=== H. การ์ด "เพิ่มเรื่องเอง" ต้องบอกวันที่แบบเวลาไทย ===');
+/* ⚠️ makeFollow ตั้งต้น date ด้วย toISOString().slice(0,10) ซึ่งเป็นวันที่แบบ UTC
+ *    ผู้เรียกจึงต้องส่ง date มาเอง ไม่งั้นคนที่คีย์ช่วง 00:00–07:00 ตามเวลาไทย
+ *    จะได้ "แจ้งวันที่" ย้อนไปหนึ่งวัน (ผู้ตรวจ #68)
+ *    ชั้นต่อสายอยู่ใน setup() ของ app.js node เรียกตรง ๆ ไม่ได้ จึงตรวจที่ตัวโค้ด
+ *    แบบเดียวกับที่ v2-export เทียบโค้ด writeCard กับ v1 */
+const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+const iFu = appSrc.indexOf('async function fuSave(');
+ok('หา fuSave ใน app.js เจอ', iFu >= 0);
+const fuCall = iFu < 0 ? '' : appSrc.slice(iFu, appSrc.indexOf('});', iFu));
+ok('fuSave ส่ง date: todayLocal() เข้า makeFollow ไม่ปล่อยให้ตกไปใช้ค่าตั้งต้น UTC',
+   /\bdate:\s*todayLocal\(\)/.test(fuCall),
+   'ถ้าตกข้อนี้ เรื่องที่คีย์ช่วงกลางดึกจะขึ้นแจ้งวันที่ย้อนไปหนึ่งวัน');
+
+/* วันที่ที่ผู้เรียกส่งมาต้องชนะค่าตั้งต้นจริง ๆ ไม่ใช่แค่รับไว้เฉย ๆ */
+const dz = makeFollow({ kind: 'short', entity: E, code: CODE, qty: 1, po: 'PO-TZ',
+                        type: 'ขาด', date: '2026-09-11',
+                        now: '2026-09-10T18:30:00.000Z' });
+ok('date ที่ผู้เรียกส่งมาชนะวันที่แบบ UTC ที่แกะจาก created_at',
+   dz.date === '2026-09-11' && dz.created_at === '2026-09-10T18:30:00.000Z',
+   JSON.stringify({ date: dz.date, created_at: dz.created_at }));
 
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

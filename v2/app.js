@@ -1549,6 +1549,10 @@ createApp({
         const row = makeFollow({
           kind: 'short', entity: entity.value, code: fu.code, qty: Number(fu.qty),
           unit: fu.unit, po: fu.po, type: fu.type, eta: fu.eta, note: fu.note,
+          // ⚠️ ต้องบอกวันที่เอง — ค่าตั้งต้นของ makeFollow สไลซ์จาก toISOString() ซึ่งเป็น UTC
+          //    ไทยเร็วกว่า 7 ชม. ช่วงตีศูนย์ถึงเจ็ดโมงเช้าจะได้ "แจ้งวันที่" เป็นเมื่อวาน
+          //    หน้าคีย์อื่นใน v2 ใช้ todayLocal() หมดแล้ว การ์ดนี้ต้องตามให้ตรง (ผู้ตรวจ #68)
+          date: todayLocal(),
           source: 'manual', by: fsBy.value
         });
         await fsPut(row);
