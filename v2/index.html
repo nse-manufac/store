@@ -1742,7 +1742,7 @@ textarea{font:inherit}
             <label class="f" style="width:220px">ค้นหา PO · รหัส · ข้อความ
               <input v-model="fsSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
             <label class="f" style="width:150px">ผู้บันทึก
-              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด"></label>
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
             <label style="font-weight:600;font-size:12.5px">
               <input type="checkbox" v-model="fsShowDone"> แสดงที่ปิดแล้ว</label>
           </div>
@@ -1793,6 +1793,8 @@ textarea{font:inherit}
               </tbody>
             </table>
           </div>
+          <p class="hint" style="margin:8px 0 0" v-if="fsAll.length > fsRows.length">
+            แสดง {{ fsRows.length }} จาก {{ fsAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
           <p class="hint" style="margin:8px 0 0">
             เว้นช่องยอดไว้แล้วกด <b>มาแล้ว</b> = ปิดทั้งเรื่อง ·
             ใส่ยอดก่อนกด (หรือกด Enter ในช่อง) = ของมาบางส่วน แล้วจะเหลือค้างตามส่วนต่าง<br>

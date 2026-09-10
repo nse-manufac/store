@@ -173,6 +173,9 @@ createApp({
           device.value = 'PC-' + Math.random().toString(36).slice(2, 6).toUpperCase();
           await db.setMeta('device', device.value);
         }
+        // ชื่อผู้บันทึกของหน้า Mat Follow up — ไม่จำไว้ = ต้องพิมพ์ใหม่ทุกรีเฟรช
+        // แล้วช่อง "ใครปิดเรื่อง" จะว่างเป็นส่วนใหญ่ (ผู้ตรวจ #67 ทักไว้)
+        fsBy.value = await db.getMeta('followBy', '') || '';
         ready.value = true;
       } catch (err) {
         // เปิดฐานข้อมูลไม่ได้ = ทำอะไรไม่ได้เลย ต้องบอกให้ชัดว่าเกิดอะไรและทำยังไงต่อ
@@ -1469,6 +1472,8 @@ createApp({
     const fsSearch = ref('');
     const fsShowDone = ref(false);
     const fsBy = ref('');
+    // บันทึกตอนออกจากช่อง ไม่ใช่ทุกครั้งที่กดแป้น — แบบเดียวกับ saveStore
+    const saveFsBy = () => db.setMeta('followBy', fsBy.value || '');
     /** ยอดที่รับมาแล้วของแต่ละแถว — เว้นว่างไว้แปลว่าปิดทั้งใบ */
     const fsGot = reactive({});
 
@@ -1476,10 +1481,13 @@ createApp({
      *  ไม่งั้นคนจะคีย์ยอดของโรงงานตัวเองใส่แถวของโรงงานอื่นโดยไม่รู้ */
     const fsNoEntity = computed(() => orphanFollow(shorts.value, { kind: 'short' }));
 
-    const fsRows = computed(() => listFollow(shorts.value, {
+    /* ⚠️ เก็บกองเต็มไว้ แล้วค่อยตัดตอนแสดง — ตัดที่ SHOW_MAX เงียบ ๆ แล้วแถวที่เกิน
+       จะหายไปโดยไม่มีอะไรบอก (ผู้ตรวจ #67) · หน้าจอต้องรู้ยอดเต็มถึงจะบอกได้ว่าถูกตัด */
+    const fsAll = computed(() => listFollow(shorts.value, {
       kind: 'short', entity: entity.value, q: fsSearch.value,
-      showDone: fsShowDone.value, today: todayLocal(), limit: SHOW_MAX
+      showDone: fsShowDone.value, today: todayLocal()
     }));
+    const fsRows = computed(() => fsAll.value.slice(0, SHOW_MAX));
 
     const fsSum = computed(() => sumFollow(openShorts.value, { today: todayLocal() }));
 
@@ -2106,7 +2114,7 @@ createApp({
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, recentPos,
-      fsSearch, fsShowDone, fsBy, fsGot, fsNoEntity, fsRows, fsSum,
+      fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,

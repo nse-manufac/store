@@ -264,5 +264,25 @@ ok('ส่งกองว่างมาก็ไม่พัง',
    orphanFollow(null).length === 0 && sumFollow(null).open === 0);
 
 
+console.log('\n=== G. เศษทศนิยมที่วิ่งผ่านชีตกลับมา ===');
+/* ⚠️ ยอดที่ผ่าน Google Sheets กลับมาอาจเป็น 0.30000000000000004 แทน 0.3
+ *    เดิมทั้ง statusOf และ closeFollow เทียบค่าดิบ แถวจึงค้างเป็น "เหลือ 0" ตลอดไป
+ *    ปิดทั้งใบก็ไม่ติด done · ใส่ยอดเองก็โดนกฎต้องมากกว่าศูนย์ — ผู้ตรวจ #67 รันเจอ */
+const fz = { id: 'FZ', kind: 'short', entity: 'NSE', code: CODE,
+             qty: 0.1 + 0.2, done_qty: 0, done: false };
+const fz1 = closeFollow(fz, { qty: 0.1, at: NOW });
+ok('ปิดบางส่วนของยอดที่มีเศษ float ยังค้างตามจริง',
+   statusOf(fz1) === 'partial' && remainOf(fz1) === 0.2,
+   JSON.stringify({ st: statusOf(fz1), remain: remainOf(fz1) }));
+const fz2 = closeFollow(fz1, { at: NOW });
+ok('ปิดที่เหลือของยอดที่มีเศษ float ต้องจบจริง ไม่ค้างเป็นเหลือ 0',
+   fz2.done === true && statusOf(fz2) === 'done',
+   JSON.stringify({ done: fz2.done, done_qty: fz2.done_qty, st: statusOf(fz2) }));
+ok('แถวที่ยอดปิดเท่ากับยอดหลังปัดแล้ว อ่านสถานะว่าเสร็จ แม้ไม่มีธง done',
+   statusOf({ qty: 0.1 + 0.2, done_qty: 0.3 }) === 'done');
+ok('ต่างกันจริงในห้าตำแหน่ง ยังนับว่าค้าง ไม่ใช่ปัดทิ้งจนกลายเป็นเสร็จ',
+   statusOf({ qty: 10, done_qty: 9.9999 }) === 'partial');
+
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
