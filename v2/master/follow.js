@@ -129,8 +129,10 @@ export function statusOf(row) {
   if (!row) return 'open';
   if (row.voided) return 'cancelled';
   if (row.done) return 'done';
-  const q = Number(row.qty) || 0;
-  const d = Number(row.done_qty) || 0;
+  /* ⚠️ ปัดทั้งสองฝั่งก่อนเทียบ (A2) — ยอดที่วิ่งผ่านชีตกลับมาอาจเป็น 0.30000000000000004
+   *    เทียบค่าดิบแล้ว done_qty 0.3 จะไม่ถึง qty ไปตลอดกาล แถวค้างเป็น "เหลือ 0" ปิดไม่ลงทั้งสองทาง */
+  const q = round5(Number(row.qty) || 0);
+  const d = round5(Number(row.done_qty) || 0);
   if (q > 0 && d >= q) return 'done';
   return d > 0 ? 'partial' : 'open';
 }
@@ -167,7 +169,8 @@ export function closeFollow(row, { qty, by = '', at } = {}) {
   }
 
   const done_qty = round5((Number(row.done_qty) || 0) + add);
-  const q = Number(row.qty) || 0;
+  // ⚠️ qty ต้องปัดด้วย — done_qty ปัดแล้ว ถ้า qty ยังดิบ การปิดยอดที่เหลือพอดีจะไม่ติด done
+  const q = round5(Number(row.qty) || 0);
   return { ...row, done_qty, done: q > 0 ? done_qty >= q : true,
            done_at: now, done_by: txt(by), updated_at: now };
 }

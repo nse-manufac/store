@@ -7,6 +7,7 @@
  * ถ้าย้ายผิด แถวจะไปโผล่ผิดนิติบุคคลแบบเงียบ ๆ (ละเมิด INVARIANTS A3)
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
+import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow }
@@ -262,6 +263,66 @@ ok('สรุปสามตัวเลขถูก',
 ok('ส่งกองว่างมาก็ไม่พัง',
    listFollow(null).length === 0 && openFollow(null).length === 0 &&
    orphanFollow(null).length === 0 && sumFollow(null).open === 0);
+
+
+console.log('\n=== G. เศษทศนิยมที่วิ่งผ่านชีตกลับมา ===');
+/* ⚠️ ยอดที่ผ่าน Google Sheets กลับมาอาจเป็น 0.30000000000000004 แทน 0.3
+ *    เดิมทั้ง statusOf และ closeFollow เทียบค่าดิบ แถวจึงค้างเป็น "เหลือ 0" ตลอดไป
+ *    ปิดทั้งใบก็ไม่ติด done · ใส่ยอดเองก็โดนกฎต้องมากกว่าศูนย์ — ผู้ตรวจ #67 รันเจอ */
+const fz = { id: 'FZ', kind: 'short', entity: 'NSE', code: CODE,
+             qty: 0.1 + 0.2, done_qty: 0, done: false };
+const fz1 = closeFollow(fz, { qty: 0.1, at: NOW });
+ok('ปิดบางส่วนของยอดที่มีเศษ float ยังค้างตามจริง',
+   statusOf(fz1) === 'partial' && remainOf(fz1) === 0.2,
+   JSON.stringify({ st: statusOf(fz1), remain: remainOf(fz1) }));
+const fz2 = closeFollow(fz1, { at: NOW });
+ok('ปิดที่เหลือของยอดที่มีเศษ float ต้องจบจริง ไม่ค้างเป็นเหลือ 0',
+   fz2.done === true && statusOf(fz2) === 'done',
+   JSON.stringify({ done: fz2.done, done_qty: fz2.done_qty, st: statusOf(fz2) }));
+ok('แถวที่ยอดปิดเท่ากับยอดหลังปัดแล้ว อ่านสถานะว่าเสร็จ แม้ไม่มีธง done',
+   statusOf({ qty: 0.1 + 0.2, done_qty: 0.3 }) === 'done');
+ok('ต่างกันจริงในห้าตำแหน่ง ยังนับว่าค้าง ไม่ใช่ปัดทิ้งจนกลายเป็นเสร็จ',
+   statusOf({ qty: 10, done_qty: 9.9999 }) === 'partial');
+
+
+console.log('\n=== H. การ์ด "เพิ่มเรื่องเอง" ต้องบอกวันที่แบบเวลาไทย ===');
+/* ⚠️ makeFollow ตั้งต้น date ด้วย toISOString().slice(0,10) ซึ่งเป็นวันที่แบบ UTC
+ *    ผู้เรียกจึงต้องส่ง date มาเอง ไม่งั้นคนที่คีย์ช่วง 00:00–07:00 ตามเวลาไทย
+ *    จะได้ "แจ้งวันที่" ย้อนไปหนึ่งวัน (ผู้ตรวจ #68)
+ *    ชั้นต่อสายอยู่ใน setup() ของ app.js node เรียกตรง ๆ ไม่ได้ จึงตรวจที่ตัวโค้ด
+ *    แบบเดียวกับที่ v2-export เทียบโค้ด writeCard กับ v1 */
+const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+const iFu = appSrc.indexOf('async function fuSave(');
+ok('หา fuSave ใน app.js เจอ', iFu >= 0);
+const fuCall = iFu < 0 ? '' : appSrc.slice(iFu, appSrc.indexOf('});', iFu));
+ok('fuSave ส่ง date: todayLocal() เข้า makeFollow ไม่ปล่อยให้ตกไปใช้ค่าตั้งต้น UTC',
+   /\bdate:\s*todayLocal\(\)/.test(fuCall),
+   'ถ้าตกข้อนี้ เรื่องที่คีย์ช่วงกลางดึกจะขึ้นแจ้งวันที่ย้อนไปหนึ่งวัน');
+
+/* วันที่ที่ผู้เรียกส่งมาต้องชนะค่าตั้งต้นจริง ๆ ไม่ใช่แค่รับไว้เฉย ๆ */
+const dz = makeFollow({ kind: 'short', entity: E, code: CODE, qty: 1, po: 'PO-TZ',
+                        type: 'ขาด', date: '2026-09-11',
+                        now: '2026-09-10T18:30:00.000Z' });
+ok('date ที่ผู้เรียกส่งมาชนะวันที่แบบ UTC ที่แกะจาก created_at',
+   dz.date === '2026-09-11' && dz.created_at === '2026-09-10T18:30:00.000Z',
+   JSON.stringify({ date: dz.date, created_at: dz.created_at }));
+
+
+console.log('\n=== I. ปุ่ม 🔍 ในการ์ด "เพิ่มเรื่องเอง" ต้องไม่ถูกช่องถัดไปทับ ===');
+/* ⚠️ ช่องรหัสอยู่ใน label กว้าง 190px และเป็น flex item ที่ min-width ตั้งต้นเป็น auto
+ *    ขนาดในตัวของ input (20 ตัวอักษร) จึงกว้างกว่า label กล่องข้างในล้นออกมา
+ *    ปุ่ม 🔍 ไปนั่งนอกคอลัมน์ตัวเอง แล้วโดนช่อง PO (มาทีหลังใน DOM) วาดทับจนกดไม่ได้
+ *    ผู้ตรวจ #68 รอบ 2 วัดในเบราว์เซอร์จริง: ปุ่ม x 235..271 · ช่อง PO x 233..373
+ *    node เรนเดอร์ไม่ได้ จึงตรวจที่ตัวโค้ดว่ามี min-width:0 ให้ช่องหดได้ */
+const htmlSrc = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+const iCard = htmlSrc.indexOf('<h2>เพิ่มเรื่องเอง</h2>');
+ok('หาการ์ด "เพิ่มเรื่องเอง" ใน index.html เจอ', iCard >= 0);
+const cardSrc = iCard < 0 ? '' : htmlSrc.slice(iCard, htmlSrc.indexOf('</div>\n\n', iCard));
+ok('การ์ดนี้มีปุ่ม 🔍 เปิดทะเบียนจริง', /🔍/.test(cardSrc) && /openPick\(fu\)/.test(cardSrc));
+const codeInput = (cardSrc.match(/<input[^>]*fu\.code[^>]*>/) || [''])[0];
+ok('ช่องรหัสวัตถุดิบหดลงมาให้พอดี label ได้ (min-width:0) ปุ่ม 🔍 จึงไม่ถูกช่อง PO ทับ',
+   /min-width:\s*0/.test(codeInput),
+   codeInput || 'ไม่เจอช่องรหัสในการ์ด');
 
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

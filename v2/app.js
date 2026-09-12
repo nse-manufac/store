@@ -30,8 +30,9 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
-import { migrateAll, statusOf, remainOf, closeFollow, reopenFollow,
-         listFollow, openFollow, orphanFollow, sumFollow } from './master/follow.js';
+import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
+         listFollow, openFollow, orphanFollow, sumFollow,
+         SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch } = Vue;
 
@@ -172,6 +173,9 @@ createApp({
           device.value = 'PC-' + Math.random().toString(36).slice(2, 6).toUpperCase();
           await db.setMeta('device', device.value);
         }
+        // ชื่อผู้บันทึกของหน้า Mat Follow up — ไม่จำไว้ = ต้องพิมพ์ใหม่ทุกรีเฟรช
+        // แล้วช่อง "ใครปิดเรื่อง" จะว่างเป็นส่วนใหญ่ (ผู้ตรวจ #67 ทักไว้)
+        fsBy.value = await db.getMeta('followBy', '') || '';
         ready.value = true;
       } catch (err) {
         // เปิดฐานข้อมูลไม่ได้ = ทำอะไรไม่ได้เลย ต้องบอกให้ชัดว่าเกิดอะไรและทำยังไงต่อ
@@ -1468,6 +1472,9 @@ createApp({
     const fsSearch = ref('');
     const fsShowDone = ref(false);
     const fsBy = ref('');
+    // บันทึกตอนออกจากช่อง ไม่ใช่ทุกครั้งที่กดแป้น — แบบเดียวกับ saveStore
+    const saveFsBy = () => db.setMeta('followBy', fsBy.value || '')
+      .catch(err => flash('เก็บชื่อผู้บันทึกไม่สำเร็จ: ' + err.message, true));
     /** ยอดที่รับมาแล้วของแต่ละแถว — เว้นว่างไว้แปลว่าปิดทั้งใบ */
     const fsGot = reactive({});
 
@@ -1475,10 +1482,13 @@ createApp({
      *  ไม่งั้นคนจะคีย์ยอดของโรงงานตัวเองใส่แถวของโรงงานอื่นโดยไม่รู้ */
     const fsNoEntity = computed(() => orphanFollow(shorts.value, { kind: 'short' }));
 
-    const fsRows = computed(() => listFollow(shorts.value, {
+    /* ⚠️ เก็บกองเต็มไว้ แล้วค่อยตัดตอนแสดง — ตัดที่ SHOW_MAX เงียบ ๆ แล้วแถวที่เกิน
+       จะหายไปโดยไม่มีอะไรบอก (ผู้ตรวจ #67) · หน้าจอต้องรู้ยอดเต็มถึงจะบอกได้ว่าถูกตัด */
+    const fsAll = computed(() => listFollow(shorts.value, {
       kind: 'short', entity: entity.value, q: fsSearch.value,
-      showDone: fsShowDone.value, today: todayLocal(), limit: SHOW_MAX
+      showDone: fsShowDone.value, today: todayLocal()
     }));
+    const fsRows = computed(() => fsAll.value.slice(0, SHOW_MAX));
 
     const fsSum = computed(() => sumFollow(openShorts.value, { today: todayLocal() }));
 
@@ -1526,6 +1536,34 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ── คีย์เรื่องใหม่เอง ──────────────────────────────────────────
+     * ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L ของไฟล์ PO
+     * เรื่องที่ Delta แจ้งทางโทรศัพท์หรือทาง LINE จึงไม่มีที่ให้ลง */
+    const fu = reactive({ code: '', qty: null, unit: '', po: '', type: 'ขาด',
+                          eta: '', note: '', desc: '', known: false });
+    const onFuCode = () => fillLine(fu);
+    const fuReady = computed(() =>
+      !!(entity.value && fu.code && fu.po && Number(fu.qty) > 0));
+
+    async function fuSave() {
+      try {
+        const row = makeFollow({
+          kind: 'short', entity: entity.value, code: fu.code, qty: Number(fu.qty),
+          unit: fu.unit, po: fu.po, type: fu.type, eta: fu.eta, note: fu.note,
+          // ⚠️ ต้องบอกวันที่เอง — ค่าตั้งต้นของ makeFollow สไลซ์จาก toISOString() ซึ่งเป็น UTC
+          //    ไทยเร็วกว่า 7 ชม. ช่วงตีศูนย์ถึงเจ็ดโมงเช้าจะได้ "แจ้งวันที่" เป็นเมื่อวาน
+          //    หน้าคีย์อื่นใน v2 ใช้ todayLocal() หมดแล้ว การ์ดนี้ต้องตามให้ตรง (ผู้ตรวจ #68)
+          date: todayLocal(),
+          source: 'manual', by: fsBy.value
+        });
+        await fsPut(row);
+        flash(`เพิ่มเรื่อง ${row.po} · ${row.code} แล้ว`);
+        // คง po กับ type ไว้โดยตั้งใจ — ไฟล์เดียวมักแจ้งของขาดหลายรหัสใน PO เดียวกัน
+        // คนคีย์จะได้ไม่ต้องพิมพ์ PO ซ้ำทุกแถว
+        Object.assign(fu, { code: '', qty: null, unit: '', eta: '', note: '',
+                            desc: '', known: false });
+      } catch (err) { flash(err.message, true); }
+    }
 
     // ── หน้าแรก ────────────────────────────────────────────────────
     // เป็นรายการงานของวันนี้ ไม่ใช่แค่ตัวเลขสวย ๆ
@@ -2081,8 +2119,9 @@ createApp({
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, recentPos,
-      fsSearch, fsShowDone, fsBy, fsGot, fsNoEntity, fsRows, fsSum,
+      fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsAssign, fsClose, fsReopen,
+      fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
