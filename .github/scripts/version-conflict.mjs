@@ -69,6 +69,55 @@ export function pickVersion(ours, theirs, now = new Date()) {
   return `${date}.${seq}`;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// เลขรุ่นไม่ชน แต่ด่านบัมป์เวอร์ชันจะแดง
+//
+// ผู้ตรวจรอบ 3 ของ #69 พิสูจน์ว่า: ใบที่ชนพร้อมกันหลายใบได้เลขเดียวกันหมด (main + 1)
+// พอใบแรกเมิจ ใบที่เหลือมีเลขเท่ากับ main เป๊ะ → git เมิจผ่านไม่ชน → ตัวแก้ conflict ไม่ตื่น
+// แต่ด่านใน smoke.yml แดงเพราะ "แก้แล้วไม่ได้บัมป์" — กลับไปต้องให้คนแก้มือเหมือนเดิม
+// (อาการเดียวกันเกิดได้ก่อนมีตัวแก้ด้วย: สองใบเลือกเลขเดียวกันเองแล้วเมิจตามกัน)
+// ═══════════════════════════════════════════════════════════════
+
+// รูปแบบเดียวกับ ver() ใน smoke.yml **เป๊ะ** — เครื่องหมายคำพูดคู่ · ตัวแรกของไฟล์
+// ด่านมองเห็นเลขรุ่นแบบไหน ตัวแก้ต้องมองแบบนั้น ไม่งั้นแก้แล้วด่านยังแดง
+const SMOKE_RE = /<meta name="app-version" content="([^"]*)"/;
+
+export function versionOf(text) {
+  const m = SMOKE_RE.exec(String(text ?? ''));
+  return m ? m[1] : '';
+}
+
+/**
+ * ทำให้เลขรุ่นของไฟล์ฝั่ง PR ใหม่กว่าของ main — เรียกหลังเมิจ main เข้ามาแล้ว
+ *
+ * ด่านแดงเมื่อเลขเท่ากับ main เท่านั้น แต่ตรงนี้ถือ "ต้องใหม่กว่า" เหมือนตอนแก้ชน
+ * เลขที่ถอยหลังไม่ทำให้อะไรพัง (version.js เทียบแค่ไม่เท่ากัน) แต่คนอ่านจะงง
+ *
+ * @param prText   เนื้อไฟล์ฝั่ง PR (หลังเมิจ main เข้ามาแล้ว)
+ * @param mainText เนื้อไฟล์เดียวกันบน main ('' ถ้า main ไม่มีไฟล์นี้)
+ * @returns {{ok:true, changed:false}} | {{ok:true, changed:true, text, from, main, to}} | {{ok:false, reason}}
+ */
+export function ensureNewer(prText, mainText, now = new Date()) {
+  const from = versionOf(prText);
+  const old = versionOf(mainText);
+  if (!from) return { ok: false, reason: 'ไม่พบ app-version ในไฟล์ของ PR — ไม่เดาเติมให้' };
+  if (!old) return { ok: true, changed: false }; // ไฟล์ใหม่ หรือ main ไม่มีเลขรุ่น — ด่านไม่แดง
+
+  const n = parseVersion(from);
+  const o = parseVersion(old);
+  if (!n || !o) {
+    // รูปแบบเก่า เช่น "2026-08-11" ไม่มี .N — ไม่รู้ว่าลำดับถัดไปควรเป็นอะไร จึงไม่เดา
+    if (from === old) return { ok: false, reason: `เลขรุ่นเท่ากับ main ("${from}") แต่รูปแบบอ่านไม่ออก — บัมป์เองไม่ได้` };
+    return { ok: true, changed: false }; // ต่างกันอยู่แล้ว ด่านไม่แดง ไม่ยุ่ง
+  }
+  if (compareVersions(n, o) > 0) return { ok: true, changed: false };
+
+  const to = pickVersion(from, old, now); // ใหม่กว่า main เสมอ (มีเทสคุณสมบัตินี้)
+  // เปลี่ยนเฉพาะตัวแรก ตรงกับที่ด่านอ่าน (head -1) · ไม่แตะขึ้นบรรทัด CRLF
+  const text = String(prText).replace(SMOKE_RE, (m, v) => m.slice(0, m.length - v.length - 1) + to + '"');
+  return { ok: true, changed: true, text, from, main: old, to };
+}
+
 /**
  * แก้บล็อกชนในเนื้อไฟล์หนึ่งไฟล์
  * @returns {{ok:true, text, from:{ours,theirs}, to}} | {{ok:false, reason}}
@@ -168,6 +217,42 @@ export function resolveFiles(paths, { now = new Date(), read = readFileSync, wri
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (process.argv[2] === 'ensure-newer') {
+    // ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main>
+    // ผลขึ้นต้นด้วย "บัมป์แล้ว" · "ไม่ต้องบัมป์" · "บัมป์ไม่ได้"
+    // ⚠️ workflow ใช้คำขึ้นต้นเหล่านี้แยกกรณี — เปลี่ยนคำต้องไปแก้ version-conflict.yml ด้วย
+    const [prPath, mainPath] = process.argv.slice(3);
+    if (!prPath || !mainPath) {
+      console.error('ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main>');
+      process.exit(2);
+    }
+    let prText;
+    try {
+      prText = readFileSync(prPath, 'utf8');
+    } catch (e) {
+      console.log(`บัมป์ไม่ได้  ${prPath}  อ่านไฟล์ไม่ได้ (${e.code || 'error'})`);
+      process.exit(2);
+    }
+    let mainText = '';
+    try {
+      mainText = readFileSync(mainPath, 'utf8');
+    } catch {
+      mainText = ''; // main ไม่มีไฟล์นี้ = ไฟล์ใหม่ของ PR ด่านไม่แดง
+    }
+    const r = ensureNewer(prText, mainText);
+    if (!r.ok) {
+      console.log(`บัมป์ไม่ได้  ${prPath}  ${r.reason}`);
+      process.exit(2); // ensure-newer: บัมป์ไม่ได้
+    }
+    if (!r.changed) {
+      console.log(`ไม่ต้องบัมป์  ${prPath}`);
+      process.exit(0);
+    }
+    writeFileSync(prPath, r.text, 'utf8');
+    console.log(`บัมป์แล้ว  ${prPath}  ${r.from} (main ${r.main}) -> ${r.to}`);
+    process.exit(0);
+  }
+
   const paths = process.argv.slice(2);
   if (paths.length === 0) {
     console.error('ใช้: node version-conflict.mjs <ไฟล์ที่ชน>...');

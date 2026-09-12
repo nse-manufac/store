@@ -164,5 +164,64 @@ const r4 = resolveFiles(['x.html', 'y.html'], {
 ok('อ่านไฟล์หนึ่งไม่ได้ → ไม่โยน error และไม่เขียนไฟล์อื่นในชุด', r4.ok === false && r4.results[0].reason.includes('ENOENT'));
 fs.rmSync(dir, { recursive: true, force: true });
 
+console.log('\n=== E. เลขรุ่นไม่ชน แต่ไม่ใหม่กว่า main (ด่านบัมป์เวอร์ชันจะแดง) ===');
+// dynamic import เพื่อไม่ต้องแก้บรรทัด import ด้านบน — ฟังก์ชันชุดนี้เพิ่มทีหลัง
+const { versionOf, ensureNewer } = await import('../.github/scripts/version-conflict.mjs');
+const page = (v, body = 'x') => ['<!doctype html>', '<head>', `<meta name="app-version" content="${v}">`, '</head>', body].join('\r\n');
+
+ok('อ่านเลขรุ่นด้วยรูปแบบเดียวกับ ver() ใน smoke.yml', versionOf(page('2026-09-10.7')) === '2026-09-10.7');
+ok('เครื่องหมายคำพูดเดี่ยวไม่นับ — ด่านใน smoke.yml ก็มองไม่เห็น', versionOf("<meta name='app-version' content='2026-09-10.7'>") === '');
+ok('ไม่มีเลขรุ่นคืนค่าว่าง', versionOf('<html></html>') === '');
+
+const eq = ensureNewer(page('2026-09-10.7', 'งานของ PR'), page('2026-09-10.7'), NOW);
+ok('เคสจากรีวิวรอบ 3 ของ #69: เลขเท่ากับ main → บัมป์เป็นลำดับถัดไป', eq.ok && eq.changed && eq.to === '2026-09-10.8', JSON.stringify(eq));
+ok('บัมป์แล้วเนื้อส่วนอื่นไม่เปลี่ยน และยังเป็น CRLF', eq.ok && eq.text === page('2026-09-10.8', 'งานของ PR'));
+const older = ensureNewer(page('2026-09-10.5'), page('2026-09-10.7'), NOW);
+ok('เลขเก่ากว่า main (ด่านผ่านแต่ถอยหลัง) → บัมป์ให้ใหม่กว่าเหมือนตอนชน', older.ok && older.changed && older.to === '2026-09-10.8');
+ok('ใหม่กว่า main อยู่แล้ว → ไม่แตะ', ensureNewer(page('2026-09-10.9'), page('2026-09-10.7'), NOW).changed === false);
+ok('ไฟล์ใหม่ที่ main ยังไม่มี → ไม่แตะ (ด่านไม่แดง)', ensureNewer(page('2026-09-10.1'), '', NOW).changed === false);
+ok('🛑 PR ไม่มีเลขรุ่นเลย → บัมป์ไม่ได้ ไม่เดาเติมให้', ensureNewer('<html></html>', page('2026-09-10.7'), NOW).ok === false);
+ok('🛑 รูปแบบเก่า (ไม่มี .N) เท่ากับ main → บัมป์ไม่ได้ ไม่เดา', ensureNewer(page('2026-08-11'), page('2026-08-11'), NOW).ok === false);
+ok('รูปแบบเก่าแต่ต่างจาก main → ไม่แตะ (ด่านไม่แดง)', ensureNewer(page('2026-08-12'), page('2026-08-11'), NOW).changed === false);
+const twoMeta = [meta('2026-09-10.7'), meta('2026-09-10.7')].join('\n');
+const tw = ensureNewer(twoMeta, page('2026-09-10.7'), NOW);
+ok('เปลี่ยนแค่ตัวแรก — ตรงกับที่ด่านอ่าน (head -1)',
+   tw.ok && tw.text.split('\n')[0] === meta('2026-09-10.8') && tw.text.split('\n')[1] === meta('2026-09-10.7'), JSON.stringify(tw));
+
+let bad3 = '';
+for (let i = 0; i < 2000 && !bad3; i++) {
+  const d = () => `2026-09-${String(1 + Math.floor(Math.random() * 15)).padStart(2, '0')}`;
+  const s = () => 1 + Math.floor(Math.random() * 12);
+  const p = `${d()}.${s()}`, m = `${d()}.${s()}`;
+  const r = ensureNewer(page(p), page(m), NOW);
+  const got = r.changed ? r.to : p;
+  if (!r.ok || compareVersions(parseVersion(got), parseVersion(m)) <= 0) bad3 = `${p} / ${m} -> ${JSON.stringify(r)}`;
+}
+ok('สุ่ม 2000 คู่: หลังเรียกแล้วเลขของ PR ใหม่กว่า main เสมอ', bad3 === '', bad3);
+
+// เรียกผ่านบรรทัดคำสั่งแบบที่ workflow เรียก — ผลต้องขึ้นต้นด้วยคำที่ workflow ใช้แยกกรณี
+const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-en-'));
+const prF = path.join(dir2, 'pr.html');
+const mainF = path.join(dir2, 'main.html');
+fs.writeFileSync(prF, page('2026-09-10.7', 'งาน'));
+fs.writeFileSync(mainF, page('2026-09-10.7'));
+const e1 = run('ensure-newer', prF, mainF);
+ok('ensure-newer: เท่ากัน → รหัสออก 0 ขึ้นต้นว่า "บัมป์แล้ว" และไฟล์ถูกเขียน',
+   e1.status === 0 && e1.stdout.startsWith('บัมป์แล้ว') && versionOf(fs.readFileSync(prF, 'utf8')) === versionOf(page(pickVersion('2026-09-10.7', '2026-09-10.7'))),
+   e1.stdout + e1.stderr);
+const afterFirst = versionOf(fs.readFileSync(prF, 'utf8'));
+const e2 = run('ensure-newer', prF, mainF);
+ok('ensure-newer: รันซ้ำ → "ไม่ต้องบัมป์" ไม่บัมป์ซ้อน',
+   e2.status === 0 && e2.stdout.startsWith('ไม่ต้องบัมป์') && versionOf(fs.readFileSync(prF, 'utf8')) === afterFirst, e2.stdout);
+fs.writeFileSync(prF, page('2026-08-11'));
+fs.writeFileSync(mainF, page('2026-08-11'));
+const e3 = run('ensure-newer', prF, mainF);
+ok('ensure-newer: บัมป์ไม่ได้ → รหัสออก 2 ขึ้นต้นว่า "บัมป์ไม่ได้" ไฟล์ไม่ถูกแตะ',
+   e3.status === 2 && e3.stdout.startsWith('บัมป์ไม่ได้') && versionOf(fs.readFileSync(prF, 'utf8')) === '2026-08-11', e3.stdout);
+ok('ensure-newer: อาร์กิวเมนต์ไม่ครบ → รหัสออก 2', run('ensure-newer', prF).status === 2);
+const e5 = run('ensure-newer', prF, path.join(dir2, 'ไม่มีบน-main.html'));
+ok('ensure-newer: ไฟล์บน main ไม่มี (ไฟล์ใหม่) → "ไม่ต้องบัมป์"', e5.status === 0 && e5.stdout.startsWith('ไม่ต้องบัมป์'), e5.stdout);
+fs.rmSync(dir2, { recursive: true, force: true });
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
