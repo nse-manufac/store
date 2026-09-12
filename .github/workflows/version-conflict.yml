@@ -11,6 +11,9 @@ name: แก้ชนเลขรุ่นอัตโนมัติ
 #
 # ขอบเขตแคบโดยตั้งใจ
 #   ✓ แก้เฉพาะใบที่ชน **แค่บรรทัด app-version** ในไฟล์ .html
+#   ✓ ใบที่ไม่ชน แต่เลขรุ่นไม่ใหม่กว่า main (ด่านบัมป์เวอร์ชันจะแดง) — เมิจ main แล้วบัมป์ให้
+#     ผู้ตรวจรอบ 3 ของ #69 พิสูจน์ว่าหลายใบที่ชนพร้อมกันได้เลขเดียวกัน พอใบแรกเมิจ
+#     ใบที่เหลือไม่ชนแล้วแต่ด่านแดง — ถ้าแก้แค่ตอนชน เจ้าของก็ยังต้องมาบัมป์มือเหมือนเดิม
 #   ✗ ชนอย่างอื่นด้วยแม้บรรทัดเดียว — ไม่แตะอะไรเลย คอมเมนต์บอกครั้งเดียวต่อ commit
 #   ✗ ไม่เรียกโมเดล ไม่เดาว่าโค้ดฝั่งไหนถูก — bash กับสคริปต์ที่มีเทสล้วน ๆ
 #
@@ -37,7 +40,7 @@ concurrency:
 
 jobs:
   resolve:
-    name: แก้ PR ที่ชนแค่เลขรุ่น
+    name: แก้เลขรุ่นของ PR ให้ผ่านด่าน
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -124,7 +127,19 @@ jobs:
 
           # ช่วงเงียบ — commit ที่เพิ่งเกิดแปลว่าอาจมี session อื่นกำลัง push ต่อ
           # (10 ก.ย. 2026: #68 ถูกสร้าง 1 นาทีก่อนตรวจเจอว่าชน)
+          # ค่าที่ตั้งผิดรูปต้องไม่ถูกใช้เงียบ ๆ — [ -lt ] กับค่าที่ไม่ใช่ตัวเลขไม่ทำให้ล้ม แต่คืนค่าเท็จ
+          # ช่วงเงียบจึงถูกปิดไปโดยไม่มีใครรู้ แล้วตัวแก้จะ push ใส่ branch ที่เพิ่งมีคน push (ทดลองแล้ว 12 ก.ย. 2026)
+          if ! [[ "$QUIET_MIN" =~ ^[0-9]+$ ]]; then
+            echo "::warning::VERSION_CONFLICT_QUIET_MINUTES ไม่ใช่ตัวเลข ('$QUIET_MIN') — ใช้ 10 นาที"
+            QUIET_MIN=10
+          fi
           age=$(( ( $(date +%s) - $(git log -1 --format=%ct "$head_sha") ) / 60 ))
+          # เวลาของ commit อยู่ในอนาคต (นาฬิกาเครื่องที่ push เพี้ยน) — อายุติดลบน้อยกว่าช่วงเงียบเสมอ
+          # ถ้าไม่ดัก ใบนั้นจะถูกข้ามตลอดไป
+          if [ "$age" -lt 0 ]; then
+            echo "► เวลาของ commit อยู่ในอนาคต ($age นาที) — ถือว่าเงียบพอแล้ว"
+            age=$QUIET_MIN
+          fi
           if [ "$age" -lt "$QUIET_MIN" ]; then
             note "commit ล่าสุดเพิ่ง $age นาที (ต้องเงียบ $QUIET_MIN นาที) — ข้าม รอรอบหน้า"
             exit 0
@@ -136,14 +151,17 @@ jobs:
           trap 'cd "$GITHUB_WORKSPACE"; git worktree remove --force "$wt" >/dev/null 2>&1 || true' EXIT
           cd "$wt"
 
-          if git -c merge.conflictStyle=merge merge --no-ff --no-commit origin/main >/dev/null 2>&1; then
-            git merge --abort >/dev/null 2>&1 || true
-            note "เมิจ main เข้าได้ไม่ชน — ไม่ต้องทำอะไร"
-            exit 0
-          fi
+          # เมิจ main เข้าก่อนเสมอ ไม่ว่าจะชนหรือไม่ — แม้แค่จะบัมป์เลขก็ต้องเมิจก่อน
+          # ถ้าบัมป์บน branch ของ PR ตรง ๆ บรรทัดเลขรุ่นจะเปลี่ยนต่างจาก main แล้วกลายเป็นชนแทน
+          # ถ้าสุดท้ายไม่มีอะไรต้องแก้ จะยกเลิกการเมิจ ไม่ push merge commit เปล่า ๆ
+          clean=1
+          git -c merge.conflictStyle=merge merge --no-ff --no-commit origin/main >/dev/null 2>&1 || clean=0
 
-          mapfile -d '' -t conflicted < <(git diff --name-only --diff-filter=U -z)
-          if [ "${#conflicted[@]}" -eq 0 ]; then
+          conflicted=()
+          if [ "$clean" = 0 ]; then
+            mapfile -d '' -t conflicted < <(git diff --name-only --diff-filter=U -z)
+          fi
+          if [ "$clean" = 0 ] && [ "${#conflicted[@]}" -eq 0 ]; then
             echo "::error::#$num เมิจล้มแต่ไม่มีไฟล์ชน — ไม่ใช่ conflict ธรรมดา"
             exit 1
           fi
@@ -154,7 +172,11 @@ jobs:
             if [[ "$f" != *.html || "$f" == */lib/* ]]; then others+=("$f"); fi
           done
 
-          if [ "${#others[@]}" -eq 0 ]; then
+          out=""
+          rc=0
+          if [ "$clean" = 1 ]; then
+            : # ไม่ชน — ไม่มีอะไรให้ตัวแก้ชนทำ ข้ามไปตรวจด่านบัมป์เวอร์ชัน
+          elif [ "${#others[@]}" -eq 0 ]; then
             set +e
             out=$(node "$TRUSTED" "${conflicted[@]}" 2>&1)
             rc=$?
@@ -199,28 +221,72 @@ jobs:
             exit 0
           fi
 
+          if [ "$clean" = 0 ]; then
+            git add -- "${conflicted[@]}"
+            left=$(git diff --name-only --diff-filter=U)
+            if [ -n "$left" ]; then
+              echo "::error::#$num แก้แล้วยังเหลือไฟล์ชน: $left"
+              exit 1
+            fi
+            # ยืนยันจากไฟล์จริงว่าไม่มี marker หลงเหลือ
+            if grep -lE '^(<{7}|>{7})( |$)' -- "${conflicted[@]}"; then
+              echo "::error::#$num ยังมี marker ของ conflict ค้างในไฟล์"
+              exit 1
+            fi
+          fi
+
+          # ═══ ด่านบัมป์เวอร์ชัน — นิยามเดียวกับ smoke.yml ═══════════════════
+          # ไฟล์ .html ที่ไม่ใช่ lib/ และต่างจาก main ต้องมีเลขรุ่นใหม่กว่า main
+          # เทียบ index หลังเมิจกับ main = ไฟล์ที่ merge commit ของ PR ต่างจาก main ซึ่งด่านใช้ตรวจ
+          # ตัวบัมป์รันจาก checkout ของ main ($TRUSTED) เหมือนตัวแก้ชน
+          bumps=""
+          cannot=""
+          mapfile -d '' -t apps < <(git diff --cached --name-only -z origin/main -- '*.html')
+          for f in "${apps[@]}"; do
+            if [[ "$f" == */lib/* ]] || [ ! -f "$f" ]; then continue; fi
+            git show "origin/main:$f" > "$RUNNER_TEMP/main-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/main-$num.html"
+            set +e
+            o=$(node "$TRUSTED" ensure-newer "$f" "$RUNNER_TEMP/main-$num.html" 2>&1)
+            r=$?
+            set -e
+            echo "$o"
+            if [ "$r" -ne 0 ] && [ "$r" -ne 2 ]; then
+              echo "::error::#$num ตัวบัมป์เลขรุ่นล้มกับ $f (รหัส $r)"
+              exit 1
+            fi
+            # คำขึ้นต้นมาจาก ensure-newer ใน version-conflict.mjs — เปลี่ยนที่นั่นต้องแก้ที่นี่
+            case "$o" in
+              "บัมป์แล้ว"*)    git add -- "$f"; bumps="${bumps}${o}"$'\n' ;;
+              "ไม่ต้องบัมป์"*) ;;
+              *)               cannot="${cannot}${o}"$'\n' ;;
+            esac
+          done
+
+          if [ "$clean" = 1 ] && [ -z "$bumps" ]; then
+            git merge --abort >/dev/null 2>&1 || true
+            if [ -n "$cannot" ]; then
+              note "เลขรุ่นเท่ากับ main แต่บัมป์เองไม่ได้ — $(head -n 1 <<< "$cannot")"
+            else
+              note "เมิจ main เข้าได้ไม่ชน และเลขรุ่นใหม่กว่า main แล้ว — ไม่ต้องทำอะไร"
+            fi
+            exit 0
+          fi
+
           if [ -z "${PUSH_TOKEN:-}" ]; then
             git merge --abort >/dev/null 2>&1 || true
             echo "::error::#$num แก้ได้แต่ push ไม่ได้ — ไม่มี secret AGENT_PUSH_PAT"
             exit 1
           fi
 
-          git add -- "${conflicted[@]}"
-          left=$(git diff --name-only --diff-filter=U)
-          if [ -n "$left" ]; then
-            echo "::error::#$num แก้แล้วยังเหลือไฟล์ชน: $left"
-            exit 1
-          fi
-          # ด่านสุดท้ายก่อน push — ยืนยันจากไฟล์จริงว่าไม่มี marker หลงเหลือ
-          if grep -lE '^(<{7}|>{7})( |$)' -- "${conflicted[@]}"; then
-            echo "::error::#$num ยังมี marker ของ conflict ค้างในไฟล์"
-            exit 1
-          fi
-
           # ข้อความ commit ส่งผ่าน printf %s ลงไฟล์ ไม่ใช่ heredoc
           # $out มีชื่อไฟล์จาก branch ของ PR ปนอยู่ · heredoc แบบไม่มี quote ไม่ขยายค่าของตัวแปรซ้ำก็จริง
           # (พิสูจน์แล้ว 10 ก.ย. 2026) แต่คนอ่านต้องหยุดคิดทุกครั้งใน step ที่ถือ PAT — เขียนแบบที่ไม่ต้องคิด
-          printf 'เมิจ main เข้ามา แก้ conflict ที่ชนแค่บรรทัด app-version\n\n%s\n\nแก้โดย workflow version-conflict.yml — ไม่มีการเปลี่ยนแปลงอื่นนอกจากการเมิจ main\n' "$out" > "$RUNNER_TEMP/msg-$num.txt"
+          if [ "$clean" = 0 ]; then
+            title="เมิจ main เข้ามา แก้ conflict ที่ชนแค่บรรทัด app-version"
+          else
+            title="เมิจ main เข้ามา บัมป์เลขรุ่นให้ใหม่กว่า main"
+          fi
+          printf '%s\n\n%s\n%s\nแก้โดย workflow version-conflict.yml — ไม่มีการเปลี่ยนแปลงอื่นนอกจากการเมิจ main และเลขรุ่น\n' "$title" "$out" "$bumps" > "$RUNNER_TEMP/msg-$num.txt"
           git commit -q -F "$RUNNER_TEMP/msg-$num.txt"
 
           if ! git push -q "https://x-access-token:${PUSH_TOKEN}@github.com/${REPO}.git" "HEAD:refs/heads/${head}"; then
@@ -236,21 +302,40 @@ jobs:
 
           {
             echo "<!-- agent-note: ไม่นับเป็นรอบตอบ -->"
-            echo "🔀 **แก้ conflict ของเลขรุ่นให้แล้ว**"
-            echo ""
-            echo "ใบนี้ชนกับ \`main\` แค่บรรทัด \`app-version\` — เมิจ \`main\` (\`${MAIN_SHA:0:7}\`)"
-            echo "เข้ามาแล้วที่ \`${new_sha:0:7}\` ไม่มีการเปลี่ยนแปลงอื่น"
+            if [ "$clean" = 0 ]; then
+              echo "🔀 **แก้ conflict ของเลขรุ่นให้แล้ว**"
+              echo ""
+              echo "ใบนี้ชนกับ \`main\` แค่บรรทัด \`app-version\` — เมิจ \`main\` (\`${MAIN_SHA:0:7}\`)"
+              echo "เข้ามาแล้วที่ \`${new_sha:0:7}\` ไม่มีการเปลี่ยนแปลงอื่น"
+            else
+              echo "🔢 **บัมป์เลขรุ่นให้แล้ว**"
+              echo ""
+              echo "ด่าน \`ตรวจว่าบัมป์ app-version แล้ว\` จะแดง เพราะเลขรุ่นของใบนี้ไม่ใหม่กว่า \`main\`"
+              echo "(มักเกิดเมื่อใบอื่นที่ใช้เลขเดียวกันเพิ่งถูกเมิจ หรือแก้ไฟล์แล้วลืมบัมป์)"
+              echo "เมิจ \`main\` (\`${MAIN_SHA:0:7}\`) เข้ามาแล้วตั้งเลขใหม่ที่ \`${new_sha:0:7}\`"
+            fi
             echo ""
             echo '```'
-            echo "$out"
+            printf '%s\n%s' "$out" "$bumps" | sed '/^$/d'
             echo '```'
+            if [ -n "$cannot" ]; then
+              echo ""
+              echo "⚠️ ไฟล์ต่อไปนี้เลขรุ่นเท่ากับ \`main\` แต่บัมป์เองไม่ได้ — ต้องแก้มือ"
+              echo '```'
+              printf '%s' "$cannot"
+              echo '```'
+            fi
             echo ""
             echo "ด่านทั้งหมดกำลังรันใหม่บน commit นี้"
             echo ""
             echo "ถ้ามี session หรือ agent ทำงานกับ branch นี้อยู่ ต้อง \`git pull\` ก่อน push ครั้งถัดไป"
           } > "$RUNNER_TEMP/fixed-$num.md"
           gh pr comment "$num" -R "$REPO" --body-file "$RUNNER_TEMP/fixed-$num.md"
-          note "แก้แล้ว push ที่ ${new_sha:0:7}"
+          if [ "$clean" = 0 ]; then
+            note "แก้แล้ว push ที่ ${new_sha:0:7}"
+          else
+            note "บัมป์เลขรุ่นแล้ว push ที่ ${new_sha:0:7}"
+          fi
           EOS
 
           errors=0
