@@ -14,6 +14,7 @@ name: แก้ชนเลขรุ่นอัตโนมัติ
 #   ✓ ใบที่ไม่ชน แต่เลขรุ่นไม่ใหม่กว่า main (ด่านบัมป์เวอร์ชันจะแดง) — เมิจ main แล้วบัมป์ให้
 #     ผู้ตรวจรอบ 3 ของ #69 พิสูจน์ว่าหลายใบที่ชนพร้อมกันได้เลขเดียวกัน พอใบแรกเมิจ
 #     ใบที่เหลือไม่ชนแล้วแต่ด่านแดง — ถ้าแก้แค่ตอนชน เจ้าของก็ยังต้องมาบัมป์มือเหมือนเดิม
+#     ยกเว้นใบ draft — ไม่บัมป์ให้ แต่ยังแก้ชนให้ (คนอาจกำลังทำใบนั้นอยู่)
 #   ✗ ชนอย่างอื่นด้วยแม้บรรทัดเดียว — ไม่แตะอะไรเลย คอมเมนต์บอกครั้งเดียวต่อ commit
 #   ✗ ไม่เรียกโมเดล ไม่เดาว่าโค้ดฝั่งไหนถูก — bash กับสคริปต์ที่มีเทสล้วน ๆ
 #
@@ -91,7 +92,7 @@ jobs:
           MAIN_SHA=$(git rev-parse origin/main)
 
           prs=$(gh pr list -R "$REPO" --base main --state open --limit 50 \
-                  --json number,headRefName,isCrossRepository)
+                  --json number,headRefName,isCrossRepository,isDraft)
           count=$(jq length <<< "$prs")
           echo "PR ที่เปิดอยู่ $count ใบ · main @ ${MAIN_SHA:0:7}"
           if [ "$count" -eq 0 ]; then exit 0; fi
@@ -115,7 +116,7 @@ jobs:
           # ═══════════════════════════════════════════════════════════
           cat > "$RUNNER_TEMP/one-pr.sh" <<'EOS'
           set -euo pipefail
-          num="$1"; head="$2"; fork="$3"
+          num="$1"; head="$2"; fork="$3"; draft="$4"
 
           note() { printf '#%s\t%s\n' "$num" "$1" >> "$RESULTS"; echo "► $1"; }
 
@@ -241,7 +242,14 @@ jobs:
           # ตัวบัมป์รันจาก checkout ของ main ($TRUSTED) เหมือนตัวแก้ชน
           bumps=""
           cannot=""
-          mapfile -d '' -t apps < <(git diff --cached --name-only -z origin/main -- '*.html')
+          apps=()
+          # ใบ draft ไม่บัมป์ให้ (ผู้ตรวจรอบ 2 ของ #70) — ยังไม่พร้อมเมิจ ด่านแดงจึงไม่เสียอะไร
+          # แต่ merge commit ของหุ่นยนต์จะทำให้ push ถัดไปของคนที่กำลังทำใบนั้นโดนปฏิเสธ
+          # ตัวแก้ชนข้างบนยังทำให้ draft เหมือนเดิม เพราะใบที่ชนไม่มีเช็คไหนรันเลย
+          # พอเปลี่ยนเป็น ready รอบ cron ถัดไปจะบัมป์ให้เอง
+          if [ "$draft" != "true" ]; then
+            mapfile -d '' -t apps < <(git diff --cached --name-only -z origin/main -- '*.html')
+          fi
           for f in "${apps[@]}"; do
             if [[ "$f" == */lib/* ]] || [ ! -f "$f" ]; then continue; fi
             git show "origin/main:$f" > "$RUNNER_TEMP/main-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/main-$num.html"
@@ -264,7 +272,9 @@ jobs:
 
           if [ "$clean" = 1 ] && [ -z "$bumps" ]; then
             git merge --abort >/dev/null 2>&1 || true
-            if [ -n "$cannot" ]; then
+            if [ "$draft" = "true" ]; then
+              note "เป็น draft — ไม่บัมป์เลขรุ่น รอเปลี่ยนเป็น ready"
+            elif [ -n "$cannot" ]; then
               note "เลขรุ่นเท่ากับ main แต่บัมป์เองไม่ได้ — $(head -n 1 <<< "$cannot")"
             else
               note "เมิจ main เข้าได้ไม่ชน และเลขรุ่นใหม่กว่า main แล้ว — ไม่ต้องทำอะไร"
@@ -339,14 +349,14 @@ jobs:
           EOS
 
           errors=0
-          while IFS=$'\t' read -r num head fork; do
+          while IFS=$'\t' read -r num head fork draft; do
             echo "::group::#$num  $head"
-            if ! bash "$RUNNER_TEMP/one-pr.sh" "$num" "$head" "$fork"; then
+            if ! bash "$RUNNER_TEMP/one-pr.sh" "$num" "$head" "$fork" "$draft"; then
               errors=$((errors + 1))
               printf '#%s\t%s\n' "$num" "ล้มโดยไม่คาดคิด — ดู log ของกลุ่มนี้" >> "$RESULTS"
             fi
             echo "::endgroup::"
-          done < <(jq -r '.[] | [.number, .headRefName, .isCrossRepository] | @tsv' <<< "$prs")
+          done < <(jq -r '.[] | [.number, .headRefName, .isCrossRepository, .isDraft] | @tsv' <<< "$prs")
 
           {
             echo "### แก้ชนเลขรุ่น · main @ ${MAIN_SHA:0:7}"
