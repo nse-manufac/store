@@ -15,10 +15,10 @@ import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
-import { makeEntry, voidEntry, REASONS, KINDS, counts as alive } from './core/ledger.js';
+import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
-import { writeCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
+import { writeBinCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
@@ -1614,8 +1614,12 @@ createApp({
           ? `Kit List กลุ่มจ่ายรวมล่าสุด ${chemDates.value[0]}` : 'ยังไม่มี Kit List กลุ่มจ่ายรวม' }
     ]);
 
+    /** ชนิดรายการที่โปรแกรมรุ่นนี้ไม่รู้จัก — มีแปลว่าเครื่องอื่นใช้รุ่นใหม่กว่า ยอดในเครื่องนี้คลาด (ledger.js) */
+    const strangeKinds = computed(() => unknownKinds(entries.value));
+
     /** เรื่องที่ต้องตามแก้ — ตัวเลขที่ไม่ควรค้างไว้นาน */
     const homeAlerts = computed(() => [
+      { n: strangeKinds.value.reduce((s, k) => s + k.n, 0), label: 'รายการที่โปรแกรมรุ่นนี้ไม่รู้จัก', tab: 'bal', bad: true },
       { n: openShorts.value.length, label: 'ของขาด / รอส่ง', tab: 'fshort', bad: false },
       { n: oddRows.value.length, label: 'รายการที่ควรไปดู', tab: 'bal', bad: true },
       { n: needReview.value, label: 'รหัสรอตรวจในทะเบียน', tab: 'mat', bad: false },
@@ -2001,11 +2005,12 @@ createApp({
         wb.creator = 'ระบบ Bin Card';
         const nm = sheetNameFor(cardCode.value);
         wb.addWorksheet(nm);
-        writeCard(wb.getWorksheet(nm), info, rows);
+        const bad = writeBinCard(wb.getWorksheet(nm), info, rows);
         const buf = await wb.xlsx.writeBuffer();
         saveBlob(new Blob([buf], { type: 'application/octet-stream' }),
                  `BinCard_${cardCode.value}_${todayLocal()}.xlsx`);
-        flash('เซฟการ์ดเรียบร้อย');
+        flash(bad ? `เซฟการ์ดแล้ว แต่มี ${bad} รายการที่โปรแกรมรุ่นนี้ไม่รู้จัก — ยอดในไฟล์ไม่ถูกต้อง โหลดโปรแกรมใหม่แล้วออกใหม่`
+                  : 'เซฟการ์ดเรียบร้อย', !!bad);
       } catch (err) { flash('ออกไฟล์ไม่สำเร็จ: ' + err.message, true); }
       finally { expBusy.value = false; }
     }
@@ -2041,7 +2046,7 @@ createApp({
         await loadLib('lib/exceljs.min.js', 'ExcelJS');
         await loadLib('lib/jszip.min.js', 'JSZip');
         const zip = new JSZip();
-        let done = 0;
+        let done = 0, bad = 0;
         for (const [cat, codes] of plan.byCat) {
           const wb = new ExcelJS.Workbook();
           wb.creator = 'ระบบ Bin Card';
@@ -2050,7 +2055,7 @@ createApp({
             const rows = toCardLines(cardRows(entries.value, entity.value, code), info.unit);
             const nm = sheetNameFor(code);
             wb.addWorksheet(nm);
-            writeCard(wb.getWorksheet(nm), info, rows);
+            bad += writeBinCard(wb.getWorksheet(nm), info, rows);
             done++;
             if (done % 20 === 0) {
               expMsg.value = `กำลังสร้าง ${done} / ${plan.cards} การ์ด...`;
@@ -2062,8 +2067,9 @@ createApp({
         expMsg.value = 'กำลังบีบไฟล์...';
         saveBlob(await zip.generateAsync({ type: 'blob' }),
                  `BinCard_${entity.value}_${todayLocal()}.zip`);
-        expMsg.value = `เสร็จแล้ว · ${plan.cards} การ์ด · ${plan.lines} บรรทัด · ${plan.byCat.size} ไฟล์`;
-        flash('ออก Bin Card เรียบร้อย');
+        expMsg.value = `เสร็จแล้ว · ${plan.cards} การ์ด · ${plan.lines} บรรทัด · ${plan.byCat.size} ไฟล์`
+          + (bad ? ` · ⚠ มี ${bad} รายการที่โปรแกรมรุ่นนี้ไม่รู้จัก การ์ดที่โดนมีคำเตือนพิมพ์ไว้ — โหลดโปรแกรมใหม่แล้วออกใหม่` : '');
+        flash(bad ? 'ออกไฟล์แล้ว แต่ยอดบางการ์ดไม่ถูกต้อง — ดูข้อความใต้ปุ่ม' : 'ออก Bin Card เรียบร้อย', !!bad);
       } catch (err) {
         expMsg.value = 'ผิดพลาด: ' + err.message;
         flash('ออกไฟล์ไม่สำเร็จ: ' + err.message, true);
@@ -2109,7 +2115,7 @@ createApp({
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
-             homeTasks, homeAlerts, homeIn, homeOut, homeToday,
+             homeTasks, homeAlerts, strangeKinds, homeIn, homeOut, homeToday,
              sync, pending, wiringGap, urlNote, onSyncUrl, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
              newVersion, verBusy, checkUpdate, reloadApp,
              shareLink, copyShareLink, fromLink, linkCopied,

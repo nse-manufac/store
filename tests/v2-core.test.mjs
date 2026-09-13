@@ -5,7 +5,7 @@
  * เน้นข้อที่ถ้าพลาดแล้วยอดเพี้ยนโดยไม่มีอะไรเตือน ซึ่งเป็นความผิดพลาดชนิดที่แพงที่สุด
  * ในโปรแกรมคลัง เพราะกว่าจะรู้ก็ผ่านไปหลายเดือนแล้ว
  */
-import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5 } from '../v2/core/ledger.js';
+import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds } from '../v2/core/ledger.js';
 import { balanceOf, balances, cardRows, oddBalances, overBom, receivedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
@@ -145,6 +145,33 @@ ok('ของนิติบุคคลอื่นไม่ปนเข้า�
 throws('receivedOfDoc ก็ลืมส่ง entity ไม่ได้ (A3)', () => receivedOfDoc(rcv, '', 'PO1'), 'นิติบุคคล');
 ok('ไม่ได้ใส่เลข PO = ไม่มีอะไรให้แสดง', receivedOfDoc(rcv, E, '').size === 0);
 ok('เก็บเวลาที่เคยรับไว้ให้ฝั่งแสดงผลแปลงเป็นวันที่', got.get(base.material_code).ats.length === 2);
+
+console.log('\n=== L. ชนิดรายการที่โปรแกรมรุ่นนี้ไม่รู้จัก (เครื่องอื่นใช้รุ่นใหม่กว่า) ===');
+// รายการจากเครื่องรุ่นใหม่ที่ซิงค์มาถึง — makeEntry ของรุ่นนี้สร้างไม่ได้ จึงประกอบเองแบบแถวที่ดึงมาจากชีต
+const future = o => ({ ...mk({ kind: 'issue', qty: 1 }), ...o });
+const mixed = [
+  mk({ kind: 'receive', qty: 50, lot: 'L1', doc_ref: 'PO1' }),
+  future({ kind: 'sendback', qty: 20, doc_ref: 'PO1' }),
+  future({ kind: 'sendback', qty: 5, doc_ref: 'PO1' }),
+  voidEntry(future({ kind: 'mystery', qty: 9 }), { by: 'เจ้าของ', reason: 'คีย์ผิด' }),
+  future({ kind: 'sendback', qty: 7, entity: 'OTHER' })
+];
+let sq;
+try { sq = signedQty(mixed[1]); } catch (e) { sq = e; }
+ok('คิดยอดต่อได้ ไม่โยน error — โยนในลูปคิดยอด = จอขาวทั้งโปรแกรม', sq === 0, String(sq));
+const uk = unknownKinds(mixed);
+ok('ฟ้องชนิดที่ไม่รู้จักพร้อมจำนวน นับทุกนิติบุคคล (บอกว่าโปรแกรมเก่า ไม่ใช่ยอดของใคร)',
+   uk.length === 1 && uk[0].kind === 'sendback' && uk[0].n === 3, JSON.stringify(uk));
+ok('รายการที่ยกเลิกแล้วไม่ฟ้อง เพราะไม่ได้นับเข้ายอดอยู่แล้ว (B1)', !uk.some(k => k.kind === 'mystery'));
+ok('ชนิดที่รู้จักครบ ไม่ฟ้องอะไร', unknownKinds(led).length === 0);
+ok('ชื่อที่ติดมากับทุกอ็อบเจกต์ไม่นับว่ารู้จัก', unknownKinds([future({ kind: 'constructor' })]).length === 1);
+const oddU = oddBalances(mixed, E).find(o => o.code === base.material_code);
+ok('รหัสที่โดนขึ้นในรายการที่ควรไปดู แม้ยอดไม่ติดลบ', !!oddU && oddU.bal === 50, JSON.stringify(oddU));
+ok('เหตุผลบอกว่ามีรายการที่ไม่รู้จัก และบอกทางออกให้โหลดใหม่ (G3)',
+   !!oddU && oddU.why.some(w => w.includes('ไม่รู้จัก') && w.includes('โหลดโปรแกรมใหม่')), oddU && oddU.why.join(' | '));
+ok('นับเฉพาะของนิติบุคคลนี้ (A3)', !!oddU && oddU.unknown === 2, oddU && String(oddU.unknown));
+ok('รหัสที่โดนขึ้นก่อนรหัสยอดติดลบ เพราะข้ออื่นคิดจากยอดที่ผิดไปแล้ว',
+   oddBalances([mk({ kind: 'issue', qty: 5, material_code: 'NEG1' }), ...mixed], E)[0].code === base.material_code);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

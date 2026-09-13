@@ -8,7 +8,7 @@
  * บริษัทมีหลายนิติบุคคลใช้แอปเดียวกัน การลืมกรองทำให้ยอดข้ามบริษัทกันโดยไม่มีอะไรเตือน
  * จึงทำให้ "ลืมไม่ได้" ด้วยการไม่ให้มีค่าเริ่มต้น
  */
-import { signedQty, counts, round5, KINDS } from './ledger.js';
+import { signedQty, counts, round5, KINDS, isKnownKind } from './ledger.js';
 
 function need(entity) {
   if (!entity) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
@@ -98,6 +98,8 @@ export function cardRows(entries, entity, code) {
  *   negative  ยอดติดลบ = มีของออกมากกว่าที่เคยเข้า แปลว่ามีอะไรไม่ถูกแน่ ๆ
  *   stale     ไม่ขยับมานาน = อาจเลิกใช้ไปแล้ว หรือมีคนลืมคีย์
  *   heavy     จ่ายออกรวมเกินที่เคยรับเข้ามาก ๆ ทั้งที่ยอดยังไม่ติดลบ
+ *   unknown   มีรายการชนิดที่โปรแกรมรุ่นนี้ไม่รู้จัก ถูกคิดเป็นศูนย์ = ยอดไม่ตรงกับเครื่องอื่นแน่นอน
+ *             ขึ้นก่อนทุกข้อ เพราะข้ออื่นคำนวณจากยอดที่ผิดไปแล้ว (ดู unknownKinds ใน ledger.js)
  */
 export function oddBalances(entries, entity, { staleDays = 90, now = new Date() } = {}) {
   need(entity);
@@ -105,7 +107,8 @@ export function oddBalances(entries, entity, { staleDays = 90, now = new Date() 
   for (const e of entries) {
     if (e.entity !== entity || !counts(e)) continue;
     const c = String(e.material_code);
-    const a = acc.get(c) || { code: c, bal: 0, in: 0, out: 0, last: '' };
+    const a = acc.get(c) || { code: c, bal: 0, in: 0, out: 0, last: '', unknown: 0 };
+    if (!isKnownKind(e.kind)) a.unknown++;
     const d = signedQty(e);
     a.bal = round5(a.bal + d);
     if (d > 0) a.in = round5(a.in + d); else a.out = round5(a.out - d);
@@ -116,12 +119,13 @@ export function oddBalances(entries, entity, { staleDays = 90, now = new Date() 
   const out = [];
   for (const a of acc.values()) {
     const why = [];
+    if (a.unknown) why.push(`มี ${a.unknown} รายการที่โปรแกรมรุ่นนี้ไม่รู้จัก — ยอดไม่ตรงกับเครื่องอื่น ต้องโหลดโปรแกรมใหม่`);
     if (a.bal < 0) why.push('ยอดติดลบ');
     if (a.bal !== 0 && a.last && a.last < cutoff) why.push(`ไม่ขยับมา ${staleDays} วัน`);
     if (a.in > 0 && a.out > a.in * 1.5) why.push('จ่ายออกมากกว่าที่เคยรับเข้าผิดปกติ');
     if (why.length) out.push({ ...a, why });
   }
-  return out.sort((x, y) => x.bal - y.bal);
+  return out.sort((x, y) => (y.unknown - x.unknown) || (x.bal - y.bal));
 }
 
 /**

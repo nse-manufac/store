@@ -77,6 +77,30 @@ export function signedQty(e) {
 /** รายการที่ถูกยกเลิกไม่นับเข้ายอด แต่ยังอยู่ในสมุดให้เห็น — INVARIANTS B */
 export const counts = e => !e.voided;
 
+/** โปรแกรมรุ่นนี้รู้จักชนิดนี้ไหม — ใช้ hasOwnProperty เพราะชื่ออย่าง "constructor" มีติดมากับทุกอ็อบเจกต์ */
+export const isKnownKind = kind => Object.prototype.hasOwnProperty.call(KINDS, kind);
+
+/**
+ * ชนิดรายการที่นับเข้ายอด แต่โปรแกรมรุ่นนี้ไม่รู้จัก — คืน [{ kind, n }] เรียงตามชื่อชนิด
+ *
+ * เกิดได้ทางเดียว: เครื่องอื่นใช้โปรแกรมรุ่นใหม่กว่า บันทึกชนิดที่เพิ่งเพิ่มเข้า KINDS แล้วซิงค์มาถึงเครื่องนี้
+ * signedQty() คิดชนิดที่ไม่รู้จักเป็นศูนย์ ยอดของเครื่องนี้จึงคลาดจากเครื่องอื่นเท่ากับยอดของรายการพวกนั้น
+ * และ Bin Card จะพิมพ์บรรทัดนั้นเป็นฝั่งรับเข้าจำนวน 0 — ตัวนี้มีไว้ให้หน้าจอส่งเสียงแทนการเงียบ
+ *
+ * ⚠️ ห้ามแก้ปัญหานี้ด้วยการให้ signedQty() โยน error — มันอยู่ในลูปคิดยอดทุกลูป โยน = จอขาวทั้งโปรแกรม
+ * ⚠️ ไม่กรองนิติบุคคลโดยตั้งใจ — สิ่งที่บอกคือ "โปรแกรมในเครื่องนี้เก่า" ไม่ใช่ยอดของนิติบุคคลไหน
+ *    ผลต่อยอดรายรหัสอยู่ใน oddBalances() ซึ่งกรองนิติบุคคลตามปกติ (INVARIANTS A3)
+ */
+export function unknownKinds(entries) {
+  const m = new Map();
+  for (const e of entries) {
+    if (!counts(e) || isKnownKind(e.kind)) continue;
+    const k = String(e.kind ?? '');
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  return [...m].map(([kind, n]) => ({ kind, n })).sort((a, b) => (a.kind < b.kind ? -1 : 1));
+}
+
 const isNum = v => typeof v === 'number' && isFinite(v);
 
 /**
