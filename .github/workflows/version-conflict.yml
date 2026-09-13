@@ -15,6 +15,7 @@ name: แก้ชนเลขรุ่นอัตโนมัติ
 #     ผู้ตรวจรอบ 3 ของ #69 พิสูจน์ว่าหลายใบที่ชนพร้อมกันได้เลขเดียวกัน พอใบแรกเมิจ
 #     ใบที่เหลือไม่ชนแล้วแต่ด่านแดง — ถ้าแก้แค่ตอนชน เจ้าของก็ยังต้องมาบัมป์มือเหมือนเดิม
 #     ยกเว้นใบ draft ที่ไม่ชน — ไม่แตะเลย (คนอาจกำลังทำใบนั้นอยู่) · draft ที่ชนยังแก้ชนแล้วบัมป์ให้ครบ
+#     บัมป์ให้เฉพาะใบที่บัมป์เองแล้วแต่เลขชน — ใบที่ลืมบัมป์ไม่บัมป์ให้ ปล่อยด่านแดงเตือน (เจ้าของเลือก 14 ก.ย. 2026)
 #   ✗ ชนอย่างอื่นด้วยแม้บรรทัดเดียว — ไม่แตะอะไรเลย คอมเมนต์บอกครั้งเดียวต่อ commit
 #   ✗ ไม่เรียกโมเดล ไม่เดาว่าโค้ดฝั่งไหนถูก — bash กับสคริปต์ที่มีเทสล้วน ๆ
 #
@@ -248,6 +249,9 @@ jobs:
           # ตัวบัมป์รันจาก checkout ของ main ($TRUSTED) เหมือนตัวแก้ชน
           bumps=""
           cannot=""
+          forgot=""
+          # จุดที่ PR แตกจาก main — แยก "ลืมบัมป์" (ใบนี้ไม่เคยเปลี่ยนเลขรุ่น) ออกจาก "เลขชน" (เปลี่ยนแล้วแต่ใบอื่นเมิจเลขเดียวกันก่อน)
+          base_sha=$(git merge-base "$head_sha" origin/main)
           apps=()
           # ใบ draft ไม่บัมป์ให้ (ผู้ตรวจรอบ 2 ของ #70) — ยังไม่พร้อมเมิจ ด่านแดงจึงไม่เสียอะไร
           # แต่ merge commit ของหุ่นยนต์จะทำให้ push ถัดไปของคนที่กำลังทำใบนั้นโดนปฏิเสธ
@@ -261,8 +265,10 @@ jobs:
           for f in "${apps[@]}"; do
             if [[ "$f" == */lib/* ]] || [ ! -f "$f" ]; then continue; fi
             git show "origin/main:$f" > "$RUNNER_TEMP/main-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/main-$num.html"
+            git show "$head_sha:$f" > "$RUNNER_TEMP/head-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/head-$num.html"
+            git show "$base_sha:$f" > "$RUNNER_TEMP/base-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/base-$num.html"
             set +e
-            o=$(node "$TRUSTED" ensure-newer "$f" "$RUNNER_TEMP/main-$num.html" 2>&1)
+            o=$(node "$TRUSTED" ensure-newer "$f" "$RUNNER_TEMP/main-$num.html" "$RUNNER_TEMP/head-$num.html" "$RUNNER_TEMP/base-$num.html" 2>&1)
             r=$?
             set -e
             echo "$o"
@@ -274,6 +280,7 @@ jobs:
             case "$o" in
               "บัมป์แล้ว"*)    git add -- "$f"; bumps="${bumps}${o}"$'\n' ;;
               "ไม่ต้องบัมป์"*) ;;
+              "ไม่บัมป์ให้"*)  forgot="${forgot}${o}"$'\n' ;;
               *)               cannot="${cannot}${o}"$'\n' ;;
             esac
           done
@@ -284,6 +291,8 @@ jobs:
               note "เป็น draft — ไม่ตรวจเลขรุ่นจนกว่าจะเปลี่ยนเป็น ready"
             elif [ -n "$cannot" ]; then
               note "เลขรุ่นเท่ากับ main แต่บัมป์เองไม่ได้ — $(head -n 1 <<< "$cannot")"
+            elif [ -n "$forgot" ]; then
+              note "ลืมบัมป์เลขรุ่น — ไม่บัมป์ให้ ด่านจะแดงเตือน · $(head -n 1 <<< "$forgot")"
             else
               note "เมิจ main เข้าได้ไม่ชน และเลขรุ่นใหม่กว่า main แล้ว — ไม่ต้องทำอะไร"
             fi
@@ -329,7 +338,7 @@ jobs:
               echo "🔢 **บัมป์เลขรุ่นให้แล้ว**"
               echo ""
               echo "ด่าน \`ตรวจว่าบัมป์ app-version แล้ว\` จะแดง เพราะเลขรุ่นของใบนี้ไม่ใหม่กว่า \`main\`"
-              echo "(มักเกิดเมื่อใบอื่นที่ใช้เลขเดียวกันเพิ่งถูกเมิจ หรือแก้ไฟล์แล้วลืมบัมป์)"
+              echo "(ใบอื่นที่ใช้เลขเดียวกันเพิ่งถูกเมิจ — ใบที่ลืมบัมป์เองตัวแก้ไม่บัมป์ให้)"
               echo "เมิจ \`main\` (\`${MAIN_SHA:0:7}\`) เข้ามาแล้วตั้งเลขใหม่ที่ \`${new_sha:0:7}\`"
             fi
             echo ""
@@ -341,6 +350,13 @@ jobs:
               echo "⚠️ ไฟล์ต่อไปนี้เลขรุ่นเท่ากับ \`main\` แต่บัมป์เองไม่ได้ — ต้องแก้มือ"
               echo '```'
               printf '%s' "$cannot"
+              echo '```'
+            fi
+            if [ -n "$forgot" ]; then
+              echo ""
+              echo "⚠️ ไฟล์ต่อไปนี้ใบนี้ไม่ได้บัมป์เลขรุ่นเอง — ตัวแก้ไม่บัมป์ให้ ต้องบัมป์เอง (INVARIANTS F4)"
+              echo '```'
+              printf '%s' "$forgot"
               echo '```'
             fi
             echo ""

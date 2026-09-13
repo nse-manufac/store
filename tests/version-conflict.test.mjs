@@ -223,5 +223,71 @@ const e5 = run('ensure-newer', prF, path.join(dir2, 'ไม่มีบน-main.
 ok('ensure-newer: ไฟล์บน main ไม่มี (ไฟล์ใหม่) → "ไม่ต้องบัมป์"', e5.status === 0 && e5.stdout.startsWith('ไม่ต้องบัมป์'), e5.stdout);
 fs.rmSync(dir2, { recursive: true, force: true });
 
+console.log('\n=== F. บัมป์ให้เฉพาะเลขชน ไม่บัมป์ใบที่ลืมบัมป์ (เจ้าของเลือก 14 ก.ย. 2026) ===');
+// head = ไฟล์ของ PR ก่อนเมิจ main เข้า · base = ไฟล์ตอนที่ PR แตกจาก main · pr = หลังเมิจ
+const col = ensureNewer(page('2026-09-10.7', 'งาน B'), page('2026-09-10.7'), NOW,
+  { headText: page('2026-09-10.7', 'งาน B'), baseText: page('2026-09-10.6') });
+ok('เลขชน: ใบนี้บัมป์ .6 → .7 เอง แล้วใบอื่นที่ใช้ .7 เมิจก่อน → บัมป์ให้เป็น .8',
+   col.ok && col.changed && col.to === '2026-09-10.8' && !col.forgot, JSON.stringify(col));
+const fg = ensureNewer(page('2026-09-10.7', 'งาน'), page('2026-09-10.7'), NOW,
+  { headText: page('2026-09-10.6', 'งาน'), baseText: page('2026-09-10.6') });
+ok('ลืมบัมป์: เลขของ PR ยังเท่ากับตอนแตกจาก main → ไม่บัมป์ให้ และบอกว่าลืม',
+   fg.ok && fg.changed === false && fg.forgot === true, JSON.stringify(fg));
+const fg2 = ensureNewer(page('2026-09-10.6', 'งาน'), page('2026-09-10.6'), NOW,
+  { headText: page('2026-09-10.6', 'งาน'), baseText: page('2026-09-10.6') });
+ok('ลืมบัมป์ขณะที่ main ไม่ขยับ → ไม่บัมป์ให้เหมือนกัน', fg2.ok && fg2.changed === false && fg2.forgot === true, JSON.stringify(fg2));
+const nw = ensureNewer(page('2026-09-10.9'), page('2026-09-10.7'), NOW,
+  { headText: page('2026-09-10.9'), baseText: page('2026-09-10.6') });
+ok('ใหม่กว่า main อยู่แล้ว → ไม่แตะ และไม่นับว่าลืม', nw.ok && nw.changed === false && !nw.forgot, JSON.stringify(nw));
+const nb = ensureNewer(page('2026-09-10.7'), page('2026-09-10.7'), NOW,
+  { headText: page('2026-09-10.7'), baseText: '' });
+ok('ตอนแตกจาก main ยังไม่มีไฟล์นี้ → ไม่นับว่าลืม ใช้กติกาเลขชน', nb.ok && nb.changed && !nb.forgot, JSON.stringify(nb));
+const bk = ensureNewer(page('2026-09-10.5'), page('2026-09-10.7'), NOW,
+  { headText: page('2026-09-10.5'), baseText: page('2026-09-10.6') });
+ok('เปลี่ยนเลขเองแต่ถอยหลังกว่า main → ไม่นับว่าลืม บัมป์ให้', bk.ok && bk.changed && bk.to === '2026-09-10.8', JSON.stringify(bk));
+const lg = ensureNewer(page('2026-08-11'), page('2026-08-11'), NOW,
+  { headText: page('2026-08-11'), baseText: page('2026-08-11') });
+ok('รูปแบบเก่าที่ลืมบัมป์ → บอกว่าลืม ไม่ใช่ "บัมป์ไม่ได้"', lg.ok && lg.forgot === true, JSON.stringify(lg));
+ok('ไม่ส่ง head/base มา → ไม่แยกสองกรณี (พฤติกรรมของ #70)',
+   ensureNewer(page('2026-09-10.7'), page('2026-09-10.7'), NOW).changed === true);
+
+let bad4 = '';
+for (let i = 0; i < 2000 && !bad4; i++) {
+  const d = () => `2026-09-${String(1 + Math.floor(Math.random() * 15)).padStart(2, '0')}`;
+  const s = () => 1 + Math.floor(Math.random() * 12);
+  const b = `${d()}.${s()}`, m = `${d()}.${s()}`;
+  const h = Math.random() < 0.5 ? b : `${d()}.${s()}`;
+  const merged = h === b ? m : h; // ไม่เปลี่ยนเอง → หลังเมิจได้เลขของ main · เปลี่ยนเอง → ได้ของ PR
+  const r = ensureNewer(page(merged), page(m), NOW, { headText: page(h), baseText: page(b) });
+  const got = r.changed ? r.to : merged;
+  const newer = compareVersions(parseVersion(got), parseVersion(m)) > 0;
+  const tag = `base ${b} · head ${h} · main ${m} -> ${JSON.stringify({ ...r, text: undefined })}`;
+  if (!r.ok) bad4 = 'ไม่ ok: ' + tag;
+  else if (h === b && (r.changed || !r.forgot)) bad4 = 'ลืมบัมป์แต่ถูกบัมป์หรือไม่ถูกบอก: ' + tag;
+  else if (h !== b && !newer) bad4 = 'เปลี่ยนเลขเองแล้วแต่ยังไม่ใหม่กว่า main: ' + tag;
+}
+ok('สุ่ม 2000 ชุด: ลืมบัมป์ไม่ถูกบัมป์เสมอ · เปลี่ยนเลขเองแล้วจบที่ใหม่กว่า main เสมอ', bad4 === '', bad4);
+
+const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-fg-'));
+const f3 = (n) => path.join(dir3, n);
+fs.writeFileSync(f3('pr.html'), page('2026-09-10.7', 'งาน'));
+fs.writeFileSync(f3('main.html'), page('2026-09-10.7'));
+fs.writeFileSync(f3('head.html'), page('2026-09-10.6', 'งาน'));
+fs.writeFileSync(f3('base.html'), page('2026-09-10.6'));
+const g1 = run('ensure-newer', f3('pr.html'), f3('main.html'), f3('head.html'), f3('base.html'));
+ok('ensure-newer: ลืมบัมป์ → รหัสออก 0 ขึ้นต้นว่า "ไม่บัมป์ให้" ไฟล์ไม่ถูกแตะ',
+   g1.status === 0 && g1.stdout.startsWith('ไม่บัมป์ให้') && versionOf(fs.readFileSync(f3('pr.html'), 'utf8')) === '2026-09-10.7',
+   g1.stdout + g1.stderr);
+fs.writeFileSync(f3('head.html'), page('2026-09-10.7', 'งาน'));
+const g2 = run('ensure-newer', f3('pr.html'), f3('main.html'), f3('head.html'), f3('base.html'));
+ok('ensure-newer: เลขชน → "บัมป์แล้ว" และได้เลขถัดจาก main ตามเวลาจริงของเครื่อง',
+   g2.status === 0 && g2.stdout.startsWith('บัมป์แล้ว') && versionOf(fs.readFileSync(f3('pr.html'), 'utf8')) === pickVersion('2026-09-10.7', '2026-09-10.7'),
+   g2.stdout + g2.stderr);
+fs.writeFileSync(f3('pr.html'), page('2026-09-10.7', 'งาน'));
+const g3 = run('ensure-newer', f3('pr.html'), f3('main.html'), f3('head.html'), f3('ไม่มีตอนแตก.html'));
+ok('ensure-newer: ไฟล์ตอนแตกจาก main ไม่มี → ไม่นับว่าลืม บัมป์ให้', g3.status === 0 && g3.stdout.startsWith('บัมป์แล้ว'), g3.stdout + g3.stderr);
+ok('ensure-newer: ส่ง head แต่ไม่ส่ง base → รหัสออก 2', run('ensure-newer', f3('pr.html'), f3('main.html'), f3('head.html')).status === 2);
+fs.rmSync(dir3, { recursive: true, force: true });
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

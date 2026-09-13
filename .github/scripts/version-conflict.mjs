@@ -93,13 +93,25 @@ export function versionOf(text) {
  * ด่านแดงเมื่อเลขเท่ากับ main เท่านั้น แต่ตรงนี้ถือ "ต้องใหม่กว่า" เหมือนตอนแก้ชน
  * เลขที่ถอยหลังไม่ทำให้อะไรพัง (version.js เทียบแค่ไม่เท่ากัน) แต่คนอ่านจะงง
  *
+ * บัมป์ให้เฉพาะ "เลขชน" ไม่บัมป์ "ลืมบัมป์" (เจ้าของเลือก 14 ก.ย. 2026)
+ *   ลืมบัมป์ = ใบนี้ไม่ได้เปลี่ยนเลขรุ่นเองเลย (head เท่ากับตอนแตกจาก main) → ไม่บัมป์ให้ ปล่อยด่านแดงเตือน
+ *   เลขชน   = ใบนี้เปลี่ยนเลขเองแล้ว แต่ใบอื่นที่ใช้เลขเดียวกันเพิ่งเมิจ → บัมป์ให้
+ * ไม่ส่ง headText/baseText มา = ไม่แยกสองกรณี (พฤติกรรมของ #70)
+ *
  * @param prText   เนื้อไฟล์ฝั่ง PR (หลังเมิจ main เข้ามาแล้ว)
  * @param mainText เนื้อไฟล์เดียวกันบน main ('' ถ้า main ไม่มีไฟล์นี้)
- * @returns {{ok:true, changed:false}} | {{ok:true, changed:true, text, from, main, to}} | {{ok:false, reason}}
+ * @param opts.headText เนื้อไฟล์ของ PR ก่อนเมิจ main เข้า
+ * @param opts.baseText เนื้อไฟล์ตอนที่ PR แตกจาก main ('' ถ้าตอนนั้นยังไม่มีไฟล์นี้)
+ * @returns {{ok:true, changed:false, forgot?:true}} | {{ok:true, changed:true, text, from, main, to}} | {{ok:false, reason}}
  */
-export function ensureNewer(prText, mainText, now = new Date()) {
+export function ensureNewer(prText, mainText, now = new Date(), { headText, baseText } = {}) {
   const from = versionOf(prText);
   const old = versionOf(mainText);
+  const forgotten = () => {
+    if (baseText === undefined) return null;
+    const base = versionOf(baseText);
+    return base && versionOf(headText) === base ? { ok: true, changed: false, forgot: true, from, main: old } : null;
+  };
   if (!from) return { ok: false, reason: 'ไม่พบ app-version ในไฟล์ของ PR — ไม่เดาเติมให้' };
   if (!old) return { ok: true, changed: false }; // ไฟล์ใหม่ หรือ main ไม่มีเลขรุ่น — ด่านไม่แดง
 
@@ -107,10 +119,12 @@ export function ensureNewer(prText, mainText, now = new Date()) {
   const o = parseVersion(old);
   if (!n || !o) {
     // รูปแบบเก่า เช่น "2026-08-11" ไม่มี .N — ไม่รู้ว่าลำดับถัดไปควรเป็นอะไร จึงไม่เดา
-    if (from === old) return { ok: false, reason: `เลขรุ่นเท่ากับ main ("${from}") แต่รูปแบบอ่านไม่ออก — บัมป์เองไม่ได้` };
+    if (from === old) return forgotten() ?? { ok: false, reason: `เลขรุ่นเท่ากับ main ("${from}") แต่รูปแบบอ่านไม่ออก — บัมป์เองไม่ได้` };
     return { ok: true, changed: false }; // ต่างกันอยู่แล้ว ด่านไม่แดง ไม่ยุ่ง
   }
   if (compareVersions(n, o) > 0) return { ok: true, changed: false };
+  const forgot = forgotten();
+  if (forgot) return forgot;
 
   const to = pickVersion(from, old, now); // ใหม่กว่า main เสมอ (มีเทสคุณสมบัตินี้)
   // เปลี่ยนเฉพาะตัวแรก ตรงกับที่ด่านอ่าน (head -1) · ไม่แตะขึ้นบรรทัด CRLF
@@ -218,12 +232,12 @@ export function resolveFiles(paths, { now = new Date(), read = readFileSync, wri
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === 'ensure-newer') {
-    // ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main>
-    // ผลขึ้นต้นด้วย "บัมป์แล้ว" · "ไม่ต้องบัมป์" · "บัมป์ไม่ได้"
+    // ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main> [<ของ PR ก่อนเมิจ> <ตอนแตกจาก main>]
+    // ผลขึ้นต้นด้วย "บัมป์แล้ว" · "ไม่ต้องบัมป์" · "ไม่บัมป์ให้" (ลืมบัมป์) · "บัมป์ไม่ได้"
     // ⚠️ workflow ใช้คำขึ้นต้นเหล่านี้แยกกรณี — เปลี่ยนคำต้องไปแก้ version-conflict.yml ด้วย
-    const [prPath, mainPath] = process.argv.slice(3);
-    if (!prPath || !mainPath) {
-      console.error('ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main>');
+    const [prPath, mainPath, headPath, basePath] = process.argv.slice(3);
+    if (!prPath || !mainPath || (headPath !== undefined && basePath === undefined)) {
+      console.error('ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main> [<ของ PR ก่อนเมิจ> <ตอนแตกจาก main>]');
       process.exit(2);
     }
     let prText;
@@ -239,10 +253,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } catch {
       mainText = ''; // main ไม่มีไฟล์นี้ = ไฟล์ใหม่ของ PR ด่านไม่แดง
     }
-    const r = ensureNewer(prText, mainText);
+    // อ่านไม่ได้ = ตอนนั้นไม่มีไฟล์นี้ · ไม่ส่งมาเลย = ไม่แยกลืมบัมป์ออกจากเลขชน
+    const readOr = (p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } };
+    const extra = headPath === undefined ? {} : { headText: readOr(headPath), baseText: readOr(basePath) };
+    const r = ensureNewer(prText, mainText, new Date(), extra);
     if (!r.ok) {
       console.log(`บัมป์ไม่ได้  ${prPath}  ${r.reason}`);
       process.exit(2); // ensure-newer: บัมป์ไม่ได้
+    }
+    if (r.forgot) {
+      console.log(`ไม่บัมป์ให้  ${prPath}  ใบนี้ไม่ได้เปลี่ยนเลขรุ่นเอง (${r.from} · main ${r.main}) — ลืมบัมป์ ด่านจะแดงเตือน`);
+      process.exit(0); // ensure-newer: ลืมบัมป์
     }
     if (!r.changed) {
       console.log(`ไม่ต้องบัมป์  ${prPath}`);
