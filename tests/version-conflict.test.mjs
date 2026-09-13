@@ -223,5 +223,62 @@ const e5 = run('ensure-newer', prF, path.join(dir2, 'ไม่มีบน-main.
 ok('ensure-newer: ไฟล์บน main ไม่มี (ไฟล์ใหม่) → "ไม่ต้องบัมป์"', e5.status === 0 && e5.stdout.startsWith('ไม่ต้องบัมป์'), e5.stdout);
 fs.rmSync(dir2, { recursive: true, force: true });
 
+console.log('\n=== F. บัมป์ให้เฉพาะเลขชน ไม่บัมป์ใบที่ลืมบัมป์ (เจ้าของเลือก 14 ก.ย. 2026) ===');
+// prChangedVersion มาจาก workflow: มี commit ของ PR (ไม่นับที่เมิจ main เข้า) เปลี่ยนเลขรุ่นของไฟล์ไหม
+const col = ensureNewer(page('2026-09-10.7', 'งาน B'), page('2026-09-10.7'), NOW, { prChangedVersion: true });
+ok('เลขชน: ใบนี้เปลี่ยนเลขเองแล้ว แต่ใบอื่นที่ใช้ .7 เมิจก่อน → บัมป์ให้เป็น .8',
+   col.ok && col.changed && col.to === '2026-09-10.8' && !col.forgot, JSON.stringify(col));
+const fg = ensureNewer(page('2026-09-10.7', 'งาน'), page('2026-09-10.7'), NOW, { prChangedVersion: false });
+ok('ลืมบัมป์: ไม่มี commit ของใบนี้เปลี่ยนเลขรุ่น → ไม่บัมป์ให้ และบอกว่าลืม',
+   fg.ok && fg.changed === false && fg.forgot === true, JSON.stringify(fg));
+const nw = ensureNewer(page('2026-09-10.9'), page('2026-09-10.7'), NOW, { prChangedVersion: false });
+ok('ใหม่กว่า main อยู่แล้ว → ไม่แตะ และไม่นับว่าลืม', nw.ok && nw.changed === false && !nw.forgot, JSON.stringify(nw));
+const bk = ensureNewer(page('2026-09-10.5'), page('2026-09-10.7'), NOW, { prChangedVersion: true });
+ok('เปลี่ยนเลขเองแต่ถอยหลังกว่า main → บัมป์ให้', bk.ok && bk.changed && bk.to === '2026-09-10.8', JSON.stringify(bk));
+const lg = ensureNewer(page('2026-08-11'), page('2026-08-11'), NOW, { prChangedVersion: false });
+ok('รูปแบบเก่าที่ลืมบัมป์ → บอกว่าลืม ไม่ใช่ "บัมป์ไม่ได้"', lg.ok && lg.forgot === true, JSON.stringify(lg));
+const lc = ensureNewer(page('2026-08-12'), page('2026-08-12'), NOW, { prChangedVersion: true });
+ok('🛑 รูปแบบเก่าที่เลขชน → ยังบัมป์ไม่ได้ ไม่เดา', lc.ok === false, JSON.stringify(lc));
+ok('ไม่รู้ว่าเปลี่ยนเองไหม (ไม่ส่งมา) → ไม่แยกสองกรณี บัมป์ให้ (พฤติกรรมของ #70)',
+   ensureNewer(page('2026-09-10.7'), page('2026-09-10.7'), NOW).changed === true);
+ok('ส่งค่าอื่นที่ไม่ใช่ false (เช่น null) → ไม่นับว่าลืม',
+   ensureNewer(page('2026-09-10.7'), page('2026-09-10.7'), NOW, { prChangedVersion: null }).changed === true);
+
+let bad4 = '';
+for (let i = 0; i < 2000 && !bad4; i++) {
+  const d = () => `2026-09-${String(1 + Math.floor(Math.random() * 15)).padStart(2, '0')}`;
+  const s = () => 1 + Math.floor(Math.random() * 12);
+  const p = `${d()}.${s()}`, m = `${d()}.${s()}`;
+  const byPr = Math.random() < 0.5;
+  const r = ensureNewer(page(p), page(m), NOW, { prChangedVersion: byPr });
+  const got = r.changed ? r.to : p;
+  const newer = compareVersions(parseVersion(got), parseVersion(m)) > 0;
+  const pNewer = compareVersions(parseVersion(p), parseVersion(m)) > 0;
+  const tag = `pr ${p} · main ${m} · เปลี่ยนเอง ${byPr} -> ${JSON.stringify({ ...r, text: undefined })}`;
+  if (!r.ok) bad4 = 'ไม่ ok: ' + tag;
+  else if (!byPr && (r.changed || (!pNewer && !r.forgot))) bad4 = 'ลืมบัมป์แต่ถูกบัมป์หรือไม่ถูกบอก: ' + tag;
+  else if (byPr && !newer) bad4 = 'เปลี่ยนเลขเองแล้วแต่ยังไม่ใหม่กว่า main: ' + tag;
+}
+ok('สุ่ม 2000 ชุด: ลืมบัมป์ไม่ถูกบัมป์เสมอ · เปลี่ยนเลขเองแล้วจบที่ใหม่กว่า main เสมอ', bad4 === '', bad4);
+
+const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-fg-'));
+const prF3 = path.join(dir3, 'pr.html');
+const mainF3 = path.join(dir3, 'main.html');
+fs.writeFileSync(prF3, page('2026-09-10.7', 'งาน'));
+fs.writeFileSync(mainF3, page('2026-09-10.7'));
+const g1 = run('ensure-newer', prF3, mainF3, 'unchanged');
+ok('ensure-newer: unchanged → รหัสออก 0 ขึ้นต้นว่า "ไม่บัมป์ให้" ไฟล์ไม่ถูกแตะ',
+   g1.status === 0 && g1.stdout.startsWith('ไม่บัมป์ให้') && versionOf(fs.readFileSync(prF3, 'utf8')) === '2026-09-10.7',
+   g1.stdout + g1.stderr);
+const g2 = run('ensure-newer', prF3, mainF3, 'changed');
+ok('ensure-newer: changed → "บัมป์แล้ว" และได้เลขถัดจาก main ตามเวลาจริงของเครื่อง',
+   g2.status === 0 && g2.stdout.startsWith('บัมป์แล้ว') && versionOf(fs.readFileSync(prF3, 'utf8')) === pickVersion('2026-09-10.7', '2026-09-10.7'),
+   g2.stdout + g2.stderr);
+fs.writeFileSync(prF3, page('2026-09-10.7', 'งาน'));
+const g3 = run('ensure-newer', prF3, mainF3, 'yes');
+ok('ensure-newer: ค่าที่สามไม่ใช่ changed/unchanged → รหัสออก 2 ไฟล์ไม่ถูกแตะ',
+   g3.status === 2 && versionOf(fs.readFileSync(prF3, 'utf8')) === '2026-09-10.7', g3.stdout + g3.stderr);
+fs.rmSync(dir3, { recursive: true, force: true });
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

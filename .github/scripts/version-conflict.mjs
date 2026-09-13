@@ -93,13 +93,26 @@ export function versionOf(text) {
  * ด่านแดงเมื่อเลขเท่ากับ main เท่านั้น แต่ตรงนี้ถือ "ต้องใหม่กว่า" เหมือนตอนแก้ชน
  * เลขที่ถอยหลังไม่ทำให้อะไรพัง (version.js เทียบแค่ไม่เท่ากัน) แต่คนอ่านจะงง
  *
+ * บัมป์ให้เฉพาะ "เลขชน" ไม่บัมป์ "ลืมบัมป์" (เจ้าของเลือก 14 ก.ย. 2026)
+ *   ลืมบัมป์ = ไม่มี commit ของใบนี้เปลี่ยนเลขรุ่นของไฟล์เลย → ไม่บัมป์ให้ ปล่อยด่านแดงเตือน
+ *   เลขชน   = ใบนี้เปลี่ยนเลขเองแล้ว แต่ใบอื่นที่ใช้เลขเดียวกันเพิ่งเมิจ → บัมป์ให้
+ * workflow เป็นคนดูประวัติ git แล้วบอกผลมา — ฟังก์ชันนี้ไม่แตะ git
+ * ไม่ส่ง prChangedVersion มา = ไม่แยกสองกรณี (พฤติกรรมของ #70)
+ *
+ * ⚠️ รุ่นแรกของ #73 เทียบเลขของ PR กับตอนแตกจาก main (merge-base) แล้วผิด
+ *    merge-base ขยับทุกครั้งที่ branch เมิจ main เข้า — ใบที่บัมป์เป็นเลขเดียวกับ main แล้วกด Update branch
+ *    จะมีเลขเท่ากับ merge-base และถูกตีว่าลืมบัมป์ทั้งที่บัมป์แล้ว (ผู้ตรวจรอบแรกของ #73 รันยืนยัน)
+ *
  * @param prText   เนื้อไฟล์ฝั่ง PR (หลังเมิจ main เข้ามาแล้ว)
  * @param mainText เนื้อไฟล์เดียวกันบน main ('' ถ้า main ไม่มีไฟล์นี้)
- * @returns {{ok:true, changed:false}} | {{ok:true, changed:true, text, from, main, to}} | {{ok:false, reason}}
+ * @param opts.prChangedVersion true = มี commit ของใบนี้เปลี่ยนเลขรุ่นของไฟล์ · false = ไม่มี · ไม่ส่ง = ไม่รู้
+ * @returns {{ok:true, changed:false, forgot?:true}} | {{ok:true, changed:true, text, from, main, to}} | {{ok:false, reason}}
  */
-export function ensureNewer(prText, mainText, now = new Date()) {
+export function ensureNewer(prText, mainText, now = new Date(), { prChangedVersion } = {}) {
   const from = versionOf(prText);
   const old = versionOf(mainText);
+  // ต้องเป็น false จริง ๆ — ไม่รู้ ไม่นับว่าลืม
+  const forgotten = () => (prChangedVersion === false ? { ok: true, changed: false, forgot: true, from, main: old } : null);
   if (!from) return { ok: false, reason: 'ไม่พบ app-version ในไฟล์ของ PR — ไม่เดาเติมให้' };
   if (!old) return { ok: true, changed: false }; // ไฟล์ใหม่ หรือ main ไม่มีเลขรุ่น — ด่านไม่แดง
 
@@ -107,10 +120,12 @@ export function ensureNewer(prText, mainText, now = new Date()) {
   const o = parseVersion(old);
   if (!n || !o) {
     // รูปแบบเก่า เช่น "2026-08-11" ไม่มี .N — ไม่รู้ว่าลำดับถัดไปควรเป็นอะไร จึงไม่เดา
-    if (from === old) return { ok: false, reason: `เลขรุ่นเท่ากับ main ("${from}") แต่รูปแบบอ่านไม่ออก — บัมป์เองไม่ได้` };
+    if (from === old) return forgotten() ?? { ok: false, reason: `เลขรุ่นเท่ากับ main ("${from}") แต่รูปแบบอ่านไม่ออก — บัมป์เองไม่ได้` };
     return { ok: true, changed: false }; // ต่างกันอยู่แล้ว ด่านไม่แดง ไม่ยุ่ง
   }
   if (compareVersions(n, o) > 0) return { ok: true, changed: false };
+  const forgot = forgotten();
+  if (forgot) return forgot;
 
   const to = pickVersion(from, old, now); // ใหม่กว่า main เสมอ (มีเทสคุณสมบัตินี้)
   // เปลี่ยนเฉพาะตัวแรก ตรงกับที่ด่านอ่าน (head -1) · ไม่แตะขึ้นบรรทัด CRLF
@@ -218,12 +233,13 @@ export function resolveFiles(paths, { now = new Date(), read = readFileSync, wri
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === 'ensure-newer') {
-    // ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main>
-    // ผลขึ้นต้นด้วย "บัมป์แล้ว" · "ไม่ต้องบัมป์" · "บัมป์ไม่ได้"
+    // ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main> [changed|unchanged]
+    //   changed = มี commit ของ PR (ไม่นับที่เมิจ main เข้า) เปลี่ยนเลขรุ่นของไฟล์นี้ · ไม่ส่ง = ไม่แยกลืมบัมป์ออกจากเลขชน
+    // ผลขึ้นต้นด้วย "บัมป์แล้ว" · "ไม่ต้องบัมป์" · "ไม่บัมป์ให้" (ลืมบัมป์) · "บัมป์ไม่ได้"
     // ⚠️ workflow ใช้คำขึ้นต้นเหล่านี้แยกกรณี — เปลี่ยนคำต้องไปแก้ version-conflict.yml ด้วย
-    const [prPath, mainPath] = process.argv.slice(3);
-    if (!prPath || !mainPath) {
-      console.error('ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main>');
+    const [prPath, mainPath, touched] = process.argv.slice(3);
+    if (!prPath || !mainPath || ![undefined, 'changed', 'unchanged'].includes(touched)) {
+      console.error('ใช้: node version-conflict.mjs ensure-newer <ไฟล์ของ PR> <ไฟล์เดียวกันบน main> [changed|unchanged]');
       process.exit(2);
     }
     let prText;
@@ -239,10 +255,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } catch {
       mainText = ''; // main ไม่มีไฟล์นี้ = ไฟล์ใหม่ของ PR ด่านไม่แดง
     }
-    const r = ensureNewer(prText, mainText);
+    const extra = touched === undefined ? {} : { prChangedVersion: touched === 'changed' };
+    const r = ensureNewer(prText, mainText, new Date(), extra);
     if (!r.ok) {
       console.log(`บัมป์ไม่ได้  ${prPath}  ${r.reason}`);
       process.exit(2); // ensure-newer: บัมป์ไม่ได้
+    }
+    if (r.forgot) {
+      console.log(`ไม่บัมป์ให้  ${prPath}  ไม่มี commit ของใบนี้เปลี่ยนเลขรุ่นของไฟล์นี้ (${r.from} ไม่ใหม่กว่า main ${r.main}) — ลืมบัมป์ ด่านจะแดงเตือน`);
+      process.exit(0); // ensure-newer: ลืมบัมป์
     }
     if (!r.changed) {
       console.log(`ไม่ต้องบัมป์  ${prPath}`);
