@@ -11,7 +11,7 @@ name: แก้ชนเลขรุ่นอัตโนมัติ
 #
 # ขอบเขตแคบโดยตั้งใจ
 #   ✓ แก้เฉพาะใบที่ชน **แค่บรรทัด app-version** ในไฟล์ .html
-#   ✓ ใบที่ไม่ชน แต่เลขรุ่นไม่ใหม่กว่า main (ด่านบัมป์เวอร์ชันจะแดง) — เมิจ main แล้วบัมป์ให้
+#   ✓ ใบที่ไม่ชน บัมป์เองแล้วแต่เลขรุ่นไม่ใหม่กว่า main (ใบอื่นเมิจเลขเดียวกันก่อน · ด่านบัมป์เวอร์ชันจะแดง) — เมิจ main แล้วบัมป์ให้
 #     ผู้ตรวจรอบ 3 ของ #69 พิสูจน์ว่าหลายใบที่ชนพร้อมกันได้เลขเดียวกัน พอใบแรกเมิจ
 #     ใบที่เหลือไม่ชนแล้วแต่ด่านแดง — ถ้าแก้แค่ตอนชน เจ้าของก็ยังต้องมาบัมป์มือเหมือนเดิม
 #     ยกเว้นใบ draft ที่ไม่ชน — ไม่แตะเลย (คนอาจกำลังทำใบนั้นอยู่) · draft ที่ชนยังแก้ชนแล้วบัมป์ให้ครบ
@@ -250,8 +250,6 @@ jobs:
           bumps=""
           cannot=""
           forgot=""
-          # จุดที่ PR แตกจาก main — แยก "ลืมบัมป์" (ใบนี้ไม่เคยเปลี่ยนเลขรุ่น) ออกจาก "เลขชน" (เปลี่ยนแล้วแต่ใบอื่นเมิจเลขเดียวกันก่อน)
-          base_sha=$(git merge-base "$head_sha" origin/main)
           apps=()
           # ใบ draft ไม่บัมป์ให้ (ผู้ตรวจรอบ 2 ของ #70) — ยังไม่พร้อมเมิจ ด่านแดงจึงไม่เสียอะไร
           # แต่ merge commit ของหุ่นยนต์จะทำให้ push ถัดไปของคนที่กำลังทำใบนั้นโดนปฏิเสธ
@@ -265,10 +263,15 @@ jobs:
           for f in "${apps[@]}"; do
             if [[ "$f" == */lib/* ]] || [ ! -f "$f" ]; then continue; fi
             git show "origin/main:$f" > "$RUNNER_TEMP/main-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/main-$num.html"
-            git show "$head_sha:$f" > "$RUNNER_TEMP/head-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/head-$num.html"
-            git show "$base_sha:$f" > "$RUNNER_TEMP/base-$num.html" 2>/dev/null || : > "$RUNNER_TEMP/base-$num.html"
+            # ใบนี้เคยเปลี่ยนเลขรุ่นของไฟล์นี้เองไหม — แยก "ลืมบัมป์" ออกจาก "เลขชน"
+            # ดู commit ของใบนี้ที่ไม่ใช่การเมิจ ไม่เทียบกับตอนแตกจาก main: merge-base ขยับทุกครั้งที่เมิจ main เข้า
+            # ใบที่บัมป์เป็นเลขเดียวกับ main แล้วกด Update branch ก่อนตัวแก้มาถึง จะถูกตีว่าลืมทั้งที่บัมป์แล้ว (ผู้ตรวจรอบแรกของ #73)
+            # ตัวเลขหลัง content= กันไม่ให้นับบรรทัด JavaScript ที่มีข้อความ meta นี้อยู่ใน regex (Stock-log.html)
+            # เขียนเป็นการกำหนดค่า — git log ล้มแล้ว set -e หยุดดัง ๆ ไม่ตกไปเป็น "ลืมบัมป์" เงียบ ๆ
+            prlog=$(git log --no-merges --format=%h -G '<meta name="app-version" content="[0-9]' "origin/main..$head_sha" -- "$f")
+            if [ -n "$prlog" ]; then touched=changed; else touched=unchanged; fi
             set +e
-            o=$(node "$TRUSTED" ensure-newer "$f" "$RUNNER_TEMP/main-$num.html" "$RUNNER_TEMP/head-$num.html" "$RUNNER_TEMP/base-$num.html" 2>&1)
+            o=$(node "$TRUSTED" ensure-newer "$f" "$RUNNER_TEMP/main-$num.html" "$touched" 2>&1)
             r=$?
             set -e
             echo "$o"
