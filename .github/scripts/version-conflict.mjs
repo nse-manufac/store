@@ -94,7 +94,8 @@ export function versionOf(text) {
  * เลขที่ถอยหลังไม่ทำให้อะไรพัง (version.js เทียบแค่ไม่เท่ากัน) แต่คนอ่านจะงง
  *
  * บัมป์ให้เฉพาะ "เลขชน" ไม่บัมป์ "ลืมบัมป์" (เจ้าของเลือก 14 ก.ย. 2026)
- *   ลืมบัมป์ = ไม่มี commit ของใบนี้เปลี่ยนเลขรุ่นของไฟล์เลย → ไม่บัมป์ให้ ปล่อยด่านแดงเตือน
+ *   ลืมบัมป์ = ไม่มี commit ของใบนี้เปลี่ยนเลขรุ่นของไฟล์เลย และเลขเท่ากับ main → ไม่บัมป์ให้ ปล่อยด่านแดงเตือน
+ *              (เลขเก่ากว่า main ด่านไม่แดง → บัมป์ให้เหมือน #70 ไม่งั้นไม่มีใครเตือนและเลขบน main ถอยหลัง)
  *   เลขชน   = ใบนี้เปลี่ยนเลขเองแล้ว แต่ใบอื่นที่ใช้เลขเดียวกันเพิ่งเมิจ → บัมป์ให้
  * workflow เป็นคนดูประวัติ git แล้วบอกผลมา — ฟังก์ชันนี้ไม่แตะ git
  * ไม่ส่ง prChangedVersion มา = ไม่แยกสองกรณี (พฤติกรรมของ #70)
@@ -124,7 +125,8 @@ export function ensureNewer(prText, mainText, now = new Date(), { prChangedVersi
     return { ok: true, changed: false }; // ต่างกันอยู่แล้ว ด่านไม่แดง ไม่ยุ่ง
   }
   if (compareVersions(n, o) > 0) return { ok: true, changed: false };
-  const forgot = forgotten();
+  // ลืมบัมป์นับเฉพาะเลขเท่ากับ main — ด่านใน smoke.yml แดงเฉพาะตอนเท่ากัน (ผู้ตรวจรอบสองของ #73)
+  const forgot = from === old ? forgotten() : null;
   if (forgot) return forgot;
 
   const to = pickVersion(from, old, now); // ใหม่กว่า main เสมอ (มีเทสคุณสมบัตินี้)
@@ -262,7 +264,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       process.exit(2); // ensure-newer: บัมป์ไม่ได้
     }
     if (r.forgot) {
-      console.log(`ไม่บัมป์ให้  ${prPath}  ไม่มี commit ของใบนี้เปลี่ยนเลขรุ่นของไฟล์นี้ (${r.from} ไม่ใหม่กว่า main ${r.main}) — ลืมบัมป์ ด่านจะแดงเตือน`);
+      console.log(`ไม่บัมป์ให้  ${prPath}  ไม่มี commit ของใบนี้เปลี่ยนเลขรุ่นของไฟล์นี้ (${r.from} เท่ากับ main) — ลืมบัมป์ ด่านจะแดงเตือน`);
       process.exit(0); // ensure-newer: ลืมบัมป์
     }
     if (!r.changed) {

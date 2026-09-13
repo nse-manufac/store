@@ -233,6 +233,9 @@ ok('ลืมบัมป์: ไม่มี commit ของใบนี้เ
    fg.ok && fg.changed === false && fg.forgot === true, JSON.stringify(fg));
 const nw = ensureNewer(page('2026-09-10.9'), page('2026-09-10.7'), NOW, { prChangedVersion: false });
 ok('ใหม่กว่า main อยู่แล้ว → ไม่แตะ และไม่นับว่าลืม', nw.ok && nw.changed === false && !nw.forgot, JSON.stringify(nw));
+const od = ensureNewer(page('2026-09-10.5'), page('2026-09-10.7'), NOW, { prChangedVersion: false });
+ok('ไม่ได้เปลี่ยนเลขเองแต่เลขเก่ากว่า main (ด่านไม่แดง ไม่มีใครเตือน) → บัมป์ให้ ไม่ปล่อยให้เลขถอยหลังเงียบ ๆ',
+   od.ok && od.changed && od.to === '2026-09-10.8' && !od.forgot, JSON.stringify(od));
 const bk = ensureNewer(page('2026-09-10.5'), page('2026-09-10.7'), NOW, { prChangedVersion: true });
 ok('เปลี่ยนเลขเองแต่ถอยหลังกว่า main → บัมป์ให้', bk.ok && bk.changed && bk.to === '2026-09-10.8', JSON.stringify(bk));
 const lg = ensureNewer(page('2026-08-11'), page('2026-08-11'), NOW, { prChangedVersion: false });
@@ -248,7 +251,8 @@ let bad4 = '';
 for (let i = 0; i < 2000 && !bad4; i++) {
   const d = () => `2026-09-${String(1 + Math.floor(Math.random() * 15)).padStart(2, '0')}`;
   const s = () => 1 + Math.floor(Math.random() * 12);
-  const p = `${d()}.${s()}`, m = `${d()}.${s()}`;
+  const p = `${d()}.${s()}`;
+  const m = Math.random() < 0.3 ? p : `${d()}.${s()}`; // บังคับให้เจอเคสเลขเท่ากันบ่อยพอ
   const byPr = Math.random() < 0.5;
   const r = ensureNewer(page(p), page(m), NOW, { prChangedVersion: byPr });
   const got = r.changed ? r.to : p;
@@ -256,10 +260,11 @@ for (let i = 0; i < 2000 && !bad4; i++) {
   const pNewer = compareVersions(parseVersion(p), parseVersion(m)) > 0;
   const tag = `pr ${p} · main ${m} · เปลี่ยนเอง ${byPr} -> ${JSON.stringify({ ...r, text: undefined })}`;
   if (!r.ok) bad4 = 'ไม่ ok: ' + tag;
-  else if (!byPr && (r.changed || (!pNewer && !r.forgot))) bad4 = 'ลืมบัมป์แต่ถูกบัมป์หรือไม่ถูกบอก: ' + tag;
-  else if (byPr && !newer) bad4 = 'เปลี่ยนเลขเองแล้วแต่ยังไม่ใหม่กว่า main: ' + tag;
+  else if (!byPr && p === m && (r.changed || !r.forgot)) bad4 = 'ลืมบัมป์ (เลขเท่ากับ main) แต่ถูกบัมป์หรือไม่ถูกบอก: ' + tag;
+  else if (r.forgot && p !== m) bad4 = 'นับว่าลืมทั้งที่เลขไม่เท่ากับ main (ด่านไม่แดง ไม่มีใครเตือน): ' + tag;
+  else if (!(p === m && !byPr) && !newer) bad4 = 'จบที่เลขไม่ใหม่กว่า main ทั้งที่ไม่ใช่เคสลืมบัมป์: ' + tag;
 }
-ok('สุ่ม 2000 ชุด: ลืมบัมป์ไม่ถูกบัมป์เสมอ · เปลี่ยนเลขเองแล้วจบที่ใหม่กว่า main เสมอ', bad4 === '', bad4);
+ok('สุ่ม 2000 ชุด: ลืมบัมป์ที่เลขเท่ากับ main ไม่ถูกบัมป์เสมอ · กรณีอื่นจบที่ใหม่กว่า main เสมอ', bad4 === '', bad4);
 
 const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-fg-'));
 const prF3 = path.join(dir3, 'pr.html');
