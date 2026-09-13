@@ -269,7 +269,7 @@ v2 ไม่ต้อง grep หา section banner เหมือน v1 เพ
 ตรรกะการแก้อยู่ที่ `.github/scripts/version-conflict.mjs` มีเทสที่ `tests/version-conflict.test.mjs`
 
 ตัวจำลอง workflow ทั้งวงอยู่ที่ `tests/version-conflict-workflow.sim.mjs` — ดึงสคริปต์จาก workflow จริงมารันกับ repo ในเครื่อง
-ใช้เวลาราว 2 นาที จึงไม่อยู่ใน `test:core` · **แก้ `version-conflict.yml` หรือ `version-conflict.mjs` ต้องรันให้ผ่าน และเพิ่มเคสเมื่อเพิ่มพฤติกรรม**
+ไม่อยู่ใน `test:core` (บน Linux ราว 3 วินาที · บน Git Bash ของ Windows ราว 2 นาที) · **แก้ `version-conflict.yml` หรือ `version-conflict.mjs` ต้องรันให้ผ่าน และเพิ่มเคสเมื่อเพิ่มพฤติกรรม**
 
 ⚠️ **ถ้าคุณคือ agent ที่ทำงานกับ branch ของ PR อยู่ แล้ว push โดนปฏิเสธ (non-fast-forward)**
 แปลว่าตัวแก้อาจเมิจ `main` เข้า branch ให้แล้ว — `git pull --no-rebase` ก่อน **ห้าม `--force`**

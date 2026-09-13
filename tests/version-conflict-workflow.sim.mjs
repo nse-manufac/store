@@ -2,7 +2,7 @@
  * จำลอง .github/workflows/version-conflict.yml ทั้งวง โดยไม่แตะ GitHub จริง — รันด้วย node
  *   node tests/version-conflict-workflow.sim.mjs
  *
- * ใช้เวลาราว 2 นาที จึงไม่อยู่ใน test:core
+ * ไม่อยู่ใน test:core — บน Linux ราว 3 วินาที · บน Git Bash ของ Windows ราว 2 นาที (git ช้ากว่ามาก)
  * **แก้ version-conflict.yml หรือ .github/scripts/version-conflict.mjs ต้องรันให้ผ่าน** และเพิ่มเคสเมื่อเพิ่มพฤติกรรม
  * ต้องมี bash 4+ · git · GNU sed (Linux หรือ Git Bash บน Windows)
  *
@@ -13,7 +13,7 @@
  *      ส่วนนี้ตัวจำลองข้อ 1 เข้าไม่ถึง
  *
  * ชื่อไฟล์ไม่ลงท้าย .test.mjs โดยตั้งใจ — playwright.config.js ใช้ testDir ./tests กับ testMatch ค่าเริ่มต้น
- * กันไม่ให้ npm test หยิบไฟล์ที่รันนานสองนาทีไปรันด้วย
+ * กันไม่ให้ npm test (playwright) หยิบไปรันเป็นเทสของมัน
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -77,6 +77,10 @@ try {
   if (r.stderr) process.stdout.write(r.stderr);
   const m = /^>>> ผ่านทั้งหมด \((\d+) ผ่าน · 0 ตก\)$/m.exec(r.stdout || '');
   ok(`ตัวจำลองงานต่อใบผ่านครบ${m ? ` (${m[1]} ข้อ)` : ''}`, r.status === 0 && !!m, r.error || `รหัสออก ${r.status}`);
+  // เพดานล่าง — ลบเคสทิ้งครึ่งหนึ่งแล้วยังรายงาน "ผ่านครบ (40 ข้อ)" จะไม่มีใครสังเกต (ผู้ตรวจของ #75)
+  // เพิ่มเคสแล้วขยับเลขนี้ขึ้นได้ · ลบเคสโดยตั้งใจต้องลดเลขนี้ในใบเดียวกัน ให้ผู้ตรวจเห็น
+  const MIN_CASES = 80;
+  ok(`จำนวนเคสของงานต่อใบไม่น้อยกว่า ${MIN_CASES}`, !!m && Number(m[1]) >= MIN_CASES, m ? `ได้ ${m[1]} ข้อ` : 'อ่านจำนวนไม่ได้');
 
   // ── 2. ลูปชั้นนอก ────────────────────────────────────────────────────
   console.log('\n=== 2. ลูปชั้นนอก ===');
