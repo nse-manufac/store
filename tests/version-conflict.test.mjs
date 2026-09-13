@@ -236,6 +236,9 @@ ok('ใหม่กว่า main อยู่แล้ว → ไม่แต�
 const od = ensureNewer(page('2026-09-10.5'), page('2026-09-10.7'), NOW, { prChangedVersion: false });
 ok('ไม่ได้เปลี่ยนเลขเองแต่เลขเก่ากว่า main (ด่านไม่แดง ไม่มีใครเตือน) → บัมป์ให้ ไม่ปล่อยให้เลขถอยหลังเงียบ ๆ',
    od.ok && od.changed && od.to === '2026-09-10.8' && !od.forgot, JSON.stringify(od));
+const sd = ensureNewer(page('2026-09-10.02'), page('2026-09-10.2'), NOW, { prChangedVersion: false });
+ok('เลขค่าเท่ากันแต่สตริงต่าง (.02 กับ .2) → ไม่นับว่าลืม เพราะด่านเทียบสตริงจึงไม่แดง',
+   sd.ok && sd.changed && !sd.forgot, JSON.stringify(sd));
 const bk = ensureNewer(page('2026-09-10.5'), page('2026-09-10.7'), NOW, { prChangedVersion: true });
 ok('เปลี่ยนเลขเองแต่ถอยหลังกว่า main → บัมป์ให้', bk.ok && bk.changed && bk.to === '2026-09-10.8', JSON.stringify(bk));
 const lg = ensureNewer(page('2026-08-11'), page('2026-08-11'), NOW, { prChangedVersion: false });
@@ -257,7 +260,6 @@ for (let i = 0; i < 2000 && !bad4; i++) {
   const r = ensureNewer(page(p), page(m), NOW, { prChangedVersion: byPr });
   const got = r.changed ? r.to : p;
   const newer = compareVersions(parseVersion(got), parseVersion(m)) > 0;
-  const pNewer = compareVersions(parseVersion(p), parseVersion(m)) > 0;
   const tag = `pr ${p} · main ${m} · เปลี่ยนเอง ${byPr} -> ${JSON.stringify({ ...r, text: undefined })}`;
   if (!r.ok) bad4 = 'ไม่ ok: ' + tag;
   else if (!byPr && p === m && (r.changed || !r.forgot)) bad4 = 'ลืมบัมป์ (เลขเท่ากับ main) แต่ถูกบัมป์หรือไม่ถูกบอก: ' + tag;
