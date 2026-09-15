@@ -8,8 +8,9 @@
  * หมวด B กับ D สำคัญที่สุด — ทั้งคู่คือกรณี "บรรทัดซ้ำต้องรวมยอด"
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
+import fs from 'node:fs';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
-         parseThaiDate, parseEnDate, excelDate } from '../v2/master/po-kit.js';
+         parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo } from '../v2/master/po-kit.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -181,6 +182,105 @@ ok('เว้นวรรคหน้าหลังเลข PO ก็ยัง
 ok('PO ที่ยังไม่ได้นำเข้า ตอบ null ไม่ใช่เดาค่า', poHeader(poRows, 'PO-ไม่มี') === null);
 ok('ช่อง PO ว่างหรือยังไม่มีไฟล์ PO เลย ก็ไม่พัง',
    poHeader(poRows, '') === null && poHeader([], 'PO-9001') === null && poHeader(null, 'PO-9001') === null);
+
+console.log('\n=== H. หน้ารับเข้ากับหน้าจ่ายออกต้องกางรายการชุดเดียวกัน (issue #78) ===');
+// เจ้าของเจอ 15 ก.ย. 2026: PO เดียวกัน หน้ารับเข้ามีรหัสที่รับมานอก Kit List (#52 เติมให้) แต่หน้าจ่ายออกไม่มี
+// พนักงานจึงเบิกของนั้นไม่ได้ · เลขในเทสเป็นเลขสมมติ
+const recvOfPo = new Map([
+  ['3220130200', { qty: 10, times: 1, ats: ['2026-09-01T02:00:00.000Z'] }],
+  ['4090050100', { qty: 4, times: 1, ats: ['2026-09-02T02:00:00.000Z'] }],
+  ['5301000100', { qty: 1.5, times: 2, ats: ['2026-09-02T02:00:00.000Z', '2026-09-03T02:00:00.000Z'] }]
+]);
+const extraRecv = receivedOutsideList(recvOfPo, ['3220130200', '9999999999']);
+ok('เอาเฉพาะรหัสที่รับมาแต่ไม่อยู่ในรายการ ตามลำดับในสมุด',
+   extraRecv.map(x => x.code).join(',') === '4090050100,5301000100', JSON.stringify(extraRecv.map(x => x.code)));
+ok('พกยอดที่รับไปด้วย ให้หน้ารับเข้าโชว์ "รับแล้ว" ได้', extraRecv[0].recv.qty === 4);
+ok('รหัสในรายการที่เป็นตัวเลข ต้องเทียบเท่ากับข้อความ',
+   receivedOutsideList(recvOfPo, [3220130200, 4090050100, 5301000100]).length === 0);
+ok('ยังไม่เคยรับ หรือไม่มีรายการ ก็ไม่พัง',
+   receivedOutsideList(new Map(), ['x']).length === 0 && receivedOutsideList(null, null).length === 0
+   && receivedOutsideList(recvOfPo, null).length === 3);
+
+// สองหน้าต้องเรียกตัวเดียวกัน — ตรรกะอยู่ใน po-kit.js ส่วน app.js ต่อสายอย่างเดียว เทสจึงอ่านซอร์สมาเช็ก
+const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const bodyOf = name => {
+  const i = appSrc.indexOf('function ' + name + '(');
+  if (i < 0) return '';
+  let depth = 0, started = false;
+  for (let j = i; j < appSrc.length; j++) {
+    if (appSrc[j] === '{') { depth++; started = true; }
+    else if (appSrc[j] === '}') { depth--; if (started && depth === 0) return appSrc.slice(i, j + 1); }
+  }
+  return '';
+};
+ok('หน้ารับเข้า (markReceived) ใช้ receivedOutsideList', bodyOf('markReceived').includes('receivedOutsideList('));
+ok('หน้าจ่ายออกใช้ receivedOutsideList ผ่าน addReceivedToOut',
+   bodyOf('addReceivedToOut').includes('receivedOutsideList(') && bodyOf('addReceivedToOut').includes('receivedOfDoc('));
+ok('หน้าจ่ายออกเติมให้ทั้งสามทาง — มี Kit List · ไม่มีอะไรเลย · กางจากสูตร',
+   (bodyOf('expandOut').match(/addReceivedToOut\(\)/g) || []).length === 3,
+   String((bodyOf('expandOut').match(/addReceivedToOut\(\)/g) || []).length));
+// เจ้าของเลือกให้ปล่อยยอดเบิกว่าง — ตั้งยอดให้แล้วของที่เคยเบิกไปบางส่วนจะถูกบันทึกซ้ำ
+ok('แถวที่เติมในหน้าจ่ายออกต้องไม่ตั้งยอดเบิกให้', !/\.qty\s*=/.test(bodyOf('addReceivedToOut')));
+// ผู้ตรวจรอบสามของ #79: คืนแค่จำนวนที่เพิ่งเติม กางซ้ำในใบเดิมได้ 0 ข้อความ "อีก N รายการ…" หายทั้งที่แถวยังอยู่บนจอ
+ok('ข้อความบอกจำนวนแถวที่เติม นับแถวที่อยู่บนจอทั้งหมด ไม่ใช่แค่ที่เพิ่งเติมรอบนี้',
+   bodyOf('addReceivedToOut').includes('l.fromRecv = true')
+   && /return outLines\.value\.filter\(l => l\.fromRecv\)\.length/.test(bodyOf('addReceivedToOut'))
+   && !/return extra\.length/.test(bodyOf('addReceivedToOut')));
+
+// ผู้ตรวจของ #79 เจอเพิ่มอีกสามทางที่สองหน้ากางไม่เท่ากัน — เจ้าของสั่งแก้ในใบเดียวกัน
+const htmlSrc = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+ok('ช่อง PO ของหน้าจ่ายออกเติม P/N จากไฟล์ PO ก่อนกาง (pickOutPo) เหมือนหน้ารับเข้า (pickPo)',
+   /v-model\.trim="outH\.po"[^>]*@change="pickOutPo"/.test(htmlSrc)
+   && /v-model\.trim="inH\.po"[^>]*@change="pickPo"/.test(htmlSrc));
+ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต่อ แต่ไม่เติมวันที่ (วันจ่ายออกคือวันที่เบิก)',
+   bodyOf('pickOutPo').includes('poHeader(') && bodyOf('pickOutPo').includes('outH.pn')
+   && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
+ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
+   bodyOf('expandBom').includes('activeBomRowsOf(') && bodyOf('expandOut').includes('activeBomRowsOf(')
+   && !/bom\.value\.filter/.test(bodyOf('expandBom') + bodyOf('expandOut')));
+
+// ผู้ตรวจรอบสองของ #79: รอบแรกล้างทุกครั้งที่แตะช่องหัว — คีย์บรรทัดเองแล้วค่อยเติม P/N บรรทัดหายหมด
+// เจ้าของเลือก 15 ก.ย. 2026: ล้างเฉพาะตอนเลข PO เปลี่ยน
+ok('เปลี่ยนจากเลขหนึ่งไปอีกเลขหนึ่ง = เปลี่ยนใบ', switchedPo('PO-A', 'PO-B'));
+ok('เลข PO เดิม (แก้แค่ P/N หรือจำนวนสั่ง) ไม่ใช่เปลี่ยนใบ',
+   !switchedPo('PO-A', 'PO-A') && !switchedPo('', '') && !switchedPo(undefined, null));
+ok('เว้นวรรค หรือเลข PO ที่มาเป็นตัวเลข ไม่นับว่าเปลี่ยนใบ', !switchedPo(' 9001 ', 9001) && !switchedPo('9001', ' 9001'));
+// ผู้ตรวจรอบสาม: คีย์บรรทัดเองก่อนใส่ PO (หรือกด "ไปเบิก" จากหน้าการ์ด) แล้วค่อยพิมพ์ PO บรรทัดหายหมด
+// เจ้าของเลือก 16 ก.ย. 2026: ล้างเฉพาะเลขหนึ่ง → อีกเลขหนึ่ง
+ok('จากช่องว่างเป็นมีเลข หรือลบเลขทิ้ง ไม่ใช่เปลี่ยนใบ — บรรทัดที่คีย์ก่อนใส่ PO ต้องอยู่',
+   !switchedPo('', 'PO-A') && !switchedPo(null, 'PO-A') && !switchedPo('PO-A', '') && !switchedPo('PO-A', '  '));
+ok('ลบเลข PO ทิ้งยังจำใบเดิมไว้ — ลบ A แล้วพิมพ์ B ยังนับว่าเปลี่ยนใบ ไม่ปล่อยบรรทัดของ A ค้างใต้หัว B',
+   nextShownPo('PO-A', '') === 'PO-A' && switchedPo(nextShownPo('PO-A', ''), 'PO-B')
+   && nextShownPo('', ' PO-B ') === 'PO-B' && nextShownPo('PO-A', 'PO-B') === 'PO-B' && nextShownPo(null, undefined) === '');
+ok('สองหน้าล้างบรรทัดเฉพาะตอนเปลี่ยนใบ ไม่ใช่ทุกครั้งที่แตะช่องหัว',
+   /switchedPo\(inShownPo, inH\.po\)/.test(bodyOf('expandBom'))
+   && /switchedPo\(outShownPo, outH\.po\)/.test(bodyOf('expandOut'))
+   && /if \(poSwitched\) inLines\.value = \[\]/.test(bodyOf('expandBom'))
+   && /if \(poSwitched\) outLines\.value = \[\]/.test(bodyOf('expandOut'))
+   && !/if \((inH|outH)\.po \|\| (inH|outH)\.pn\)/.test(appSrc));
+ok('จำเลข PO ของรายการบนจอทุกครั้งที่กาง ก่อนแยกทาง — ไม่งั้นทางที่ return ก่อนจะไม่ได้จำ',
+   /const poSwitched = switchedPo\(inShownPo, inH\.po\);\s*inShownPo = nextShownPo\(inShownPo, inH\.po\);/.test(bodyOf('expandBom'))
+   && /const poSwitched = switchedPo\(outShownPo, outH\.po\);\s*outShownPo = nextShownPo\(outShownPo, outH\.po\);/.test(bodyOf('expandOut')));
+// เจ้าของเลือก 15 ก.ย. 2026: ทางสูตรของหน้าจ่ายออกไม่ตั้งยอดเบิก — ช่อง PO เติม P/N กับจำนวนสั่งให้แล้ว
+// ถ้ายังตั้งยอดตามสูตร แค่คีย์ PO ก็กดบันทึกทั้งใบได้ · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา (ยอดจากเอกสาร)
+ok('หน้าจ่ายออกทางสูตรไม่ตั้งยอดเบิก · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา',
+   !/l\.qty\s*=\s*l\.reqmt/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.qty = k.issue'));
+// ผู้ตรวจรอบสาม: บันทึกหรือกด "ล้าง" แล้วจอว่างแต่ยังจำ PO เดิม — คีย์บรรทัดต่อแล้วเปลี่ยน PO บรรทัดหาย
+ok('บันทึกหรือกด "ล้าง" แล้วลืมเลข PO เดิม ทั้งสองหน้า',
+   /inShownPo = ''/.test(bodyOf('saveIn')) && /outShownPo = ''/.test(bodyOf('saveOut'))
+   && /inShownPo = ''/.test(bodyOf('clearIn')) && /outShownPo = ''/.test(bodyOf('clearOut'))
+   && /@click="clearIn"/.test(htmlSrc) && /@click="clearOut"/.test(htmlSrc)
+   && !/@click="(inLines|outLines)=\[\]/.test(htmlSrc));
+
+/* ⚠️ ชื่อที่ import เข้า app.js ห้ามถูกประกาศซ้ำในไฟล์ — ตัวในไฟล์จะบังตัว import เงียบ ๆ
+ *    เจอจริงตอนทำ #79: ตั้งชื่อตัวกรองสูตรว่า bomRowsOfPn ซึ่งซ้ำกับ computed ของหน้าแก้สูตร
+ *    เทสอ่านซอร์สทุกข้อข้างบนเขียว แต่เปิดหน้าจ่ายออกแล้วพังด้วย "is not a function"
+ *    ข้อนี้คุมทั้งไฟล์ ไม่ใช่แค่ชื่อเดียว */
+const importedNames = [...appSrc.matchAll(/import\s*\{([^}]*)\}\s*from/g)]
+  .flatMap(m => m[1].split(',').map(x => x.trim().split(/\s+as\s+/).pop()).filter(Boolean));
+const shadowed = importedNames.filter(n => new RegExp('(?:const|let|var|function)\\s+' + n + '\\b').test(appSrc));
+ok('ชื่อที่ import เข้า app.js ต้องไม่ถูกประกาศซ้ำในไฟล์', importedNames.length > 20 && shadowed.length === 0,
+   'ซ้ำ: ' + shadowed.join(', ') + ' · อ่านชื่อได้ ' + importedNames.length);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
