@@ -222,5 +222,19 @@ ok('หน้าจ่ายออกเติมให้ทั้งสาม�
 // เจ้าของเลือกให้ปล่อยยอดเบิกว่าง — ตั้งยอดให้แล้วของที่เคยเบิกไปบางส่วนจะถูกบันทึกซ้ำ
 ok('แถวที่เติมในหน้าจ่ายออกต้องไม่ตั้งยอดเบิกให้', !/\.qty\s*=/.test(bodyOf('addReceivedToOut')));
 
+// ผู้ตรวจของ #79 เจอเพิ่มอีกสามทางที่สองหน้ากางไม่เท่ากัน — เจ้าของสั่งแก้ในใบเดียวกัน
+const htmlSrc = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+ok('ช่อง PO ของหน้าจ่ายออกเติม P/N จากไฟล์ PO ก่อนกาง (pickOutPo) เหมือนหน้ารับเข้า (pickPo)',
+   /v-model\.trim="outH\.po"[^>]*@change="pickOutPo"/.test(htmlSrc)
+   && /v-model\.trim="inH\.po"[^>]*@change="pickPo"/.test(htmlSrc));
+ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต่อ แต่ไม่เติมวันที่ (วันจ่ายออกคือวันที่เบิก)',
+   bodyOf('pickOutPo').includes('poHeader(') && bodyOf('pickOutPo').includes('outH.pn')
+   && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
+ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
+   bodyOf('expandBom').includes('bomRowsOfPn(') && bodyOf('expandOut').includes('bomRowsOfPn(')
+   && !/bom\.value\.filter/.test(bodyOf('expandBom') + bodyOf('expandOut')));
+ok('เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร ต้องล้างบรรทัดของใบก่อน ทั้งสองหน้า',
+   bodyOf('expandBom').includes('inLines.value = []') && bodyOf('expandOut').includes('outLines.value = []'));
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

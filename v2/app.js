@@ -11,7 +11,7 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf,
-         bomId } from './master/bom.js';
+         bomId, bomRowsOfPn } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
@@ -773,7 +773,8 @@ createApp({
       const kit = inH.po ? kitsOfPo(kits.value, inH.po) : [];
       const recv = inH.po && entity.value
         ? receivedOfDoc(entries.value, entity.value, inH.po) : new Map();
-      const rows = inH.pn ? bom.value.filter(r => r.pn === String(inH.pn)) : [];
+      // ตัวเดียวกับหน้าจ่ายออก — ตัดบรรทัดสูตรที่ลบแล้ว (#78 · เดิมหน้านี้ไม่ตัด สองหน้าจึงกางไม่เท่ากัน)
+      const rows = inH.pn ? bomRowsOfPn(bom.value, inH.pn) : [];
       const order = Number(inH.order) || 0;
       const bomOf = new Map(rows.map(r => [String(r.code), r]));
 
@@ -800,6 +801,8 @@ createApp({
       }
 
       if (!rows.length) {
+        // เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร — ล้างบรรทัดของใบก่อน ไม่งั้นค้างบนจอปนกับใบใหม่ (#78)
+        if (inH.po || inH.pn) inLines.value = [];
         bomHint.value = inH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${inH.po} และสูตรของ ${inH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`;
@@ -838,6 +841,21 @@ createApp({
         if (h.date) inH.date = h.date;
       }
       expandBom();
+    }
+
+    /**
+     * คีย์เลข PO ในหน้าจ่ายออก — เติม P/N · จำนวนสั่ง จากไฟล์ PO รายวัน แบบเดียวกับ pickPo ของหน้ารับเข้า (#78)
+     *
+     * เดิมช่องนี้เรียก expandOut ตรง ๆ PO ที่ยังไม่มี Kit List จึงไม่มี P/N ให้กางสูตร
+     * หน้าจ่ายออกว่างทั้งที่หน้ารับเข้ากางได้ · ไม่เติมวันที่ เพราะวันจ่ายออกคือวันที่เบิก ไม่ใช่วันในไฟล์ PO
+     */
+    function pickOutPo() {
+      const h = poHeader(pos.value, outH.po);
+      if (h) {
+        if (h.pn) outH.pn = h.pn;
+        if (h.order) outH.order = h.order;
+      }
+      expandOut();
     }
 
     const inReady = computed(() => inLines.value.filter(l => l.code && Number(l.qty) > 0));
@@ -937,7 +955,7 @@ createApp({
 
     function expandOut() {
       const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
-      const rows = outH.pn ? bom.value.filter(r => String(r.pn) === String(outH.pn) && !r.deleted) : [];
+      const rows = outH.pn ? bomRowsOfPn(bom.value, outH.pn) : [];
       const order = Number(outH.order) || 0;
       const bomOf = new Map(rows.map(r => [String(r.code), r]));
 
@@ -958,6 +976,8 @@ createApp({
         return;
       }
       if (!rows.length) {
+        // เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร — ล้างบรรทัดของใบก่อน ไม่งั้นรหัสของใบใหม่ถูกเติมต่อท้ายใบเก่า (#78)
+        if (outH.po || outH.pn) outLines.value = [];
         outHint.value = (outH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${outH.po} และสูตรของ ${outH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : 'ใส่เลข PO หรือ P/N แล้วโปรแกรมจะกางรายการให้')
@@ -2133,7 +2153,7 @@ createApp({
              pick, pickQ, pickResults, openPick, choosePick,
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, pickPo, fillLine, saveIn, addFromLine,
-             outH, outLines, outHint, addOutLine, fillOutLine, expandOut,
+             outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo,
              outBalOf, outAfterOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
              balQ, balCat, balZero, balShown, balSum, oddRows,
