@@ -6,7 +6,7 @@
  * ในโปรแกรมคลัง เพราะกว่าจะรู้ก็ผ่านไปหลายเดือนแล้ว
  */
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, overBom, receivedOfDoc } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, overBom, receivedOfDoc, movedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -23,7 +23,8 @@ const base = { entity: E, person: 'สมชาย', material_code: '3220130200'
 const mk = o => makeEntry({ ...base, ...o });
 
 console.log('=== A. เครื่องหมายอยู่ที่เดียว ===');
-ok('ชนิดที่รู้จักครบ 7 แบบ', Object.keys(KINDS).length === 7, Object.keys(KINDS).join(','));
+ok('ชนิดที่รู้จักครบ 8 แบบ', Object.keys(KINDS).length === 8, Object.keys(KINDS).join(','));
+ok('ส่งคืน Delta ลดยอด', signedQty(mk({ kind: 'sendback', qty: 6, doc_ref: 'PO1', reason_code: 'over' })) === -6);
 ok('รับเข้าเพิ่มยอด', signedQty(mk({ kind: 'receive', qty: 10, lot: 'L1', doc_ref: 'PO1' })) === 10);
 ok('จ่ายออกลดยอด', signedQty(mk({ kind: 'issue', qty: 4 })) === -4);
 ok('ของเสียลดยอด', signedQty(mk({ kind: 'scrap', qty: 2, reason_code: 'wind' })) === -2);
@@ -58,6 +59,14 @@ ok('เลือกอื่น ๆ พร้อมคำอธิบายผ�
 throws('ไม่มีนิติบุคคลไม่ผ่าน',
        () => makeEntry({ ...base, entity: '', kind: 'issue', qty: 1 }), 'นิติบุคคล');
 ok('จ่ายออกไม่ต้องมีล็อต (ของไม่ได้แยกกองตามล็อต)', !!mk({ kind: 'issue', qty: 1 }));
+throws('ส่งคืน Delta ต้องอ้าง PO', () => mk({ kind: 'sendback', qty: 5, reason_code: 'over' }), 'เอกสาร');
+throws('ส่งคืน Delta ต้องมีเหตุผล', () => mk({ kind: 'sendback', qty: 5, doc_ref: 'PO1' }), 'เหตุผล');
+throws('เหตุผลของชนิดอื่นใช้กับส่งคืนไม่ได้', () => mk({ kind: 'sendback', qty: 5, doc_ref: 'PO1', reason_code: 'wind' }), 'เหตุผล');
+throws('ส่งคืนเลือกอื่น ๆ แล้วต้องเขียนเพิ่ม', () => mk({ kind: 'sendback', qty: 5, doc_ref: 'PO1', reason_code: 'other' }), 'อธิบายเพิ่ม');
+ok('ส่งคืน Delta ไม่บังคับล็อต — ของเกินคิดต่อ PO ล็อตมักไม่รู้ บังคับแล้วบันทึกไม่ได้ (A4)',
+   !!mk({ kind: 'sendback', qty: 5, doc_ref: 'PO1', reason_code: 'over' }));
+ok('เหตุผลส่งคืนครบห้าข้อตามที่ตกลง', (REASONS.sendback || []).map(r => r.code).join(',') === 'over,carry,wrong,qc,other',
+   (REASONS.sendback || []).map(r => r.code).join(','));
 
 console.log('\n=== E. ยอดคงเหลือ ===');
 const led = [
@@ -148,20 +157,21 @@ ok('เก็บเวลาที่เคยรับไว้ให้ฝั�
 
 console.log('\n=== L. ชนิดรายการที่โปรแกรมรุ่นนี้ไม่รู้จัก (เครื่องอื่นใช้รุ่นใหม่กว่า) ===');
 // รายการจากเครื่องรุ่นใหม่ที่ซิงค์มาถึง — makeEntry ของรุ่นนี้สร้างไม่ได้ จึงประกอบเองแบบแถวที่ดึงมาจากชีต
+// ชื่อ nextkind แทนชนิดที่ยังไม่มีจริง · เดิมใช้ sendback ซึ่งตอนนี้รู้จักแล้ว (Mat Follow up 5/8)
 const future = o => ({ ...mk({ kind: 'issue', qty: 1 }), ...o });
 const mixed = [
   mk({ kind: 'receive', qty: 50, lot: 'L1', doc_ref: 'PO1' }),
-  future({ kind: 'sendback', qty: 20, doc_ref: 'PO1' }),
-  future({ kind: 'sendback', qty: 5, doc_ref: 'PO1' }),
+  future({ kind: 'nextkind', qty: 20, doc_ref: 'PO1' }),
+  future({ kind: 'nextkind', qty: 5, doc_ref: 'PO1' }),
   voidEntry(future({ kind: 'mystery', qty: 9 }), { by: 'เจ้าของ', reason: 'คีย์ผิด' }),
-  future({ kind: 'sendback', qty: 7, entity: 'OTHER' })
+  future({ kind: 'nextkind', qty: 7, entity: 'OTHER' })
 ];
 let sq;
 try { sq = signedQty(mixed[1]); } catch (e) { sq = e; }
 ok('คิดยอดต่อได้ ไม่โยน error — โยนในลูปคิดยอด = จอขาวทั้งโปรแกรม', sq === 0, String(sq));
 const uk = unknownKinds(mixed);
 ok('ฟ้องชนิดที่ไม่รู้จักพร้อมจำนวน นับทุกนิติบุคคล (บอกว่าโปรแกรมเก่า ไม่ใช่ยอดของใคร)',
-   uk.length === 1 && uk[0].kind === 'sendback' && uk[0].n === 3, JSON.stringify(uk));
+   uk.length === 1 && uk[0].kind === 'nextkind' && uk[0].n === 3, JSON.stringify(uk));
 ok('รายการที่ยกเลิกแล้วไม่ฟ้อง เพราะไม่ได้นับเข้ายอดอยู่แล้ว (B1)', !uk.some(k => k.kind === 'mystery'));
 ok('ชนิดที่รู้จักครบ ไม่ฟ้องอะไร', unknownKinds(led).length === 0);
 ok('ชื่อที่ติดมากับทุกอ็อบเจกต์ไม่นับว่ารู้จัก', unknownKinds([future({ kind: 'constructor' })]).length === 1);
@@ -172,6 +182,33 @@ ok('เหตุผลบอกว่ามีรายการที่ไม�
 ok('นับเฉพาะของนิติบุคคลนี้ (A3)', !!oddU && oddU.unknown === 2, oddU && String(oddU.unknown));
 ok('รหัสที่โดนขึ้นก่อนรหัสยอดติดลบ เพราะข้ออื่นคิดจากยอดที่ผิดไปแล้ว',
    oddBalances([mk({ kind: 'issue', qty: 5, material_code: 'NEG1' }), ...mixed], E)[0].code === base.material_code);
+
+console.log('\n=== M. ส่งคืน Delta และยอดตามใบของชนิดใดก็ได้ (Mat Follow up 5/8) ===');
+const C = base.material_code;
+const sbk = [
+  mk({ kind: 'receive',  qty: 120, lot: 'L1', doc_ref: 'PO1' }),
+  mk({ kind: 'sendback', qty: 15,  doc_ref: 'PO1', reason_code: 'over' }),
+  mk({ kind: 'sendback', qty: 0.1, doc_ref: 'PO1', reason_code: 'carry' }),
+  mk({ kind: 'sendback', qty: 30,  doc_ref: 'PO2', reason_code: 'over' }),
+  voidEntry(mk({ kind: 'sendback', qty: 400, doc_ref: 'PO1', reason_code: 'over' }), { by: 'เจ้าของ', reason: 'คีย์ผิด' }),
+  makeEntry({ ...base, entity: 'OTHER', kind: 'sendback', qty: 77, doc_ref: 'PO1', reason_code: 'over' })
+];
+ok('ส่งคืนลดยอดคงเหลือ 120 − 15 − 0.1 − 30 = 74.9 (A2)', balanceOf(sbk, E, C) === 74.9, String(balanceOf(sbk, E, C)));
+const sent = movedOfDoc(sbk, E, 'PO1', 'sendback');
+ok('รวมยอดส่งคืนของ PO ใบเดียวกันทุกรอบ ไม่ปน PO อื่น (A2)', sent.get(C)?.qty === 15.1 && sent.get(C)?.times === 2,
+   JSON.stringify(sent.get(C)));
+ok('รายการส่งคืนที่ยกเลิกไม่นับ (B1)', sent.get(C)?.qty === 15.1);
+ok('ส่งคืนของนิติบุคคลอื่นไม่ปน (A3)', movedOfDoc(sbk, 'OTHER', 'PO1', 'sendback').get(C)?.qty === 77);
+throws('movedOfDoc ลืมส่ง entity ไม่ได้ (A3)', () => movedOfDoc(sbk, '', 'PO1', 'sendback'), 'นิติบุคคล');
+throws('ชนิดที่พิมพ์ผิดต้องดัง ไม่ใช่คืนค่าว่างเงียบ ๆ แล้วของเกินโผล่ให้คืนซ้ำ', () => movedOfDoc(sbk, E, 'PO1', 'sendbak'), 'ไม่รู้จัก');
+throws('ไม่ส่งชนิดมาก็ต้องดัง', () => movedOfDoc(sbk, E, 'PO1'), 'ไม่รู้จัก');
+ok('ยอดรับของใบเดียวกันไม่ลดตามที่ส่งคืน — ส่งคืนไม่ได้ทำให้ใบนี้รับมาน้อยลง',
+   receivedOfDoc(sbk, E, 'PO1').get(C)?.qty === 120 && receivedOfDoc(sbk, E, 'PO1').size === 1);
+ok('receivedOfDoc ให้ผลเท่ากับ movedOfDoc ชนิดรับเข้าทุกประการ',
+   JSON.stringify([...receivedOfDoc(rcv, E, 'PO1')]) === JSON.stringify([...movedOfDoc(rcv, E, 'PO1', 'receive')]));
+ok('การ์ดรายตัวขึ้นชื่อ "ส่งคืน Delta" เป็นยอดติดลบ',
+   cardRows(sbk, E, C).some(r => r.kindLabel === 'ส่งคืน Delta' && r.moved === -15));
+ok('ส่งคืนไม่ถูกฟ้องว่าเป็นชนิดที่ไม่รู้จัก', unknownKinds(sbk).length === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
