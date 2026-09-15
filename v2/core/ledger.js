@@ -30,7 +30,12 @@ export const KINDS = {
   return:   { label: 'คืนของ',    sign: +1, lot: false, reason: true,  doc: false },
   scrap:    { label: 'ของเสีย',   sign: -1, lot: false, reason: true,  doc: false },
   adjust:   { label: 'ปรับยอด',   sign:  0, lot: false, reason: true,  doc: false },
-  transfer: { label: 'โอนย้าย',   sign:  0, lot: false, reason: false, doc: false }
+  transfer: { label: 'โอนย้าย',   sign:  0, lot: false, reason: false, doc: false },
+  // ส่งของที่รับมาเกินกลับไปให้ Delta (Mat Follow up 5/8)
+  //   doc   ต้องพกเลข PO — ของเกินนิยามต่อ PO จึงต้องหักกับยอดรับของใบเดียวกันได้ (movedOfDoc)
+  //   lot   ไม่บังคับ — ของเกินคิดต่อ PO+รหัส ล็อตมักไม่รู้ บังคับแล้วบันทึกไม่ได้ (INVARIANTS A4)
+  // ⚠️ เครื่องที่ยังเป็นรุ่นก่อน 2026-09-14.1 คิดชนิดนี้เป็นศูนย์ — ห้ามเปิดหน้าจอให้คีย์จนกว่าทุกเครื่องจะอัปเดต
+  sendback: { label: 'ส่งคืน Delta', sign: -1, lot: false, reason: true, doc: true }
 };
 
 /**
@@ -57,6 +62,13 @@ export const REASONS = {
   return: [
     { code: 'over',   label: 'เบิกเกินแล้วเอากลับ' },
     { code: 'unused', label: 'ทำไม่ทัน คืนเข้าคลัง' },
+    { code: 'other',  label: 'อื่น ๆ (ต้องเขียนเพิ่ม)' }
+  ],
+  sendback: [
+    { code: 'over',   label: 'รับเกินกว่าที่สูตรต้องใช้' },
+    { code: 'carry',  label: 'ยกไป PO ถัดไป' },
+    { code: 'wrong',  label: 'ส่งผิดรหัส / ผิดสเปก' },
+    { code: 'qc',     label: 'ตรวจไม่ผ่าน' },
     { code: 'other',  label: 'อื่น ๆ (ต้องเขียนเพิ่ม)' }
   ]
 };
