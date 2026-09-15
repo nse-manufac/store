@@ -187,27 +187,29 @@ console.log('\n=== M. ส่งคืน Delta และยอดตามใบ
 const C = base.material_code;
 const sbk = [
   mk({ kind: 'receive',  qty: 120, lot: 'L1', doc_ref: 'PO1' }),
-  mk({ kind: 'sendback', qty: 15,  doc_ref: 'PO1', reason_code: 'over' }),
-  mk({ kind: 'sendback', qty: 0.1, doc_ref: 'PO1', reason_code: 'carry' }),
+  // 0.1 กับ 0.2 ตั้งใจเลือก — บวกกันตรง ๆ ได้ 0.30000000000000004 เทสจึงจับได้ถ้าใครถอด round5 (A2)
+  mk({ kind: 'sendback', qty: 0.1, doc_ref: 'PO1', reason_code: 'over' }),
+  mk({ kind: 'sendback', qty: 0.2, doc_ref: 'PO1', reason_code: 'carry' }),
   mk({ kind: 'sendback', qty: 30,  doc_ref: 'PO2', reason_code: 'over' }),
   voidEntry(mk({ kind: 'sendback', qty: 400, doc_ref: 'PO1', reason_code: 'over' }), { by: 'เจ้าของ', reason: 'คีย์ผิด' }),
   makeEntry({ ...base, entity: 'OTHER', kind: 'sendback', qty: 77, doc_ref: 'PO1', reason_code: 'over' })
 ];
-ok('ส่งคืนลดยอดคงเหลือ 120 − 15 − 0.1 − 30 = 74.9 (A2)', balanceOf(sbk, E, C) === 74.9, String(balanceOf(sbk, E, C)));
+ok('ส่งคืนลดยอดคงเหลือ 120 − 0.1 − 0.2 − 30 = 89.7 (A2)', balanceOf(sbk, E, C) === 89.7, String(balanceOf(sbk, E, C)));
 const sent = movedOfDoc(sbk, E, 'PO1', 'sendback');
-ok('รวมยอดส่งคืนของ PO ใบเดียวกันทุกรอบ ไม่ปน PO อื่น (A2)', sent.get(C)?.qty === 15.1 && sent.get(C)?.times === 2,
-   JSON.stringify(sent.get(C)));
-ok('รายการส่งคืนที่ยกเลิกไม่นับ (B1)', sent.get(C)?.qty === 15.1);
+ok('รวมยอดส่งคืนของ PO ใบเดียวกันทุกรอบได้ 0.3 ไม่ใช่ 0.30000000000000004 · ไม่ปน PO อื่น (A2) · ที่ยกเลิกไม่นับ (B1)',
+   sent.get(C)?.qty === 0.3 && sent.get(C)?.times === 2, JSON.stringify(sent.get(C)));
 ok('ส่งคืนของนิติบุคคลอื่นไม่ปน (A3)', movedOfDoc(sbk, 'OTHER', 'PO1', 'sendback').get(C)?.qty === 77);
 throws('movedOfDoc ลืมส่ง entity ไม่ได้ (A3)', () => movedOfDoc(sbk, '', 'PO1', 'sendback'), 'นิติบุคคล');
 throws('ชนิดที่พิมพ์ผิดต้องดัง ไม่ใช่คืนค่าว่างเงียบ ๆ แล้วของเกินโผล่ให้คืนซ้ำ', () => movedOfDoc(sbk, E, 'PO1', 'sendbak'), 'ไม่รู้จัก');
 throws('ไม่ส่งชนิดมาก็ต้องดัง', () => movedOfDoc(sbk, E, 'PO1'), 'ไม่รู้จัก');
+// ตรวจชนิดต้องมาก่อน "ไม่มีเลข PO คืนว่าง" — สลับลำดับแล้วชนิดที่พิมพ์ผิดจะเงียบตอนช่อง PO ยังว่าง
+throws('ชนิดพิมพ์ผิดต้องดังแม้ยังไม่ได้ใส่เลข PO', () => movedOfDoc(sbk, E, '', 'sendbak'), 'ไม่รู้จัก');
 ok('ยอดรับของใบเดียวกันไม่ลดตามที่ส่งคืน — ส่งคืนไม่ได้ทำให้ใบนี้รับมาน้อยลง',
    receivedOfDoc(sbk, E, 'PO1').get(C)?.qty === 120 && receivedOfDoc(sbk, E, 'PO1').size === 1);
 ok('receivedOfDoc ให้ผลเท่ากับ movedOfDoc ชนิดรับเข้าทุกประการ',
    JSON.stringify([...receivedOfDoc(rcv, E, 'PO1')]) === JSON.stringify([...movedOfDoc(rcv, E, 'PO1', 'receive')]));
 ok('การ์ดรายตัวขึ้นชื่อ "ส่งคืน Delta" เป็นยอดติดลบ',
-   cardRows(sbk, E, C).some(r => r.kindLabel === 'ส่งคืน Delta' && r.moved === -15));
+   cardRows(sbk, E, C).some(r => r.kindLabel === 'ส่งคืน Delta' && r.moved === -0.2));
 ok('ส่งคืนไม่ถูกฟ้องว่าเป็นชนิดที่ไม่รู้จัก', unknownKinds(sbk).length === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
