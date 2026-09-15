@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
-         parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo } from '../v2/master/po-kit.js';
+         parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo } from '../v2/master/po-kit.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -221,6 +221,11 @@ ok('หน้าจ่ายออกเติมให้ทั้งสาม�
    String((bodyOf('expandOut').match(/addReceivedToOut\(\)/g) || []).length));
 // เจ้าของเลือกให้ปล่อยยอดเบิกว่าง — ตั้งยอดให้แล้วของที่เคยเบิกไปบางส่วนจะถูกบันทึกซ้ำ
 ok('แถวที่เติมในหน้าจ่ายออกต้องไม่ตั้งยอดเบิกให้', !/\.qty\s*=/.test(bodyOf('addReceivedToOut')));
+// ผู้ตรวจรอบสามของ #79: คืนแค่จำนวนที่เพิ่งเติม กางซ้ำในใบเดิมได้ 0 ข้อความ "อีก N รายการ…" หายทั้งที่แถวยังอยู่บนจอ
+ok('ข้อความบอกจำนวนแถวที่เติม นับแถวที่อยู่บนจอทั้งหมด ไม่ใช่แค่ที่เพิ่งเติมรอบนี้',
+   bodyOf('addReceivedToOut').includes('l.fromRecv = true')
+   && /return outLines\.value\.filter\(l => l\.fromRecv\)\.length/.test(bodyOf('addReceivedToOut'))
+   && !/return extra\.length/.test(bodyOf('addReceivedToOut')));
 
 // ผู้ตรวจของ #79 เจอเพิ่มอีกสามทางที่สองหน้ากางไม่เท่ากัน — เจ้าของสั่งแก้ในใบเดียวกัน
 const htmlSrc = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
@@ -236,11 +241,17 @@ ok('สองหน้ากางสูตรผ่านตัวกรอง�
 
 // ผู้ตรวจรอบสองของ #79: รอบแรกล้างทุกครั้งที่แตะช่องหัว — คีย์บรรทัดเองแล้วค่อยเติม P/N บรรทัดหายหมด
 // เจ้าของเลือก 15 ก.ย. 2026: ล้างเฉพาะตอนเลข PO เปลี่ยน
-ok('เปลี่ยนเลข PO = เปลี่ยนใบ (รวมจากว่างเป็นมี และจากมีเป็นว่าง)',
-   switchedPo('PO-A', 'PO-B') && switchedPo('', 'PO-A') && switchedPo('PO-A', ''));
+ok('เปลี่ยนจากเลขหนึ่งไปอีกเลขหนึ่ง = เปลี่ยนใบ', switchedPo('PO-A', 'PO-B'));
 ok('เลข PO เดิม (แก้แค่ P/N หรือจำนวนสั่ง) ไม่ใช่เปลี่ยนใบ',
    !switchedPo('PO-A', 'PO-A') && !switchedPo('', '') && !switchedPo(undefined, null));
 ok('เว้นวรรค หรือเลข PO ที่มาเป็นตัวเลข ไม่นับว่าเปลี่ยนใบ', !switchedPo(' 9001 ', 9001) && !switchedPo('9001', ' 9001'));
+// ผู้ตรวจรอบสาม: คีย์บรรทัดเองก่อนใส่ PO (หรือกด "ไปเบิก" จากหน้าการ์ด) แล้วค่อยพิมพ์ PO บรรทัดหายหมด
+// เจ้าของเลือก 16 ก.ย. 2026: ล้างเฉพาะเลขหนึ่ง → อีกเลขหนึ่ง
+ok('จากช่องว่างเป็นมีเลข หรือลบเลขทิ้ง ไม่ใช่เปลี่ยนใบ — บรรทัดที่คีย์ก่อนใส่ PO ต้องอยู่',
+   !switchedPo('', 'PO-A') && !switchedPo(null, 'PO-A') && !switchedPo('PO-A', '') && !switchedPo('PO-A', '  '));
+ok('ลบเลข PO ทิ้งยังจำใบเดิมไว้ — ลบ A แล้วพิมพ์ B ยังนับว่าเปลี่ยนใบ ไม่ปล่อยบรรทัดของ A ค้างใต้หัว B',
+   nextShownPo('PO-A', '') === 'PO-A' && switchedPo(nextShownPo('PO-A', ''), 'PO-B')
+   && nextShownPo('', ' PO-B ') === 'PO-B' && nextShownPo('PO-A', 'PO-B') === 'PO-B' && nextShownPo(null, undefined) === '');
 ok('สองหน้าล้างบรรทัดเฉพาะตอนเปลี่ยนใบ ไม่ใช่ทุกครั้งที่แตะช่องหัว',
    /switchedPo\(inShownPo, inH\.po\)/.test(bodyOf('expandBom'))
    && /switchedPo\(outShownPo, outH\.po\)/.test(bodyOf('expandOut'))
@@ -248,12 +259,18 @@ ok('สองหน้าล้างบรรทัดเฉพาะตอน�
    && /if \(poSwitched\) outLines\.value = \[\]/.test(bodyOf('expandOut'))
    && !/if \((inH|outH)\.po \|\| (inH|outH)\.pn\)/.test(appSrc));
 ok('จำเลข PO ของรายการบนจอทุกครั้งที่กาง ก่อนแยกทาง — ไม่งั้นทางที่ return ก่อนจะไม่ได้จำ',
-   /const poSwitched = switchedPo\(inShownPo, inH\.po\);\s*inShownPo = String\(inH\.po/.test(bodyOf('expandBom'))
-   && /const poSwitched = switchedPo\(outShownPo, outH\.po\);\s*outShownPo = String\(outH\.po/.test(bodyOf('expandOut')));
+   /const poSwitched = switchedPo\(inShownPo, inH\.po\);\s*inShownPo = nextShownPo\(inShownPo, inH\.po\);/.test(bodyOf('expandBom'))
+   && /const poSwitched = switchedPo\(outShownPo, outH\.po\);\s*outShownPo = nextShownPo\(outShownPo, outH\.po\);/.test(bodyOf('expandOut')));
 // เจ้าของเลือก 15 ก.ย. 2026: ทางสูตรของหน้าจ่ายออกไม่ตั้งยอดเบิก — ช่อง PO เติม P/N กับจำนวนสั่งให้แล้ว
 // ถ้ายังตั้งยอดตามสูตร แค่คีย์ PO ก็กดบันทึกทั้งใบได้ · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา (ยอดจากเอกสาร)
 ok('หน้าจ่ายออกทางสูตรไม่ตั้งยอดเบิก · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา',
    !/l\.qty\s*=\s*l\.reqmt/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.qty = k.issue'));
+// ผู้ตรวจรอบสาม: บันทึกหรือกด "ล้าง" แล้วจอว่างแต่ยังจำ PO เดิม — คีย์บรรทัดต่อแล้วเปลี่ยน PO บรรทัดหาย
+ok('บันทึกหรือกด "ล้าง" แล้วลืมเลข PO เดิม ทั้งสองหน้า',
+   /inShownPo = ''/.test(bodyOf('saveIn')) && /outShownPo = ''/.test(bodyOf('saveOut'))
+   && /inShownPo = ''/.test(bodyOf('clearIn')) && /outShownPo = ''/.test(bodyOf('clearOut'))
+   && /@click="clearIn"/.test(htmlSrc) && /@click="clearOut"/.test(htmlSrc)
+   && !/@click="(inLines|outLines)=\[\]/.test(htmlSrc));
 
 /* ⚠️ ชื่อที่ import เข้า app.js ห้ามถูกประกาศซ้ำในไฟล์ — ตัวในไฟล์จะบังตัว import เงียบ ๆ
  *    เจอจริงตอนทำ #79: ตั้งชื่อตัวกรองสูตรว่า bomRowsOfPn ซึ่งซ้ำกับ computed ของหน้าแก้สูตร

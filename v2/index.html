@@ -960,7 +960,7 @@ textarea{font:inherit}
           <div class="row" style="margin-top:11px">
             <span class="hint">พร้อมบันทึก {{ inReady.length }} บรรทัด</span>
             <div class="grow"></div>
-            <button class="btn" @click="inLines=[];bomHint=''">ล้าง</button>
+            <button class="btn" @click="clearIn">ล้าง</button>
             <button class="btn primary" @click="saveIn" :disabled="!inReady.length">บันทึกรับเข้า</button>
           </div>
           <div class="msg warn" v-if="inNoLot.length" style="margin:10px 0 0">
@@ -1052,7 +1052,7 @@ textarea{font:inherit}
           <div class="row" style="margin-top:11px">
             <span class="hint">พร้อมบันทึก {{ outReady.length }} บรรทัด</span>
             <div class="grow"></div>
-            <button class="btn" @click="outLines=[];outHint=''">ล้าง</button>
+            <button class="btn" @click="clearOut">ล้าง</button>
             <button class="btn primary" @click="saveOut" :disabled="!outReady.length">บันทึกจ่ายออก</button>
           </div>
 

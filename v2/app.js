@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList, switchedPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -774,7 +774,7 @@ createApp({
      */
     function expandBom() {
       const poSwitched = switchedPo(inShownPo, inH.po);
-      inShownPo = String(inH.po ?? '').trim();
+      inShownPo = nextShownPo(inShownPo, inH.po);
       const kit = inH.po ? kitsOfPo(kits.value, inH.po) : [];
       const recv = inH.po && entity.value
         ? receivedOfDoc(entries.value, entity.value, inH.po) : new Map();
@@ -888,6 +888,7 @@ createApp({
         db.announce('entries');
         flash(`บันทึกรับเข้า ${posted.length} รายการ · PO ${inH.po}`);
         inLines.value = []; bomHint.value = ''; inH.po = ''; inH.pn = ''; inH.order = null;
+        inShownPo = '';   // บันทึกแล้วจอว่าง ไม่มีบรรทัดของใบไหนเหลือ — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนใส่ PO ใหม่
       } catch (err) { flash(err.message, true); }
     }
 
@@ -952,9 +953,11 @@ createApp({
       for (const { code } of extra) {
         const l = outBlank(code);
         fillOutLine(l);
+        l.fromRecv = true;                        // ป้ายบนจออย่างเดียว ไม่ถูกบันทึกลงสมุด
         outLines.value.push(l);
       }
-      return extra.length;
+      // นับแถวที่เติมไว้ทั้งหมดบนจอ ไม่ใช่แค่ที่เพิ่งเติมรอบนี้ — กางซ้ำในใบเดิมแถวอยู่แล้ว ข้อความบอกจำนวนต้องไม่หาย (ผู้ตรวจรอบสามของ #79)
+      return outLines.value.filter(l => l.fromRecv).length;
     }
     const extraOutHint = n =>
       n ? ` · อีก ${n} รายการเคยรับเข้ากับ PO นี้แต่ไม่อยู่ในรายการ — ใส่ยอดเบิกเองถ้าหยิบไปใช้` : '';
@@ -963,7 +966,7 @@ createApp({
     let outShownPo = '';
     function expandOut() {
       const poSwitched = switchedPo(outShownPo, outH.po);
-      outShownPo = String(outH.po ?? '').trim();
+      outShownPo = nextShownPo(outShownPo, outH.po);
       const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
       const rows = outH.pn ? activeBomRowsOf(bom.value, outH.pn) : [];
       const order = Number(outH.order) || 0;
@@ -1044,6 +1047,7 @@ createApp({
         flash(`บันทึกจ่ายออก ${posted.length} รายการ`
               + (outH.po ? ` · PO ${outH.po}` : ''));
         outLines.value = []; outHint.value = '';
+        outShownPo = '';  // บันทึกแล้วจอว่าง — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนเปลี่ยน PO (#78)
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2148,6 +2152,11 @@ createApp({
       tab.value = 'out';
     }
 
+    // ปุ่ม "ล้าง" ของสองหน้า — จอว่างแล้วไม่มีบรรทัดของใบไหนเหลือ จึงลืมเลข PO เดิมด้วย (#78)
+    // เดิมเขียนไว้ในเทมเพลตตรง ๆ ซึ่งแตะตัวแปรที่จำเลข PO ไม่ได้
+    function clearIn() { inLines.value = []; bomHint.value = ''; inShownPo = ''; }
+    function clearOut() { outLines.value = []; outHint.value = ''; outShownPo = ''; }
+
     return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity,
              materials, entries, bom, q, fCat, fState, edit, toast,
@@ -2167,7 +2176,7 @@ createApp({
              pick, pickQ, pickResults, openPick, choosePick,
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, pickPo, fillLine, saveIn, addFromLine,
-             outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo,
+             outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
              balQ, balCat, balZero, balShown, balSum, oddRows,
