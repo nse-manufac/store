@@ -11,7 +11,7 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf,
-         bomId, bomRowsOfPn } from './master/bom.js';
+         bomId, activeBomRowsOf } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
@@ -774,7 +774,7 @@ createApp({
       const recv = inH.po && entity.value
         ? receivedOfDoc(entries.value, entity.value, inH.po) : new Map();
       // ตัวเดียวกับหน้าจ่ายออก — ตัดบรรทัดสูตรที่ลบแล้ว (#78 · เดิมหน้านี้ไม่ตัด สองหน้าจึงกางไม่เท่ากัน)
-      const rows = inH.pn ? bomRowsOfPn(bom.value, inH.pn) : [];
+      const rows = inH.pn ? activeBomRowsOf(bom.value, inH.pn) : [];
       const order = Number(inH.order) || 0;
       const bomOf = new Map(rows.map(r => [String(r.code), r]));
 
@@ -955,7 +955,7 @@ createApp({
 
     function expandOut() {
       const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
-      const rows = outH.pn ? bomRowsOfPn(bom.value, outH.pn) : [];
+      const rows = outH.pn ? activeBomRowsOf(bom.value, outH.pn) : [];
       const order = Number(outH.order) || 0;
       const bomOf = new Map(rows.map(r => [String(r.code), r]));
 

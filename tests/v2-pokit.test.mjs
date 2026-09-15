@@ -231,10 +231,20 @@ ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต
    bodyOf('pickOutPo').includes('poHeader(') && bodyOf('pickOutPo').includes('outH.pn')
    && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
-   bodyOf('expandBom').includes('bomRowsOfPn(') && bodyOf('expandOut').includes('bomRowsOfPn(')
+   bodyOf('expandBom').includes('activeBomRowsOf(') && bodyOf('expandOut').includes('activeBomRowsOf(')
    && !/bom\.value\.filter/.test(bodyOf('expandBom') + bodyOf('expandOut')));
 ok('เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร ต้องล้างบรรทัดของใบก่อน ทั้งสองหน้า',
    bodyOf('expandBom').includes('inLines.value = []') && bodyOf('expandOut').includes('outLines.value = []'));
+
+/* ⚠️ ชื่อที่ import เข้า app.js ห้ามถูกประกาศซ้ำในไฟล์ — ตัวในไฟล์จะบังตัว import เงียบ ๆ
+ *    เจอจริงตอนทำ #79: ตั้งชื่อตัวกรองสูตรว่า bomRowsOfPn ซึ่งซ้ำกับ computed ของหน้าแก้สูตร
+ *    เทสอ่านซอร์สทุกข้อข้างบนเขียว แต่เปิดหน้าจ่ายออกแล้วพังด้วย "is not a function"
+ *    ข้อนี้คุมทั้งไฟล์ ไม่ใช่แค่ชื่อเดียว */
+const importedNames = [...appSrc.matchAll(/import\s*\{([^}]*)\}\s*from/g)]
+  .flatMap(m => m[1].split(',').map(x => x.trim().split(/\s+as\s+/).pop()).filter(Boolean));
+const shadowed = importedNames.filter(n => new RegExp('(?:const|let|var|function)\\s+' + n + '\\b').test(appSrc));
+ok('ชื่อที่ import เข้า app.js ต้องไม่ถูกประกาศซ้ำในไฟล์', importedNames.length > 20 && shadowed.length === 0,
+   'ซ้ำ: ' + shadowed.join(', ') + ' · อ่านชื่อได้ ' + importedNames.length);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
