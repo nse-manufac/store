@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList, switchedPo,
          importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -759,6 +759,9 @@ createApp({
         + (bomHint.value ? ' · ' + bomHint.value : '');
     }
 
+    // เลข PO ที่รายการบนจอหน้ารับเข้าเป็นของใบนั้น — ใช้ตัดสินว่า "เปลี่ยนใบ" จริงไหม (#78)
+    let inShownPo = '';
+
     /**
      * กางรายการให้คีย์ — ยึด Kit List ก่อน แล้วค่อยตกมาที่ BOM
      *
@@ -770,6 +773,8 @@ createApp({
      * ของกลุ่มนั้นไม่ได้มาพร้อม PO ถ้ากางขึ้นมาพนักงานจะคีย์ยอดที่ยังไม่ได้รับของจริง
      */
     function expandBom() {
+      const poSwitched = switchedPo(inShownPo, inH.po);
+      inShownPo = String(inH.po ?? '').trim();
       const kit = inH.po ? kitsOfPo(kits.value, inH.po) : [];
       const recv = inH.po && entity.value
         ? receivedOfDoc(entries.value, entity.value, inH.po) : new Map();
@@ -802,7 +807,8 @@ createApp({
 
       if (!rows.length) {
         // เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร — ล้างบรรทัดของใบก่อน ไม่งั้นค้างบนจอปนกับใบใหม่ (#78)
-        if (inH.po || inH.pn) inLines.value = [];
+        // ล้างเฉพาะตอนเลข PO เปลี่ยน — แก้ P/N หรือจำนวนสั่งในใบเดิม บรรทัดที่คีย์เองต้องอยู่ (เจ้าของเลือก 15 ก.ย. 2026)
+        if (poSwitched) inLines.value = [];
         bomHint.value = inH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${inH.po} และสูตรของ ${inH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`;
@@ -953,7 +959,11 @@ createApp({
     const extraOutHint = n =>
       n ? ` · อีก ${n} รายการเคยรับเข้ากับ PO นี้แต่ไม่อยู่ในรายการ — ใส่ยอดเบิกเองถ้าหยิบไปใช้` : '';
 
+    // เลข PO ที่รายการบนจอหน้าจ่ายออกเป็นของใบนั้น — ใช้ตัดสินว่า "เปลี่ยนใบ" จริงไหม
+    let outShownPo = '';
     function expandOut() {
+      const poSwitched = switchedPo(outShownPo, outH.po);
+      outShownPo = String(outH.po ?? '').trim();
       const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
       const rows = outH.pn ? activeBomRowsOf(bom.value, outH.pn) : [];
       const order = Number(outH.order) || 0;
@@ -977,7 +987,8 @@ createApp({
       }
       if (!rows.length) {
         // เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร — ล้างบรรทัดของใบก่อน ไม่งั้นรหัสของใบใหม่ถูกเติมต่อท้ายใบเก่า (#78)
-        if (outH.po || outH.pn) outLines.value = [];
+        // ล้างเฉพาะตอนเลข PO เปลี่ยน — แก้ P/N หรือจำนวนสั่งในใบเดิม บรรทัดที่คีย์เองต้องอยู่ (เจ้าของเลือก 15 ก.ย. 2026)
+        if (poSwitched) outLines.value = [];
         outHint.value = (outH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${outH.po} และสูตรของ ${outH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : 'ใส่เลข PO หรือ P/N แล้วโปรแกรมจะกางรายการให้')
@@ -989,12 +1000,15 @@ createApp({
         fillOutLine(l);
         if (!l.known) { l.desc = r.desc; l.unit = r.unit; }
         l.reqmt = order ? Math.round(r.usage * order * 1e5) / 1e5 : null;
-        l.qty = l.reqmt;
+        // ไม่ตั้งยอดเบิกตามสูตรให้ — เจ้าของเลือก 15 ก.ย. 2026 (#78)
+        // ตั้งแต่ช่อง PO เติม P/N กับจำนวนสั่งให้เอง แค่คีย์ PO ก็กดบันทึกยอดตามสูตรทั้งใบได้ โดยไม่มีใครดูของจริง
+        // ทาง Kit List ยังตั้งยอดตามที่ Delta จ่ายมาเหมือนเดิม เพราะเป็นยอดจากเอกสาร ไม่ใช่ยอดคำนวณ
         return l;
       });
       outHint.value = `กางสูตร ${rows.length} รายการ`
         + (outH.po ? ` · ยังไม่มี Kit List ของ PO ${outH.po} จึงใช้สูตรแทน` : '')
         + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร')
+        + ' · ใส่ยอดเบิกตามที่หยิบจริง'
         + extraOutHint(addReceivedToOut());
     }
 

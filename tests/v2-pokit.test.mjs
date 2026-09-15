@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
-         parseThaiDate, parseEnDate, excelDate, receivedOutsideList } from '../v2/master/po-kit.js';
+         parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo } from '../v2/master/po-kit.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -233,8 +233,27 @@ ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
    bodyOf('expandBom').includes('activeBomRowsOf(') && bodyOf('expandOut').includes('activeBomRowsOf(')
    && !/bom\.value\.filter/.test(bodyOf('expandBom') + bodyOf('expandOut')));
-ok('เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร ต้องล้างบรรทัดของใบก่อน ทั้งสองหน้า',
-   bodyOf('expandBom').includes('inLines.value = []') && bodyOf('expandOut').includes('outLines.value = []'));
+
+// ผู้ตรวจรอบสองของ #79: รอบแรกล้างทุกครั้งที่แตะช่องหัว — คีย์บรรทัดเองแล้วค่อยเติม P/N บรรทัดหายหมด
+// เจ้าของเลือก 15 ก.ย. 2026: ล้างเฉพาะตอนเลข PO เปลี่ยน
+ok('เปลี่ยนเลข PO = เปลี่ยนใบ (รวมจากว่างเป็นมี และจากมีเป็นว่าง)',
+   switchedPo('PO-A', 'PO-B') && switchedPo('', 'PO-A') && switchedPo('PO-A', ''));
+ok('เลข PO เดิม (แก้แค่ P/N หรือจำนวนสั่ง) ไม่ใช่เปลี่ยนใบ',
+   !switchedPo('PO-A', 'PO-A') && !switchedPo('', '') && !switchedPo(undefined, null));
+ok('เว้นวรรค หรือเลข PO ที่มาเป็นตัวเลข ไม่นับว่าเปลี่ยนใบ', !switchedPo(' 9001 ', 9001) && !switchedPo('9001', ' 9001'));
+ok('สองหน้าล้างบรรทัดเฉพาะตอนเปลี่ยนใบ ไม่ใช่ทุกครั้งที่แตะช่องหัว',
+   /switchedPo\(inShownPo, inH\.po\)/.test(bodyOf('expandBom'))
+   && /switchedPo\(outShownPo, outH\.po\)/.test(bodyOf('expandOut'))
+   && /if \(poSwitched\) inLines\.value = \[\]/.test(bodyOf('expandBom'))
+   && /if \(poSwitched\) outLines\.value = \[\]/.test(bodyOf('expandOut'))
+   && !/if \((inH|outH)\.po \|\| (inH|outH)\.pn\)/.test(appSrc));
+ok('จำเลข PO ของรายการบนจอทุกครั้งที่กาง ก่อนแยกทาง — ไม่งั้นทางที่ return ก่อนจะไม่ได้จำ',
+   /const poSwitched = switchedPo\(inShownPo, inH\.po\);\s*inShownPo = String\(inH\.po/.test(bodyOf('expandBom'))
+   && /const poSwitched = switchedPo\(outShownPo, outH\.po\);\s*outShownPo = String\(outH\.po/.test(bodyOf('expandOut')));
+// เจ้าของเลือก 15 ก.ย. 2026: ทางสูตรของหน้าจ่ายออกไม่ตั้งยอดเบิก — ช่อง PO เติม P/N กับจำนวนสั่งให้แล้ว
+// ถ้ายังตั้งยอดตามสูตร แค่คีย์ PO ก็กดบันทึกทั้งใบได้ · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา (ยอดจากเอกสาร)
+ok('หน้าจ่ายออกทางสูตรไม่ตั้งยอดเบิก · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา',
+   !/l\.qty\s*=\s*l\.reqmt/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.qty = k.issue'));
 
 /* ⚠️ ชื่อที่ import เข้า app.js ห้ามถูกประกาศซ้ำในไฟล์ — ตัวในไฟล์จะบังตัว import เงียบ ๆ
  *    เจอจริงตอนทำ #79: ตั้งชื่อตัวกรองสูตรว่า bomRowsOfPn ซึ่งซ้ำกับ computed ของหน้าแก้สูตร
