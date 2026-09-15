@@ -7,7 +7,8 @@
  */
 import fs from 'node:fs';
 import { localDate, localTime, atFrom, todayLocal } from '../v2/core/localtime.js';
-import { BINCARD_TPL, toCardLines, sheetNameFor, safeFileName } from '../v2/export/bincard.js';
+import { BINCARD_TPL, toCardLines, sheetNameFor, safeFileName,
+         writeBinCard, UNKNOWN_KIND_NOTE } from '../v2/export/bincard.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -124,6 +125,37 @@ for (const fn of ['applyTpl', 'writeCard']) {
   ok(`โค้ด ${fn} เหมือนกับ v1 ทุกบรรทัด`, !!a && a === b,
      !a || !b ? 'หาไม่เจอ' : 'ต่างกัน — ถ้าตั้งใจแก้ ต้องแก้ทั้งสองที่พร้อมกัน');
 }
+
+console.log('\n=== D. การ์ดที่มีรายการชนิดที่โปรแกรมรุ่นนี้ไม่รู้จัก ===');
+// เครื่องรุ่นเก่าคิดชนิดที่ไม่รู้จักเป็นศูนย์ แล้วพิมพ์ลงฝั่งรับเข้าจำนวน 0 — กระดาษไปถึงมือลูกค้าโดยไม่มีใครรู้
+// ชีตปลอมเท่าที่ applyTpl/writeCard เรียกใช้ — ExcelJS จริงไม่ได้ติดตั้งในเครื่องที่รันเทส
+const fakeWs = () => {
+  const cells = new Map();
+  const getCell = a => { if (!cells.has(a)) cells.set(a, {}); return cells.get(a); };
+  return { cells, getCell, getColumn: () => ({}), getRow: () => ({}), mergeCells() {} };
+};
+const warnedAt = ws => [...ws.cells.entries()]
+  .filter(([, c]) => String(c.value || '').includes(UNKNOWN_KIND_NOTE)).map(([a]) => a);
+const withUnknown = toCardLines([
+  { kind: 'receive', at, moved: 50, balance: 50, person: 'สมชาย', doc_ref: 'PO1', lot: 'L1' },
+  { kind: 'sendback', at, moved: 0, balance: 50, person: 'สมชาย', doc_ref: 'PO1' }
+], 'PCS');
+ok('บรรทัดที่ไม่รู้จักถูกกำกับไว้ บรรทัดปกติไม่โดน', withUnknown[1].unknownKind === true && withUnknown[0].unknownKind === false);
+ok('หมายเหตุบนการ์ดบอกว่าไม่รู้จักและไม่ถูกนับ พร้อมชื่อชนิด',
+   withUnknown[1].remark.includes('ไม่รู้จัก') && withUnknown[1].remark.includes('sendback'), withUnknown[1].remark);
+const ws1 = fakeWs();
+const nBad = writeBinCard(ws1, { code: 'C1', unit: 'PCS', entity: 'NSE' }, withUnknown);
+ok('คืนจำนวนบรรทัดที่ไม่รู้จักให้หน้าจอบอกคนกด', nBad === 1, String(nBad));
+ok('พิมพ์คำเตือนลงการ์ดทั้งเหนือตาราง (B3) และใต้แถวรวม (B31)',
+   warnedAt(ws1).includes('B3') && warnedAt(ws1).includes('B31'), warnedAt(ws1).join(','));
+ok('ตัวเลขในการ์ดยังเขียนตามปกติ ไม่ถูกคำเตือนทับ', ws1.getCell('G11').value === 50 && ws1.getCell('M12').value === 50);
+const ws2 = fakeWs();
+ok('การ์ดที่ไม่มีชนิดแปลกไม่มีคำเตือน', writeBinCard(ws2, { code: 'C1', unit: 'MTR', entity: 'NSE' }, lines) === 0
+   && warnedAt(ws2).length === 0, warnedAt(ws2).join(','));
+const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+ok('app.js ออกการ์ดผ่าน writeBinCard ทุกทาง — เรียก writeCard ตรง ๆ = การ์ดหลุดออกไปโดยไม่มีคำเตือน',
+   !/\bwriteCard\(/.test(appSrc) && (appSrc.match(/\bwriteBinCard\(/g) || []).length === 2,
+   'writeBinCard ' + (appSrc.match(/\bwriteBinCard\(/g) || []).length + ' ที่');
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

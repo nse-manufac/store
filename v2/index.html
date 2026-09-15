@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-10.7">
+<meta name="app-version" content="2026-09-14.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -159,6 +159,18 @@ textarea{font:inherit}
 
     <main>
       <div class="msg bad" v-if="bootError">{{ bootError }}</div>
+
+      <!-- ⚠️ ปิดไม่ได้โดยตั้งใจ — เครื่องอื่นบันทึกชนิดรายการที่โปรแกรมรุ่นนี้ยังไม่รู้จัก
+           ยอดทุกหน้าในเครื่องนี้จึงไม่ตรงกับเครื่องอื่น แถบนี้หายเองเมื่อโหลดโปรแกรมรุ่นใหม่แล้ว (ดู unknownKinds) -->
+      <div class="msg bad" v-if="strangeKinds.length">
+        <b>เครื่องนี้ยังใช้โปรแกรมรุ่นเก่า — ยอดคงเหลือจะไม่ตรงกับเครื่องอื่น</b><br>
+        มีรายการที่โปรแกรมรุ่นนี้ยังไม่รู้จัก ({{ strangeKinds.map(k => '"' + k.kind + '" ' + k.n + ' รายการ').join(' · ') }})
+        จึงไม่ถูกนับเข้ายอด — กดโหลดโปรแกรมใหม่ · ถ้าโหลดแล้วยังขึ้นอยู่ให้แจ้งผู้ดูแล · ห้ามส่ง Bin Card ที่ออกจากเครื่องนี้ให้ลูกค้าจนกว่าแถบนี้จะหาย
+        <div style="margin-top:8px">
+          <button class="btn" :disabled="verBusy" @click="reloadApp">{{ verBusy ? 'กำลังโหลด...' : 'โหลดโปรแกรมใหม่' }}</button>
+          <button class="btn" @click="tab='bal'">ดูรหัสที่ยอดไม่ตรง</button>
+        </div>
+      </div>
 
       <!-- ════════ หน้าแรก ════════ -->
       <template v-if="tab==='home'">
