@@ -8,8 +8,9 @@
  * หมวด B กับ D สำคัญที่สุด — ทั้งคู่คือกรณี "บรรทัดซ้ำต้องรวมยอด"
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
+import fs from 'node:fs';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
-         parseThaiDate, parseEnDate, excelDate } from '../v2/master/po-kit.js';
+         parseThaiDate, parseEnDate, excelDate, receivedOutsideList } from '../v2/master/po-kit.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -181,6 +182,45 @@ ok('เว้นวรรคหน้าหลังเลข PO ก็ยัง
 ok('PO ที่ยังไม่ได้นำเข้า ตอบ null ไม่ใช่เดาค่า', poHeader(poRows, 'PO-ไม่มี') === null);
 ok('ช่อง PO ว่างหรือยังไม่มีไฟล์ PO เลย ก็ไม่พัง',
    poHeader(poRows, '') === null && poHeader([], 'PO-9001') === null && poHeader(null, 'PO-9001') === null);
+
+console.log('\n=== H. หน้ารับเข้ากับหน้าจ่ายออกต้องกางรายการชุดเดียวกัน (issue #78) ===');
+// เจ้าของเจอ 15 ก.ย. 2026: PO เดียวกัน หน้ารับเข้ามีรหัสที่รับมานอก Kit List (#52 เติมให้) แต่หน้าจ่ายออกไม่มี
+// พนักงานจึงเบิกของนั้นไม่ได้ · เลขในเทสเป็นเลขสมมติ
+const recvOfPo = new Map([
+  ['3220130200', { qty: 10, times: 1, ats: ['2026-09-01T02:00:00.000Z'] }],
+  ['4090050100', { qty: 4, times: 1, ats: ['2026-09-02T02:00:00.000Z'] }],
+  ['5301000100', { qty: 1.5, times: 2, ats: ['2026-09-02T02:00:00.000Z', '2026-09-03T02:00:00.000Z'] }]
+]);
+const extraRecv = receivedOutsideList(recvOfPo, ['3220130200', '9999999999']);
+ok('เอาเฉพาะรหัสที่รับมาแต่ไม่อยู่ในรายการ ตามลำดับในสมุด',
+   extraRecv.map(x => x.code).join(',') === '4090050100,5301000100', JSON.stringify(extraRecv.map(x => x.code)));
+ok('พกยอดที่รับไปด้วย ให้หน้ารับเข้าโชว์ "รับแล้ว" ได้', extraRecv[0].recv.qty === 4);
+ok('รหัสในรายการที่เป็นตัวเลข ต้องเทียบเท่ากับข้อความ',
+   receivedOutsideList(recvOfPo, [3220130200, 4090050100, 5301000100]).length === 0);
+ok('ยังไม่เคยรับ หรือไม่มีรายการ ก็ไม่พัง',
+   receivedOutsideList(new Map(), ['x']).length === 0 && receivedOutsideList(null, null).length === 0
+   && receivedOutsideList(recvOfPo, null).length === 3);
+
+// สองหน้าต้องเรียกตัวเดียวกัน — ตรรกะอยู่ใน po-kit.js ส่วน app.js ต่อสายอย่างเดียว เทสจึงอ่านซอร์สมาเช็ก
+const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+const bodyOf = name => {
+  const i = appSrc.indexOf('function ' + name + '(');
+  if (i < 0) return '';
+  let depth = 0, started = false;
+  for (let j = i; j < appSrc.length; j++) {
+    if (appSrc[j] === '{') { depth++; started = true; }
+    else if (appSrc[j] === '}') { depth--; if (started && depth === 0) return appSrc.slice(i, j + 1); }
+  }
+  return '';
+};
+ok('หน้ารับเข้า (markReceived) ใช้ receivedOutsideList', bodyOf('markReceived').includes('receivedOutsideList('));
+ok('หน้าจ่ายออกใช้ receivedOutsideList ผ่าน addReceivedToOut',
+   bodyOf('addReceivedToOut').includes('receivedOutsideList(') && bodyOf('addReceivedToOut').includes('receivedOfDoc('));
+ok('หน้าจ่ายออกเติมให้ทั้งสามทาง — มี Kit List · ไม่มีอะไรเลย · กางจากสูตร',
+   (bodyOf('expandOut').match(/addReceivedToOut\(\)/g) || []).length === 3,
+   String((bodyOf('expandOut').match(/addReceivedToOut\(\)/g) || []).length));
+// เจ้าของเลือกให้ปล่อยยอดเบิกว่าง — ตั้งยอดให้แล้วของที่เคยเบิกไปบางส่วนจะถูกบันทึกซ้ำ
+ok('แถวที่เติมในหน้าจ่ายออกต้องไม่ตั้งยอดเบิกให้', !/\.qty\s*=/.test(bodyOf('addReceivedToOut')));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

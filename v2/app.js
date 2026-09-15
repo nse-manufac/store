@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList,
          importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -746,8 +746,8 @@ createApp({
         l.recv = r ? r.qty : 0;
         l.recvInfo = r ? recvInfoOf(r) : '';
       }
-      for (const [code, r] of recv) {
-        if (shown.has(code)) continue;
+      // ตัวเดียวกับที่หน้าจ่ายออกใช้ (addReceivedToOut) — สองหน้าต้องกางชุดเดียวกัน (#78)
+      for (const { code, recv: r } of receivedOutsideList(recv, shown)) {
         const l = blankLine(code);
         fillLine(l);
         l.recv = r.qty; l.recvInfo = recvInfoOf(r);
@@ -913,6 +913,28 @@ createApp({
      * Kit List บอกว่า Delta จ่ายอะไรมาให้ PO นี้ ซึ่งก็คือของที่ต้องเบิกไปผลิต
      * ถ้ายังไม่มี Kit List ก็กางจากสูตรตามจำนวนสั่ง
      */
+    /**
+     * เติมรหัสที่เคยรับเข้ากับ PO นี้แต่ไม่อยู่ในรายการที่กาง — ให้หน้าจ่ายออกเห็นชุดเดียวกับหน้ารับเข้า (#78)
+     *
+     * เจ้าของเลือก 15 ก.ย. 2026: เติมแถวแต่ **ปล่อยยอดเบิกว่าง** ให้คีย์เองเฉพาะของที่หยิบไปใช้จริง
+     * ถ้าตั้งยอดเท่าที่รับมา ของที่เคยเบิกไปแล้วบางส่วนจะถูกบันทึกเบิกซ้ำเมื่อพนักงานไม่ได้แก้
+     * แถวที่ยอดว่างไม่อยู่ใน outReady จึงไม่ถูกบันทึกจนกว่าจะคีย์ยอด
+     * คืนจำนวนแถวที่เติม
+     */
+    function addReceivedToOut() {
+      if (!outH.po || !entity.value) return 0;
+      const recv = receivedOfDoc(entries.value, entity.value, outH.po);
+      const extra = receivedOutsideList(recv, outLines.value.map(l => l.code));
+      for (const { code } of extra) {
+        const l = outBlank(code);
+        fillOutLine(l);
+        outLines.value.push(l);
+      }
+      return extra.length;
+    }
+    const extraOutHint = n =>
+      n ? ` · อีก ${n} รายการเคยรับเข้ากับ PO นี้แต่ไม่อยู่ในรายการ — ใส่ยอดเบิกเองถ้าหยิบไปใช้` : '';
+
     function expandOut() {
       const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
       const rows = outH.pn ? bom.value.filter(r => String(r.pn) === String(outH.pn) && !r.deleted) : [];
@@ -931,13 +953,15 @@ createApp({
           l.qty = k.issue;
           return l;
         });
-        outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — แก้เป็นยอดที่เบิกจริงได้เลย`;
+        outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — แก้เป็นยอดที่เบิกจริงได้เลย`
+          + extraOutHint(addReceivedToOut());
         return;
       }
       if (!rows.length) {
-        outHint.value = outH.po
+        outHint.value = (outH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${outH.po} และสูตรของ ${outH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
-          : 'ใส่เลข PO หรือ P/N แล้วโปรแกรมจะกางรายการให้';
+          : 'ใส่เลข PO หรือ P/N แล้วโปรแกรมจะกางรายการให้')
+          + extraOutHint(addReceivedToOut());
         return;
       }
       outLines.value = rows.map(r => {
@@ -950,7 +974,8 @@ createApp({
       });
       outHint.value = `กางสูตร ${rows.length} รายการ`
         + (outH.po ? ` · ยังไม่มี Kit List ของ PO ${outH.po} จึงใช้สูตรแทน` : '')
-        + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร');
+        + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร')
+        + extraOutHint(addReceivedToOut());
     }
 
     const outReady = computed(() => outLines.value.filter(l => l.code && Number(l.qty) > 0));
