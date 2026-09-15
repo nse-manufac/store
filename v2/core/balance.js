@@ -48,22 +48,21 @@ export function balances(entries, entity) {
 }
 
 /**
- * PO ใบนี้เคยคีย์รับไปแล้วเท่าไหร่ แยกตามรหัส — Map<code, { qty, times, ats }>
+ * ยอดของชนิดหนึ่งที่อ้าง PO ใบนี้ แยกตามรหัส — Map<code, { qty, times, ats }>
  *
- * ของใน PO ใบเดียวมาไม่พร้อมกัน พนักงานคีย์รับหลายรอบต่อใบได้
- * ถ้าไม่เห็นยอดที่เคยคีย์ไปแล้วบนหน้ารับเข้า จะรับซ้ำหรือรับขาดโดยไม่มีอะไรเตือน
- *
- * นับเฉพาะ kind 'receive' — เป็นยอด "รับมาแล้วเท่าไหร่ตามใบนี้" ไม่ใช่ยอดคงเหลือ
- * ของที่คืน/เสีย/ปรับ ทีหลังไม่เกี่ยว เพราะไม่ได้ทำให้ใบนี้รับมาน้อยลง
+ * qty เป็นยอดดิบ (บวกเสมอ) ไม่ใช่ signedQty — ผู้เรียกรู้อยู่แล้วว่าถามชนิดไหน
+ * ของเกินใช้คู่กัน: รับตามใบนี้ (receive) − ส่งคืน Delta ตามใบนี้ (sendback)
+ * ถ้าไม่หักยอดที่คืนไปแล้ว รายการเดิมจะโผล่กลับมาแล้วมีคนคืนซ้ำ
  * ats เก็บเวลาดิบไว้ให้ฝั่งแสดงผลไปแปลงเป็นวันที่เอง (ห้าม slice วันที่ในนี้ — ดู localtime.js)
  */
-export function receivedOfDoc(entries, entity, docRef) {
+export function movedOfDoc(entries, entity, docRef, kind) {
   need(entity);
+  if (!isKnownKind(kind)) throw new Error(`ไม่รู้จักชนิดการเคลื่อนไหว "${kind}"`);
   const ref = String(docRef || '');
   const m = new Map();
   if (!ref) return m;
   for (const e of entries) {
-    if (e.entity !== entity || !counts(e) || e.kind !== 'receive') continue;
+    if (e.entity !== entity || !counts(e) || e.kind !== kind) continue;
     if (String(e.doc_ref) !== ref) continue;
     const c = String(e.material_code);
     const hit = m.get(c) || { qty: 0, times: 0, ats: [] };
@@ -74,6 +73,17 @@ export function receivedOfDoc(entries, entity, docRef) {
   }
   return m;
 }
+
+/**
+ * PO ใบนี้เคยคีย์รับไปแล้วเท่าไหร่ แยกตามรหัส — Map<code, { qty, times, ats }>
+ *
+ * ของใน PO ใบเดียวมาไม่พร้อมกัน พนักงานคีย์รับหลายรอบต่อใบได้
+ * ถ้าไม่เห็นยอดที่เคยคีย์ไปแล้วบนหน้ารับเข้า จะรับซ้ำหรือรับขาดโดยไม่มีอะไรเตือน
+ *
+ * นับเฉพาะ kind 'receive' — เป็นยอด "รับมาแล้วเท่าไหร่ตามใบนี้" ไม่ใช่ยอดคงเหลือ
+ * ของที่คืน/เสีย/ปรับ/ส่งคืน Delta ทีหลังไม่เกี่ยว เพราะไม่ได้ทำให้ใบนี้รับมาน้อยลง
+ */
+export const receivedOfDoc = (entries, entity, docRef) => movedOfDoc(entries, entity, docRef, 'receive');
 
 /**
  * การ์ดรายตัว — ประวัติของรหัสเดียวพร้อมยอดสะสมทีละบรรทัด

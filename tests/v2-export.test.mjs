@@ -138,11 +138,15 @@ const warnedAt = ws => [...ws.cells.entries()]
   .filter(([, c]) => String(c.value || '').includes(UNKNOWN_KIND_NOTE)).map(([a]) => a);
 const withUnknown = toCardLines([
   { kind: 'receive', at, moved: 50, balance: 50, person: 'สมชาย', doc_ref: 'PO1', lot: 'L1' },
-  { kind: 'sendback', at, moved: 0, balance: 50, person: 'สมชาย', doc_ref: 'PO1' }
+  // nextkind แทนชนิดที่ยังไม่มีจริง · เดิมใช้ sendback ซึ่งตอนนี้รู้จักแล้ว (Mat Follow up 5/8)
+  { kind: 'nextkind', at, moved: 0, balance: 50, person: 'สมชาย', doc_ref: 'PO1' }
 ], 'PCS');
 ok('บรรทัดที่ไม่รู้จักถูกกำกับไว้ บรรทัดปกติไม่โดน', withUnknown[1].unknownKind === true && withUnknown[0].unknownKind === false);
 ok('หมายเหตุบนการ์ดบอกว่าไม่รู้จักและไม่ถูกนับ พร้อมชื่อชนิด',
-   withUnknown[1].remark.includes('ไม่รู้จัก') && withUnknown[1].remark.includes('sendback'), withUnknown[1].remark);
+   withUnknown[1].remark.includes('ไม่รู้จัก') && withUnknown[1].remark.includes('nextkind'), withUnknown[1].remark);
+const sb = toCardLines([{ kind: 'sendback', at, moved: -5, balance: 45, person: 'สมชาย', doc_ref: 'PO1' }], 'PCS')[0];
+ok('ส่งคืน Delta ลงฝั่งจ่ายออก พร้อมหมายเหตุ "ส่งคืน Delta" ไม่ใช่คำเตือนชนิดที่ไม่รู้จัก (Mat Follow up 5/8)',
+   sb.direction === 'OUT' && sb.qty === 5 && sb.remark.includes('ส่งคืน Delta') && sb.unknownKind === false, JSON.stringify(sb));
 const ws1 = fakeWs();
 const nBad = writeBinCard(ws1, { code: 'C1', unit: 'PCS', entity: 'NSE' }, withUnknown);
 ok('คืนจำนวนบรรทัดที่ไม่รู้จักให้หน้าจอบอกคนกด', nBad === 1, String(nBad));
