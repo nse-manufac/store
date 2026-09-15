@@ -6,7 +6,7 @@
  * เพราะ Delta กำลังทยอยใส่ pack mat เข้ามาทีละ REV ถ้าผสมกันยอดจะเบิ้ลเงียบ ๆ
  */
 import { makeBomRows, byPn, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan, registryPlan, bomId } from '../v2/master/bom.js';
+         importPlan, registryPlan, bomId, activeBomRowsOf } from '../v2/master/bom.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -134,6 +134,22 @@ const noU = registryPlan(makeBomRows(doc('2800000000', '001', '2024-01-01', [
 ])), []);
 ok('ไม่มีหน่วยก็ยังเสนอได้ แต่ติดธงไว้', noU.rows[0].noUnit && noU.noUnit === 1);
 ok('ไม่มีอะไรให้เพิ่มก็ตอบศูนย์ ไม่ใช่พัง', registryPlan([], []).total === 0);
+
+console.log('\n=== สูตรที่หน้ารับเข้ากับหน้าจ่ายออกใช้กาง (issue #78) ===');
+// เดิมหน้ารับเข้าไม่ตัดบรรทัดที่ลบแล้ว แต่หน้าจ่ายออกตัด — สองหน้ากางไม่เท่ากัน · เลขสมมติ
+const bomAll = [
+  { pn: '5267', code: '3220130200', usage: 1, deleted: false },
+  { pn: '5267', code: '4090050100', usage: 2, deleted: true },     // ลบแล้ว (ติดธง แถวยังอยู่)
+  { pn: 5267,   code: '5301000100', usage: 3 },                    // P/N เป็นตัวเลข · ไม่มีธง deleted
+  { pn: '9999', code: '3220130200', usage: 4, deleted: false }
+];
+const got5267 = activeBomRowsOf(bomAll, '5267').map(r => r.code);
+ok('ได้เฉพาะบรรทัดของ P/N นั้น ไม่ปนของ P/N อื่นที่ใช้รหัสเดียวกัน',
+   activeBomRowsOf(bomAll, '5267').every(r => String(r.pn) === '5267') && !activeBomRowsOf(bomAll, '5267').some(r => r.usage === 4));
+ok('ตัดบรรทัดที่ลบแล้วออก', !got5267.includes('4090050100'), got5267.join(','));
+ok('P/N ที่เป็นตัวเลขกับข้อความเทียบเท่ากัน', got5267.includes('5301000100') && activeBomRowsOf(bomAll, 5267).length === 2,
+   got5267.join(','));
+ok('ไม่มีสูตรหรือยังไม่ได้โหลด ก็ไม่พัง', activeBomRowsOf([], '5267').length === 0 && activeBomRowsOf(null, '5267').length === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
