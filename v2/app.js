@@ -24,7 +24,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList, switchedPo, nextShownPo,
-         importPlan as importPlanKit } from './master/po-kit.js';
+         poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
@@ -689,6 +689,24 @@ createApp({
       else if (inLines.value.includes(t)) fillInLine(t);   // ต้องได้ยอดตามสูตรเหมือนคีย์รหัสเอง
       else fillLine(t);
       pick.value = null;
+    }
+
+    // ── ค้นเลข PO (ใช้ร่วมหน้ารับเข้ากับหน้าจ่ายออก) ──────────────
+    // เจ้าของ 16 ก.ย. 2026: พิมพ์บางส่วน เช่น 4 ตัวท้าย แล้วเลือกจากรายการ — ลดเวลาคีย์เลขยาว
+    const poPick = ref('');            // 'in' | 'out' | '' (ปิดอยู่)
+    const poPickQ = ref('');
+    const poAll = computed(() => poHistory({
+      pos: pos.value, kits: kits.value, entries: entries.value, shorts: shorts.value, entity: entity.value }));
+    const poPickResults = computed(() => searchPos(poAll.value, poPickQ.value, { limit: 60 }));
+    function openPoPick(which) {
+      poPick.value = which;
+      poPickQ.value = which === 'in' ? inH.po : outH.po;
+    }
+    function choosePo(r) {
+      // เติมเลขแล้วเดินเส้นทางเดิมของแต่ละหน้า — P/N กับรายการจะกางเหมือนพนักงานพิมพ์เอง
+      if (poPick.value === 'in') { inH.po = r.po; pickPo(); }
+      else if (poPick.value === 'out') { outH.po = r.po; pickOutPo(); }
+      poPick.value = '';
     }
 
     const matOf = code => materials.value.find(m => normCode(m.material_code) === normCode(code));
@@ -2204,6 +2222,7 @@ createApp({
              pick, pickQ, pickResults, openPick, choosePick,
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
+             poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
