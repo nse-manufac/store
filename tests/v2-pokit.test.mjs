@@ -235,9 +235,25 @@ ok('ช่อง PO ของหน้าจ่ายออกเติม P/N �
 ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต่อ แต่ไม่เติมวันที่ (วันจ่ายออกคือวันที่เบิก)',
    bodyOf('pickOutPo').includes('poHeader(') && bodyOf('pickOutPo').includes('outH.pn')
    && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
+// เจ้าของ 16 ก.ย. 2026: ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
+ok('หน้ารับเข้ายังเติมจำนวนสั่งจากไฟล์ PO · หน้าจ่ายออกไม่เติม',
+   bodyOf('pickPo').includes('inH.order') && !bodyOf('pickOutPo').includes('outH.order'));
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
-   bodyOf('expandBom').includes('activeBomRowsOf(') && bodyOf('expandOut').includes('activeBomRowsOf(')
+   /const inBomRows = computed\(\(\) => inH\.pn \? activeBomRowsOf\(/.test(appSrc)
+   && /const outBomRows = computed\(\(\) => outH\.pn \? activeBomRowsOf\(/.test(appSrc)
+   && bodyOf('expandBom').includes('inBomRows.value') && bodyOf('expandOut').includes('outBomRows.value')
    && !/bom\.value\.filter/.test(bodyOf('expandBom') + bodyOf('expandOut')));
+// เจ้าของ 16 ก.ย. 2026: Kit List ไม่ใช่ตัวกำหนดยอดตามสูตร — รหัสที่มีในสูตรต้องมียอดตามสูตรทุกแถว
+ok('ยอดตามสูตรมาจากตัวเดียวกันทั้งสองหน้า ไม่คำนวณเองในหน้า',
+   bodyOf('fillInLine').includes('reqmtOf(') && bodyOf('fillOutLine').includes('reqmtOf(')
+   && !/Math\.round\([^)]*usage/.test(bodyOf('expandBom') + bodyOf('expandOut')));
+ok('แถวที่เติมเพราะเคยรับเข้ากับ PO นี้ และแถวที่พนักงานคีย์รหัสเอง ก็ได้ยอดตามสูตร',
+   bodyOf('markReceived').includes('fillInLine(') && bodyOf('addReceivedToOut').includes('fillOutLine(')
+   && /@change="fillInLine\(l\)"/.test(htmlSrc) && /@change="fillOutLine\(l\)"/.test(htmlSrc)
+   && bodyOf('choosePick').includes('fillInLine('));
+ok('P/N ที่ไม่มีสูตร ยอดตามสูตรของบรรทัดที่ค้างบนจอต้องหายตาม ไม่ค้างเลขของ P/N ก่อนหน้า',
+   /for \(const l of inLines\.value\) l\.reqmt = reqmtOf\(/.test(bodyOf('expandBom'))
+   && /for \(const l of outLines\.value\) l\.reqmt = reqmtOf\(/.test(bodyOf('expandOut')));
 
 // ผู้ตรวจรอบสองของ #79: รอบแรกล้างทุกครั้งที่แตะช่องหัว — คีย์บรรทัดเองแล้วค่อยเติม P/N บรรทัดหายหมด
 // เจ้าของเลือก 15 ก.ย. 2026: ล้างเฉพาะตอนเลข PO เปลี่ยน
