@@ -279,8 +279,14 @@ ok('จำเลข PO ของรายการบนจอทุกครั
    && /const poSwitched = switchedPo\(outShownPo, outH\.po\);\s*outShownPo = nextShownPo\(outShownPo, outH\.po\);/.test(bodyOf('expandOut')));
 // เจ้าของเลือก 15 ก.ย. 2026: ทางสูตรของหน้าจ่ายออกไม่ตั้งยอดเบิก — ช่อง PO เติม P/N กับจำนวนสั่งให้แล้ว
 // ถ้ายังตั้งยอดตามสูตร แค่คีย์ PO ก็กดบันทึกทั้งใบได้ · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา (ยอดจากเอกสาร)
-ok('หน้าจ่ายออกทางสูตรไม่ตั้งยอดเบิก · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา',
-   !/l\.qty\s*=\s*l\.reqmt/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.qty = k.issue'));
+// เจ้าของเลือก 16 ก.ย. 2026: ใบที่มี Kit List ก็ปล่อยยอดเบิกว่างเหมือนทางสูตร
+// ยอดที่ Delta จ่ายมาโชว์ในคอลัมน์ของมันเอง — เห็นไว้เทียบได้ แต่ไม่ถูกบันทึกถ้าไม่คีย์
+// ⚠️ ต้องตัดเฉพาะเทมเพลตของหน้าจ่ายออกมาเช็ก — หน้ารับเข้ามีคอลัมน์ชื่อเดียวกันอยู่ก่อนแล้ว
+//    เช็กทั้งไฟล์จะเขียวทั้งที่คอลัมน์ของหน้าจ่ายออกถูกลบไป (เจอตอนย้อนโค้ดทดสอบเทสเอง)
+const outTpl = htmlSrc.slice(htmlSrc.indexOf("tab==='out'"));
+ok('หน้าจ่ายออกไม่ตั้งยอดเบิกให้ทุกทาง · โชว์ยอดที่ Delta จ่ายมาแทน',
+   !/l\.qty\s*=/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.issued = k.issue')
+   && outTpl.length > 500 && /<th[^>]*>Delta จ่ายมา<\/th>/.test(outTpl) && /l\.issued == null/.test(outTpl));
 // ผู้ตรวจรอบสาม: บันทึกหรือกด "ล้าง" แล้วจอว่างแต่ยังจำ PO เดิม — คีย์บรรทัดต่อแล้วเปลี่ยน PO บรรทัดหาย
 ok('บันทึกหรือกด "ล้าง" แล้วลืมเลข PO เดิม ทั้งสองหน้า',
    /inShownPo = ''/.test(bodyOf('saveIn')) && /outShownPo = ''/.test(bodyOf('saveOut'))

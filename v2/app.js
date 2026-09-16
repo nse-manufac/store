@@ -920,7 +920,7 @@ createApp({
     const outHint = ref('');
 
     function outBlank(code = '') {
-      return { k: 'O' + (++lineSeq), code, desc: '', unit: '', reqmt: null,
+      return { k: 'O' + (++lineSeq), code, desc: '', unit: '', reqmt: null, issued: null,
                qty: null, lot: '', inferred: false, known: false };
     }
     // บรรทัดสูตรของ P/N บนหัวใบจ่ายออก — ตัวเดียวกับที่หน้ารับเข้าใช้ (#78)
@@ -995,11 +995,13 @@ createApp({
           const l = outBlank(String(k.code));
           fillOutLine(l);
           if (!l.known) { l.desc = k.desc; l.unit = k.unit; }
-          // ตั้งยอดเบิกไว้เท่าที่ Delta จ่ายมา แล้วให้แก้ทับตามที่หยิบจริง
-          l.qty = k.issue;
+          // ไม่ตั้งยอดเบิกให้ แม้ใบนี้มี Kit List (เจ้าของ 16 ก.ย. 2026)
+          // ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่ตั้งให้ทั้งใบกลายเป็นงานนั่งลบ
+          // ยอดที่ Delta จ่ายมาโชว์ไว้ในคอลัมน์ของมันเอง ให้ดูเทียบได้โดยไม่ถูกบันทึกเอง
+          l.issued = k.issue;
           return l;
         });
-        outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — แก้เป็นยอดที่เบิกจริงได้เลย`
+        outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — ใส่ยอดเบิกตามที่หยิบจริง`
           + extraOutHint(addReceivedToOut());
         return;
       }
