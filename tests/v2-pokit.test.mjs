@@ -237,7 +237,18 @@ ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต
    && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
 // เจ้าของ 16 ก.ย. 2026: ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
 ok('หน้ารับเข้ายังเติมจำนวนสั่งจากไฟล์ PO · หน้าจ่ายออกไม่เติม',
-   bodyOf('pickPo').includes('inH.order') && !bodyOf('pickOutPo').includes('outH.order'));
+   /inH\.order = h\.order/.test(bodyOf('pickPo')) && !/outH\.order = h\.order/.test(bodyOf('pickOutPo')));
+/* ผู้ตรวจรอบสองของ #81: เลิกเติมจำนวนสั่งแล้วไม่มีใครล้างค่าเดิมทิ้ง เลขของใบก่อนจึงค้างข้ามใบ
+ * ไปคูณ usage ของ P/N ใบใหม่ แล้วช่อง "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ ทั้งที่ P/N บนจอถูกต้อง
+ * ต้องปิดทั้งสามทาง: คีย์ PO ใบใหม่ · กดปุ่ม "ล้าง" · บันทึกจบ
+ * ⚠️ ห้ามใช้ switchedPo เป็นเงื่อนไข — หลัง clearOut/saveOut ค่า outShownPo ว่าง switchedPo คืน false */
+// เอาคอมเมนต์ออกก่อนตรวจ — ข้อนี้ตรวจว่าโค้ดทำอะไร ไม่ใช่ว่าคอมเมนต์เอ่ยถึงอะไร
+const codeOf = name => bodyOf(name).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+ok('ขึ้นใบใหม่แล้วจำนวนสั่งของหน้าจ่ายออกต้องว่าง ไม่ใช่ค่าของใบเก่า',
+   /outH\.order = null/.test(codeOf('pickOutPo'))
+   && /outH\.order = null/.test(codeOf('clearOut'))
+   && /outH\.order = null/.test(codeOf('saveOut'))
+   && !/switchedPo/.test(codeOf('pickOutPo')));
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
    /const inBomRows = computed\(\(\) => inH\.pn \? activeBomRowsOf\(/.test(appSrc)
    && /const outBomRows = computed\(\(\) => outH\.pn \? activeBomRowsOf\(/.test(appSrc)

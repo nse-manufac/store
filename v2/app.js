@@ -873,6 +873,14 @@ createApp({
       // เติมแค่ P/N — ไม่เติมจำนวนสั่ง และไม่เติมวันที่ (เจ้าของ 16 ก.ย. 2026)
       // ของที่เบิกไปทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
       // จำนวนสั่งเหลือไว้ให้คีย์เองเมื่ออยากเห็นยอดตามสูตร ส่วนหน้ารับเข้ายังเติมให้เหมือนเดิม
+      //
+      // ⚠️ ล้างจำนวนสั่งของใบก่อนทุกครั้ง (ผู้ตรวจรอบสองของ #81) — ว่าง ไม่ใช่ค่าของใบเก่า
+      // ไม่มีใครเติมค่านี้ให้แล้ว ถ้าไม่ล้าง เลขของใบก่อนจะค้างไปคูณ usage ของ P/N ใบใหม่
+      // แล้วช่อง "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ ทั้งที่ P/N บนจอถูกต้อง
+      // ล้างทุกครั้งที่ถูกเรียก ไม่เช็ก switchedPo เพราะหลัง clearOut/saveOut ค่า outShownPo ว่าง
+      // switchedPo จึงคืน false แล้วเคส "ล้างแล้วคีย์ PO ใบใหม่" หลุด · ตัวนี้ผูกกับ @change ของช่อง PO
+      // ซึ่งยิงเฉพาะตอนพนักงานเปลี่ยนเลข PO จริง ๆ อยู่แล้ว
+      outH.order = null;
       if (h && h.pn) outH.pn = h.pn;
       expandOut();
     }
@@ -1064,7 +1072,7 @@ createApp({
         db.announce('entries');
         flash(`บันทึกจ่ายออก ${posted.length} รายการ`
               + (outH.po ? ` · PO ${outH.po}` : ''));
-        outLines.value = []; outHint.value = '';
+        outLines.value = []; outHint.value = ''; outH.order = null;
         outShownPo = '';  // บันทึกแล้วจอว่าง — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนเปลี่ยน PO (#78)
       } catch (err) { flash(err.message, true); }
     }
@@ -2172,8 +2180,10 @@ createApp({
 
     // ปุ่ม "ล้าง" ของสองหน้า — จอว่างแล้วไม่มีบรรทัดของใบไหนเหลือ จึงลืมเลข PO เดิมด้วย (#78)
     // เดิมเขียนไว้ในเทมเพลตตรง ๆ ซึ่งแตะตัวแปรที่จำเลข PO ไม่ได้
+    // จำนวนสั่งของหน้าจ่ายออกต้องหายไปพร้อมใบด้วย (ผู้ตรวจรอบสองของ #81) — ไม่มีใครเติมค่านี้ให้แล้ว
+    // ถ้าค้างไว้ ยอด "ตามสูตร" ของใบถัดไป (หรือของแถวที่กด "ไปเบิก" จากหน้าการ์ด) จะคิดจากจำนวนสั่งของใบเมื่อกี้
     function clearIn() { inLines.value = []; bomHint.value = ''; inShownPo = ''; }
-    function clearOut() { outLines.value = []; outHint.value = ''; outShownPo = ''; }
+    function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity,
