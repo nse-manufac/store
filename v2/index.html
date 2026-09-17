@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-15.1">
+<meta name="app-version" content="2026-09-16.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -931,7 +931,7 @@ textarea{font:inherit}
                 <tr v-for="(l,i) in inLines" :key="l.k">
                   <td>
                     <div class="row" style="gap:3px;flex-wrap:nowrap">
-                      <input v-model.trim="l.code" class="mono" style="width:104px" @change="fillLine(l)">
+                      <input v-model.trim="l.code" class="mono" style="width:104px" @change="fillInLine(l)">
                       <button class="btn" style="padding:3px 6px" @click="openPick(l)">🔍</button>
                     </div>
                   </td>
@@ -1002,6 +1002,7 @@ textarea{font:inherit}
               <thead><tr>
                 <th style="width:130px">รหัส</th><th>ชื่อ</th>
                 <th style="width:60px">หน่วย</th><th style="width:90px">ตามสูตร</th>
+                <th style="width:100px">Delta จ่ายมา</th>
                 <th style="width:95px">คงเหลือ</th><th style="width:95px">จ่ายออก</th>
                 <th style="width:95px">หลังจ่าย</th><th style="width:210px">ล็อต</th>
                 <th style="width:36px"></th>
@@ -1024,6 +1025,7 @@ textarea{font:inherit}
                   </td>
                   <td class="mono">{{ l.unit }}</td>
                   <td class="mono hint">{{ l.reqmt === null ? '' : l.reqmt }}</td>
+                  <td class="mono hint">{{ l.issued == null ? '' : l.issued }}</td>
                   <td class="mono">{{ outBalOf(l) }}</td>
                   <td><input v-model.number="l.qty" type="number" step="any" class="mono"
                              style="width:84px" @change="l.inferred = false"></td>

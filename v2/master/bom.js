@@ -139,6 +139,23 @@ export function makeManualRow(input, existing = []) {
 export const activeBomRowsOf = (rows, pn) =>
   (rows || []).filter(r => String(r.pn) === String(pn) && !r.deleted);
 
+/**
+ * ยอดตามสูตรของรหัสหนึ่ง = ต่อชิ้น × จำนวนสั่ง — null ถ้าไม่มีในสูตร หรือยังไม่ได้ใส่จำนวนสั่ง
+ *
+ * ⚠️ Kit List ไม่ใช่ตัวกำหนดยอดตามสูตร (เจ้าของ 16 ก.ย. 2026)
+ *    ถ้ารหัสมีในสูตรของ P/N นั้น ยอดตามสูตรต้องขึ้นทุกแถวทั้งหน้ารับเข้าและหน้าจ่ายออก
+ *    ไม่ว่าแถวจะมาจาก Kit List · จากสูตร · จากที่เคยรับเข้ากับ PO นี้ หรือพนักงานคีย์รหัสเอง
+ *    เดิมเติมให้เฉพาะแถวที่มาจาก Kit List กับจากสูตร แถวอื่นช่องตามสูตรว่างทั้งที่มีในสูตร
+ * rows = บรรทัดสูตรที่ยังใช้อยู่ของ P/N นั้น (ผ่าน activeBomRowsOf มาแล้ว)
+ * ปัดห้าตำแหน่งเหมือนยอดอื่นในระบบ — INVARIANTS A2
+ */
+export function reqmtOf(rows, code, order) {
+  const n = Number(order) || 0;
+  if (!n) return null;
+  const hit = (rows || []).find(r => String(r.code) === String(code));
+  return hit ? Math.round((Number(hit.usage) || 0) * n * 1e5) / 1e5 : null;
+}
+
 /** บรรทัดที่แก้มือไว้ของ P/N พวกนี้ — ใช้เตือนก่อนนำเข้าไฟล์ทับ */
 export const manualRowsOf = (rows, pns) => {
   const set = new Set(pns.map(String));

@@ -11,7 +11,7 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf,
-         bomId, activeBomRowsOf } from './master/bom.js';
+         bomId, activeBomRowsOf, reqmtOf } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
@@ -686,6 +686,7 @@ createApp({
       if (t === mk) onMkCode();
       else if (t === bomEdit.value) onBomCode();
       else if (outLines.value.includes(t)) fillOutLine(t);
+      else if (inLines.value.includes(t)) fillInLine(t);   // ต้องได้ยอดตามสูตรเหมือนคีย์รหัสเอง
       else fillLine(t);
       pick.value = null;
     }
@@ -726,6 +727,18 @@ createApp({
       l.unit = m ? m.unit : '';
       l.needExp = m ? m.requires_expiry === true : false;
     }
+
+    // บรรทัดสูตรของ P/N บนหัวใบ — ใช้ทั้งตอนกางรายการและตอนพนักงานคีย์รหัสเอง
+    const inBomRows = computed(() => inH.pn ? activeBomRowsOf(bom.value, inH.pn) : []);
+
+    /**
+     * เติมรายละเอียดของบรรทัดหน้ารับเข้า พร้อมยอดตามสูตร
+     * แยกจาก fillLine เพราะ fillLine ถูกใช้กับฟอร์มอื่นที่ไม่มีช่องตามสูตร (เช่นหน้าติดตามของขาด)
+     */
+    function fillInLine(l) {
+      fillLine(l);
+      l.reqmt = reqmtOf(inBomRows.value, l.code, inH.order);
+    }
     const addInLine = () => inLines.value.push(blankLine());
 
     const recvInfoOf = r =>
@@ -749,7 +762,7 @@ createApp({
       // ตัวเดียวกับที่หน้าจ่ายออกใช้ (addReceivedToOut) — สองหน้าต้องกางชุดเดียวกัน (#78)
       for (const { code, recv: r } of receivedOutsideList(recv, shown)) {
         const l = blankLine(code);
-        fillLine(l);
+        fillInLine(l);
         l.recv = r.qty; l.recvInfo = recvInfoOf(r);
         inLines.value.push(l);
       }
@@ -779,7 +792,7 @@ createApp({
       const recv = inH.po && entity.value
         ? receivedOfDoc(entries.value, entity.value, inH.po) : new Map();
       // ตัวเดียวกับหน้าจ่ายออก — ตัดบรรทัดสูตรที่ลบแล้ว (#78 · เดิมหน้านี้ไม่ตัด สองหน้าจึงกางไม่เท่ากัน)
-      const rows = inH.pn ? activeBomRowsOf(bom.value, inH.pn) : [];
+      const rows = inBomRows.value;
       const order = Number(inH.order) || 0;
       const bomOf = new Map(rows.map(r => [String(r.code), r]));
 
@@ -788,12 +801,11 @@ createApp({
         if (!inH.pn && kit[0].pn) inH.pn = kit[0].pn;
         inLines.value = kit.map(k => {
           const l = blankLine(k.code);
-          fillLine(l);
+          fillInLine(l);                            // ยอดตามสูตรมาจาก BOM ไม่ใช่จาก Kit List
           if (!l.known) { l.desc = k.desc; l.unit = k.unit; }
           l.issued = k.issue;                       // Delta จ่ายมาเท่าไหร่
           l.qty = k.issue;                          // ตั้งไว้ให้ก่อน พนักงานแก้ทับเป็นยอดนับจริง
           const b = bomOf.get(String(k.code));
-          l.reqmt = b && order ? Math.round(b.usage * order * 1e5) / 1e5 : null;
           l.uomConfirmed = b ? b.uomConfirmed : true;
           return l;
         });
@@ -809,6 +821,8 @@ createApp({
         // เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร — ล้างบรรทัดของใบก่อน ไม่งั้นค้างบนจอปนกับใบใหม่ (#78)
         // ล้างเฉพาะตอนเลข PO เปลี่ยน — แก้ P/N หรือจำนวนสั่งในใบเดิม บรรทัดที่คีย์เองต้องอยู่ (เจ้าของเลือก 15 ก.ย. 2026)
         if (poSwitched) inLines.value = [];
+        // P/N นี้ไม่มีสูตร — ยอดตามสูตรของบรรทัดที่ค้างบนจอต้องหายตาม ไม่ใช่ค้างเลขของ P/N ก่อนหน้า
+        for (const l of inLines.value) l.reqmt = reqmtOf(rows, l.code, inH.order);
         bomHint.value = inH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${inH.po} และสูตรของ ${inH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`;
@@ -818,9 +832,8 @@ createApp({
 
       inLines.value = rows.map(r => {
         const l = blankLine(r.code);
-        fillLine(l);
+        fillInLine(l);
         if (!l.known) { l.desc = r.desc; l.unit = r.unit; }
-        l.reqmt = order ? Math.round(r.usage * order * 1e5) / 1e5 : null;
         l.uomConfirmed = r.uomConfirmed;
         return l;
       });
@@ -857,10 +870,18 @@ createApp({
      */
     function pickOutPo() {
       const h = poHeader(pos.value, outH.po);
-      if (h) {
-        if (h.pn) outH.pn = h.pn;
-        if (h.order) outH.order = h.order;
-      }
+      // เติมแค่ P/N — ไม่เติมจำนวนสั่ง และไม่เติมวันที่ (เจ้าของ 16 ก.ย. 2026)
+      // ของที่เบิกไปทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
+      // จำนวนสั่งเหลือไว้ให้คีย์เองเมื่ออยากเห็นยอดตามสูตร ส่วนหน้ารับเข้ายังเติมให้เหมือนเดิม
+      //
+      // ⚠️ ล้างจำนวนสั่งของใบก่อนทุกครั้ง (ผู้ตรวจรอบสองของ #81) — ว่าง ไม่ใช่ค่าของใบเก่า
+      // ไม่มีใครเติมค่านี้ให้แล้ว ถ้าไม่ล้าง เลขของใบก่อนจะค้างไปคูณ usage ของ P/N ใบใหม่
+      // แล้วช่อง "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ ทั้งที่ P/N บนจอถูกต้อง
+      // ล้างทุกครั้งที่ถูกเรียก ไม่เช็ก switchedPo เพราะหลัง clearOut/saveOut ค่า outShownPo ว่าง
+      // switchedPo จึงคืน false แล้วเคส "ล้างแล้วคีย์ PO ใบใหม่" หลุด · ตัวนี้ผูกกับ @change ของช่อง PO
+      // ซึ่งยิงเฉพาะตอนพนักงานเปลี่ยนเลข PO จริง ๆ อยู่แล้ว
+      outH.order = null;
+      if (h && h.pn) outH.pn = h.pn;
       expandOut();
     }
 
@@ -907,14 +928,19 @@ createApp({
     const outHint = ref('');
 
     function outBlank(code = '') {
-      return { k: 'O' + (++lineSeq), code, desc: '', unit: '', reqmt: null,
+      return { k: 'O' + (++lineSeq), code, desc: '', unit: '', reqmt: null, issued: null,
                qty: null, lot: '', inferred: false, known: false };
     }
+    // บรรทัดสูตรของ P/N บนหัวใบจ่ายออก — ตัวเดียวกับที่หน้ารับเข้าใช้ (#78)
+    const outBomRows = computed(() => outH.pn ? activeBomRowsOf(bom.value, outH.pn) : []);
+
     function fillOutLine(l) {
       const m = matOf(l.code);
       l.known = !!m;
       l.desc = m ? m.description : '';
       l.unit = m ? m.unit : '';
+      // ยอดตามสูตรมาจาก BOM ทุกแถว ไม่ว่าแถวนั้นจะมาจากไหน (เจ้าของ 16 ก.ย. 2026)
+      l.reqmt = reqmtOf(outBomRows.value, l.code, outH.order);
     }
     const addOutLine = () => outLines.value.push(outBlank());
 
@@ -968,9 +994,8 @@ createApp({
       const poSwitched = switchedPo(outShownPo, outH.po);
       outShownPo = nextShownPo(outShownPo, outH.po);
       const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
-      const rows = outH.pn ? activeBomRowsOf(bom.value, outH.pn) : [];
+      const rows = outBomRows.value;
       const order = Number(outH.order) || 0;
-      const bomOf = new Map(rows.map(r => [String(r.code), r]));
 
       if (kit.length) {
         if (!outH.pn && kit[0].pn) outH.pn = kit[0].pn;
@@ -978,13 +1003,13 @@ createApp({
           const l = outBlank(String(k.code));
           fillOutLine(l);
           if (!l.known) { l.desc = k.desc; l.unit = k.unit; }
-          const b = bomOf.get(String(k.code));
-          l.reqmt = b && order ? Math.round(b.usage * order * 1e5) / 1e5 : null;
-          // ตั้งยอดเบิกไว้เท่าที่ Delta จ่ายมา แล้วให้แก้ทับตามที่หยิบจริง
-          l.qty = k.issue;
+          // ไม่ตั้งยอดเบิกให้ แม้ใบนี้มี Kit List (เจ้าของ 16 ก.ย. 2026)
+          // ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่ตั้งให้ทั้งใบกลายเป็นงานนั่งลบ
+          // ยอดที่ Delta จ่ายมาโชว์ไว้ในคอลัมน์ของมันเอง ให้ดูเทียบได้โดยไม่ถูกบันทึกเอง
+          l.issued = k.issue;
           return l;
         });
-        outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — แก้เป็นยอดที่เบิกจริงได้เลย`
+        outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — ใส่ยอดเบิกตามที่หยิบจริง`
           + extraOutHint(addReceivedToOut());
         return;
       }
@@ -992,6 +1017,8 @@ createApp({
         // เปลี่ยนไปใบที่ไม่มีทั้ง Kit List และสูตร — ล้างบรรทัดของใบก่อน ไม่งั้นรหัสของใบใหม่ถูกเติมต่อท้ายใบเก่า (#78)
         // ล้างเฉพาะตอนเลข PO เปลี่ยน — แก้ P/N หรือจำนวนสั่งในใบเดิม บรรทัดที่คีย์เองต้องอยู่ (เจ้าของเลือก 15 ก.ย. 2026)
         if (poSwitched) outLines.value = [];
+        // P/N นี้ไม่มีสูตร — ยอดตามสูตรของบรรทัดที่ค้างบนจอต้องหายตาม
+        for (const l of outLines.value) l.reqmt = reqmtOf(rows, l.code, outH.order);
         outHint.value = (outH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${outH.po} และสูตรของ ${outH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : 'ใส่เลข PO หรือ P/N แล้วโปรแกรมจะกางรายการให้')
@@ -1002,7 +1029,6 @@ createApp({
         const l = outBlank(String(r.code));
         fillOutLine(l);
         if (!l.known) { l.desc = r.desc; l.unit = r.unit; }
-        l.reqmt = order ? Math.round(r.usage * order * 1e5) / 1e5 : null;
         // ไม่ตั้งยอดเบิกตามสูตรให้ — เจ้าของเลือก 15 ก.ย. 2026 (#78)
         // ตั้งแต่ช่อง PO เติม P/N กับจำนวนสั่งให้เอง แค่คีย์ PO ก็กดบันทึกยอดตามสูตรทั้งใบได้ โดยไม่มีใครดูของจริง
         // ทาง Kit List ยังตั้งยอดตามที่ Delta จ่ายมาเหมือนเดิม เพราะเป็นยอดจากเอกสาร ไม่ใช่ยอดคำนวณ
@@ -1046,7 +1072,7 @@ createApp({
         db.announce('entries');
         flash(`บันทึกจ่ายออก ${posted.length} รายการ`
               + (outH.po ? ` · PO ${outH.po}` : ''));
-        outLines.value = []; outHint.value = '';
+        outLines.value = []; outHint.value = ''; outH.order = null;
         outShownPo = '';  // บันทึกแล้วจอว่าง — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนเปลี่ยน PO (#78)
       } catch (err) { flash(err.message, true); }
     }
@@ -2154,8 +2180,10 @@ createApp({
 
     // ปุ่ม "ล้าง" ของสองหน้า — จอว่างแล้วไม่มีบรรทัดของใบไหนเหลือ จึงลืมเลข PO เดิมด้วย (#78)
     // เดิมเขียนไว้ในเทมเพลตตรง ๆ ซึ่งแตะตัวแปรที่จำเลข PO ไม่ได้
+    // จำนวนสั่งของหน้าจ่ายออกต้องหายไปพร้อมใบด้วย (ผู้ตรวจรอบสองของ #81) — ไม่มีใครเติมค่านี้ให้แล้ว
+    // ถ้าค้างไว้ ยอด "ตามสูตร" ของใบถัดไป (หรือของแถวที่กด "ไปเบิก" จากหน้าการ์ด) จะคิดจากจำนวนสั่งของใบเมื่อกี้
     function clearIn() { inLines.value = []; bomHint.value = ''; inShownPo = ''; }
-    function clearOut() { outLines.value = []; outHint.value = ''; outShownPo = ''; }
+    function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity,
@@ -2175,7 +2203,7 @@ createApp({
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick,
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
-             addInLine, expandBom, pickPo, fillLine, saveIn, addFromLine,
+             addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,

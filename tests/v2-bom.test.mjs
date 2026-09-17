@@ -6,7 +6,7 @@
  * เพราะ Delta กำลังทยอยใส่ pack mat เข้ามาทีละ REV ถ้าผสมกันยอดจะเบิ้ลเงียบ ๆ
  */
 import { makeBomRows, byPn, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan, registryPlan, bomId, activeBomRowsOf } from '../v2/master/bom.js';
+         importPlan, registryPlan, bomId, activeBomRowsOf, reqmtOf } from '../v2/master/bom.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -150,6 +150,17 @@ ok('ตัดบรรทัดที่ลบแล้วออก', !got5267.i
 ok('P/N ที่เป็นตัวเลขกับข้อความเทียบเท่ากัน', got5267.includes('5301000100') && activeBomRowsOf(bomAll, 5267).length === 2,
    got5267.join(','));
 ok('ไม่มีสูตรหรือยังไม่ได้โหลด ก็ไม่พัง', activeBomRowsOf([], '5267').length === 0 && activeBomRowsOf(null, '5267').length === 0);
+
+// เจ้าของ 16 ก.ย. 2026: Kit List ไม่ใช่ตัวกำหนดยอดตามสูตร — มีในสูตรเมื่อไหร่ ต้องขึ้นทุกแถวทั้งสองหน้า
+const rq = [{ pn: 'PN-A', code: 'C-TAPE7', usage: 0.07 }, { pn: 'PN-A', code: 'C-TAPE4', usage: 0.1 }];
+ok('ยอดตามสูตร = ต่อชิ้น × จำนวนสั่ง', reqmtOf(rq, 'C-TAPE7', 3) === 0.21, String(reqmtOf(rq, 'C-TAPE7', 3)));
+ok('ปัดห้าตำแหน่ง ไม่ใช่ 0.30000000000000004 (A2)', reqmtOf(rq, 'C-TAPE4', 3) === 0.3, String(reqmtOf(rq, 'C-TAPE4', 3)));
+ok('รหัสที่ไม่มีในสูตร = ไม่มียอดตามสูตร ไม่ใช่ศูนย์', reqmtOf(rq, 'C-ไม่มี', 3) === null);
+ok('ยังไม่ใส่จำนวนสั่ง = ว่าง ไม่ใช่ศูนย์',
+   reqmtOf(rq, 'C-TAPE4', null) === null && reqmtOf(rq, 'C-TAPE4', 0) === null && reqmtOf(rq, 'C-TAPE4', '') === null);
+ok('จำนวนสั่งที่มาเป็นข้อความก็คิดได้ (ช่องกรอกคืนข้อความ)', reqmtOf(rq, 'C-TAPE4', '3') === 0.3);
+ok('รหัสที่เป็นตัวเลขเทียบเท่าข้อความ', reqmtOf([{ pn: 'P', code: 5301000100, usage: 2 }], '5301000100', 2) === 4);
+ok('สูตรว่างหรือยังไม่ได้โหลด ก็ไม่พัง', reqmtOf([], 'C-TAPE4', 3) === null && reqmtOf(null, 'C-TAPE4', 3) === null);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

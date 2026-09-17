@@ -235,9 +235,36 @@ ok('ช่อง PO ของหน้าจ่ายออกเติม P/N �
 ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต่อ แต่ไม่เติมวันที่ (วันจ่ายออกคือวันที่เบิก)',
    bodyOf('pickOutPo').includes('poHeader(') && bodyOf('pickOutPo').includes('outH.pn')
    && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
+// เจ้าของ 16 ก.ย. 2026: ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
+ok('หน้ารับเข้ายังเติมจำนวนสั่งจากไฟล์ PO · หน้าจ่ายออกไม่เติม',
+   /inH\.order = h\.order/.test(bodyOf('pickPo')) && !/outH\.order = h\.order/.test(bodyOf('pickOutPo')));
+/* ผู้ตรวจรอบสองของ #81: เลิกเติมจำนวนสั่งแล้วไม่มีใครล้างค่าเดิมทิ้ง เลขของใบก่อนจึงค้างข้ามใบ
+ * ไปคูณ usage ของ P/N ใบใหม่ แล้วช่อง "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ ทั้งที่ P/N บนจอถูกต้อง
+ * ต้องปิดทั้งสามทาง: คีย์ PO ใบใหม่ · กดปุ่ม "ล้าง" · บันทึกจบ
+ * ⚠️ ห้ามใช้ switchedPo เป็นเงื่อนไข — หลัง clearOut/saveOut ค่า outShownPo ว่าง switchedPo คืน false */
+// เอาคอมเมนต์ออกก่อนตรวจ — ข้อนี้ตรวจว่าโค้ดทำอะไร ไม่ใช่ว่าคอมเมนต์เอ่ยถึงอะไร
+const codeOf = name => bodyOf(name).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+ok('ขึ้นใบใหม่แล้วจำนวนสั่งของหน้าจ่ายออกต้องว่าง ไม่ใช่ค่าของใบเก่า',
+   /outH\.order = null/.test(codeOf('pickOutPo'))
+   && /outH\.order = null/.test(codeOf('clearOut'))
+   && /outH\.order = null/.test(codeOf('saveOut'))
+   && !/switchedPo/.test(codeOf('pickOutPo')));
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
-   bodyOf('expandBom').includes('activeBomRowsOf(') && bodyOf('expandOut').includes('activeBomRowsOf(')
+   /const inBomRows = computed\(\(\) => inH\.pn \? activeBomRowsOf\(/.test(appSrc)
+   && /const outBomRows = computed\(\(\) => outH\.pn \? activeBomRowsOf\(/.test(appSrc)
+   && bodyOf('expandBom').includes('inBomRows.value') && bodyOf('expandOut').includes('outBomRows.value')
    && !/bom\.value\.filter/.test(bodyOf('expandBom') + bodyOf('expandOut')));
+// เจ้าของ 16 ก.ย. 2026: Kit List ไม่ใช่ตัวกำหนดยอดตามสูตร — รหัสที่มีในสูตรต้องมียอดตามสูตรทุกแถว
+ok('ยอดตามสูตรมาจากตัวเดียวกันทั้งสองหน้า ไม่คำนวณเองในหน้า',
+   bodyOf('fillInLine').includes('reqmtOf(') && bodyOf('fillOutLine').includes('reqmtOf(')
+   && !/Math\.round\([^)]*usage/.test(bodyOf('expandBom') + bodyOf('expandOut')));
+ok('แถวที่เติมเพราะเคยรับเข้ากับ PO นี้ และแถวที่พนักงานคีย์รหัสเอง ก็ได้ยอดตามสูตร',
+   bodyOf('markReceived').includes('fillInLine(') && bodyOf('addReceivedToOut').includes('fillOutLine(')
+   && /@change="fillInLine\(l\)"/.test(htmlSrc) && /@change="fillOutLine\(l\)"/.test(htmlSrc)
+   && bodyOf('choosePick').includes('fillInLine('));
+ok('P/N ที่ไม่มีสูตร ยอดตามสูตรของบรรทัดที่ค้างบนจอต้องหายตาม ไม่ค้างเลขของ P/N ก่อนหน้า',
+   /for \(const l of inLines\.value\) l\.reqmt = reqmtOf\(/.test(bodyOf('expandBom'))
+   && /for \(const l of outLines\.value\) l\.reqmt = reqmtOf\(/.test(bodyOf('expandOut')));
 
 // ผู้ตรวจรอบสองของ #79: รอบแรกล้างทุกครั้งที่แตะช่องหัว — คีย์บรรทัดเองแล้วค่อยเติม P/N บรรทัดหายหมด
 // เจ้าของเลือก 15 ก.ย. 2026: ล้างเฉพาะตอนเลข PO เปลี่ยน
@@ -263,8 +290,14 @@ ok('จำเลข PO ของรายการบนจอทุกครั
    && /const poSwitched = switchedPo\(outShownPo, outH\.po\);\s*outShownPo = nextShownPo\(outShownPo, outH\.po\);/.test(bodyOf('expandOut')));
 // เจ้าของเลือก 15 ก.ย. 2026: ทางสูตรของหน้าจ่ายออกไม่ตั้งยอดเบิก — ช่อง PO เติม P/N กับจำนวนสั่งให้แล้ว
 // ถ้ายังตั้งยอดตามสูตร แค่คีย์ PO ก็กดบันทึกทั้งใบได้ · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา (ยอดจากเอกสาร)
-ok('หน้าจ่ายออกทางสูตรไม่ตั้งยอดเบิก · ทาง Kit List ยังตั้งตามที่ Delta จ่ายมา',
-   !/l\.qty\s*=\s*l\.reqmt/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.qty = k.issue'));
+// เจ้าของเลือก 16 ก.ย. 2026: ใบที่มี Kit List ก็ปล่อยยอดเบิกว่างเหมือนทางสูตร
+// ยอดที่ Delta จ่ายมาโชว์ในคอลัมน์ของมันเอง — เห็นไว้เทียบได้ แต่ไม่ถูกบันทึกถ้าไม่คีย์
+// ⚠️ ต้องตัดเฉพาะเทมเพลตของหน้าจ่ายออกมาเช็ก — หน้ารับเข้ามีคอลัมน์ชื่อเดียวกันอยู่ก่อนแล้ว
+//    เช็กทั้งไฟล์จะเขียวทั้งที่คอลัมน์ของหน้าจ่ายออกถูกลบไป (เจอตอนย้อนโค้ดทดสอบเทสเอง)
+const outTpl = htmlSrc.slice(htmlSrc.indexOf("tab==='out'"));
+ok('หน้าจ่ายออกไม่ตั้งยอดเบิกให้ทุกทาง · โชว์ยอดที่ Delta จ่ายมาแทน',
+   !/l\.qty\s*=/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.issued = k.issue')
+   && outTpl.length > 500 && /<th[^>]*>Delta จ่ายมา<\/th>/.test(outTpl) && /l\.issued == null/.test(outTpl));
 // ผู้ตรวจรอบสาม: บันทึกหรือกด "ล้าง" แล้วจอว่างแต่ยังจำ PO เดิม — คีย์บรรทัดต่อแล้วเปลี่ยน PO บรรทัดหาย
 ok('บันทึกหรือกด "ล้าง" แล้วลืมเลข PO เดิม ทั้งสองหน้า',
    /inShownPo = ''/.test(bodyOf('saveIn')) && /outShownPo = ''/.test(bodyOf('saveOut'))
