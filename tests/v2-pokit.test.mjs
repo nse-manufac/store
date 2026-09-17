@@ -444,5 +444,26 @@ ok('ปุ่มค้นเลข PO ไม่กินจังหวะ Tab �
    (htmlSrc.match(/tabindex="-1" title="ค้นจากเลขบางส่วน"/g) || []).length === 2,
    String((htmlSrc.match(/tabindex="-1" title="ค้นจากเลขบางส่วน"/g) || []).length));
 
+console.log('\n=== J. รายการ PO บนหน้าข้อมูลตั้งต้น (เจ้าของ 17 ก.ย. 2026) ===');
+// เดิมตัดเหลือ 40 แถวแรกและไม่มีช่องค้น · ของเมื่อวานหลุดจอตั้งแต่ PO เข้ามาวันละหลายสิบใบ
+const manyPos = Array.from({ length: 120 }, (_, i) => ({
+  id: 'P' + i, po: 'TM52' + String(i).padStart(4, '0'), pn: 'PN' + i,
+  date: '2026-09-' + String((i % 28) + 1).padStart(2, '0')
+}));
+const allRows = searchPos(manyPos, '', { limit: Infinity });
+ok('ไม่พิมพ์อะไร = ได้ครบทุกใบที่นำเข้ามา ไม่ถูกตัดที่ 40', allRows.length === 120, String(allRows.length));
+ok('ใบล่าสุดอยู่บนสุด', allRows[0].date === '2026-09-28', allRows[0].date);
+ok('พิมพ์บางส่วนแล้วเหลือเฉพาะใบที่ตรง', searchPos(manyPos, '0007', { limit: Infinity }).length === 1);
+ok('หน้ารายการ PO ดึงข้อมูลผ่าน searchPos และไม่ตัดจำนวนแถวอีก',
+   /const poRows = computed\(\(\) => searchPos\(pos\.value, poQ\.value, \{ limit: Infinity \}\)\)/.test(appSrc)
+   && !/slice\(0, 40\)/.test(appSrc) && /v-model\.trim="poQ"/.test(htmlSrc));
+ok('ตารางมีคอลัมน์ลำดับเป็นคอลัมน์แรก และนับตามลำดับที่แสดงจริง',
+   /<thead><tr><th[^>]*>ลำดับ<\/th>/.test(htmlSrc) && /v-for="\(p,i\) in poRows"/.test(htmlSrc)
+   && /\{\{ i \+ 1 \}\}/.test(htmlSrc));
+// ⚠️ ตารางนี้แสดงครบทุกใบแล้ว ถ้าเทมเพลตไล่ kits ทั้งตารางในทุกแถว จะกลายเป็นงานคูณกันสองตาราง
+ok('นับ Kit List ต่อ PO ไว้ล่วงหน้า ไม่ไล่ทั้งตารางในทุกแถว',
+   /const kitCountByPo = computed/.test(appSrc) && /kitCountByPo\.get\(p\.po\)/.test(htmlSrc)
+   && !/kits\.filter\(k => k\.po===p\.po/.test(htmlSrc) && !/kits\.some\(k => k\.po===p\.po/.test(htmlSrc));
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

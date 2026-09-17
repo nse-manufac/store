@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-16.2">
+<meta name="app-version" content="2026-09-17.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1706,25 +1706,33 @@ textarea{font:inherit}
         <div class="card">
           <div class="row">
             <h2 style="margin:0">รายการ PO</h2>
+            <label class="f" style="width:230px">ค้นเลข PO หรือ P/N
+              <input v-model.trim="poQ" class="mono" placeholder="พิมพ์บางส่วน เช่น 4 ตัวท้าย"></label>
             <div class="grow"></div>
             <span class="hint">วันนี้ {{ poToday.length }} PO · ทั้งหมด {{ pos.length }} ·
               Kit List {{ kits.length }} บรรทัด</span>
           </div>
           <div class="scroll" style="margin-top:8px;max-height:40vh">
             <table>
-              <thead><tr><th style="width:110px">วันที่</th><th style="width:125px">PO</th>
+              <thead><tr><th style="width:56px">ลำดับ</th>
+                <th style="width:110px">วันที่</th><th style="width:125px">PO</th>
                 <th style="width:125px">P/N</th><th style="width:90px">จำนวน</th>
                 <th style="width:110px">Kit List</th><th>หมายเหตุ</th></tr></thead>
-              <tbody><tr v-for="p in recentPos" :key="p.id">
+              <tbody><tr v-for="(p,i) in poRows" :key="p.id">
+                <td class="mono hint">{{ i + 1 }}</td>
                 <td class="mono hint">{{ p.date }}</td><td class="mono"><b>{{ p.po }}</b></td>
                 <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
-                <td><span class="tag" :class="kits.some(k => k.po===p.po && k.src!=='chem') ? 'ok' : ''">
-                  {{ kits.filter(k => k.po===p.po && k.src!=='chem').length || 'ยังไม่มี' }}</span></td>
+                <td><span class="tag" :class="kitCountByPo.get(p.po) ? 'ok' : ''">
+                  {{ kitCountByPo.get(p.po) || 'ยังไม่มี' }}</span></td>
                 <td class="hint">{{ p.remark }}</td>
               </tr></tbody>
             </table>
             <p v-if="!pos.length" class="empty">ยังไม่มี PO — ลากไฟล์ PO รายวันเข้ามาก่อน</p>
+            <p v-else-if="!poRows.length" class="empty">ไม่เจอ PO ที่ตรงกับ "{{ poQ }}"</p>
           </div>
+          <p class="hint" style="margin:8px 0 0" v-if="pos.length">
+            แสดง {{ poRows.length }} จาก {{ pos.length }} ใบ<span v-if="poQ"> · กำลังค้น "{{ poQ }}"</span>
+          </p>
         </div>
       </template>
 

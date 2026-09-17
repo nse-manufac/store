@@ -1579,8 +1579,25 @@ createApp({
       const d = todayLocal();
       return pos.value.filter(p => p.date === d);
     });
-    const recentPos = computed(() =>
-      [...pos.value].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 40));
+    /* รายการ PO บนหน้าข้อมูลตั้งต้น — เจ้าของ 17 ก.ย. 2026
+     * เดิมเรียงวันที่ใหม่ก่อนแล้วตัดเหลือ 40 แถว และไม่มีช่องค้น
+     * พอ PO เข้ามาวันละหลายสิบใบ ของเมื่อวานก็หลุดจอ และหาย้อนหลังในหน้านี้ไม่ได้เลย
+     * ใช้ searchPos ตัวเดียวกับกล่องค้นเลข PO — พิมพ์ 4 ตัวท้ายก็เจอ · ไม่พิมพ์อะไร = ครบทุกใบ เรียงวันที่ใหม่ก่อน */
+    const poQ = ref('');
+    const poRows = computed(() => searchPos(pos.value, poQ.value, { limit: Infinity }));
+
+    /** จำนวนบรรทัด Kit List (22-H) ต่อ PO — นับรอบเดียวเก็บเป็น Map
+     *  ⚠️ ห้ามให้เทมเพลตไล่ kits ทั้งตารางในทุกแถว — ตารางนี้แสดงครบทุกใบแล้ว ไม่ได้ตัดที่ 40 เหมือนเดิม
+     *  กลุ่มจ่ายรวม (chem) ไม่นับ เพราะไม่ได้มาพร้อม PO */
+    const kitCountByPo = computed(() => {
+      const m = new Map();
+      for (const k of kits.value) {
+        if (k.src === 'chem') continue;
+        const key = String(k.po || '');
+        if (key) m.set(key, (m.get(key) || 0) + 1);
+      }
+      return m;
+    });
 
     /* ── หน้า short รอส่ง (Mat Follow up) ───────────────────────────
      * ย้ายมาจากการ์ดที่เคยแปะอยู่ท้ายหน้า PO / Kit List
@@ -2248,7 +2265,7 @@ createApp({
              wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
-             applyImp, openShorts, poToday, recentPos,
+             applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
