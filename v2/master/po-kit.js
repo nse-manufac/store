@@ -21,6 +21,8 @@
  * จะได้เทสด้วย node ล้วนได้ ทั้งที่ของจริงมาจาก .xls ที่เปิดใน node ไม่ได้
  */
 
+import { localDate } from '../core/localtime.js';
+
 const pad = n => String(n).padStart(2, '0');
 const r6 = n => Math.round(n * 1e6) / 1e6;
 
@@ -377,7 +379,8 @@ export function poHistory({ pos = [], kits = [], entries = [], shorts = [], enti
   if (entity) {
     for (const e of entries || []) {
       if (!e || e.entity !== entity || e.voided) continue;
-      add(e.doc_ref, e.part_no, String(e.at || '').slice(0, 10), 'เคยคีย์');
+      // ⚠️ at ของสมุดเป็น UTC — slice เอาเองจะได้ "เมื่อวาน" ทุกใบที่คีย์ก่อนเจ็ดโมง (localtime.js:11)
+      add(e.doc_ref, e.part_no, localDate(e.at), 'เคยคีย์');
     }
     for (const s of shorts || []) {
       if (!s || s.voided || (s.entity && s.entity !== entity)) continue;

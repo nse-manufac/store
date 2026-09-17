@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
+import { atFrom } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -352,6 +353,30 @@ ok('ยังไม่ได้เลือกนิติบุคคล = เ�
    === 'TM5269H0031,TM5269H002,TM5269H001');
 ok('ไม่มีข้อมูลเลยก็ไม่พัง', poHistory().length === 0 && poHistory({ pos: null, kits: null }).length === 0);
 ok('เลข PO ว่างไม่ถูกนับเป็นใบ', poHistory({ pos: [{ po: '   ' }, { po: null }] }).length === 0);
+
+// ผู้ตรวจ #82 ทัก: at ของสมุดเป็น UTC — slice(0,10) เอาเองทำให้ใบที่คีย์กะเช้า (เข้างานตีห้า) กลายเป็นเมื่อวาน
+// ⚠️ ต้องปักโซนเวลาไว้ที่ไทยชั่วคราว เพราะเครื่องที่รันเทสบน GitHub Actions อยู่โซน UTC พอดี
+//    ซึ่งไม่มีส่วนต่างให้เลื่อน วิธีผิดจะดูเหมือนถูกและจับอาการไม่ได้เลย (เหมือนที่ v2-export ชี้ไว้)
+const tzBefore = process.env.TZ;
+process.env.TZ = 'Asia/Bangkok';
+const dawnHist = poHistory({
+  entity: 'NSE',
+  entries: [
+    // ตีห้าของวันที่ 17 ตามเวลาไทย = 2026-09-16T22:00Z
+    { entity: 'NSE', doc_ref: 'TM5269H006', part_no: '2873100006',
+      at: atFrom('2026-09-17', new Date(2026, 8, 17, 5, 0, 0)) },
+    // เมื่อวานตอนเย็น — ใบนี้ต้องอยู่ล่างกว่า
+    { entity: 'NSE', doc_ref: 'TM5269H007', part_no: '2873100007',
+      at: atFrom('2026-09-16', new Date(2026, 8, 16, 20, 0, 0)) }
+  ]
+});
+if (tzBefore === undefined) delete process.env.TZ; else process.env.TZ = tzBefore;
+ok('ใบที่คีย์กะเช้าตีห้า ได้วันที่ตามเวลาไทย ไม่เลื่อนไปเมื่อวาน',
+   dawnHist.find(r => r.po === 'TM5269H006').date === '2026-09-17',
+   dawnHist.map(r => r.po + '=' + r.date).join(' · '));
+ok('ใบที่เพิ่งคีย์เมื่อเช้าอยู่บนสุด ไม่ถูกใบเมื่อวานเย็นแซง',
+   dawnHist.map(r => r.po).join(',') === 'TM5269H006,TM5269H007',
+   dawnHist.map(r => r.po + '=' + r.date).join(' · '));
 
 ok('พิมพ์ 4 ตัวท้าย เจอใบนั้นเป็นอันดับแรก แม้มีใบอื่นที่มีเลขชุดนี้อยู่กลางเลขและใหม่กว่า',
    searchPos(hist, 'H003')[0].po === 'TM5269H003', searchPos(hist, 'H003').map(r => r.po).join(','));
