@@ -379,6 +379,9 @@ export function poHistory({ pos = [], kits = [], entries = [], shorts = [], enti
   if (entity) {
     for (const e of entries || []) {
       if (!e || e.entity !== entity || e.voided) continue;
+      // doc_ref ของรายการจากการนับของคือเลขใบนับ ไม่ใช่เลข PO (core/count.js:107) — ห้ามเอามาเป็นประวัติ PO
+      // ตัดเฉพาะ count ออก ไม่ใช่เอาเฉพาะ doc_kind === 'po' เพราะแบบหลังจะทิ้งรายการที่ doc_kind ว่างไปด้วย
+      if (e.doc_kind === 'count') continue;
       // ⚠️ at ของสมุดเป็น UTC — slice เอาเองจะได้ "เมื่อวาน" ทุกใบที่คีย์ก่อนเจ็ดโมง (localtime.js:11)
       add(e.doc_ref, e.part_no, localDate(e.at), 'เคยคีย์');
     }

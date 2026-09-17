@@ -13,6 +13,7 @@ import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
+import { makeSession, postCount } from '../v2/core/count.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -351,6 +352,22 @@ ok('ใบที่ไม่ได้ระบุนิติบุคคลใ�
 ok('ยังไม่ได้เลือกนิติบุคคล = เอาเฉพาะเอกสารกลาง ไม่แตะสมุด (A3)',
    poHistory({ pos: hPos, kits: hKits, entries: hEntries, shorts: hShorts }).map(r => r.po).join(',')
    === 'TM5269H0031,TM5269H002,TM5269H001');
+// ผู้ตรวจ #82 รอบสาม: core/count.js เขียน session.id ลง doc_ref — เลขใบนับจึงโผล่เป็น "เลข PO" และได้วันที่ล่าสุด
+// ผูกกับ makeSession/postCount ตัวจริง ไม่ปั้น object เอง เพื่อให้เทสยังจับได้ถ้าวันหลัง count.js เปลี่ยนรูปแบบ id
+const cs = makeSession({ entity: 'NSE', name: 'นับปลายเดือน', person: 'สมชาย' });
+const countEntries = postCount(cs, [{ code: '2873100001', kind: 'adjust', counted: 5, book: 7, delta: -2 }], {});
+ok('เลขใบนับของไม่โผล่ในประวัติ PO',
+   countEntries.length === 1 && countEntries[0].doc_ref === cs.id
+   && poHistory({ entity: 'NSE', entries: countEntries }).length === 0,
+   poHistory({ entity: 'NSE', entries: countEntries }).map(r => r.po).join(','));
+// และต้องไม่ตัดรายการปกติทิ้งไปด้วย — ใบที่ doc_kind ว่างหรือเป็น 'po' ยังต้องอยู่
+ok('รายการที่ doc_kind ว่างหรือเป็น po ยังนับเป็นประวัติเหมือนเดิม',
+   poHistory({ entity: 'NSE', entries: [
+     { entity: 'NSE', doc_kind: 'po', doc_ref: 'TM5269H008', at: '2026-09-15T02:00:00.000Z' },
+     { entity: 'NSE', doc_ref: 'TM5269H009', at: '2026-09-15T02:00:00.000Z' },
+     ...countEntries
+   ] }).map(r => r.po).sort().join(',') === 'TM5269H008,TM5269H009');
+
 ok('ไม่มีข้อมูลเลยก็ไม่พัง', poHistory().length === 0 && poHistory({ pos: null, kits: null }).length === 0);
 ok('เลข PO ว่างไม่ถูกนับเป็นใบ', poHistory({ pos: [{ po: '   ' }, { po: null }] }).length === 0);
 
