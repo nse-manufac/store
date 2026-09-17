@@ -48,6 +48,39 @@ export function entityOfPo(po) {
 }
 
 /**
+ * นิติบุคคลเจ้าของ PO ใบนี้ — คืน { code, from } · from = 'po' | 'guess' | 'unknown'
+ *   po     คอลัมน์ผู้รับเหมาที่ติดมากับไฟล์ PO ของ Delta — น่าเชื่อที่สุด
+ *   guess  เดาจากตัวอักษรตำแหน่งที่ 7 ของเลข PO
+ *   unknown ตอบไม่ได้
+ *
+ * ⚠️ ต่างจาก resolveEntity ตรงที่ **ไม่ตกมาที่ตัวที่เลือกอยู่บนจอ**
+ * resolveEntity ใช้ตอนเดาให้รายการใหม่ว่าควรเป็นของใคร · ตัวนี้ใช้ตัดสินว่า "ใบนี้เป็นของใคร"
+ * ถ้าตอบว่าเป็นของคนที่กำลังถาม ทุกใบจะกลายเป็นของทุกคน แล้วการแยกนิติบุคคลก็ไม่เหลืออะไร
+ */
+export function poOwnerOfRow(row) {
+  const sub = String((row && row.sub) || '').trim().toUpperCase();
+  if (sub) return { code: sub, from: 'po' };
+  const guess = entityOfPo(row && row.po);
+  return guess ? { code: guess, from: 'guess' } : { code: '', from: 'unknown' };
+}
+
+/** เจ้าของของเลข PO หนึ่ง เมื่อมีแต่เลข (Kit List · สมุด) — หาแถวในไฟล์ PO ก่อน ไม่เจอค่อยเดาจากเลข */
+export function poOwner(po, poList = []) {
+  const key = String(po || '').trim();
+  if (!key) return { code: '', from: 'unknown' };
+  const hit = (poList || []).find(p => p && String(p.po || '').trim() === key);
+  return poOwnerOfRow(hit || { po: key });
+}
+
+/**
+ * ใบนี้ให้นิติบุคคลที่เลือกอยู่เห็นไหม
+ * เจ้าของเลือก 17 ก.ย. 2026: **ใบที่เดาไม่ได้ขึ้นทุกนิติบุคคล พร้อมป้ายเตือน**
+ * ซ่อนไปเลยแล้วจะไม่มีใครรู้ว่าตกหล่น — กฎเดียวกับแถวของขาดที่ยังไม่รู้เจ้าของ (follow.js)
+ */
+export const poVisibleTo = (owner, entity) =>
+  !owner || !owner.code || !entity || owner.code === String(entity).trim().toUpperCase();
+
+/**
  * นิติบุคคลของรายการนี้ ตามลำดับความน่าเชื่อถือ
  *   1. ที่คนบังคับมาทั้งใบ — คนตัดสินใจเองย่อมชนะการเดา
  *   2. ช่อง sub ในรายการ PO — มาจากไฟล์ของ Delta โดยตรง

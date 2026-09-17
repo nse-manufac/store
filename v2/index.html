@@ -1724,14 +1724,20 @@ textarea{font:inherit}
                 <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
                 <td><span class="tag" :class="kitCountByPo.get(p.po) ? 'ok' : ''">
                   {{ kitCountByPo.get(p.po) || 'ยังไม่มี' }}</span></td>
-                <td class="hint">{{ p.remark }}</td>
+                <td class="hint">
+                  <span v-if="poOwnerOf(p).from === 'unknown'" class="tag warn">ไม่รู้นิติบุคคล</span>
+                  {{ p.remark }}</td>
               </tr></tbody>
             </table>
             <p v-if="!pos.length" class="empty">ยังไม่มี PO — ลากไฟล์ PO รายวันเข้ามาก่อน</p>
+            <p v-else-if="!posVisible.length" class="empty">
+              ไม่มี PO ของ {{ entity }} — อีก {{ poHidden }} ใบเป็นของนิติบุคคลอื่น</p>
             <p v-else-if="!poRows.length" class="empty">ไม่เจอ PO ที่ตรงกับ "{{ poQ }}"</p>
           </div>
           <p class="hint" style="margin:8px 0 0" v-if="pos.length">
-            แสดง {{ poRows.length }} จาก {{ pos.length }} ใบ<span v-if="poQ"> · กำลังค้น "{{ poQ }}"</span>
+            แสดง {{ poRows.length }} จาก {{ posVisible.length }} ใบของ {{ entity }}<span v-if="poQ"> · กำลังค้น "{{ poQ }}"</span>
+            <span v-if="poHidden"> · ซ่อนของนิติบุคคลอื่น {{ poHidden }} ใบ</span>
+            <span v-if="poUnknownOwner"> · <span class="tag warn">{{ poUnknownOwner }} ใบยังไม่รู้นิติบุคคล</span></span>
           </p>
         </div>
       </template>

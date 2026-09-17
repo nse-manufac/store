@@ -22,6 +22,7 @@
  */
 
 import { localDate } from '../core/localtime.js';
+import { poOwnerOfRow, poVisibleTo } from './entities.js';
 
 const pad = n => String(n).padStart(2, '0');
 const r6 = n => Math.round(n * 1e6) / 1e6;
@@ -374,8 +375,25 @@ export function poHistory({ pos = [], kits = [], entries = [], shorts = [], enti
     if (!hit.from.includes(from)) hit.from.push(from);
     seen.set(key, hit);
   };
-  for (const p of pos || []) add(p && p.po, p && p.pn, p && p.date, 'ไฟล์ PO');
-  for (const k of kits || []) add(k && k.po, k && k.pn, k && k.date, 'Kit List');
+  // เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจากคอลัมน์ผู้รับเหมาในไฟล์ PO ก่อน ไม่มีค่อยเดาจากเลข PO
+  // ใบที่เดาไม่ได้ขึ้นทุกนิติบุคคล (เจ้าของ 17 ก.ย. 2026) · ทำ Map รอบเดียว ไม่ไล่หาในทุกแถวของ Kit List
+  const ownerByPo = new Map();
+  for (const p of pos || []) {
+    const key = String((p && p.po) || '').trim();
+    if (key && !ownerByPo.has(key)) ownerByPo.set(key, poOwnerOfRow(p));
+  }
+  const ownerOf = po => {
+    const key = String(po || '').trim();
+    return ownerByPo.get(key) || poOwnerOfRow({ po: key });
+  };
+  for (const p of pos || []) {
+    if (!poVisibleTo(poOwnerOfRow(p), entity)) continue;
+    add(p && p.po, p && p.pn, p && p.date, 'ไฟล์ PO');
+  }
+  for (const k of kits || []) {
+    if (!poVisibleTo(ownerOf(k && k.po), entity)) continue;
+    add(k && k.po, k && k.pn, k && k.date, 'Kit List');
+  }
   if (entity) {
     for (const e of entries || []) {
       if (!e || e.entity !== entity || e.voided) continue;

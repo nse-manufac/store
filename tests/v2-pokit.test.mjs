@@ -322,24 +322,26 @@ console.log('\n=== I. ค้นเลข PO จากที่พิมพ์บ
 // เลขสมมติ · เจ้าของสั่งว่ารายการต้องมี "ทุก PO ที่เคยมีประวัติในโปรแกรม"
 // TM5269H0031 เป็นตัวล่อ — มี "H003" อยู่กลางเลขแต่ไม่ได้ลงท้าย และวันที่ใหม่กว่า
 // ถ้าไม่ให้คะแนนท้ายเลขสูงกว่า ตัวล่อจะขึ้นก่อนใบที่พนักงานตั้งใจพิมพ์
+// ⚠️ ตั้งแต่ 17 ก.ย. 2026 ประวัติ PO กรองตามนิติบุคคลแล้ว — เลขชุดนี้เดาได้เป็น TUE-H ทั้งหมด
+// จึงต้องเรียกด้วย TUE-H ไม่ใช่ NSE ไม่งั้นทุกใบถูกกรองทิ้งและเคสในหมวดนี้ไม่ได้ทดสอบอะไรเลย
 const hPos = [{ po: 'TM5269H001', pn: '2873100001', date: '2026-09-10' },
               { po: 'TM5269H0031', pn: '2873100031', date: '2026-09-16' }];
 const hKits = [{ po: 'TM5269H002', pn: '2873100002', date: '2026-09-12', code: 'C1', src: 'kit' }];
 const hEntries = [
-  { entity: 'NSE', kind: 'receive', doc_ref: 'TM5269H003', part_no: '2873100003', at: '2026-09-14T02:00:00.000Z' },
-  { entity: 'NSE', kind: 'issue', doc_ref: 'TM5269H001', at: '2026-09-15T02:00:00.000Z' },
+  { entity: 'TUE-H', kind: 'receive', doc_ref: 'TM5269H003', part_no: '2873100003', at: '2026-09-14T02:00:00.000Z' },
+  { entity: 'TUE-H', kind: 'issue', doc_ref: 'TM5269H001', at: '2026-09-15T02:00:00.000Z' },
   { entity: 'OTHER', kind: 'receive', doc_ref: 'TM9999X999', at: '2026-09-15T02:00:00.000Z' },
-  { entity: 'NSE', kind: 'receive', doc_ref: 'TM5269H004', at: '2026-09-15T02:00:00.000Z', voided: true },
+  { entity: 'TUE-H', kind: 'receive', doc_ref: 'TM5269H004', at: '2026-09-15T02:00:00.000Z', voided: true },
   // แถวที่ช่องนิติบุคคลว่าง — ด่านที่กันต้องเป็น "ยังไม่เลือกนิติบุคคล = ไม่แตะสมุด"
   // ไม่ใช่การเทียบค่าที่บังเอิญไม่ตรง (poHistory ตั้งค่าเริ่มต้น entity = '' แถวนี้จึงเท่ากันพอดีถ้าด่านหาย)
   { entity: '', kind: 'receive', doc_ref: 'TM5269H404', at: '2026-09-15T03:00:00.000Z' }
 ];
-const hShorts = [{ entity: 'NSE', po: 'TM5269H005', part_no: '2873100005', date: '2026-09-13' },
+const hShorts = [{ entity: 'TUE-H', po: 'TM5269H005', part_no: '2873100005', date: '2026-09-13' },
                  // A3 — ของขาดเป็นของรายนิติบุคคลเหมือนสมุด ใบของบริษัทอื่นห้ามโผล่ในกล่องค้น
                  // ตั้งวันที่ให้ใหม่ที่สุดในชุดโดยตั้งใจ ถ้าด่านกรองหายไปวันหลัง ใบนี้จะเด้งขึ้นบนสุด
                  // ทำให้เคส "รวมทุกที่มา" (hist.length) และ "ใบที่ใช้ล่าสุดอยู่บนสุด" แดงตามไปด้วยอีกชั้น
                  { entity: 'OTHER', po: 'ZZ9999X999', part_no: '2873109999', date: '2026-09-20' }];
-const hist = poHistory({ pos: hPos, kits: hKits, entries: hEntries, shorts: hShorts, entity: 'NSE' });
+const hist = poHistory({ pos: hPos, kits: hKits, entries: hEntries, shorts: hShorts, entity: 'TUE-H' });
 const hPoList = hist.map(r => r.po);
 ok('รวมทุกที่มา — ไฟล์ PO · Kit List · ใบที่เคยคีย์ · ของขาด',
    ['TM5269H001', 'TM5269H002', 'TM5269H003', 'TM5269H005'].every(p => hPoList.includes(p))
@@ -454,8 +456,9 @@ const allRows = searchPos(manyPos, '', { limit: Infinity });
 ok('ไม่พิมพ์อะไร = ได้ครบทุกใบที่นำเข้ามา ไม่ถูกตัดที่ 40', allRows.length === 120, String(allRows.length));
 ok('ใบล่าสุดอยู่บนสุด', allRows[0].date === '2026-09-28', allRows[0].date);
 ok('พิมพ์บางส่วนแล้วเหลือเฉพาะใบที่ตรง', searchPos(manyPos, '0007', { limit: Infinity }).length === 1);
+// 17 ก.ย. 2026 เปลี่ยนจาก pos.value เป็น posVisible.value (กรองนิติบุคคลก่อน) — ข้อห้ามเรื่องตัดแถวยังเหมือนเดิม
 ok('หน้ารายการ PO ดึงข้อมูลผ่าน searchPos และไม่ตัดจำนวนแถวอีก',
-   /const poRows = computed\(\(\) => searchPos\(pos\.value, poQ\.value, \{ limit: Infinity \}\)\)/.test(appSrc)
+   /const poRows = computed\(\(\) => searchPos\(\w+\.value, poQ\.value, \{ limit: Infinity \}\)\)/.test(appSrc)
    && !/slice\(0, 40\)/.test(appSrc) && /v-model\.trim="poQ"/.test(htmlSrc));
 ok('ตารางมีคอลัมน์ลำดับเป็นคอลัมน์แรก และนับตามลำดับที่แสดงจริง',
    /<thead><tr><th[^>]*>ลำดับ<\/th>/.test(htmlSrc) && /v-for="\(p,i\) in poRows"/.test(htmlSrc)
@@ -464,6 +467,36 @@ ok('ตารางมีคอลัมน์ลำดับเป็นคอ�
 ok('นับ Kit List ต่อ PO ไว้ล่วงหน้า ไม่ไล่ทั้งตารางในทุกแถว',
    /const kitCountByPo = computed/.test(appSrc) && /kitCountByPo\.get\(p\.po\)/.test(htmlSrc)
    && !/kits\.filter\(k => k\.po===p\.po/.test(htmlSrc) && !/kits\.some\(k => k\.po===p\.po/.test(htmlSrc));
+
+console.log('\n=== K. แยกรายการ PO ตามนิติบุคคล (เจ้าของ 17 ก.ย. 2026) ===');
+// เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูคอลัมน์ผู้รับเหมาก่อน ไม่มีค่อยเดาจากตัวอักษรที่ 7 ของเลข PO
+const ePos = [
+  { id: 'e1', po: 'TM5269H001', pn: 'P1', date: '2026-09-10', sub: 'NSE' },
+  { id: 'e2', po: 'TM5269U002', pn: 'P2', date: '2026-09-11' },   // เดาได้ → TUE-U
+  { id: 'e3', po: 'XX-999',     pn: 'P3', date: '2026-09-12' }    // เดาไม่ได้
+];
+const eKits = [{ id: 'ek1', po: 'TM5269U002', pn: 'P2', date: '2026-09-11', code: 'C1', src: '' }];
+const hNse = poHistory({ pos: ePos, kits: eKits, entity: 'NSE' });
+const hNsePo = hNse.map(r => r.po);
+ok('ใบของนิติบุคคลอื่นไม่ขึ้นในประวัติ PO', !hNsePo.includes('TM5269U002'), hNsePo.join(','));
+ok('ใบของนิติบุคคลที่เลือกอยู่ขึ้นปกติ', hNsePo.includes('TM5269H001'));
+ok('ใบที่เดานิติบุคคลไม่ได้ ขึ้นทุกนิติบุคคล (เจ้าของเลือกให้เห็นไว้ ไม่ใช่ซ่อน)', hNsePo.includes('XX-999'));
+ok('Kit List ของใบที่ไม่ใช่ของนิติบุคคลนี้ ก็ไม่ขึ้น', !hNse.some(r => r.from.includes('Kit List')));
+const hTuePo = poHistory({ pos: ePos, kits: eKits, entity: 'TUE-U' }).map(r => r.po);
+ok('สลับนิติบุคคลแล้วเห็นใบของตัวเอง', hTuePo.includes('TM5269U002') && !hTuePo.includes('TM5269H001'), hTuePo.join(','));
+ok('คอลัมน์ผู้รับเหมาในไฟล์ชนะการเดาจากเลข PO',
+   poHistory({ pos: [{ id: 'x', po: 'TM5269U777', sub: 'NSE', date: '2026-09-12' }], entity: 'NSE' }).length === 1);
+ok('ยังไม่เลือกนิติบุคคล = เห็นทุกใบเหมือนเดิม (เอกสารกลาง)',
+   poHistory({ pos: ePos, kits: eKits }).length === 3);
+// อ่านซอร์ส — หน้าจอต้องกรองก่อนค้น และต้องบอกว่าซ่อนไปกี่ใบ ไม่ให้หายเงียบ
+ok('หน้ารายการ PO กรองตามนิติบุคคลก่อนค้น',
+   /searchPos\(posVisible\.value/.test(appSrc)
+   && /pos\.value\.filter\(p => poVisibleTo\(poOwnerOfRow\(p\), entity\.value\)\)/.test(appSrc));
+ok('บอกจำนวนใบที่ซ่อน และป้ายใบที่ยังไม่รู้นิติบุคคล',
+   /poHidden/.test(htmlSrc) && /ไม่รู้นิติบุคคล/.test(htmlSrc));
+ok('ตัวนับหน้าแรกนับเฉพาะใบของนิติบุคคลที่เลือกอยู่',
+   /posVisible\.value\.filter\(p => p\.date === homeToday\.value\)/.test(appSrc)
+   && /poVisibleTo\(ownerOfPoNo\(k\.po\), entity\.value\)/.test(appSrc));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

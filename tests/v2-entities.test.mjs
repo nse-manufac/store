@@ -6,7 +6,7 @@
  * ซึ่งเป็นความผิดที่มองไม่เห็นบนหน้าจอ เพราะทุกหน้าจะดูปกติดีทั้งสองฝั่ง
  */
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
-         unknownEntities, DEFAULT_ENTITY } from '../v2/master/entities.js';
+         unknownEntities, poOwnerOfRow, poOwner, poVisibleTo, DEFAULT_ENTITY } from '../v2/master/entities.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -67,6 +67,29 @@ console.log('\n=== D. เดาจากเลข PO (กฎเดิมจา�
 ok('TM5266H177 → TUE-H', entityOfPo('TM5266H177') === 'TUE-H');
 ok('TM4267U025 → TUE-U', entityOfPo('TM4267U025') === 'TUE-U');
 ok('รูปแบบอื่นตอบว่าง ไม่ใช่เดามั่ว', entityOfPo('PO-9001') === '');
+
+console.log('\n=== E. ใบ PO นี้เป็นของนิติบุคคลไหน (เจ้าของ 17 ก.ย. 2026) ===');
+// ต่างจาก resolveEntity ตรงที่ห้ามตกมาที่ "ตัวที่เลือกอยู่บนจอ" — ไม่งั้นทุกใบกลายเป็นของทุกคน
+ok('คอลัมน์ผู้รับเหมาในไฟล์ชนะการเดาจากเลข และทำเป็นตัวใหญ่ให้',
+   poOwnerOfRow({ po: 'TM5266U177', sub: ' nse ' }).code === 'NSE');
+ok('บอกที่มาได้ว่ามาจากไฟล์', poOwnerOfRow({ po: 'TM5266U177', sub: 'NSE' }).from === 'po');
+ok('ไม่มีคอลัมน์ผู้รับเหมา = เดาจากเลข PO',
+   poOwnerOfRow({ po: 'TM5266H177' }).code === 'TUE-H' && poOwnerOfRow({ po: 'TM5266H177' }).from === 'guess');
+ok('เดาไม่ได้ต้องตอบว่าไม่รู้ ไม่ใช่ตอบเป็นคนที่ถาม',
+   poOwnerOfRow({ po: 'PO-9001' }).code === '' && poOwnerOfRow({ po: 'PO-9001' }).from === 'unknown');
+ok('ข้อมูลว่างไม่พัง', poOwnerOfRow(null).from === 'unknown' && poOwnerOfRow({}).from === 'unknown');
+
+const poList5 = [{ po: 'TM5266U177', sub: 'NSE' }];
+ok('มีแต่เลข PO — หาแถวในไฟล์ PO ก่อน', poOwner('TM5266U177', poList5).code === 'NSE');
+ok('ไม่มีในไฟล์ PO ก็เดาจากเลข', poOwner('TM5266H177', poList5).code === 'TUE-H');
+ok('เลขว่างตอบว่าไม่รู้', poOwner('', poList5).from === 'unknown' && poOwner(null).from === 'unknown');
+
+ok('ใบของตัวเองเห็น', poVisibleTo({ code: 'NSE', from: 'po' }, 'NSE'));
+ok('ใบของนิติบุคคลอื่นไม่เห็น', !poVisibleTo({ code: 'TUE-U', from: 'guess' }, 'NSE'));
+ok('ใบที่ไม่รู้เจ้าของ เห็นทุกนิติบุคคล (เจ้าของเลือก 17 ก.ย. 2026)',
+   poVisibleTo({ code: '', from: 'unknown' }, 'NSE') && poVisibleTo({ code: '', from: 'unknown' }, 'TUE-U'));
+ok('ยังไม่ได้เลือกนิติบุคคล = เห็นหมด', poVisibleTo({ code: 'TUE-U' }, ''));
+ok('เทียบโดยไม่สนตัวพิมพ์และช่องว่าง', poVisibleTo({ code: 'NSE' }, ' nse '));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
