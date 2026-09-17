@@ -21,6 +21,8 @@
  * จะได้เทสด้วย node ล้วนได้ ทั้งที่ของจริงมาจาก .xls ที่เปิดใน node ไม่ได้
  */
 
+import { localDate } from '../core/localtime.js';
+
 const pad = n => String(n).padStart(2, '0');
 const r6 = n => Math.round(n * 1e6) / 1e6;
 
@@ -351,6 +353,73 @@ export function switchedPo(shownPo, po) {
  */
 export const nextShownPo = (shownPo, po) =>
   String(po ?? '').trim() || String(shownPo ?? '').trim();
+
+/**
+ * เลข PO ทุกใบที่เคยมีประวัติในโปรแกรม — [{ po, pn, date, from }] ใบล่าสุดขึ้นก่อน (เจ้าของ 16 ก.ย. 2026)
+ *
+ * รวมสี่ที่มา: ไฟล์ PO รายวัน · Kit List · ใบที่เคยคีย์รับ-จ่าย (สมุด) · รายการของขาด
+ * ⚠️ INVARIANTS A3 — สมุดกับรายการของขาดเป็นของราย**นิติบุคคล** จึงกรองด้วย entity เสมอ
+ *    ถ้ายังไม่ได้เลือกนิติบุคคล จะไม่เอาสองที่มานั้นมาเลย (ไฟล์ PO กับ Kit List เป็นเอกสารกลาง ใช้ร่วมกัน)
+ * วันที่เก็บวันล่าสุดที่เจอของใบนั้น ใช้เรียงลำดับให้ใบที่เพิ่งใช้อยู่บนสุด
+ */
+export function poHistory({ pos = [], kits = [], entries = [], shorts = [], entity = '' } = {}) {
+  const seen = new Map();
+  const add = (po, pn, date, from) => {
+    const key = String(po ?? '').trim();
+    if (!key) return;
+    const hit = seen.get(key) || { po: key, pn: '', date: '', from: [] };
+    if (!hit.pn && pn != null && String(pn).trim()) hit.pn = String(pn).trim();
+    const d = String(date || '').slice(0, 10);
+    if (d > hit.date) hit.date = d;
+    if (!hit.from.includes(from)) hit.from.push(from);
+    seen.set(key, hit);
+  };
+  for (const p of pos || []) add(p && p.po, p && p.pn, p && p.date, 'ไฟล์ PO');
+  for (const k of kits || []) add(k && k.po, k && k.pn, k && k.date, 'Kit List');
+  if (entity) {
+    for (const e of entries || []) {
+      if (!e || e.entity !== entity || e.voided) continue;
+      // doc_ref ของรายการจากการนับของคือเลขใบนับ ไม่ใช่เลข PO (core/count.js:107) — ห้ามเอามาเป็นประวัติ PO
+      // ตัดเฉพาะ count ออก ไม่ใช่เอาเฉพาะ doc_kind === 'po' เพราะแบบหลังจะทิ้งรายการที่ doc_kind ว่างไปด้วย
+      if (e.doc_kind === 'count') continue;
+      // ⚠️ at ของสมุดเป็น UTC — slice เอาเองจะได้ "เมื่อวาน" ทุกใบที่คีย์ก่อนเจ็ดโมง (localtime.js:11)
+      add(e.doc_ref, e.part_no, localDate(e.at), 'เคยคีย์');
+    }
+    for (const s of shorts || []) {
+      if (!s || s.voided || (s.entity && s.entity !== entity)) continue;
+      add(s.po, s.part_no, s.date, 'ของขาด');
+    }
+  }
+  return [...seen.values()]
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.po).localeCompare(String(a.po)));
+}
+
+/**
+ * ค้นเลข PO จากที่พิมพ์บางส่วน — พนักงานพิมพ์ **ท้ายเลข** (เช่น 4 ตัวท้าย) เป็นหลัก จึงให้คะแนนท้ายเลขสูงรองจากตรงเป๊ะ
+ * ไม่ใช้ <datalist> เหมือน v1 เพราะมันโชว์ได้บรรทัดเดียว แยกใบที่ P/N ต่างกันไม่ออก (issue #26)
+ */
+export function searchPos(list, q, { limit = 40 } = {}) {
+  const term = String(q ?? '').trim().toUpperCase();
+  const scored = [];
+  for (const r of list || []) {
+    if (!r) continue;
+    const po = String(r.po || '').toUpperCase();
+    const pn = String(r.pn || '').toUpperCase();
+    let score = -1;
+    if (!term) score = 0;
+    else if (po === term) score = 100;
+    else if (po.endsWith(term)) score = 80;
+    else if (po.startsWith(term)) score = 70;
+    else if (po.includes(term)) score = 50;
+    else if (pn.includes(term)) score = 30;
+    if (score < 0) continue;
+    scored.push({ ...r, _score: score });
+  }
+  scored.sort((a, b) => b._score - a._score
+    || String(b.date || '').localeCompare(String(a.date || ''))
+    || String(a.po).localeCompare(String(b.po)));
+  return scored.slice(0, limit);
+}
 
 /**
  * PO ใบนี้คือ P/N อะไร จำนวนเท่าไหร่ วันที่ไหน — จากไฟล์ PO รายวันที่นำเข้าไว้

@@ -10,7 +10,10 @@
  */
 import fs from 'node:fs';
 import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
-         parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo } from '../v2/master/po-kit.js';
+         parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
+         poHistory, searchPos } from '../v2/master/po-kit.js';
+import { atFrom } from '../v2/core/localtime.js';
+import { makeSession, postCount } from '../v2/core/count.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -314,6 +317,132 @@ const importedNames = [...appSrc.matchAll(/import\s*\{([^}]*)\}\s*from/g)]
 const shadowed = importedNames.filter(n => new RegExp('(?:const|let|var|function)\\s+' + n + '\\b').test(appSrc));
 ok('ชื่อที่ import เข้า app.js ต้องไม่ถูกประกาศซ้ำในไฟล์', importedNames.length > 20 && shadowed.length === 0,
    'ซ้ำ: ' + shadowed.join(', ') + ' · อ่านชื่อได้ ' + importedNames.length);
+
+console.log('\n=== I. ค้นเลข PO จากที่พิมพ์บางส่วน (เจ้าของ 16 ก.ย. 2026) ===');
+// เลขสมมติ · เจ้าของสั่งว่ารายการต้องมี "ทุก PO ที่เคยมีประวัติในโปรแกรม"
+// TM5269H0031 เป็นตัวล่อ — มี "H003" อยู่กลางเลขแต่ไม่ได้ลงท้าย และวันที่ใหม่กว่า
+// ถ้าไม่ให้คะแนนท้ายเลขสูงกว่า ตัวล่อจะขึ้นก่อนใบที่พนักงานตั้งใจพิมพ์
+const hPos = [{ po: 'TM5269H001', pn: '2873100001', date: '2026-09-10' },
+              { po: 'TM5269H0031', pn: '2873100031', date: '2026-09-16' }];
+const hKits = [{ po: 'TM5269H002', pn: '2873100002', date: '2026-09-12', code: 'C1', src: 'kit' }];
+const hEntries = [
+  { entity: 'NSE', kind: 'receive', doc_ref: 'TM5269H003', part_no: '2873100003', at: '2026-09-14T02:00:00.000Z' },
+  { entity: 'NSE', kind: 'issue', doc_ref: 'TM5269H001', at: '2026-09-15T02:00:00.000Z' },
+  { entity: 'OTHER', kind: 'receive', doc_ref: 'TM9999X999', at: '2026-09-15T02:00:00.000Z' },
+  { entity: 'NSE', kind: 'receive', doc_ref: 'TM5269H004', at: '2026-09-15T02:00:00.000Z', voided: true },
+  // แถวที่ช่องนิติบุคคลว่าง — ด่านที่กันต้องเป็น "ยังไม่เลือกนิติบุคคล = ไม่แตะสมุด"
+  // ไม่ใช่การเทียบค่าที่บังเอิญไม่ตรง (poHistory ตั้งค่าเริ่มต้น entity = '' แถวนี้จึงเท่ากันพอดีถ้าด่านหาย)
+  { entity: '', kind: 'receive', doc_ref: 'TM5269H404', at: '2026-09-15T03:00:00.000Z' }
+];
+const hShorts = [{ entity: 'NSE', po: 'TM5269H005', part_no: '2873100005', date: '2026-09-13' },
+                 // A3 — ของขาดเป็นของรายนิติบุคคลเหมือนสมุด ใบของบริษัทอื่นห้ามโผล่ในกล่องค้น
+                 // ตั้งวันที่ให้ใหม่ที่สุดในชุดโดยตั้งใจ ถ้าด่านกรองหายไปวันหลัง ใบนี้จะเด้งขึ้นบนสุด
+                 // ทำให้เคส "รวมทุกที่มา" (hist.length) และ "ใบที่ใช้ล่าสุดอยู่บนสุด" แดงตามไปด้วยอีกชั้น
+                 { entity: 'OTHER', po: 'ZZ9999X999', part_no: '2873109999', date: '2026-09-20' }];
+const hist = poHistory({ pos: hPos, kits: hKits, entries: hEntries, shorts: hShorts, entity: 'NSE' });
+const hPoList = hist.map(r => r.po);
+ok('รวมทุกที่มา — ไฟล์ PO · Kit List · ใบที่เคยคีย์ · ของขาด',
+   ['TM5269H001', 'TM5269H002', 'TM5269H003', 'TM5269H005'].every(p => hPoList.includes(p))
+   && hist.length === 5, hPoList.join(','));
+ok('ใบเดียวกันจากหลายที่มา รวมเป็นแถวเดียว และบอกที่มาครบ',
+   hPoList.filter(p => p === 'TM5269H001').length === 1
+   && hist.find(r => r.po === 'TM5269H001').from.join(',') === 'ไฟล์ PO,เคยคีย์');
+ok('ใบที่ใช้ล่าสุดอยู่บนสุด', hPoList[0] === 'TM5269H0031', hPoList.join(','));
+ok('เก็บ P/N ไว้ให้ดูก่อนเลือก', hist.find(r => r.po === 'TM5269H003').pn === '2873100003');
+// A3 — สมุดกับของขาดเป็นของรายนิติบุคคล ห้ามข้ามกัน
+ok('ใบของนิติบุคคลอื่นไม่ปนเข้ามา (A3)', !hPoList.includes('TM9999X999'));
+ok('ของขาดของนิติบุคคลอื่นไม่ปนเข้ามา (A3)', !hPoList.includes('ZZ9999X999'), hPoList.join(','));
+ok('รายการที่ยกเลิกแล้วไม่นับ (B1)', !hPoList.includes('TM5269H004'));
+ok('ใบที่ไม่ได้ระบุนิติบุคคลในสมุด ก็ไม่ขึ้นให้นิติบุคคลที่เลือกอยู่ (A3)', !hPoList.includes('TM5269H404'));
+ok('ยังไม่ได้เลือกนิติบุคคล = เอาเฉพาะเอกสารกลาง ไม่แตะสมุด (A3)',
+   poHistory({ pos: hPos, kits: hKits, entries: hEntries, shorts: hShorts }).map(r => r.po).join(',')
+   === 'TM5269H0031,TM5269H002,TM5269H001');
+// ผู้ตรวจ #82 รอบสาม: core/count.js เขียน session.id ลง doc_ref — เลขใบนับจึงโผล่เป็น "เลข PO" และได้วันที่ล่าสุด
+// ผูกกับ makeSession/postCount ตัวจริง ไม่ปั้น object เอง เพื่อให้เทสยังจับได้ถ้าวันหลัง count.js เปลี่ยนรูปแบบ id
+const cs = makeSession({ entity: 'NSE', name: 'นับปลายเดือน', person: 'สมชาย' });
+const countEntries = postCount(cs, [{ code: '2873100001', kind: 'adjust', counted: 5, book: 7, delta: -2 }], {});
+ok('เลขใบนับของไม่โผล่ในประวัติ PO',
+   countEntries.length === 1 && countEntries[0].doc_ref === cs.id
+   && poHistory({ entity: 'NSE', entries: countEntries }).length === 0,
+   poHistory({ entity: 'NSE', entries: countEntries }).map(r => r.po).join(','));
+// และต้องไม่ตัดรายการปกติทิ้งไปด้วย — ใบที่ doc_kind ว่างหรือเป็น 'po' ยังต้องอยู่
+ok('รายการที่ doc_kind ว่างหรือเป็น po ยังนับเป็นประวัติเหมือนเดิม',
+   poHistory({ entity: 'NSE', entries: [
+     { entity: 'NSE', doc_kind: 'po', doc_ref: 'TM5269H008', at: '2026-09-15T02:00:00.000Z' },
+     { entity: 'NSE', doc_ref: 'TM5269H009', at: '2026-09-15T02:00:00.000Z' },
+     ...countEntries
+   ] }).map(r => r.po).sort().join(',') === 'TM5269H008,TM5269H009');
+
+ok('ไม่มีข้อมูลเลยก็ไม่พัง', poHistory().length === 0 && poHistory({ pos: null, kits: null }).length === 0);
+ok('เลข PO ว่างไม่ถูกนับเป็นใบ', poHistory({ pos: [{ po: '   ' }, { po: null }] }).length === 0);
+// ผู้ตรวจ #82 รอบสี่: สองพฤติกรรมนี้โค้ดตั้งใจทำ แต่ย้อนโค้ดออกแล้วเทสยังเขียว — ช่องว่างของเทส
+// Kit List ใบเดียวแตกเป็นหลายบรรทัดเป็นเรื่องปกติของจริง ป้ายที่มาจึงต้องไม่ซ้ำ และวันที่ต้องเป็นวันล่าสุด
+const dupRow = poHistory({ kits: [
+  { po: 'TM-DUP-01', pn: 'PN-DUP', date: '2026-09-10', code: 'C1' },
+  { po: 'TM-DUP-01', pn: 'PN-DUP', date: '2026-09-14', code: 'C2' },
+  { po: 'TM-DUP-01', pn: 'PN-DUP', date: '2026-09-12', code: 'C3' }
+] })[0];
+ok('ใบเดียวที่มาจากที่มาเดียวกันหลายบรรทัด — ป้ายที่มาต้องไม่ซ้ำ',
+   dupRow.from.join(',') === 'Kit List', dupRow.from.join(','));
+ok('เก็บวันล่าสุดของใบนั้น ไม่ใช่วันแรกที่เจอ', dupRow.date === '2026-09-14', dupRow.date);
+
+// ผู้ตรวจ #82 ทัก: at ของสมุดเป็น UTC — slice(0,10) เอาเองทำให้ใบที่คีย์กะเช้า (เข้างานตีห้า) กลายเป็นเมื่อวาน
+// ⚠️ ต้องปักโซนเวลาไว้ที่ไทยชั่วคราว เพราะเครื่องที่รันเทสบน GitHub Actions อยู่โซน UTC พอดี
+//    ซึ่งไม่มีส่วนต่างให้เลื่อน วิธีผิดจะดูเหมือนถูกและจับอาการไม่ได้เลย (เหมือนที่ v2-export ชี้ไว้)
+const tzBefore = process.env.TZ;
+process.env.TZ = 'Asia/Bangkok';
+const dawnHist = poHistory({
+  entity: 'NSE',
+  entries: [
+    // ตีห้าของวันที่ 17 ตามเวลาไทย = 2026-09-16T22:00Z
+    { entity: 'NSE', doc_ref: 'TM5269H006', part_no: '2873100006',
+      at: atFrom('2026-09-17', new Date(2026, 8, 17, 5, 0, 0)) },
+    // เมื่อวานตอนเย็น — ใบนี้ต้องอยู่ล่างกว่า
+    { entity: 'NSE', doc_ref: 'TM5269H007', part_no: '2873100007',
+      at: atFrom('2026-09-16', new Date(2026, 8, 16, 20, 0, 0)) }
+  ]
+});
+if (tzBefore === undefined) delete process.env.TZ; else process.env.TZ = tzBefore;
+ok('ใบที่คีย์กะเช้าตีห้า ได้วันที่ตามเวลาไทย ไม่เลื่อนไปเมื่อวาน',
+   dawnHist.find(r => r.po === 'TM5269H006').date === '2026-09-17',
+   dawnHist.map(r => r.po + '=' + r.date).join(' · '));
+ok('ใบที่เพิ่งคีย์เมื่อเช้าอยู่บนสุด ไม่ถูกใบเมื่อวานเย็นแซง',
+   dawnHist.map(r => r.po).join(',') === 'TM5269H006,TM5269H007',
+   dawnHist.map(r => r.po + '=' + r.date).join(' · '));
+
+ok('พิมพ์ 4 ตัวท้าย เจอใบนั้นเป็นอันดับแรก แม้มีใบอื่นที่มีเลขชุดนี้อยู่กลางเลขและใหม่กว่า',
+   searchPos(hist, 'H003')[0].po === 'TM5269H003', searchPos(hist, 'H003').map(r => r.po).join(','));
+ok('พิมพ์เลขเต็มได้ใบนั้นตรง ๆ', searchPos(hist, 'tm5269h002')[0].po === 'TM5269H002');
+ok('พิมพ์ต้นเลขก็เจอครบทุกใบ', searchPos(hist, 'TM5269').length === 5, String(searchPos(hist, 'TM5269').length));
+ok('ค้นด้วย P/N ก็ได้', searchPos(hist, '2873100005')[0].po === 'TM5269H005');
+ok('ไม่ได้พิมพ์อะไร = ได้ทั้งหมด เรียงใบล่าสุดก่อน', searchPos(hist, '')[0].po === 'TM5269H0031');
+ok('ไม่เจอ = ว่าง ไม่ใช่ทั้งหมด', searchPos(hist, 'ZZZZ').length === 0);
+ok('จำกัดจำนวนที่แสดงได้', searchPos(hist, '', { limit: 2 }).length === 2);
+ok('รายการว่างหรือไม่ได้ส่งมา ก็ไม่พัง', searchPos([], 'x').length === 0 && searchPos(null, 'x').length === 0);
+// ผู้ตรวจ #82 ทัก: คะแนนเสมอกันแล้วตัดสินด้วยอะไร ยังไม่มีเทสล็อกไว้ ใครมาแก้ลำดับทีหลังจะไม่มีอะไรเตือน
+const tie = [{ po: 'AA-1234', date: '2026-09-10' }, { po: 'CC-1234', date: '2026-09-15' },
+             { po: 'BB-1234', date: '2026-09-15' }];
+ok('ลงท้ายเหมือนกันหลายใบ — ใบที่ใช้ล่าสุดขึ้นก่อน วันเดียวกันเรียงตามเลข',
+   searchPos(tie, '1234').map(r => r.po).join(',') === 'BB-1234,CC-1234,AA-1234',
+   searchPos(tie, '1234').map(r => r.po).join(','));
+
+// ต่อสายบนจอ — ปุ่มค้นอยู่ข้างช่อง PO ทั้งสองหน้า และเลือกแล้วต้องเดินเส้นทางเดิมของหน้านั้น
+ok('ปุ่มค้นเลข PO อยู่ทั้งหน้ารับเข้าและหน้าจ่ายออก',
+   /@click="openPoPick\('in'\)"/.test(htmlSrc) && /@click="openPoPick\('out'\)"/.test(htmlSrc));
+ok('กล่องค้นใช้ poPickResults และกดเลือกแล้วเรียก choosePo',
+   /v-for="r in poPickResults"/.test(htmlSrc) && /@click="choosePo\(r\)"/.test(htmlSrc));
+ok('เลือกใบแล้วเดินเส้นทางเดิมของแต่ละหน้า (เติม P/N · กางรายการ)',
+   bodyOf('choosePo').includes('pickPo()') && bodyOf('choosePo').includes('pickOutPo()'));
+ok('รายการเลข PO มาจาก poHistory ที่ส่งนิติบุคคลที่เลือกอยู่ไปด้วย (A3)',
+   /poHistory\(\{[\s\S]*entity: entity\.value/.test(appSrc));
+// เจ้าของเลือก 17 ก.ย. 2026 หลังผู้ตรวจ #82 ทัก
+ok('เปิดกล่องค้นแล้วเคอร์เซอร์อยู่ในช่องพิมพ์เลย ทั้งกล่องค้น PO และกล่องค้นรหัสวัตถุดิบ',
+   bodyOf('openPoPick').includes('focusSoon(poPickInput)') && bodyOf('openPick').includes('focusSoon(pickInput)')
+   && /ref="poPickInput"/.test(htmlSrc) && /ref="pickInput"/.test(htmlSrc)
+   && /\.focus\(\)/.test(appSrc));
+ok('ปุ่มค้นเลข PO ไม่กินจังหวะ Tab — กดจากช่อง PO ไป P/N ทีเดียวเหมือนเดิม',
+   (htmlSrc.match(/tabindex="-1" title="ค้นจากเลขบางส่วน"/g) || []).length === 2,
+   String((htmlSrc.match(/tabindex="-1" title="ค้นจากเลขบางส่วน"/g) || []).length));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

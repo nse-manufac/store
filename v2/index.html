@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-16.1">
+<meta name="app-version" content="2026-09-16.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -898,9 +898,13 @@ textarea{font:inherit}
       <template v-else-if="tab==='in'">
         <div class="card">
           <div class="row">
-            <label class="f" style="width:150px">เลข PO
-              <input v-model.trim="inH.po" class="mono" placeholder="เลขที่เอกสาร"
-                     @change="pickPo"></label>
+            <label class="f" style="width:186px">เลข PO
+              <div class="row" style="gap:3px;flex-wrap:nowrap">
+                <input v-model.trim="inH.po" class="mono grow" style="min-width:0" placeholder="เลขที่เอกสาร"
+                       @change="pickPo">
+                <button class="btn" style="padding:6px 9px" tabindex="-1" title="ค้นจากเลขบางส่วน"
+                        @click="openPoPick('in')">🔍</button>
+              </div></label>
             <label class="f" style="width:150px">P/N
               <input v-model.trim="inH.pn" class="mono" list="pnlist" placeholder="รหัสสินค้า"
                      @change="expandBom"></label>
@@ -978,9 +982,13 @@ textarea{font:inherit}
       <template v-else-if="tab==='out'">
         <div class="card">
           <div class="row">
-            <label class="f" style="width:170px">เลข PO
-              <input v-model.trim="outH.po" class="mono" placeholder="เลขที่เอกสาร"
-                     @change="pickOutPo"></label>
+            <label class="f" style="width:200px">เลข PO
+              <div class="row" style="gap:3px;flex-wrap:nowrap">
+                <input v-model.trim="outH.po" class="mono grow" style="min-width:0" placeholder="เลขที่เอกสาร"
+                       @change="pickOutPo">
+                <button class="btn" style="padding:6px 9px" tabindex="-1" title="ค้นจากเลขบางส่วน"
+                        @click="openPoPick('out')">🔍</button>
+              </div></label>
             <label class="f" style="width:150px">P/N
               <input v-model.trim="outH.pn" class="mono" list="pnlist" placeholder="รหัสสินค้า"
                      @change="expandOut"></label>
@@ -2150,6 +2158,32 @@ textarea{font:inherit}
             <button class="btn" @click="voidBox.row=null">ไม่ยกเลิกแล้ว</button>
             <button class="btn primary" @click="doVoid"
                     :disabled="!voidBox.reason.trim() || !voidBox.by.trim()">ยืนยันยกเลิก</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════ ค้นเลข PO (หน้ารับเข้า · หน้าจ่ายออก) ════════ -->
+      <div class="modal" v-if="poPick" @click.self="poPick=''">
+        <div class="modal-box">
+          <div class="row">
+            <input v-model.trim="poPickQ" class="grow mono" ref="poPickInput"
+                   placeholder="พิมพ์บางส่วนของเลข PO เช่น 4 ตัวท้าย">
+            <button class="btn" @click="poPick=''">ปิด</button>
+          </div>
+          <div class="scroll" style="margin-top:10px;max-height:52vh">
+            <table>
+              <thead><tr><th style="width:160px">เลข PO</th><th style="width:130px">P/N</th>
+                <th style="width:110px">วันที่</th><th>ที่มา</th></tr></thead>
+              <tbody><tr v-for="r in poPickResults" :key="r.po"
+                         style="cursor:pointer" @click="choosePo(r)">
+                <td class="mono"><b>{{ r.po }}</b></td>
+                <td class="mono">{{ r.pn }}</td>
+                <td class="mono">{{ r.date }}</td>
+                <td><span v-for="f in r.from" :key="f" class="tag">{{ f }}</span></td>
+              </tr></tbody>
+            </table>
+            <p v-if="!poPickResults.length" class="empty">
+              ไม่เจอเลข PO ที่ตรง — พิมพ์เลขเต็มลงในช่องได้เลย</p>
           </div>
         </div>
       </div>
