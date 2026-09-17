@@ -34,7 +34,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
          SHORT_TYPES } from './master/follow.js';
 
-const { createApp, ref, reactive, computed, watch } = Vue;
+const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
 
 const APP_VERSION = document.querySelector('meta[name="app-version"]').content;
 const SHOW_MAX = 300;
@@ -678,7 +678,14 @@ createApp({
     const pickQ = ref('');
     const pickResults = computed(() =>
       searchMaterials(materials.value, pickQ.value, { limit: 60 }));
-    function openPick(target) { pick.value = target; pickQ.value = target.code || ''; }
+    // เปิดกล่องแล้วเคอร์เซอร์ต้องอยู่ในช่องพิมพ์เลย (เจ้าของ 17 ก.ย. 2026)
+    // เดิมมี ref ในเทมเพลตแต่ไม่มีใครเรียก .focus() ต้องคลิกช่องอีกทีก่อนพิมพ์
+    const pickInput = ref(null);
+    const focusSoon = el => nextTick(() => { if (el.value) el.value.focus(); });
+    function openPick(target) {
+      pick.value = target; pickQ.value = target.code || '';
+      focusSoon(pickInput);
+    }
     function choosePick(m) {
       const t = pick.value;
       if (!t) return;
@@ -698,9 +705,11 @@ createApp({
     const poAll = computed(() => poHistory({
       pos: pos.value, kits: kits.value, entries: entries.value, shorts: shorts.value, entity: entity.value }));
     const poPickResults = computed(() => searchPos(poAll.value, poPickQ.value, { limit: 60 }));
+    const poPickInput = ref(null);
     function openPoPick(which) {
       poPick.value = which;
       poPickQ.value = which === 'in' ? inH.po : outH.po;
+      focusSoon(poPickInput);
     }
     function choosePo(r) {
       // เติมเลขแล้วเดินเส้นทางเดิมของแต่ละหน้า — P/N กับรายการจะกางเหมือนพนักงานพิมพ์เอง
@@ -2219,7 +2228,7 @@ createApp({
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,
              startCount, saveCount, postCountNow, printSheet,
-             pick, pickQ, pickResults, openPick, choosePick,
+             pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
              inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,

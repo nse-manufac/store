@@ -378,6 +378,14 @@ ok('เลือกใบแล้วเดินเส้นทางเดิ�
    bodyOf('choosePo').includes('pickPo()') && bodyOf('choosePo').includes('pickOutPo()'));
 ok('รายการเลข PO มาจาก poHistory ที่ส่งนิติบุคคลที่เลือกอยู่ไปด้วย (A3)',
    /poHistory\(\{[\s\S]*entity: entity\.value/.test(appSrc));
+// เจ้าของเลือก 17 ก.ย. 2026 หลังผู้ตรวจ #82 ทัก
+ok('เปิดกล่องค้นแล้วเคอร์เซอร์อยู่ในช่องพิมพ์เลย ทั้งกล่องค้น PO และกล่องค้นรหัสวัตถุดิบ',
+   bodyOf('openPoPick').includes('focusSoon(poPickInput)') && bodyOf('openPick').includes('focusSoon(pickInput)')
+   && /ref="poPickInput"/.test(htmlSrc) && /ref="pickInput"/.test(htmlSrc)
+   && /\.focus\(\)/.test(appSrc));
+ok('ปุ่มค้นเลข PO ไม่กินจังหวะ Tab — กดจากช่อง PO ไป P/N ทีเดียวเหมือนเดิม',
+   (htmlSrc.match(/tabindex="-1" title="ค้นจากเลขบางส่วน"/g) || []).length === 2,
+   String((htmlSrc.match(/tabindex="-1" title="ค้นจากเลขบางส่วน"/g) || []).length));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
