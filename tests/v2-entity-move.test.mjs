@@ -45,6 +45,19 @@ ok('ย้ายต่อเป็นทอด ๆ ได้ปลายทา�
 const loop = [{ from: 'AAA', to: 'BBB-X' }, { from: 'BBB-X', to: 'AAA' }];
 ok('กติกาที่วนกันเอง ตอบว่าไม่ต้องย้าย ไม่ใช่ค้างวนไม่จบ', movedTo('AAA', loop) === '');
 
+// วงจรที่ AAA เดินไปเจอ แต่ตัว AAA เองไม่ได้อยู่ในวง (BBB-X ↔ CCC)
+// ถ้าจำแค่จุดตั้งต้นจะจับไม่ได้ แล้วคำตอบจะแกว่งตามจำนวนกติกาในชุด
+const reach = [{ from: 'AAA', to: 'BBB-X' }, { from: 'BBB-X', to: 'CCC' }, { from: 'CCC', to: 'BBB-X' }];
+ok('วงจรที่เดินไปเจอ (ไม่ได้มีตัวเองอยู่ในวง) ต้องตอบว่าไม่ต้องย้าย',
+   movedTo('AAA', reach) === '', JSON.stringify(movedTo('AAA', reach)));
+ok('คำตอบต้องไม่ขยับเพราะมีกติกาคู่อื่นที่ไม่เกี่ยวกันเพิ่มเข้ามา',
+   movedTo('AAA', [...reach, { from: 'XXX', to: 'YYY' }]) === '' &&
+   movedTo('AAA', [...reach, { from: 'XXX', to: 'YYY' }, { from: 'PPP', to: 'QQQ' }]) === '',
+   JSON.stringify([movedTo('AAA', [...reach, { from: 'XXX', to: 'YYY' }]),
+                   movedTo('AAA', [...reach, { from: 'XXX', to: 'YYY' }, { from: 'PPP', to: 'QQQ' }])]));
+ok('กติกาคู่อื่นที่ไม่ได้อยู่ในวงจร ยังไล่สายได้ตามปกติ',
+   movedTo('XXX', [...reach, { from: 'XXX', to: 'YYY' }]) === 'YYY');
+
 console.log('\n=== C. ย้ายข้อมูล ===');
 const rows = [
   { id: 'E1', entity: 'AAA', material_code: 'MC-001', qty: 10,

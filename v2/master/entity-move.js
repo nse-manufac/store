@@ -23,20 +23,29 @@ export const normEnt = code => String(code || '').trim().toUpperCase();
 /**
  * ปลายทางสุดท้ายของรหัสนี้ — คืน '' ถ้าไม่ต้องย้าย
  * ไล่ตามสายจนสุด (NSE→TUE-H แล้วต่อมา TUE-H→TUE-A ⇒ NSE ได้ TUE-A)
- * นับรอบไว้กันวน ถึงจะกันตอนเพิ่มกติกาแล้วก็ยังกันซ้ำตรงนี้
+ * กันวนซ้ำตรงนี้ ถึงจะกันตอนเพิ่มกติกาแล้วก็ตาม
  * เพราะกติกาที่ซิงค์มาจากเครื่องอื่นไม่ได้ผ่านด่านของเครื่องนี้
+ *
+ * ⚠️ ต้องจำ "ทุกจุดที่เดินผ่าน" ไม่ใช่แค่จุดตั้งต้น — วงจรที่เดินไปเจอ
+ *    แต่ไม่มีตัวเองอยู่ในวง (A→B · B→C · C→B) ถ้าจำแค่จุดตั้งต้นจะจับไม่ได้
+ *    แล้วคำตอบจะแกว่งไปมาตามจำนวนกติกาที่ไม่เกี่ยวกันเลย
+ *    ซึ่งแปลว่าข้อมูลชุดเดิมจะถูกเขียนสลับไปมาทุกครั้งที่เปิดโปรแกรม (A3)
+ *    เจอวนเมื่อไหร่ตอบ '' (ไม่ต้องย้าย) — คำตอบที่คงที่และปลอดภัยเสมอ
  */
 export function movedTo(code, moves = []) {
-  let cur = normEnt(code);
-  if (!cur) return '';
-  const start = cur;
-  for (let i = 0; i <= (moves || []).length; i++) {
+  const start = normEnt(code);
+  if (!start) return '';
+  let cur = start;
+  const seen = new Set([start]);
+  for (;;) {
     const hit = (moves || []).find(m => m && normEnt(m.from) === cur);
     if (!hit) break;
-    cur = normEnt(hit.to);
-    if (cur === start) return '';       // วนกลับที่เดิม = ไม่ต้องย้าย
+    const next = normEnt(hit.to);
+    if (!next || seen.has(next)) return '';   // วน หรือปลายทางว่าง = ไม่ต้องย้าย
+    seen.add(next);
+    cur = next;
   }
-  return cur === normEnt(code) ? '' : cur;
+  return cur === start ? '' : cur;
 }
 
 /**
