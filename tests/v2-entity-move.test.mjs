@@ -6,6 +6,7 @@
  * ผิดแล้วยอดจะไปกองผิดโรงงานแบบที่ทุกหน้าจอดูปกติดี
  * เลขทุกตัวในไฟล์นี้สมมติขึ้นมา ไม่ใช่ของจริงจากงาน
  */
+import { readFileSync } from 'node:fs';
 import { normEnt, movedTo, addMove, applyMoves, movePreview } from '../v2/master/entity-move.js';
 
 let pass = 0, fail = 0;
@@ -113,6 +114,28 @@ ok('ไม่มีอะไรต้องย้ายก็ตอบศูน�
 console.log('\n=== E. ตัวช่วยเล็ก ๆ ===');
 ok('normEnt ตัดช่องว่างและทำเป็นตัวใหญ่', normEnt(' tue-h ') === 'TUE-H');
 ok('normEnt รับค่าว่างได้', normEnt(null) === '' && normEnt(undefined) === '');
+
+console.log('\n=== F. ต่อสายในหน้าจอ (อ่านซอร์ส) ===');
+const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+const doMoveSrc = app.slice(app.indexOf('async function doMove'),
+                            app.indexOf('async function doMove') + 2200);
+
+// ตกตารางเดียวคือยอดของนิติบุคคลเก่าค้างอยู่โดยไม่มีอะไรฟ้อง (A3)
+ok('ย้ายครบทุกตารางที่ประทับรหัสนิติบุคคลไว้ (A3)',
+   /moveLists = \(\) => \(\{ entries, shorts, counts \}\)/.test(app));
+ok('รันกติกาตอนเปิดโปรแกรม',
+   /getMeta\('entity_moves'[\s\S]{0,160}await runMoves\(\)/.test(app));
+ok('รันอีกรอบหลังดึงของจากเครื่องอื่นลงมา', /if \(down\) await runMoves\(\);/.test(app));
+ok('เก็บกติกาไว้ก่อนย้าย ไม่งั้นรอบถัดไปจะไม่มีกติกา',
+   /setMeta\('entity_moves'[\s\S]{0,160}runMoves\(\)/.test(doMoveSrc));
+ok('ตัวที่เลือกอยู่บนจอย้ายตามด้วย', /movedTo\(entity\.value/.test(app));
+ok('ปิดรหัสเดิม ไม่ใช่ลบทิ้ง (B1)',
+   /active: false/.test(doMoveSrc) && !/db\.del\(/.test(doMoveSrc));
+ok('เครื่องที่ยังเลือกรหัสที่ปิดไปแล้ว ต้องเห็นคำเตือนบนหน้าแรก',
+   /entClosed\.value \? 1 : 0/.test(app));
+ok('หน้าจอบอกจำนวนก่อนกดยืนยัน', html.includes('<b>{{ entMovePv.total }}</b>'));
+ok('หน้าจอเตือนให้ก๊อปชีตเก็บก่อนกด', html.includes('ก๊อปปี้ชีตทั้งไฟล์'));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
