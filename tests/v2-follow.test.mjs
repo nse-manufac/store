@@ -10,8 +10,10 @@
 import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
-         listFollow, openFollow, orphanFollow, sumFollow }
+         listFollow, openFollow, orphanFollow, sumFollow,
+         OVER_MIN, overAll, overPending, fromOverRow }
   from '../v2/master/follow.js';
+import { receivedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -324,6 +326,127 @@ ok('ช่องรหัสวัตถุดิบหดลงมาให้�
    /min-width:\s*0/.test(codeInput),
    codeInput || 'ไม่เจอช่องรหัสในการ์ด');
 
+
+console.log('\n=== J. ของเกินรอคืน (คิดสดจากสมุด) ===');
+/* PO หนึ่งใบสั่ง 10 ชิ้น · สูตรใช้รหัสนี้ชิ้นละ 10 ⇒ ต้องใช้ 100
+ * เลขทั้งหมดสมมติขึ้นมา ไม่ใช่ของจริงจากงาน */
+const PO = 'TM9000H001', PO2 = 'TM9000H002', C1 = 'MC-100', C2 = 'MC-200', PN = '7001';
+const recv = (o = {}) => ({ id: 'E' + Math.random().toString(36).slice(2, 8),
+  entity: 'TUE-H', kind: 'receive', material_code: C1, qty: 120, doc_ref: PO,
+  doc_kind: 'po', at: '2026-09-01T03:00:00.000Z', person: 'ก', voided: false, ...o });
+const headerOf = po => po === PO ? { pn: PN, order: 10, date: '2026-09-01' }
+                     : po === PO2 ? { pn: PN, order: 5, date: '2026-09-02' } : null;
+const usageOf = (pn, code) => (pn === PN && code === C1) ? 10 : null;
+const opt = { headerOf, usageOf };
+
+const o1 = overAll([recv()], 'TUE-H', opt);
+ok('รับ 120 สูตรต้องใช้ 100 ⇒ เกิน 20',
+   o1.length === 1 && o1[0].over === 20 && o1[0].bom_qty === 100 && o1[0].recv === 120,
+   JSON.stringify(o1[0]));
+ok('บอก P/N กับจำนวนสั่งของใบนั้นมาด้วย', o1[0].pn === PN && o1[0].order === 10);
+
+ok('รับเท่าสูตรพอดี ไม่ขึ้นเป็นของเกิน',
+   overAll([recv({ qty: 100 })], 'TUE-H', opt).length === 0);
+ok('เกินน้อยกว่าค่าเผื่อ ไม่ขึ้น',
+   overAll([recv({ qty: 100 + OVER_MIN - 0.5 })], 'TUE-H', opt).length === 0);
+ok('เกินเท่าค่าเผื่อพอดี ขึ้น',
+   overAll([recv({ qty: 100 + OVER_MIN })], 'TUE-H', opt).length === 1);
+
+// ⚠️ ข้อนี้คือหัวใจ — ไม่หักของที่คืนไปแล้ว รายการเดิมจะโผล่กลับมาแล้วมีคนคืนซ้ำ
+const back = { ...recv({ kind: 'sendback', qty: 20, id: 'B1' }) };
+ok('คืนไปแล้วต้องหักออก จนไม่เหลือของเกิน',
+   overAll([recv(), back], 'TUE-H', opt).length === 0);
+const half = overAll([recv(), { ...back, qty: 5 }], 'TUE-H', opt);
+ok('คืนไปบางส่วน เหลือเท่าที่ยังไม่ได้คืน',
+   half.length === 1 && half[0].over === 15 && half[0].sentBack === 5, JSON.stringify(half[0]));
+
+ok('รายการที่ยกเลิกแล้วไม่นับ (B1)',
+   overAll([recv(), recv({ id: 'E9', qty: 50, voided: true })], 'TUE-H', opt)[0].recv === 120);
+ok('ใบส่งคืนที่ยกเลิกแล้วก็ไม่นับ',
+   overAll([recv(), { ...back, voided: true }], 'TUE-H', opt).length === 1);
+
+ok('ของนิติบุคคลอื่นไม่ปนเข้ามา (A3)',
+   overAll([recv(), recv({ id: 'E8', entity: 'TUE-U', qty: 900 })], 'TUE-H', opt)[0].recv === 120);
+ok('คนละ PO แยกกันคนละแถว',
+   overAll([recv(), recv({ id: 'E7', doc_ref: PO2, qty: 70 })], 'TUE-H', opt).length === 2);
+ok('รับเข้าที่ไม่ได้อ้าง PO ไม่ถูกนับ',
+   overAll([recv({ doc_ref: '' })], 'TUE-H', opt).length === 0);
+ok('ชนิดอื่นในสมุดไม่ถูกนับเป็นยอดรับ',
+   overAll([recv({ kind: 'issue', qty: 900 }), recv()], 'TUE-H', opt)[0].recv === 120);
+
+throws('ลืมส่งนิติบุคคลต้องดัง ไม่ใช่คิดรวมทุกโรงงาน',
+       () => overAll([recv()], '', opt), 'A3');
+throws('ลืมส่ง usageOf ต้องดัง', () => overAll([recv()], 'TUE-H', { headerOf }), 'usageOf');
+
+/* ⚠️ คู่ที่คำนวณไม่ได้ต้องโผล่พร้อมเหตุผล ไม่ใช่เงียบหาย และไม่ใช่ "เกินทั้งก้อน" */
+const noBom = overAll([recv({ material_code: C2 })], 'TUE-H', opt);
+ok('รหัสที่ไม่มีในสูตร = คำนวณไม่ได้ ไม่ใช่เกินทั้งก้อน',
+   noBom.length === 1 && noBom[0].over === null && noBom[0].why.includes('ไม่มีรหัสนี้ในสูตร'),
+   JSON.stringify(noBom[0]));
+const noHead = overAll([recv({ doc_ref: 'TM9000H999' })], 'TUE-H', opt);
+ok('ไม่รู้ P/N ของใบนั้น = คำนวณไม่ได้', noHead.length === 1 && noHead[0].why.includes('P/N'));
+const noOrder = overAll([recv({ doc_ref: PO2 })], 'TUE-H',
+                        { headerOf: () => ({ pn: PN, order: 0 }), usageOf });
+ok('ยังไม่รู้จำนวนสั่ง = คำนวณไม่ได้ ไม่ใช่เกินทั้งก้อน',
+   noOrder.length === 1 && noOrder[0].why.includes('จำนวนสั่ง'));
+
+// ⚠️ กับดักที่ overBom ของเดิมตกไปแล้ว — byPn() คืนอ็อบเจกต์ทั้งแถว คูณแล้วได้ NaN
+const objUsage = overAll([recv()], 'TUE-H',
+                         { headerOf, usageOf: () => ({ usage: 10 }) });
+ok('ส่ง usageOf ที่คืนอ็อบเจกต์ ต้องกลายเป็นคำนวณไม่ได้ ไม่ใช่ NaN เงียบ ๆ',
+   objUsage.length === 1 && objUsage[0].over === null && !!objUsage[0].why,
+   JSON.stringify(objUsage[0]));
+
+// ยอดรับที่หน้านี้ใช้ ต้องเป็นยอดเดียวกับที่หน้ารับเข้าใช้ ไม่ใช่คนละสูตรที่ค่อย ๆ เพี้ยนจากกัน
+const bookMix = [recv(), recv({ id: 'E6', qty: 30 }), recv({ id: 'E5', qty: 9, voided: true }), back];
+ok('ยอดรับตรงกับ receivedOfDoc ของ balance.js',
+   overAll(bookMix, 'TUE-H', opt)[0].recv === receivedOfDoc(bookMix, 'TUE-H', PO).get(C1).qty);
+
+console.log('\n=== K. ตั้งเรื่องคืน ===');
+const candRow = overAll([recv()], 'TUE-H', opt)[0];
+ok('ตัดคู่ที่ตั้งเรื่องไว้แล้วออก',
+   overPending([candRow], [makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO,
+                                     part_no: PN, qty: 20 })]).length === 0);
+ok('เรื่องที่ปิดจบแล้วไม่กันไว้ ถ้าเกินอีกก็ต้องเห็นอีก',
+   overPending([candRow], [{ ...makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO,
+                                          part_no: PN, qty: 20 }), done: true }]).length === 1);
+ok('เรื่องของ PO อื่นไม่กัน',
+   overPending([candRow], [makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO2,
+                                     part_no: PN, qty: 20 })]).length === 1);
+
+const overCase = fromOverRow(candRow, { entity: 'TUE-H', person: 'ผู้ทดสอบ' });
+ok('ตั้งเรื่องแล้วได้งานตามแบบของเกิน', overCase.kind === 'over' && overCase.qty === 20);
+ok('แช่แข็งยอดสั่ง · ตามสูตร · ที่รับมา ไว้ในเรื่อง',
+   overCase.order_qty === 10 && overCase.bom_qty === 100 && overCase.recv_qty === 120, JSON.stringify(overCase));
+ok('รู้ว่ามาจากระบบคำนวณให้', overCase.source === 'auto' && overCase.created_by === 'ผู้ทดสอบ');
+throws('แถวที่คำนวณไม่ได้ ตั้งเรื่องไม่ได้', () => fromOverRow(noBom[0], { entity: 'TUE-H' }));
+throws('ตั้งเรื่องโดยไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromOverRow(candRow, {}), 'A3');
+
+// ยอดที่แช่แข็งต้องไม่ขยับตามใบที่คีย์ทีหลัง
+const later = overAll([recv(), recv({ id: 'E4', qty: 500 })], 'TUE-H', opt)[0];
+ok('คีย์รับเพิ่มทีหลัง ยอดในเรื่องที่ตั้งไปแล้วต้องไม่ขยับ',
+   overCase.recv_qty === 120 && later.recv === 620);
+
+console.log('\n=== M. ต่อสายหน้า over รอคืน (อ่านซอร์ส) ===');
+const appOver = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+const htmlOver = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+
+ok('มีแท็บ over รอคืน ในกลุ่ม Mat Follow up',
+   /\{ k: 'fover',\s+label: 'over รอคืน' \}/.test(appOver));
+ok('มีแผงรองรับจริง ไม่ใช่ปุ่มที่กดแล้วได้จอเปล่า',
+   htmlOver.includes(`tab==='fover'`));
+
+// ⚠️ กับดักเดิมของ overBom — ส่งอ็อบเจกต์ทั้งแถวเข้าไปแล้วคูณได้ NaN เงียบ ๆ
+ok('หน้าจอส่ง usageOf ที่คืนตัวเลขต่อชิ้น ไม่ใช่ byPn ทั้งแถว',
+   /const bomUsageOf = \(pn, code\) => \{[\s\S]{0,220}Number\(hit\.usage\)/.test(appOver)
+   && !/usageOf: byPn/.test(appOver));
+ok('ตัดคู่ที่ตั้งเรื่องไว้แล้วออกจากรายการที่ระบบคำนวณได้',
+   /overPending\(foCalc\.value\.filter\(r => !r\.why\), shorts\.value\)/.test(appOver));
+ok('การ์ด "คำนวณไม่ได้" มีจริง — ไม่งั้น PO พวกนั้นหายจากจอเงียบ ๆ',
+   /foBlocked/.test(appOver) && htmlOver.includes('v-if="foBlocked.length"'));
+
+ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
+   /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

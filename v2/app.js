@@ -32,7 +32,8 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
-         listFollow, openFollow, orphanFollow, sumFollow,
+         listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
+         overAll, overPending, fromOverRow,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -62,9 +63,10 @@ const GROUPS = [
     { k: 'count', label: 'นับของ' }
   ] },
   /* แท็บย่อยของ Mat Follow up จะเพิ่มทีละหน้าตามที่ทำเสร็จ
-     over รอคืน กับ ซื้อแมททดแทน ยังไม่มีแผงรองรับ ถ้าใส่ปุ่มไว้ก่อนจะกดแล้วได้จอเปล่า */
+     ซื้อแมททดแทนยังไม่มีแผงรองรับ ถ้าใส่ปุ่มไว้ก่อนจะกดแล้วได้จอเปล่า */
   { k: 'follow', label: 'Mat Follow up', tabs: [
-    { k: 'fshort', label: 'short รอส่ง' }
+    { k: 'fshort', label: 'short รอส่ง' },
+    { k: 'fover',  label: 'over รอคืน' }
   ] },
   { k: 'sys',  label: 'ระบบ', tabs: [
     { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
@@ -1764,6 +1766,62 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ── หน้า over รอคืน (Mat Follow up 6/8) ────────────────────────
+     * ของเกิน = รับมาเกินกว่าที่สูตรของ P/N ใบนั้นต้องใช้ ต้องส่งคืน Delta
+     * สามการ์ดแยกกันโดยตั้งใจ — ที่ระบบคำนวณได้ · เรื่องที่ตั้งไว้แล้ว · คำนวณไม่ได้
+     *
+     * ⚠️ การ์ดที่สามขาดไม่ได้ · PO ที่ไม่มีสูตรหรือยังไม่รู้จำนวนสั่ง คำนวณยอดเกินไม่ได้
+     *    ไม่โชว์ไว้ มันจะหายจากจอโดยไม่มีใครรู้ว่าตกหล่น */
+    const unitOf = code =>
+      (materials.value.find(m => normCode(m.material_code) === normCode(code)) || {}).unit || '';
+    const foSearch = ref('');
+    const foShowDone = ref(false);
+
+    /** ยอดต่อชิ้นจากสูตร — ⚠️ ต้องคืน "ตัวเลข" ไม่ใช่อ็อบเจกต์ทั้งแถว
+     *  ส่ง byPn() ของ bom.js เข้าไปแล้วจะคูณได้ NaN เงียบ ๆ (บั๊กเดิมของ overBom) */
+    const bomUsageOf = (pn, code) => {
+      const hit = activeBomRowsOf(bom.value, pn)
+        .find(r => normCode(r.code) === normCode(code));
+      return hit ? Number(hit.usage) || 0 : null;
+    };
+
+    const foCalc = computed(() => {
+      if (!entity.value) return [];
+      try {
+        return overAll(entries.value, entity.value,
+                       { headerOf: po => poHeader(pos.value, po), usageOf: bomUsageOf });
+      } catch (err) { console.error(err); return []; }
+    });
+    /** ที่ยังไม่มีใครตั้งเรื่อง — ตัดคู่ที่ตั้งไว้แล้วออก ไม่งั้นขึ้นซ้ำสองการ์ด */
+    const foNew = computed(() =>
+      overPending(foCalc.value.filter(r => !r.why), shorts.value));
+    const foBlocked = computed(() => foCalc.value.filter(r => r.why));
+
+    const foAll = computed(() => listFollow(shorts.value, {
+      kind: 'over', entity: entity.value, q: foSearch.value, showDone: foShowDone.value
+    }));
+    const foRows = computed(() => foAll.value.slice(0, SHOW_MAX));
+    const foOpen = computed(() => openFollow(shorts.value, { kind: 'over', entity: entity.value }));
+
+    async function foStart(row) {
+      try {
+        const rec = fromOverRow(row, { entity: entity.value, person: fsBy.value,
+                                       unit: unitOf(row.code) });
+        await fsPut(rec);
+        flash(`ตั้งเรื่องคืน ${rec.po} · ${rec.code} จำนวน ${rec.qty} แล้ว`);
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) */
+    async function foVoid(row) {
+      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
+      if (!why || !why.trim()) return;
+      try {
+        await fsPut(voidFollow(plain(row), { by: fsBy.value || 'ไม่ระบุ', reason: why.trim() }));
+        flash('ยกเลิกเรื่องแล้ว — ยังอยู่ในระบบให้ตรวจย้อนหลังได้');
+      } catch (err) { flash(err.message, true); }
+    }
+
     /* ── คีย์เรื่องใหม่เอง ──────────────────────────────────────────
      * ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L ของไฟล์ PO
      * เรื่องที่ Delta แจ้งทางโทรศัพท์หรือทาง LINE จึงไม่มีที่ให้ลง */
@@ -2368,6 +2426,8 @@ createApp({
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
+      foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
+      foStart, foVoid,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
