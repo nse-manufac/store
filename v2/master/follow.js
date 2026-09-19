@@ -204,12 +204,16 @@ export function voidFollow(row, { by, reason } = {}) {
  *    ผู้เรียกใช้การเทียบตัวตน (!==) ตัดสินว่าจะเขียนลงฐานข้อมูลไหม
  *    ถ้าคืนอ็อบเจกต์ใหม่ทุกครั้ง ทุกแถวจะติดธง dirty แล้วถูกส่งขึ้นเซิร์ฟเวอร์ใหม่ทุกครั้งที่เปิดโปรแกรม
  *
- * ⚠️ entity เติมให้เฉพาะเมื่อ "รู้จริง" คือไฟล์ PO บอกมาเอง (from === 'po')
- *    ห้ามใช้ค่าที่เดาจากรหัส PO หรือค่าที่เลือกค้างอยู่บนจอ
- *    ความผิดพลาดของ A3 เงียบเสมอ — เดาผิดแล้วแถวจะหายไปจากนิติบุคคลที่เป็นเจ้าของ
- *    และไปโผล่ในที่ที่ไม่ใช่ โดยไม่มีอะไรบอก · ว่างแล้วเห็น ดีกว่าผิดแล้วไม่เห็น
+ * ⚠️ entity เติมให้เฉพาะเมื่อ "รู้จริง" คือเลขที่ PO บอกได้ และรหัสนั้นมีในทะเบียน
+ *    (from === 'guess') · ห้ามใช้ค่าที่เลือกค้างอยู่บนจอ
+ *    และห้ามใช้รหัสที่ยังไม่มีในทะเบียน เพราะไม่มีใครเลือกรหัสนั้นได้
+ *    เติมไปแล้วแถวจะหายจากทุกจอ ส่วนแถวที่ว่างยังขึ้นให้ทุกนิติบุคคลเห็น
+ *
+ *    เดิมเติมจากคอลัมน์ผู้รับเหมาในไฟล์ PO — เลิกใช้แล้ว เจ้าของยืนยัน 19 ก.ย. 2026
+ *    ว่า Delta กรอกมาไม่ตรงเป็นบางใบ · ความผิดพลาดของ A3 เงียบเสมอ
+ *    เติมผิดแล้วแถวจะหายไปจากนิติบุคคลที่เป็นเจ้าของ โดยไม่มีอะไรบอก
  */
-export function migrateFollow(row, { poList = [], now } = {}) {
+export function migrateFollow(row, { known = null, now } = {}) {
   if (!row || typeof row !== 'object') return row;
   const patch = {};
 
@@ -228,8 +232,9 @@ export function migrateFollow(row, { poList = [], now } = {}) {
   if (!txt(row.updated_at)) patch.updated_at = stamp;
 
   if (!txt(row.entity)) {
-    const got = resolveEntity(row.po, { poList });
-    if (got.from === 'po' && got.code) patch.entity = got.code;
+    // ไม่ส่งทะเบียนมา = ไม่รู้ว่ารหัสไหนเลือกได้ = ไม่เติม (known || [] ทำให้ทุกรหัสเป็น unregistered)
+    const got = resolveEntity(row.po, { known: known || [] });
+    if (got.from === 'guess' && got.code) patch.entity = got.code;
   }
 
   return Object.keys(patch).length ? { ...row, ...patch } : row;

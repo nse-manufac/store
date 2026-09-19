@@ -115,47 +115,54 @@ const legacy = () => ({
   type: 'ขาด', qty: 5, unit: 'PCE', eta: '2026-08-05',
   note: 'ข้อความจากไฟล์ PO', done: false
 });
+// เลขที่ PO อ่านได้เป็น TUE-A ส่วนคอลัมน์ผู้รับเหมาในไฟล์เขียน tue-u — สองแหล่งขัดกัน
+// เจ้าของสั่ง 19 ก.ย. 2026 ให้เชื่อเลขที่ PO และเลิกดูคอลัมน์นั้นทั้งระบบ
 const poList = [{ po: 'TMU001A', sub: 'tue-u', date: '2026-08-01' }];
+const known = ['TUE-A', 'TUE-H'];
 
-const m1 = migrateFollow(legacy(), { poList, now: NOW });
+const m1 = migrateFollow(legacy(), { known, poList, now: NOW });
 ok('แถวเดิมที่ไม่มี kind ถือเป็นของขาด', m1.kind === 'short');
 ok('แถวเดิมถือว่ามาจากไฟล์ PO', m1.source === 'file');
 ok('เติมยอดที่ปิดแล้วเป็นศูนย์', m1.done_qty === 0);
 ok('เติมเวลาสร้างจากวันที่ที่ไฟล์บอกไว้',
    m1.created_at === '2026-08-01T00:00:00.000Z' && m1.updated_at === '2026-08-01T00:00:00.000Z');
-ok('เติมนิติบุคคลจากคอลัมน์ที่ไฟล์ PO พกมาเอง และทำเป็นตัวใหญ่',
-   m1.entity === 'TUE-U', m1.entity);
+ok('เติมนิติบุคคลจากเลขที่ PO ไม่ใช่จากคอลัมน์ผู้รับเหมาในไฟล์',
+   m1.entity === 'TUE-A', m1.entity);
 ok('ไม่แต่งชื่อคนสร้างขึ้นมาเอง', !m1.created_by);
 ok('ของเดิมไม่ถูกแตะ', m1.note === 'ข้อความจากไฟล์ PO' && m1.qty === 5 && m1.eta === '2026-08-05');
 
-/* ⚠️ ข้อนี้คือหัวใจของหมวดนี้ — เดาไม่ได้ต้องปล่อยว่าง
- *    resolveEntity เดาจากรหัส PO ได้ (from === 'guess') แต่ห้ามเอามาใช้
- *    เพราะถ้าเดาผิด แถวจะหายไปจากนิติบุคคลที่เป็นเจ้าของแบบเงียบ ๆ */
-const noSub = migrateFollow(legacy(), { poList: [{ po: 'TMU001A', sub: '' }], now: NOW });
-ok('ไฟล์ PO ไม่ได้บอกหน่วยมา ต้องปล่อย entity ว่าง ไม่ใช่เดาจากรหัส PO — A3',
-   !noSub.entity, JSON.stringify(noSub.entity));
-const noPo = migrateFollow(legacy(), { poList: [], now: NOW });
-ok('ไม่มีไฟล์ PO ให้เทียบเลย ก็ต้องปล่อยว่าง — A3', !noPo.entity, JSON.stringify(noPo.entity));
+/* ⚠️ ข้อนี้คือหัวใจของหมวดนี้ — ไม่รู้จริงต้องปล่อยว่าง
+ *    เติมผิดแล้วแถวจะหายไปจากนิติบุคคลที่เป็นเจ้าของแบบเงียบ ๆ
+ *    ส่วนแถวที่ว่างยังขึ้นให้ทุกนิติบุคคลเห็น แล้วมีคนมาเลือกให้ได้ */
+const offReg = migrateFollow(legacy(), { known: ['TUE-H'], now: NOW });
+ok('เลขบอกเป็นรหัสที่ยังไม่มีในทะเบียน ต้องปล่อยว่าง — ไม่มีใครเลือกรหัสนั้นได้ (A3)',
+   !offReg.entity, JSON.stringify(offReg.entity));
+const noKnown = migrateFollow(legacy(), { now: NOW });
+ok('ไม่ส่งทะเบียนมา ต้องปล่อยว่าง ไม่ใช่เติมมั่ว — A3', !noKnown.entity, JSON.stringify(noKnown.entity));
+const badPo = migrateFollow({ ...legacy(), po: 'XX-1' }, { known, now: NOW });
+ok('เลขที่ PO อ่านไม่ออก ต้องปล่อยว่าง — A3', !badPo.entity, JSON.stringify(badPo.entity));
+const lyingSub = migrateFollow(legacy(), { known: ['TUE-A', 'TUE-U'], now: NOW });
+ok('คอลัมน์ผู้รับเหมาเขียนเป็นอีกรหัสก็ไม่มีผล', lyingSub.entity === 'TUE-A', lyingSub.entity);
 
-const m2 = migrateFollow(m1, { poList, now: NOW });
+const m2 = migrateFollow(m1, { known, now: NOW });
 ok('ย้ายซ้ำได้ผลเดิม และคืนแถวเดิมทั้งตัว (ไม่ติดธง dirty ฟรี ๆ)', m2 === m1);
 const already = makeFollow(base());
-ok('แถวที่ครบแล้วต้องคืนตัวเดิม', migrateFollow(already, { poList, now: NOW }) === already);
+ok('แถวที่ครบแล้วต้องคืนตัวเดิม', migrateFollow(already, { known, now: NOW }) === already);
 
-const ticked = migrateFollow({ ...legacy(), done: true }, { poList, now: NOW });
+const ticked = migrateFollow({ ...legacy(), done: true }, { known, now: NOW });
 ok('แถวที่ติ๊กไว้แล้ว ต้องไม่ถูกเปิดกลับ', ticked.done === true);
 ok('แถวที่ติ๊กไว้แล้ว ยอดที่ปิดต้องเท่ากับยอดของมัน', ticked.done_qty === 5, String(ticked.done_qty));
 ok('แถวที่ติ๊กไว้แล้วอ่านสถานะได้ว่าเสร็จ', statusOf(ticked) === 'done');
 
-const keepEntity = migrateFollow({ ...legacy(), entity: 'TUE-H' }, { poList, now: NOW });
+const keepEntity = migrateFollow({ ...legacy(), entity: 'TUE-H' }, { known, now: NOW });
 ok('แถวที่มี entity อยู่แล้ว ห้ามถูกทับด้วยค่าจากไฟล์ PO', keepEntity.entity === 'TUE-H');
 
-const noDate = migrateFollow({ ...legacy(), date: '' }, { poList, now: NOW });
+const noDate = migrateFollow({ ...legacy(), date: '' }, { known, now: NOW });
 ok('แถวที่ไม่มีวันที่ ใช้เวลาปัจจุบันแทน ไม่ปล่อยว่าง', noDate.created_at === NOW);
 ok('ย้ายของที่ไม่ใช่อ็อบเจกต์ต้องไม่พัง',
    migrateFollow(null) === null && migrateFollow(undefined) === undefined);
 
-const many = migrateAll([legacy(), already, { ...legacy(), id: 'S3' }], { poList, now: NOW });
+const many = migrateAll([legacy(), already, { ...legacy(), id: 'S3' }], { known, now: NOW });
 ok('ซ่อมทั้งกองแล้วคืนครบทุกแถว', many.rows.length === 3);
 ok('บอกเฉพาะแถวที่เปลี่ยนจริง ให้เอาไปเขียนลงฐานข้อมูล',
    many.changed.length === 2, String(many.changed.length));

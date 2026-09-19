@@ -131,13 +131,13 @@ createApp({
 
         /* ซ่อมแถวงานตามที่เกิดก่อนโครงใหม่ — เติม kind / source / เวลา / นิติบุคคล
          *
-         * ⚠️ ต้องอยู่หลัง pos.value เพราะการเติมนิติบุคคลอ่านจากคอลัมน์ที่ไฟล์ PO พกมา
+         * ⚠️ ต้องอยู่หลัง entities.value เพราะเติมนิติบุคคลได้เฉพาะรหัสที่มีในทะเบียน
          *
          * ⚠️ รันทุกครั้งที่เปิดโปรแกรม ไม่ใช่ครั้งเดียวแล้วปักธงไว้
          *    เพราะแถวที่ดึงมาทีหลังจากเครื่องที่ยังใช้รุ่นเก่าก็ต้องซ่อมด้วย
          *    migrateAll คืนแถวเดิมทั้งตัวเมื่อไม่มีอะไรต้องเติม จึงเขียนลงฐานข้อมูล
          *    เฉพาะแถวที่เปลี่ยนจริง ไม่ติดธง dirty ให้ทั้งกองฟรี ๆ ทุกครั้งที่บูต */
-        const fixed = migrateAll(shorts.value, { poList: pos.value });
+        const fixed = migrateAll(shorts.value, { known: entCodes.value });
         if (fixed.changed.length) {
           shorts.value = fixed.rows;
           await db.put('shorts', fixed.changed);
@@ -1477,8 +1477,8 @@ createApp({
       l.poFound = l.po ? !!hit : null;
       // นิติบุคคลรายบรรทัด — เอกสารใบเดียวมีของสองโรงงานปนกันได้
       // เก็บที่มาไว้ด้วย เพื่อให้หน้าจอบอกได้ว่าค่าไหนเดามา ค่าไหนมาจากไฟล์ของ Delta
-      const r = resolveEntity(l.po, { forced: wkH.entity, poList: pos.value,
-                                      current: entity.value });
+      const r = resolveEntity(l.po, { forced: wkH.entity, current: entity.value,
+                                      known: entCodes.value });
       l.entity = r.code;
       l.entityFrom = r.from;
       if (!hit) return;
@@ -1651,9 +1651,9 @@ createApp({
           await db.put('pos', p.plan.fresh.map(plain));
           pos.value.push(...p.plan.fresh);
           if (p.freshShorts.length) {
-            // ซ่อมด้วยตัวเดียวกับตอนบูต · ต้องอยู่หลัง pos.value.push ข้างบน
-            // ไม่งั้นแถวของ PO ที่เพิ่งนำเข้าจะหานิติบุคคลของตัวเองไม่เจอ
-            const rows = migrateAll(p.freshShorts, { poList: pos.value }).rows;
+            // ซ่อมด้วยตัวเดียวกับตอนบูต — นิติบุคคลอ่านจากเลขที่ PO ของแถวเอง
+            // เติมได้เฉพาะรหัสที่มีในทะเบียน ที่เหลือปล่อยว่างให้คนมาเลือก
+            const rows = migrateAll(p.freshShorts, { known: entCodes.value }).rows;
             await db.put('shorts', rows.map(plain));
             shorts.value.push(...rows);
           }
