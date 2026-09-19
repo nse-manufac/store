@@ -15,7 +15,7 @@ import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
-import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds } from './core/ledger.js';
+import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5 } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
@@ -33,7 +33,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
-         overAll, overPending, fromOverRow,
+         overAll, overPending, fromOverRow, sendbackEntry, shortOfPo,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -1812,6 +1812,59 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ── กล่องคืนของ ────────────────────────────────────────────────
+     * ⚠️ ต้องเป็นกล่อง ไม่ใช่ปุ่มติ๊กเดียวจบ · ปุ่มนี้ตัดสต็อกจริงและพิมพ์ลง Bin Card
+     *    คนกดต้องเห็นยอดหลังคืน เหตุผล และคำเตือนก่อน ไม่ใช่รู้ตอนยอดหายไปแล้ว */
+    const rb = reactive({ row: null, qty: null, reason: 'over', lot: '',
+                          person: '', note: '', busy: false });
+
+    function askReturn(row) {
+      rb.row = row; rb.qty = remainOf(row); rb.reason = 'over';
+      rb.lot = ''; rb.note = ''; rb.person = fsBy.value || '';
+    }
+    const rbLots = computed(() =>
+      rb.row && entity.value ? lotsOf(entries.value, entity.value, normCode(rb.row.code)) : []);
+    const rbBook = computed(() =>
+      rb.row && entity.value ? (bookBalances.value.get(normCode(rb.row.code)) || 0) : 0);
+    const rbAfter = computed(() =>
+      round5(rbBook.value - (Number(rb.qty) || 0)));
+
+    /** PO ใบนี้ยังรับมาไม่ครบตามสูตรอีกกี่รหัส — คืนได้ แต่ต้องเตือนก่อน (INVARIANTS A4)
+     *  คิดจากของวันนี้ ไม่ใช่ค่าที่แช่แข็งไว้ตอนตั้งเรื่อง เพราะคำเตือนต้องพูดถึงสภาพตอนกด */
+    const rbShort = computed(() => {
+      if (!rb.row || !entity.value) return [];
+      return shortOfPo(entries.value, entity.value, rb.row.po, {
+        headerOf: po => poHeader(pos.value, po),
+        bomRowsOf: pn => activeBomRowsOf(bom.value, pn)
+      });
+    });
+    const rbReasons = REASONS.sendback;
+    const rbReady = computed(() => !!(rb.row && Number(rb.qty) > 0 && rb.person.trim()
+      && rb.reason && (rb.reason !== 'other' || rb.note.trim())));
+
+    async function doReturn() {
+      if (!rb.row || rb.busy) return;
+      rb.busy = true;
+      try {
+        const e = sendbackEntry(plain(rb.row), {
+          qty: Number(rb.qty), person: rb.person.trim(), device: device.value,
+          reason_code: rb.reason, lot: rb.lot, note: rb.note.trim()
+        });
+        if (rbAfter.value < 0 &&
+            !confirm(`ยอดคงคลังจะติดลบเป็น ${rbAfter.value}\nยืนยันบันทึกไหม`)) { rb.busy = false; return; }
+        await db.put('entries', e);
+        entries.value.push(e);
+        db.announce('entries');
+        // ปิดเรื่องตามยอดที่คืนจริง แล้วผูกเลขที่รายการในสมุดไว้ให้ไล่ย้อนได้
+        const rec = closeFollow(plain(rb.row), { qty: Number(rb.qty), by: rb.person.trim() });
+        rec.return_entry_id = e.id;
+        await fsPut(rec);
+        flash(`คืน ${rb.row.code} จำนวน ${rb.qty} ให้ Delta แล้ว · ตัดสต็อกเรียบร้อย`);
+        rb.row = null;
+      } catch (err) { flash(err.message, true); }
+      finally { rb.busy = false; }
+    }
+
     /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) */
     async function foVoid(row) {
       const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
@@ -2427,7 +2480,7 @@ createApp({
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
-      foStart, foVoid,
+      foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbShort, rbReady, rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };

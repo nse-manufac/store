@@ -11,9 +11,10 @@ import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
-         OVER_MIN, overAll, overPending, fromOverRow }
+         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
+import { signedQty, KINDS } from '../v2/core/ledger.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -402,7 +403,7 @@ const bookMix = [recv(), recv({ id: 'E6', qty: 30 }), recv({ id: 'E5', qty: 9, v
 ok('ยอดรับตรงกับ receivedOfDoc ของ balance.js',
    overAll(bookMix, 'TUE-H', opt)[0].recv === receivedOfDoc(bookMix, 'TUE-H', PO).get(C1).qty);
 
-console.log('\n=== K. ตั้งเรื่องคืน ===');
+console.log('\n=== K. ตั้งเรื่องคืน · ใบส่งคืน Delta ===');
 const candRow = overAll([recv()], 'TUE-H', opt)[0];
 ok('ตัดคู่ที่ตั้งเรื่องไว้แล้วออก',
    overPending([candRow], [makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO,
@@ -427,6 +428,70 @@ const later = overAll([recv(), recv({ id: 'E4', qty: 500 })], 'TUE-H', opt)[0];
 ok('คีย์รับเพิ่มทีหลัง ยอดในเรื่องที่ตั้งไปแล้วต้องไม่ขยับ',
    overCase.recv_qty === 120 && later.recv === 620);
 
+const sb = sendbackEntry(overCase, { qty: 20, person: 'ผู้ทดสอบ', device: 'test',
+                                 reason_code: 'over', at: '2026-09-05T03:00:00.000Z' });
+ok('ใบส่งคืนเป็นชนิด sendback', sb.kind === 'sendback' && sb.qty === 20);
+ok('ใบส่งคืนต้องพกเลข PO ไปด้วย ไม่งั้นหักกับใบเดิมไม่ได้',
+   sb.doc_ref === PO && sb.doc_kind === 'po');
+ok('ใบส่งคืนตัดสต็อกจริง (sign = -1)', signedQty(sb) === -20, String(signedQty(sb)));
+ok('ติดรหัสวัตถุดิบกับ P/N ไปด้วย', sb.material_code === C1 && sb.part_no === PN);
+throws('คืนเกินยอดที่ค้างอยู่ไม่ได้', () => sendbackEntry(overCase, { qty: 21, person: 'ก',
+                                                                 reason_code: 'over' }), 'ไม่เกิน');
+throws('คืนจำนวนศูนย์ไม่ได้', () => sendbackEntry(overCase, { qty: 0, person: 'ก', reason_code: 'over' }));
+throws('ต้องเลือกเหตุผล', () => sendbackEntry(overCase, { qty: 1, person: 'ก' }), 'เหตุผล');
+throws('เลือกอื่น ๆ แล้วต้องเขียนอธิบาย',
+       () => sendbackEntry(overCase, { qty: 1, person: 'ก', reason_code: 'other' }), 'อธิบาย');
+throws('เรื่องของขาดเอามาคืนไม่ได้',
+       () => sendbackEntry(makeFollow({ kind: 'short', entity: 'TUE-H', code: C1, po: PO,
+                                        type: 'ขาด', qty: 1 }), { qty: 1, person: 'ก',
+                                        reason_code: 'over' }), 'ของเกิน');
+throws('เรื่องที่ยกเลิกแล้วคืนไม่ได้',
+       () => sendbackEntry({ ...overCase, voided: true }, { qty: 1, person: 'ก',
+                                                        reason_code: 'over' }), 'ยกเลิก');
+ok('ล็อตไม่บังคับ — ของเกินคิดต่อ PO ล็อตมักไม่รู้ (A4)', KINDS.sendback.lot === false);
+
+// คืนแล้วต้องหายไปจากรายการที่ระบบคำนวณได้ทันที
+ok('บันทึกใบส่งคืนแล้ว ของเกินก้อนนั้นหายไปจากจอ',
+   overAll([recv(), sb], 'TUE-H', opt).length === 0);
+
+console.log('\n=== L. ใบนี้ยังรับมาไม่ครบอีกกี่รหัส (คำเตือนก่อนกดคืน) ===');
+/* ⚠️ เตือนอย่างเดียว ห้ามบล็อก (A4) — แต่ต้องเตือน เพราะ "รหัสหนึ่งเกินทั้งที่อีกรหัสยังไม่มา"
+ *    เป็นอาการของการคีย์รับเข้าผิดใบได้พอ ๆ กับเป็นเรื่องปกติ */
+const bomRowsOf = pn => pn === PN ? [{ code: C1, usage: 10 }, { code: C2, usage: 2 }] : [];
+const sOpt = { headerOf, bomRowsOf };
+
+const sh1 = shortOfPo([recv()], 'TUE-H', PO, sOpt);
+ok('รหัสที่ยังไม่ได้รับเลย ขึ้นว่าขาดเต็มจำนวน',
+   sh1.length === 1 && sh1[0].code === C2 && sh1[0].miss === 20 && sh1[0].have === 0,
+   JSON.stringify(sh1));
+ok('รหัสที่รับเกินแล้วไม่ขึ้นในรายการขาด', !sh1.some(x => x.code === C1));
+
+ok('รับครบทุกรหัสแล้วไม่เตือนอะไร',
+   shortOfPo([recv(), recv({ id: 'X1', material_code: C2, qty: 20 })], 'TUE-H', PO, sOpt).length === 0);
+const sh2 = shortOfPo([recv(), recv({ id: 'X2', material_code: C2, qty: 5 })], 'TUE-H', PO, sOpt);
+ok('รับมาบางส่วน บอกว่าขาดอีกเท่าไหร่', sh2[0].miss === 15 && sh2[0].have === 5);
+
+ok('ใบส่งคืนไม่ทำให้กลายเป็นรับไม่ครบ',
+   shortOfPo([recv(), recv({ id: 'X3', material_code: C2, qty: 20 }),
+              { ...back, material_code: C2, qty: 20 }], 'TUE-H', PO, sOpt).length === 0);
+ok('รายการที่ยกเลิกแล้วไม่นับเป็นของที่รับมา',
+   shortOfPo([recv(), recv({ id: 'X4', material_code: C2, qty: 20, voided: true })],
+             'TUE-H', PO, sOpt)[0].miss === 20);
+ok('ของนิติบุคคลอื่นไม่นับ (A3)',
+   shortOfPo([recv(), recv({ id: 'X5', material_code: C2, qty: 20, entity: 'TUE-U' })],
+             'TUE-H', PO, sOpt)[0].miss === 20);
+ok('ของ PO อื่นไม่นับ',
+   shortOfPo([recv(), recv({ id: 'X6', material_code: C2, qty: 20, doc_ref: PO2 })],
+             'TUE-H', PO, sOpt)[0].miss === 20);
+
+ok('ไม่รู้จำนวนสั่ง = ไม่มีอะไรให้เทียบ ตอบว่าง ไม่ใช่เตือนมั่ว',
+   shortOfPo([recv()], 'TUE-H', PO, { headerOf: () => ({ pn: PN, order: 0 }), bomRowsOf }).length === 0);
+ok('ไม่รู้จัก PO ใบนี้ ตอบว่าง', shortOfPo([recv()], 'TUE-H', 'TM9000H777', sOpt).length === 0);
+ok('ไม่มีสูตรของ P/N นั้น ตอบว่าง',
+   shortOfPo([recv()], 'TUE-H', PO, { headerOf, bomRowsOf: () => [] }).length === 0);
+throws('ลืมส่งนิติบุคคลต้องดัง', () => shortOfPo([recv()], '', PO, sOpt), 'A3');
+throws('ลืมส่งสูตรต้องดัง', () => shortOfPo([recv()], 'TUE-H', PO, { headerOf }), 'bomRowsOf');
+
 console.log('\n=== M. ต่อสายหน้า over รอคืน (อ่านซอร์ส) ===');
 const appOver = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
 const htmlOver = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
@@ -445,6 +510,19 @@ ok('ตัดคู่ที่ตั้งเรื่องไว้แล้�
 ok('การ์ด "คำนวณไม่ได้" มีจริง — ไม่งั้น PO พวกนั้นหายจากจอเงียบ ๆ',
    /foBlocked/.test(appOver) && htmlOver.includes('v-if="foBlocked.length"'));
 
+// ปุ่มนี้ตัดของจริงออกจากคลัง ห้ามเป็นปุ่มติ๊กเดียวจบ
+ok('ปุ่มคืนเปิดกล่องให้ยืนยันก่อน ไม่ใช่ตัดสต็อกทันที',
+   /@click="askReturn\(r\.s\)"/.test(htmlOver) && /v-if="rb\.row"/.test(htmlOver));
+ok('กล่องคืนของให้เลือกล็อตจากของที่มีจริง และไม่ใช้ datalist (issue #26)',
+   /rbLots/.test(htmlOver) && /@click="rb\.lot = l\.lot"/.test(htmlOver)
+   && !/id="rblots"/.test(htmlOver));
+ok('กล่องคืนของบอกยอดหลังคืน และย้อมแดงเมื่อติดลบ',
+   /rbAfter/.test(htmlOver) && /rbAfter < 0/.test(htmlOver));
+ok('เตือนเมื่อใบนั้นยังรับมาไม่ครบ แต่ยังกดต่อได้ (A4)',
+   /v-if="rbShort\.length"/.test(htmlOver)
+   && /:disabled="!rbReady \|\| rb\.busy"/.test(htmlOver));
+ok('บันทึกลงสมุดก่อน แล้วค่อยปิดเรื่อง และผูกเลขที่รายการไว้ให้ไล่ย้อนได้',
+   /db\.put\('entries', e\)[\s\S]{0,400}return_entry_id = e\.id/.test(appOver));
 ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
    /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
 
