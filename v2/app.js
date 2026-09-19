@@ -29,7 +29,7 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
-         unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
+         unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -709,7 +709,8 @@ createApp({
     const poPick = ref('');            // 'in' | 'out' | '' (ปิดอยู่)
     const poPickQ = ref('');
     const poAll = computed(() => poHistory({
-      pos: pos.value, kits: kits.value, entries: entries.value, shorts: shorts.value, entity: entity.value }));
+      pos: pos.value, kits: kits.value, entries: entries.value, shorts: shorts.value,
+      entity: entity.value, known: entCodes.value }));
     const poPickResults = computed(() => searchPos(poAll.value, poPickQ.value, { limit: 60 }));
     const poPickInput = ref(null);
     function openPoPick(which) {
@@ -1672,14 +1673,32 @@ createApp({
       openFollow(shorts.value, { kind: 'short', entity: entity.value }));
     const poToday = computed(() => {
       const d = todayLocal();
-      return pos.value.filter(p => p.date === d);
+      return posVisible.value.filter(p => p.date === d);
     });
     /* รายการ PO บนหน้าข้อมูลตั้งต้น — เจ้าของ 17 ก.ย. 2026
      * เดิมเรียงวันที่ใหม่ก่อนแล้วตัดเหลือ 40 แถว และไม่มีช่องค้น
      * พอ PO เข้ามาวันละหลายสิบใบ ของเมื่อวานก็หลุดจอ และหาย้อนหลังในหน้านี้ไม่ได้เลย
      * ใช้ searchPos ตัวเดียวกับกล่องค้นเลข PO — พิมพ์ 4 ตัวท้ายก็เจอ · ไม่พิมพ์อะไร = ครบทุกใบ เรียงวันที่ใหม่ก่อน */
     const poQ = ref('');
-    const poRows = computed(() => searchPos(pos.value, poQ.value, { limit: Infinity }));
+
+    /* แยกรายการ PO ตามนิติบุคคล (เจ้าของ 17 ก.ย. 2026)
+     * เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจาก **รูปแบบเลขที่ PO อย่างเดียว**
+     * ⚠️ ไม่ดูคอลัมน์ผู้รับเหมาในไฟล์ (ช่อง sub) เจ้าของยืนยัน 19 ก.ย. 2026 ว่ากรอกมาไม่ตรงเป็นบางใบ
+     * ใบของนิติบุคคลอื่นถูกซ่อน แต่บอกจำนวนไว้ใต้ตาราง ไม่ให้หายเงียบ ๆ
+     * ใบที่ตัดสินไม่ได้ หรือเป็นของรหัสที่ยังไม่มีในทะเบียน ขึ้นทุกนิติบุคคลพร้อมป้ายเตือน */
+    const poOwnerOfRow = p => poOwnerOf(p && p.po, { known: entCodes.value });
+    const posVisible = computed(() => pos.value.filter(p => poVisibleTo(poOwnerOfRow(p), entity.value)));
+    const poHidden = computed(() => pos.value.length - posVisible.value.length);
+    const poUnknownOwner = computed(() => posVisible.value.filter(p => poOwnerOfRow(p).from === 'unknown').length);
+    const poOffRegistry = computed(() =>
+      [...new Set(posVisible.value.filter(p => poOwnerOfRow(p).from === 'unregistered')
+                                  .map(p => poOwnerOfRow(p).code))].sort());
+
+    const ownerOfPoNo = po => poOwnerOf(po, { known: entCodes.value });
+    /** บรรทัด Kit List ของนิติบุคคลที่เลือกอยู่ — ตัวนับบนหัวการ์ดต้องนับชุดเดียวกับที่ตารางแสดง */
+    const kitsVisible = computed(() => kits.value.filter(k => poVisibleTo(ownerOfPoNo(k.po), entity.value)));
+
+    const poRows = computed(() => searchPos(posVisible.value, poQ.value, { limit: Infinity }));
 
     /** จำนวนบรรทัด Kit List (22-H) ต่อ PO — นับรอบเดียวเก็บเป็น Map
      *  ⚠️ ห้ามให้เทมเพลตไล่ kits ทั้งตารางในทุกแถว — ตารางนี้แสดงครบทุกใบแล้ว ไม่ได้ตัดที่ 40 เหมือนเดิม
@@ -1798,11 +1817,13 @@ createApp({
     // พนักงานเปิดมาแล้วต้องรู้ทันทีว่าวันนี้เหลืออะไรที่ยังไม่ได้ทำ
     const homeToday = computed(() => todayLocal());
 
+    // นับเฉพาะใบของนิติบุคคลที่เลือกอยู่ — ไม่งั้นหน้าแรกบอกว่า "นำเข้าไฟล์ PO แล้ว" ทั้งที่ยังไม่มีใบของนิติบุคคลนี้เลย
     const homePoToday = computed(() =>
-      pos.value.filter(p => p.date === homeToday.value));
+      posVisible.value.filter(p => p.date === homeToday.value));
 
     const homeKitToday = computed(() =>
-      kits.value.some(k => k.src !== 'chem' && k.date === homeToday.value));
+      kits.value.some(k => k.src !== 'chem' && k.date === homeToday.value
+        && poVisibleTo(ownerOfPoNo(k.po), entity.value)));
 
     /** PO ของวันนี้ที่คีย์รับเข้าไปแล้วอย่างน้อยหนึ่งบรรทัด */
     const homePoKeyed = computed(() => {
@@ -2365,6 +2386,7 @@ createApp({
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
+             posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
