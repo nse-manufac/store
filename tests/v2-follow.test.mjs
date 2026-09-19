@@ -422,6 +422,16 @@ ok('รู้ว่ามาจากระบบคำนวณให้', over
 throws('แถวที่คำนวณไม่ได้ ตั้งเรื่องไม่ได้', () => fromOverRow(noBom[0], { entity: 'TUE-H' }));
 throws('ตั้งเรื่องโดยไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromOverRow(candRow, {}), 'A3');
 
+// ⚠️ เวลาไทยเร็วกว่า UTC 7 ชม. — กดตั้งเรื่องก่อนเจ็ดโมงเช้าแล้วปล่อยให้ makeFollow
+//    สไลซ์วันที่จาก toISOString() เอง จะได้ "ตั้งวันที่" เป็นเมื่อวาน (กับดักเดิมของผู้ตรวจ #68)
+const dawnAt = '2026-09-19T23:00:00.000Z';   // = 06:00 น. ของวันที่ 20 ก.ย. ตามเวลาไทย
+ok('ตั้งเรื่องก่อนเจ็ดโมงเช้า ต้องได้วันที่ตามเวลาไทย ไม่ใช่ UTC',
+   fromOverRow(candRow, { entity: 'TUE-H', person: 'ผู้ทดสอบ',
+                          at: dawnAt, date: '2026-09-20' }).date === '2026-09-20',
+   fromOverRow(candRow, { entity: 'TUE-H', at: dawnAt, date: '2026-09-20' }).date);
+ok('เวลาที่บันทึกยังเป็น ISO เต็มตามเดิม (D5)',
+   fromOverRow(candRow, { entity: 'TUE-H', at: dawnAt, date: '2026-09-20' }).created_at === dawnAt);
+
 // ยอดที่แช่แข็งต้องไม่ขยับตามใบที่คีย์ทีหลัง
 const later = overAll([recv(), recv({ id: 'E4', qty: 500 })], 'TUE-H', opt)[0];
 ok('คีย์รับเพิ่มทีหลัง ยอดในเรื่องที่ตั้งไปแล้วต้องไม่ขยับ',
@@ -444,6 +454,9 @@ ok('ตัดคู่ที่ตั้งเรื่องไว้แล้�
    /overPending\(foCalc\.value\.filter\(r => !r\.why\), shorts\.value\)/.test(appOver));
 ok('การ์ด "คำนวณไม่ได้" มีจริง — ไม่งั้น PO พวกนั้นหายจากจอเงียบ ๆ',
    /foBlocked/.test(appOver) && htmlOver.includes('v-if="foBlocked.length"'));
+
+ok('foStart ส่งวันที่ตามเวลาไทยเข้าไปเอง ไม่ปล่อยให้เป็น UTC',
+   /fromOverRow\(row, \{[\s\S]{0,160}date: todayLocal\(\)/.test(appOver));
 
 ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
    /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));

@@ -1805,8 +1805,9 @@ createApp({
 
     async function foStart(row) {
       try {
+        // date: todayLocal() — ตามกฎเดียวกับ fuSave() ข้างล่าง (ผู้ตรวจ #68)
         const rec = fromOverRow(row, { entity: entity.value, person: fsBy.value,
-                                       unit: unitOf(row.code) });
+                                       unit: unitOf(row.code), date: todayLocal() });
         await fsPut(rec);
         flash(`ตั้งเรื่องคืน ${rec.po} · ${rec.code} จำนวน ${rec.qty} แล้ว`);
       } catch (err) { flash(err.message, true); }

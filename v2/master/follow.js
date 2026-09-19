@@ -419,7 +419,7 @@ export function overPending(rows, follows) {
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้
  *    ใบรับเข้าที่คีย์ทีหลังจะทำให้ยอดของเรื่องที่ตั้งไปแล้วขยับเองถ้าไม่แช่แข็ง
  */
-export function fromOverRow(row, { entity, person = '', at = '', unit = '' } = {}) {
+export function fromOverRow(row, { entity, person = '', at = '', unit = '', date = '' } = {}) {
   if (!row) throw new Error('ไม่มีแถวให้ตั้งเรื่อง');
   if (row.why) throw new Error('แถวนี้คำนวณยอดเกินไม่ได้: ' + row.why);
   return makeFollow({
@@ -427,6 +427,8 @@ export function fromOverRow(row, { entity, person = '', at = '', unit = '' } = {
     code: row.code, po: row.po, part_no: row.pn, unit,
     qty: row.over,
     order_qty: row.order, bom_qty: row.bom_qty, recv_qty: row.recv,
-    by: person, now: at
+    // ⚠️ คนเรียกต้องส่ง date ตามเวลาไทยมาเอง — ค่าตั้งต้นของ makeFollow สไลซ์จาก
+    //    toISOString() ซึ่งเป็น UTC ช่วงตีศูนย์ถึงเจ็ดโมงเช้าจะได้ "ตั้งวันที่" เป็นเมื่อวาน
+    by: person, now: at, date
   });
 }
