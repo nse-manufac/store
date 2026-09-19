@@ -15,7 +15,7 @@
  * ไม่เขียนลงฐานข้อมูลเอง ไม่แตะหน้าจอ คืนอ็อบเจกต์ให้ผู้เรียกไปบันทึก
  * แบบเดียวกับ core/count.js — เพื่อให้เทสด้วย node ล้วนได้โดยไม่ต้องมีเบราว์เซอร์
  */
-import { round5 } from '../core/ledger.js';
+import { round5, makeEntry } from '../core/ledger.js';
 import { resolveEntity } from './entities.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
@@ -415,6 +415,45 @@ export function overPending(rows, follows) {
 }
 
 /**
+ * PO ใบนี้ยังรับมาไม่ครบตามสูตรอีกกี่รหัส — คิดสดจากของวันนี้ ไม่ใช่ค่าที่แช่แข็งไว้
+ *
+ * ⚠️ ใช้เตือนก่อนกดคืน ไม่ใช่ใช้บล็อก (INVARIANTS A4)
+ *    รหัสหนึ่งเกินในขณะที่อีกรหัสของใบเดียวกันยังมาไม่ครบ เกิดขึ้นจริงได้
+ *    แต่ก็เป็นอาการของ "คีย์รับเข้าผิดใบ" ได้เหมือนกัน คนกดควรได้เห็นก่อนตัดของจริงออกจากคลัง
+ *
+ * bomRowsOf(pn) ต้องคืนบรรทัดสูตรที่ยังใช้อยู่ [{ code, usage }]
+ */
+export function shortOfPo(entries, entity, po, { headerOf, bomRowsOf } = {}) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  if (typeof headerOf !== 'function' || typeof bomRowsOf !== 'function') {
+    throw new Error('ต้องส่ง headerOf และ bomRowsOf เข้ามา');
+  }
+  const key = txt(po);
+  if (!key) return [];
+  const head = headerOf(key);
+  const order = head ? Number(head.order) || 0 : 0;
+  if (!head || !txt(head.pn) || !order) return [];
+
+  const got = new Map();
+  for (const e of entries || []) {
+    if (!e || e.entity !== entity || e.voided || e.kind !== 'receive') continue;
+    if (txt(e.doc_ref) !== key) continue;
+    const c = txt(e.material_code).toUpperCase();
+    got.set(c, round5((got.get(c) || 0) + (Number(e.qty) || 0)));
+  }
+
+  const out = [];
+  for (const b of bomRowsOf(head.pn) || []) {
+    const need = round5((Number(b && b.usage) || 0) * order);
+    if (need <= 0) continue;
+    const have = got.get(txt(b.code).toUpperCase()) || 0;
+    const miss = round5(need - have);
+    if (miss > 0) out.push({ code: txt(b.code), need, have: round5(have), miss });
+  }
+  return out;
+}
+
+/**
  * ตั้งเรื่องคืนจากแถวที่ระบบคำนวณได้
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้
  *    ใบรับเข้าที่คีย์ทีหลังจะทำให้ยอดของเรื่องที่ตั้งไปแล้วขยับเองถ้าไม่แช่แข็ง
@@ -430,5 +469,28 @@ export function fromOverRow(row, { entity, person = '', at = '', unit = '', date
     // ⚠️ คนเรียกต้องส่ง date ตามเวลาไทยมาเอง — ค่าตั้งต้นของ makeFollow สไลซ์จาก
     //    toISOString() ซึ่งเป็น UTC ช่วงตีศูนย์ถึงเจ็ดโมงเช้าจะได้ "ตั้งวันที่" เป็นเมื่อวาน
     by: person, now: at, date
+  });
+}
+
+/**
+ * ใบส่งคืน Delta หนึ่งรายการ — คืน makeEntry ให้ผู้เรียกไปบันทึก ไม่เขียนเอง
+ *
+ * ⚠️ ต้องพกเลข PO ไปด้วย (doc_ref) ของเกินนิยามต่อใบ
+ *    ไม่พกไปแล้วยอดที่คืนจะหักกับใบไหนไม่ได้ และ overAll จะเห็นของเกินก้อนเดิมอีกรอบ
+ */
+export function sendbackEntry(row, { qty, person, device = '', at = '',
+                                     reason_code = '', lot = '', note = '' } = {}) {
+  if (!row) throw new Error('ไม่มีเรื่องให้คืน');
+  if (row.kind !== 'over') throw new Error('คืนของได้เฉพาะเรื่องของเกิน');
+  if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
+  const n = Number(qty);
+  if (!isFinite(n) || n <= 0) throw new Error('จำนวนที่คืนต้องมากกว่าศูนย์');
+  if (round5(n) > remainOf(row)) {
+    throw new Error(`คืนได้ไม่เกินยอดที่ค้างอยู่ (${remainOf(row)})`);
+  }
+  return makeEntry({
+    kind: 'sendback', entity: row.entity, material_code: row.code,
+    qty: n, lot, doc_kind: 'po', doc_ref: row.po, part_no: row.part_no,
+    person, device, at, reason_code, note
   });
 }
