@@ -101,6 +101,8 @@ export function parsePoFile(aoa) {
       pos.push({
         id: 'P' + curDate + '-' + po,
         date: curDate,
+        // เก็บไว้เป็นข้อมูลดิบให้คนอ่าน — ⚠️ ห้ามเอาไปตัดสินนิติบุคคล (เจ้าของ 19 ก.ย. 2026)
+        // Delta กรอกมาไม่ตรงเป็นบางใบ · นิติบุคคลอ่านจากเลขที่ PO เท่านั้น (entities.js poOwnerOf)
         sub: String(row[1] || '').trim(),
         pn: row[2] != null ? String(Math.round(Number(row[2]) || 0)) : '',
         po,

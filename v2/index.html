@@ -1506,9 +1506,11 @@ textarea{font:inherit}
                   <td><span v-if="l.entity" class="tag"
                             :class="l.entity !== entity ? 'warn' : 'ok'"
                             :title="l.entityFrom === 'forced' ? 'บังคับทั้งใบ'
-                                  : l.entityFrom === 'po' ? 'จากรายการ PO'
-                                  : l.entityFrom === 'guess' ? 'เดาจากเลข PO' : 'ตัวที่เลือกอยู่'">
-                      {{ l.entity }}<span v-if="l.entityFrom === 'guess'">*</span></span>
+                                  : l.entityFrom === 'guess' ? 'อ่านจากเลขที่ PO'
+                                  : l.entityFrom === 'unregistered' ? 'อ่านจากเลขที่ PO แต่รหัสนี้ยังไม่มีในทะเบียน'
+                                  : 'ตัวที่เลือกอยู่'">
+                      {{ l.entity }}<span v-if="l.entityFrom === 'guess'">*</span><span
+                        v-else-if="l.entityFrom === 'unregistered'">⚠</span></span>
                     <span v-else class="hint">—</span></td>
                   <td><input v-model.trim="l.pn" class="mono" style="width:106px" list="pnlist"></td>
                   <td><input v-model.number="l.orderQty" type="number" step="any" class="mono" style="width:76px"></td>
