@@ -2369,10 +2369,21 @@ textarea{font:inherit}
                 <option v-for="r in rbReasons" :key="r.code" :value="r.code">{{ r.label }}</option>
               </select></label>
             <label class="f" style="width:150px">ล็อต (ไม่บังคับ)
-              <input v-model.trim="rb.lot" class="mono" list="rblots" placeholder="ถ้ารู้"></label>
-            <datalist id="rblots">
-              <option v-for="l in rbLots" :key="l.lot" :value="l.lot">คงเหลือ {{ l.qty }}</option>
-            </datalist>
+              <input v-model.trim="rb.lot" class="mono" placeholder="ถ้ารู้"></label>
+          </div>
+
+          <!-- เลือกจากล็อตที่มีของจริง — แบบเดียวกับการ์ด "ล็อตที่ยังมีของ" ของหน้าของเสีย · คืน · ปรับยอด
+               ⚠️ ไม่ใช้ <datalist> · v1 เคยใช้แล้วแยกของที่ซ้ำกันไม่ออก (issue #26) -->
+          <div class="scroll" style="max-height:15vh;margin-top:8px" v-if="rbLots.length">
+            <table>
+              <thead><tr><th style="width:170px">ล็อตที่ยังมีของ</th>
+                <th style="width:100px">คงเหลือ</th><th style="width:70px"></th></tr></thead>
+              <tbody><tr v-for="l in rbLots" :key="l.lot">
+                <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต)' }}</td>
+                <td class="mono">{{ l.qty }}</td>
+                <td><button class="btn" style="padding:2px 9px" @click="rb.lot = l.lot">เลือก</button></td>
+              </tr></tbody>
+            </table>
           </div>
 
           <div class="row" style="margin-top:8px">

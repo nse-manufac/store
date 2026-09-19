@@ -513,6 +513,9 @@ ok('การ์ด "คำนวณไม่ได้" มีจริง — �
 // ปุ่มนี้ตัดของจริงออกจากคลัง ห้ามเป็นปุ่มติ๊กเดียวจบ
 ok('ปุ่มคืนเปิดกล่องให้ยืนยันก่อน ไม่ใช่ตัดสต็อกทันที',
    /@click="askReturn\(r\.s\)"/.test(htmlOver) && /v-if="rb\.row"/.test(htmlOver));
+ok('กล่องคืนของให้เลือกล็อตจากของที่มีจริง และไม่ใช้ datalist (issue #26)',
+   /rbLots/.test(htmlOver) && /@click="rb\.lot = l\.lot"/.test(htmlOver)
+   && !/id="rblots"/.test(htmlOver));
 ok('กล่องคืนของบอกยอดหลังคืน และย้อมแดงเมื่อติดลบ',
    /rbAfter/.test(htmlOver) && /rbAfter < 0/.test(htmlOver));
 ok('เตือนเมื่อใบนั้นยังรับมาไม่ครบ แต่ยังกดต่อได้ (A4)',
