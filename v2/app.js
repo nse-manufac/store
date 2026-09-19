@@ -30,6 +30,7 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
+import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
          SHORT_TYPES } from './master/follow.js';
@@ -147,6 +148,11 @@ createApp({
           entity.value = DEFAULT_ENTITY;
           await db.setMeta('entity', DEFAULT_ENTITY);
         }
+        /* กติกาย้ายนิติบุคคล — รันทุกครั้งที่เปิดโปรแกรมเหมือน migrateAll ข้างบน
+         * เครื่องที่ปิดอยู่ตอนย้ายจะส่งแถวรหัสเดิมตามขึ้นมาอีกหลายวันให้หลัง
+         * ต้องอยู่หลังการอ่าน entity เพราะตัวที่เลือกอยู่ก็ต้องถูกย้ายตามด้วย */
+        entMoves.value = await db.getMeta('entity_moves', []) || [];
+        await runMoves();
         store.value = await db.getMeta('store', '') || '';
         const cfg = await db.getMeta('sync', null);
         if (cfg) {
@@ -1346,6 +1352,95 @@ createApp({
     /** สร้างจากรหัสที่โผล่ในข้อมูลแล้ว — พิมพ์ซ้ำไม่มีประโยชน์ */
     const addMissingEnt = code => startEnt({ entity_code: code, active: true });
 
+    /* ── ย้ายข้อมูลข้ามนิติบุคคล ──────────────────────────────────────
+     * ทะเบียนใช้รหัสเป็นกุญแจ แก้รหัสจึงเป็นการสร้างตัวใหม่ ไม่ใช่เปลี่ยนชื่อ
+     * (ช่องรหัสตอนแก้ถูกปิดไว้ด้วยเหตุผลนี้) การย้ายจริงคือเขียนช่องนิติบุคคล
+     * ของทุกแถวใหม่ ตรรกะอยู่ใน master/entity-move.js ที่นี่มีแค่การต่อสาย */
+    const entMoves = ref([]);
+    const entMoveOpen = ref(false);
+    const entMove = reactive({ from: '', to: '' });
+
+    /**
+     * ⚠️ ตารางที่ประทับรหัสนิติบุคคลไว้บนตัวแถว — ตกตารางเดียวคือยอดแยกกันเงียบ ๆ (A3)
+     * เขียนเป็นฟังก์ชัน เพราะ shorts ถูกประกาศทีหลังส่วนนี้ — อ่านตอนตั้งตัวแปรจะพังทั้งหน้า
+     */
+    const moveLists = () => ({ entries, shorts, counts });
+    const MOVE_LABEL = { entries: 'สมุด', shorts: 'งานตามวัตถุดิบ', counts: 'รอบนับ' };
+
+    /** รหัสที่มีข้อมูลอยู่จริง — ย้ายจากรหัสที่ไม่มีอะไรเลยไม่มีความหมาย */
+    const entMoveFroms = computed(() => {
+      const used = new Set();
+      for (const l of Object.values(moveLists())) for (const r of l.value) if (r.entity) used.add(r.entity);
+      return [...used].sort();
+    });
+
+    /** นับให้ดูก่อนกดยืนยัน — ไม่ใช่กดแล้วค่อยรู้ว่าไปกี่รายการ */
+    const entMovePv = computed(() => {
+      const per = {}, store = {};
+      if (!entMove.from || !entMove.to) return { err: '', total: 0, per, moves: null };
+      try {
+        const moves = addMove(entMoves.value, { from: entMove.from, to: entMove.to });
+        for (const [t, l] of Object.entries(moveLists())) store[t] = l.value;
+        return { ...movePreview(store, moves), moves, err: '' };
+      } catch (e) { return { err: e.message, total: 0, per, moves: null }; }
+    });
+
+    /** นิติบุคคลที่เลือกอยู่ถูกปิดไปแล้ว — เครื่องอื่นรู้เรื่องการย้ายทางนี้ */
+    const entClosed = computed(() =>
+      entities.value.some(e => e.entity_code === entity.value && e.active === false));
+
+    /**
+     * ใช้กติกากับข้อมูลในเครื่อง — เรียกซ้ำได้ เขียนเฉพาะแถวที่เปลี่ยนจริง
+     * ⚠️ counts ไม่ได้อยู่ใน TABLES จึงไม่ต้องติดธงรอส่ง
+     */
+    async function runMoves() {
+      if (!entMoves.value.length) return 0;
+      const now = new Date().toISOString();
+      let n = 0;
+      for (const [t, list] of Object.entries(moveLists())) {
+        const r = applyMoves(list.value, entMoves.value, { now, dirty: t !== 'counts' });
+        if (!r.changed.length) continue;
+        list.value = r.rows;
+        await db.put(t, r.changed.map(plain));
+        db.announce(t);
+        n += r.changed.length;
+      }
+      // ตัวที่เลือกอยู่บนจอต้องย้ายตามด้วย ไม่งั้นเครื่องนี้จะคีย์เข้ารหัสที่ปิดไปแล้ว
+      const dest = movedTo(entity.value, entMoves.value);
+      if (dest) { entity.value = dest; await db.setMeta('entity', dest); }
+      return n;
+    }
+
+    async function doMove() {
+      const pv = entMovePv.value;
+      if (!pv.moves) { flash(pv.err || 'เลือกต้นทางกับปลายทางก่อน', true); return; }
+      const from = normEnt(entMove.from), to = normEnt(entMove.to);
+      if (!entities.value.some(e => e.entity_code === to)) {
+        flash(`ยังไม่มี ${to} ในทะเบียน — เพิ่มก่อนแล้วค่อยย้าย`, true); return;
+      }
+      const detail = Object.entries(pv.per).filter(([, n]) => n)
+        .map(([t, n]) => `${MOVE_LABEL[t] || t} ${n}`).join(' · ') || 'ยังไม่มีแถวไหนเข้าเงื่อนไข';
+      if (!confirm([`จะย้ายข้อมูลของ ${from} ไปเป็นของ ${to} ทั้งหมด`,
+                    `${pv.total} รายการ — ${detail}`,
+                    '', 'ไม่มีอะไรถูกลบ เลขที่รายการและวันที่สร้างเดิมไม่เปลี่ยน',
+                    'แต่แถวบนชีตจะถูกเขียนทับด้วยกุญแจเดิม',
+                    'ก๊อปปี้ชีตเก็บไว้แล้วหรือยัง', '', 'ทำต่อไหม'].join('\n'))) return;
+      entMoves.value = pv.moves;
+      await db.setMeta('entity_moves', plain(pv.moves));
+      const n = await runMoves();
+      // ปิดรหัสเดิมไม่ให้เลือก ไม่ใช่ลบ — ชีตไม่มีกลไกลบแถว และประวัติต้องอยู่ (B1)
+      // ช่อง active ซิงค์อยู่แล้ว เครื่องอื่นจึงรู้ว่ารหัสนี้เลิกใช้แล้วโดยไม่ต้องแก้ฝั่งเซิร์ฟเวอร์
+      const old = entities.value.find(e => e.entity_code === from);
+      if (old && old.active !== false) {
+        const rec = { ...old, active: false, updated_at: new Date().toISOString(), dirty: true };
+        await db.put('entities', plain(rec));
+        entities.value.splice(entities.value.indexOf(old), 1, rec);
+        db.announce('entities');
+      }
+      entMove.from = ''; entMove.to = ''; entMoveOpen.value = false;
+      flash(`ย้าย ${n} รายการจาก ${from} ไป ${to} แล้ว — กดซิงค์เพื่อส่งขึ้น`);
+    }
+
     // ── รับเข้ารวมรายสัปดาห์ ───────────────────────────────────────
     // Tube · Chemical · Copper foil · Solder — Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ
     // กฎทั้งหมดอยู่ใน master/weekly.js ที่นี่มีแค่การต่อสายเข้าหน้าจอ
@@ -1757,6 +1852,7 @@ createApp({
       { n: oddRows.value.length, label: 'รายการที่ควรไปดู', tab: 'bal', bad: true },
       { n: needReview.value, label: 'รหัสรอตรวจในทะเบียน', tab: 'mat', bad: false },
       { n: bomUnknownCodes.value.length, label: 'รหัสใน BOM ที่ยังไม่มีในทะเบียน', tab: 'bom', bad: false },
+      { n: entClosed.value ? 1 : 0, label: `นิติบุคคล ${entity.value} ถูกปิดใช้งานแล้ว — เลือกตัวใหม่ที่หัวจอ`, tab: 'sync', bad: true },
       { n: pending.value.total, label: 'รายการที่ยังไม่ได้ซิงค์', tab: 'sync', bad: false }
     ].filter(x => x.n > 0));
 
@@ -1969,6 +2065,8 @@ createApp({
           sync.since[t] = d.serverTime;
           down += m.changed;
         }
+        // แถวที่เพิ่งดึงลงมาอาจมาจากเครื่องที่ยังไม่รู้เรื่องการย้าย ต้องย้ายให้ด้วย
+        if (down) await runMoves();
         sync.lastOkAt = new Date().toISOString();
         sync.state = 'ok';
         sync.msg = `ส่งขึ้น ${up} · รับมา ${down}`;
@@ -2262,6 +2360,7 @@ createApp({
              shareLink, copyShareLink, fromLink, linkCopied,
              entities, entEdit, entCodes, entInfo, entMissing, entCounts,
              switchEntity, startEnt, saveEnt, addMissingEnt,
+             entMoves, entMoveOpen, entMove, entMoveFroms, entMovePv, entClosed, MOVE_LABEL, doMove,
              wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-17.1">
+<meta name="app-version" content="2026-09-19.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1936,6 +1936,54 @@ textarea{font:inherit}
               <button class="btn" @click="entEdit=null">ยกเลิก</button>
               <button class="btn primary" @click="saveEnt"
                       :disabled="!entEdit.entity_code">บันทึก</button>
+            </div>
+          </div>
+
+          <!-- ย้ายข้อมูลข้ามนิติบุคคล — ช่องรหัสข้างบนแก้ไม่ได้เพราะรหัสคือกุญแจของทะเบียน -->
+          <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
+            <div class="row">
+              <span class="hint">คีย์ไว้ผิดนิติบุคคล? ย้ายข้อมูลทั้งก้อนไปนิติบุคคลอื่นได้ — ไม่มีอะไรถูกลบ</span>
+              <div class="grow"></div>
+              <button class="btn" @click="entMoveOpen = !entMoveOpen">
+                {{ entMoveOpen ? 'ปิด' : 'ย้ายข้อมูลข้ามนิติบุคคล' }}</button>
+            </div>
+
+            <div v-if="entMoveOpen" style="margin-top:10px">
+              <div class="row">
+                <label class="f" style="width:150px">ย้ายจาก
+                  <select v-model="entMove.from" class="mono">
+                    <option value="">—</option>
+                    <option v-for="c in entMoveFroms" :key="c" :value="c">{{ c }}</option>
+                  </select></label>
+                <label class="f" style="width:150px">ไปเป็น
+                  <select v-model="entMove.to" class="mono">
+                    <option value="">—</option>
+                    <option v-for="c in entCodes" :key="c" :value="c">{{ c }}</option>
+                  </select></label>
+                <div class="grow"></div>
+                <button class="btn primary" @click="doMove"
+                        :disabled="!entMovePv.moves || !entMovePv.total">ย้ายเลย</button>
+              </div>
+
+              <div class="msg bad" v-if="entMovePv.err" style="margin:10px 0 0">{{ entMovePv.err }}</div>
+              <p v-else-if="entMovePv.moves" class="hint" style="margin:10px 0 0">
+                จะย้าย <b>{{ entMovePv.total }}</b> รายการ —
+                <span v-for="(n, t) in entMovePv.per" :key="t" class="mono" style="margin-right:8px">
+                  {{ MOVE_LABEL[t] || t }} {{ n }}</span>
+              </p>
+
+              <div class="msg warn" style="margin:10px 0 0">
+                <b>ก๊อปปี้ชีตทั้งไฟล์เก็บไว้หนึ่งชุดก่อนกด</b> — แถวบนชีตจะถูกเขียนทับด้วยกุญแจเดิม<br>
+                <span class="hint">เลขที่รายการและวันที่สร้างไม่เปลี่ยน · ไม่มีแถวไหนถูกลบ ·
+                  รหัสเดิมจะถูกปิดไม่ให้เลือก แต่ยังอยู่ในทะเบียน ·
+                  ของที่เครื่องอื่นส่งตามมาทีหลัง จะถูกย้ายให้เองทุกครั้งที่เปิดโปรแกรมเครื่องนี้</span>
+              </div>
+
+              <p v-if="entMoves.length" class="hint" style="margin:8px 0 0">
+                กติกาที่ตั้งไว้แล้ว —
+                <span v-for="m in entMoves" :key="m.from" class="mono" style="margin-right:8px">
+                  {{ m.from }} → {{ m.to }}</span>
+              </p>
             </div>
           </div>
         </div>
