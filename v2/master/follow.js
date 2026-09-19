@@ -322,3 +322,113 @@ export function migrateAll(rows, opts = {}) {
   }
   return { rows: out, changed };
 }
+
+/* ══════════ ของเกินรอคืน (Mat Follow up 6/8) ══════════ */
+
+/**
+ * ค่าเผื่อ — ต่ำกว่านี้ไม่นับว่าเกิน (เจ้าของเคาะไว้ตอนออกแบบ)
+ * ⚠️ ค่าเดียวใช้ทุกหมวด · ถ้าวันหนึ่งเคมี (กก.) กับเทป (ชิ้น) ต้องใช้คนละเกณฑ์
+ *    แก้ที่นี่ที่เดียวให้เป็นรายหมวด อย่าไปกระจายเกณฑ์ไว้ตามหน้าจอ
+ */
+export const OVER_MIN = 1;
+
+const pairKey = (po, code) => txt(po) + '|' + txt(code).toUpperCase();
+
+/**
+ * ของเกินของนิติบุคคลนี้ — คิดสดจากสมุด ไม่เก็บ
+ *
+ *   เกิน = รับเข้าตามใบนี้ − ส่งคืน Delta ตามใบนี้ − (ต่อชิ้น × จำนวนสั่งของใบนี้)
+ *
+ * ⚠️ ต้องหักยอดที่คืนไปแล้ว ไม่งั้นรายการเดิมโผล่กลับมาทุกครั้งที่เปิดจอ
+ *    แล้วจะมีคนกดคืนซ้ำ — ซึ่งตัดสต็อกจริงรอบที่สอง
+ *
+ * ⚠️ usageOf ต้องคืน "ตัวเลขต่อชิ้น" ตรง ๆ (หรือ null ถ้าไม่มีในสูตร)
+ *    ห้ามส่ง byPn() ของ bom.js เข้ามา — ตัวนั้นคืนอ็อบเจกต์ทั้งแถว คูณแล้วได้ NaN เงียบ ๆ
+ *    (บั๊กเดียวกับที่ overBom ของเดิมมี ดู balance.js)
+ *
+ * ⚠️ คู่ที่คำนวณไม่ได้ต้องคืนออกมาด้วย พร้อมเหตุผลใน why
+ *    ถ้าเงียบไปเลย PO พวกนั้นจะหายจากจอโดยไม่มีใครรู้ว่าตกหล่น
+ *
+ * คืน [{ po, pn, code, recv, sentBack, bom_qty, over, order, why }] เรียงตาม PO แล้วรหัส
+ */
+export function overAll(entries, entity, { headerOf, usageOf, min = OVER_MIN } = {}) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  if (typeof headerOf !== 'function') throw new Error('ต้องส่ง headerOf เข้ามา');
+  if (typeof usageOf !== 'function') throw new Error('ต้องส่ง usageOf เข้ามา');
+
+  /* เดินสมุดรอบเดียวแล้วเก็บเป็น Map — ถ้าเรียก movedOfDoc ทีละใบ
+   * จะเดินสมุดทั้งเล่มซ้ำทุก PO และหน้านี้คิดใหม่ทุกครั้งที่จอรีเฟรช
+   * เงื่อนไขการนับต้องตรงกับ movedOfDoc ของ balance.js เป๊ะ (มีเทสยืนยันไว้) */
+  const recvOf = new Map(), backOf = new Map();
+  for (const e of entries || []) {
+    if (!e || e.entity !== entity || e.voided) continue;
+    if (e.kind !== 'receive' && e.kind !== 'sendback') continue;
+    const po = txt(e.doc_ref);
+    if (!po) continue;
+    const k = pairKey(po, e.material_code);
+    const box = e.kind === 'receive' ? recvOf : backOf;
+    box.set(k, round5((box.get(k) || 0) + (Number(e.qty) || 0)));
+  }
+
+  const out = [];
+  for (const [k, recv] of recvOf) {
+    const [po, code] = k.split('|');
+    const sentBack = backOf.get(k) || 0;
+    const head = headerOf(po);
+    const pn = head ? txt(head.pn) : '';
+    const order = head ? Number(head.order) || 0 : 0;
+    const row = { po, pn, code, recv: round5(recv), sentBack: round5(sentBack),
+                  bom_qty: null, over: null, order, why: '' };
+
+    if (!head || !pn) { row.why = 'ยังไม่รู้ P/N ของใบนี้'; out.push(row); continue; }
+    if (!order)       { row.why = 'ยังไม่รู้จำนวนสั่งของใบนี้'; out.push(row); continue; }
+
+    const usage = usageOf(pn, code);
+    if (usage == null || !isFinite(Number(usage))) {
+      row.why = 'ไม่มีรหัสนี้ในสูตรของ ' + pn;
+      out.push(row); continue;
+    }
+
+    row.bom_qty = round5(Number(usage) * order);
+    row.over = round5(recv - sentBack - row.bom_qty);
+    if (row.over >= min) out.push(row);
+  }
+
+  out.sort((a, b) => String(a.po).localeCompare(String(b.po))
+                  || String(a.code).localeCompare(String(b.code)));
+  return out;
+}
+
+/**
+ * ตัดคู่ PO+รหัสที่ตั้งเรื่องคืนไว้แล้วออก
+ * ไม่ตัด รายการเดิมจะขึ้นพร้อมกันทั้งการ์ด "ที่ระบบคำนวณได้" และ "เรื่องที่ตั้งไว้แล้ว"
+ * แล้วคนจะตั้งเรื่องซ้ำใบเดิมโดยไม่รู้ตัว
+ */
+export function overPending(rows, follows) {
+  const busy = new Set();
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'over') continue;
+    const st = statusOf(f);
+    if (st === 'open' || st === 'partial') busy.add(pairKey(f.po, f.code));
+  }
+  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)));
+}
+
+/**
+ * ตั้งเรื่องคืนจากแถวที่ระบบคำนวณได้
+ * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้
+ *    ใบรับเข้าที่คีย์ทีหลังจะทำให้ยอดของเรื่องที่ตั้งไปแล้วขยับเองถ้าไม่แช่แข็ง
+ */
+export function fromOverRow(row, { entity, person = '', at = '', unit = '', date = '' } = {}) {
+  if (!row) throw new Error('ไม่มีแถวให้ตั้งเรื่อง');
+  if (row.why) throw new Error('แถวนี้คำนวณยอดเกินไม่ได้: ' + row.why);
+  return makeFollow({
+    kind: 'over', entity, source: 'auto',
+    code: row.code, po: row.po, part_no: row.pn, unit,
+    qty: row.over,
+    order_qty: row.order, bom_qty: row.bom_qty, recv_qty: row.recv,
+    // ⚠️ คนเรียกต้องส่ง date ตามเวลาไทยมาเอง — ค่าตั้งต้นของ makeFollow สไลซ์จาก
+    //    toISOString() ซึ่งเป็น UTC ช่วงตีศูนย์ถึงเจ็ดโมงเช้าจะได้ "ตั้งวันที่" เป็นเมื่อวาน
+    by: person, now: at, date
+  });
+}
