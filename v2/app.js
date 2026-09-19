@@ -29,7 +29,7 @@ import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKey
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
 import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
-         unknownEntities, poOwnerOfRow, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
+         unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -709,7 +709,8 @@ createApp({
     const poPick = ref('');            // 'in' | 'out' | '' (ปิดอยู่)
     const poPickQ = ref('');
     const poAll = computed(() => poHistory({
-      pos: pos.value, kits: kits.value, entries: entries.value, shorts: shorts.value, entity: entity.value }));
+      pos: pos.value, kits: kits.value, entries: entries.value, shorts: shorts.value,
+      entity: entity.value, known: entCodes.value }));
     const poPickResults = computed(() => searchPos(poAll.value, poPickQ.value, { limit: 60 }));
     const poPickInput = ref(null);
     function openPoPick(which) {
@@ -1681,24 +1682,21 @@ createApp({
     const poQ = ref('');
 
     /* แยกรายการ PO ตามนิติบุคคล (เจ้าของ 17 ก.ย. 2026)
-     * เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจากคอลัมน์ผู้รับเหมาในไฟล์ PO ก่อน ไม่มีค่อยเดาจากเลข PO
+     * เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจาก **รูปแบบเลขที่ PO อย่างเดียว**
+     * ⚠️ ไม่ดูคอลัมน์ผู้รับเหมาในไฟล์ (ช่อง sub) เจ้าของยืนยัน 19 ก.ย. 2026 ว่ากรอกมาไม่ตรงเป็นบางใบ
      * ใบของนิติบุคคลอื่นถูกซ่อน แต่บอกจำนวนไว้ใต้ตาราง ไม่ให้หายเงียบ ๆ
-     * ใบที่เดาไม่ได้ขึ้นทุกนิติบุคคลพร้อมป้ายเตือน — ซ่อนแล้วจะไม่มีใครรู้ว่าตกหล่น */
-    const poOwnerOf = p => poOwnerOfRow(p);
+     * ใบที่ตัดสินไม่ได้ หรือเป็นของรหัสที่ยังไม่มีในทะเบียน ขึ้นทุกนิติบุคคลพร้อมป้ายเตือน */
+    const poOwnerOfRow = p => poOwnerOf(p && p.po, { known: entCodes.value });
     const posVisible = computed(() => pos.value.filter(p => poVisibleTo(poOwnerOfRow(p), entity.value)));
     const poHidden = computed(() => pos.value.length - posVisible.value.length);
     const poUnknownOwner = computed(() => posVisible.value.filter(p => poOwnerOfRow(p).from === 'unknown').length);
+    const poOffRegistry = computed(() =>
+      [...new Set(posVisible.value.filter(p => poOwnerOfRow(p).from === 'unregistered')
+                                  .map(p => poOwnerOfRow(p).code))].sort());
 
-    /** เจ้าของของเลข PO หนึ่ง เมื่อมีแต่เลข (Kit List) — ทำ Map รอบเดียว ไม่ไล่หาไฟล์ PO ในทุกแถว */
-    const poOwnerByNo = computed(() => {
-      const m = new Map();
-      for (const p of pos.value) {
-        const key = String(p.po || '').trim();
-        if (key && !m.has(key)) m.set(key, poOwnerOfRow(p));
-      }
-      return m;
-    });
-    const ownerOfPoNo = po => poOwnerByNo.value.get(String(po || '').trim()) || poOwnerOfRow({ po });
+    const ownerOfPoNo = po => poOwnerOf(po, { known: entCodes.value });
+    /** บรรทัด Kit List ของนิติบุคคลที่เลือกอยู่ — ตัวนับบนหัวการ์ดต้องนับชุดเดียวกับที่ตารางแสดง */
+    const kitsVisible = computed(() => kits.value.filter(k => poVisibleTo(ownerOfPoNo(k.po), entity.value)));
 
     const poRows = computed(() => searchPos(posVisible.value, poQ.value, { limit: Infinity }));
 
@@ -2388,7 +2386,7 @@ createApp({
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
-             posVisible, poHidden, poUnknownOwner, poOwnerOf,
+             posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,

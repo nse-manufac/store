@@ -48,37 +48,40 @@ export function entityOfPo(po) {
 }
 
 /**
- * นิติบุคคลเจ้าของ PO ใบนี้ — คืน { code, from } · from = 'po' | 'guess' | 'unknown'
- *   po     คอลัมน์ผู้รับเหมาที่ติดมากับไฟล์ PO ของ Delta — น่าเชื่อที่สุด
- *   guess  เดาจากตัวอักษรตำแหน่งที่ 7 ของเลข PO
- *   unknown ตอบไม่ได้
+ * นิติบุคคลเจ้าของ PO ใบนี้ — คืน { code, from }
+ *   guess        เดาจากตัวอักษรตำแหน่งที่ 7 ของเลข PO ได้ และรหัสนั้นมีในทะเบียน
+ *   unregistered เดาได้ แต่ยังไม่มีรหัสนั้นในทะเบียนที่ใช้งานอยู่
+ *   unknown      เลขที่ PO ไม่เข้ารูปแบบ ตัดสินไม่ได้
+ *
+ * ⚠️ **ไม่ดูคอลัมน์ผู้รับเหมาในไฟล์ PO (ช่อง sub)** — เจ้าของยืนยัน 19 ก.ย. 2026 ว่า
+ *    Delta กรอกมาไม่ตรงเป็นบางใบ · เชื่อช่องนั้นแล้วใบจะไปโผล่ผิดโรงงาน
+ *    และถ้าเขียนเป็นชื่อบริษัทแทนรหัส ใบนั้นจะหายไปจากทุกโรงงานโดยไม่มีอะไรฟ้อง
+ *    ดูจากรูปแบบเลขที่ PO อย่างเดียว เหมือนที่ plan ทำ
+ *
+ * ⚠️ รหัสที่ยังไม่มีในทะเบียนต้องไม่ถูกเอาไปซ่อน — ไม่มีใครเลือกรหัสนั้นได้
+ *    ซ่อนแล้วจะไม่เหลือใครที่มองเห็นใบนั้นเลยสักคน
  *
  * ⚠️ ต่างจาก resolveEntity ตรงที่ **ไม่ตกมาที่ตัวที่เลือกอยู่บนจอ**
  * resolveEntity ใช้ตอนเดาให้รายการใหม่ว่าควรเป็นของใคร · ตัวนี้ใช้ตัดสินว่า "ใบนี้เป็นของใคร"
  * ถ้าตอบว่าเป็นของคนที่กำลังถาม ทุกใบจะกลายเป็นของทุกคน แล้วการแยกนิติบุคคลก็ไม่เหลืออะไร
  */
-export function poOwnerOfRow(row) {
-  const sub = String((row && row.sub) || '').trim().toUpperCase();
-  if (sub) return { code: sub, from: 'po' };
-  const guess = entityOfPo(row && row.po);
-  return guess ? { code: guess, from: 'guess' } : { code: '', from: 'unknown' };
-}
-
-/** เจ้าของของเลข PO หนึ่ง เมื่อมีแต่เลข (Kit List · สมุด) — หาแถวในไฟล์ PO ก่อน ไม่เจอค่อยเดาจากเลข */
-export function poOwner(po, poList = []) {
-  const key = String(po || '').trim();
-  if (!key) return { code: '', from: 'unknown' };
-  const hit = (poList || []).find(p => p && String(p.po || '').trim() === key);
-  return poOwnerOfRow(hit || { po: key });
+export function poOwnerOf(po, { known = null } = {}) {
+  const guess = entityOfPo(po);
+  if (!guess) return { code: '', from: 'unknown' };
+  const list = known && [...known].map(c => String(c || '').trim().toUpperCase());
+  if (list && !list.includes(guess)) return { code: guess, from: 'unregistered' };
+  return { code: guess, from: 'guess' };
 }
 
 /**
  * ใบนี้ให้นิติบุคคลที่เลือกอยู่เห็นไหม
- * เจ้าของเลือก 17 ก.ย. 2026: **ใบที่เดาไม่ได้ขึ้นทุกนิติบุคคล พร้อมป้ายเตือน**
+ * เจ้าของเลือก 17 ก.ย. 2026: **ใบที่ตัดสินไม่ได้ขึ้นทุกนิติบุคคล พร้อมป้ายเตือน**
  * ซ่อนไปเลยแล้วจะไม่มีใครรู้ว่าตกหล่น — กฎเดียวกับแถวของขาดที่ยังไม่รู้เจ้าของ (follow.js)
+ * ซ่อนได้เฉพาะใบที่รู้แน่ว่าเป็นของรหัสที่มีในทะเบียน (from === 'guess') เท่านั้น
  */
 export const poVisibleTo = (owner, entity) =>
-  !owner || !owner.code || !entity || owner.code === String(entity).trim().toUpperCase();
+  !owner || owner.from !== 'guess' || !entity
+  || owner.code === String(entity).trim().toUpperCase();
 
 /**
  * นิติบุคคลของรายการนี้ ตามลำดับความน่าเชื่อถือ

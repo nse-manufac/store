@@ -22,7 +22,7 @@
  */
 
 import { localDate } from '../core/localtime.js';
-import { poOwnerOfRow, poVisibleTo } from './entities.js';
+import { poOwnerOf, poVisibleTo } from './entities.js';
 
 const pad = n => String(n).padStart(2, '0');
 const r6 = n => Math.round(n * 1e6) / 1e6;
@@ -363,7 +363,8 @@ export const nextShownPo = (shownPo, po) =>
  *    ถ้ายังไม่ได้เลือกนิติบุคคล จะไม่เอาสองที่มานั้นมาเลย (ไฟล์ PO กับ Kit List เป็นเอกสารกลาง ใช้ร่วมกัน)
  * วันที่เก็บวันล่าสุดที่เจอของใบนั้น ใช้เรียงลำดับให้ใบที่เพิ่งใช้อยู่บนสุด
  */
-export function poHistory({ pos = [], kits = [], entries = [], shorts = [], entity = '' } = {}) {
+export function poHistory({ pos = [], kits = [], entries = [], shorts = [],
+                            entity = '', known = null } = {}) {
   const seen = new Map();
   const add = (po, pn, date, from) => {
     const key = String(po ?? '').trim();
@@ -375,19 +376,12 @@ export function poHistory({ pos = [], kits = [], entries = [], shorts = [], enti
     if (!hit.from.includes(from)) hit.from.push(from);
     seen.set(key, hit);
   };
-  // เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจากคอลัมน์ผู้รับเหมาในไฟล์ PO ก่อน ไม่มีค่อยเดาจากเลข PO
-  // ใบที่เดาไม่ได้ขึ้นทุกนิติบุคคล (เจ้าของ 17 ก.ย. 2026) · ทำ Map รอบเดียว ไม่ไล่หาในทุกแถวของ Kit List
-  const ownerByPo = new Map();
+  // เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจากรูปแบบเลขที่ PO อย่างเดียว
+  // ⚠️ ไม่ดูคอลัมน์ผู้รับเหมาในไฟล์ (ช่อง sub) เจ้าของยืนยัน 19 ก.ย. 2026 ว่ากรอกมาไม่ตรงเป็นบางใบ
+  // ใบที่ตัดสินไม่ได้ หรือเป็นของรหัสที่ยังไม่มีในทะเบียน ขึ้นทุกนิติบุคคล (เจ้าของ 17 ก.ย. 2026)
+  const ownerOf = po => poOwnerOf(po, { known });
   for (const p of pos || []) {
-    const key = String((p && p.po) || '').trim();
-    if (key && !ownerByPo.has(key)) ownerByPo.set(key, poOwnerOfRow(p));
-  }
-  const ownerOf = po => {
-    const key = String(po || '').trim();
-    return ownerByPo.get(key) || poOwnerOfRow({ po: key });
-  };
-  for (const p of pos || []) {
-    if (!poVisibleTo(poOwnerOfRow(p), entity)) continue;
+    if (!poVisibleTo(ownerOf(p && p.po), entity)) continue;
     add(p && p.po, p && p.pn, p && p.date, 'ไฟล์ PO');
   }
   for (const k of kits || []) {

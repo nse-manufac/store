@@ -468,32 +468,48 @@ ok('นับ Kit List ต่อ PO ไว้ล่วงหน้า ไม่�
    /const kitCountByPo = computed/.test(appSrc) && /kitCountByPo\.get\(p\.po\)/.test(htmlSrc)
    && !/kits\.filter\(k => k\.po===p\.po/.test(htmlSrc) && !/kits\.some\(k => k\.po===p\.po/.test(htmlSrc));
 
-console.log('\n=== K. แยกรายการ PO ตามนิติบุคคล (เจ้าของ 17 ก.ย. 2026) ===');
-// เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูคอลัมน์ผู้รับเหมาก่อน ไม่มีค่อยเดาจากตัวอักษรที่ 7 ของเลข PO
+console.log('\n=== K. แยกรายการ PO ตามนิติบุคคล (เจ้าของ 17 · 19 ก.ย. 2026) ===');
+// เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจากรูปแบบเลขที่ PO อย่างเดียว
+// ⚠️ ห้ามดูคอลัมน์ผู้รับเหมา (ช่อง sub) เจ้าของยืนยัน 19 ก.ย. 2026 ว่ากรอกมาไม่ตรงเป็นบางใบ
+const eKnown = ['TUE-H', 'TUE-U'];
 const ePos = [
-  { id: 'e1', po: 'TM5269H001', pn: 'P1', date: '2026-09-10', sub: 'NSE' },
-  { id: 'e2', po: 'TM5269U002', pn: 'P2', date: '2026-09-11' },   // เดาได้ → TUE-U
-  { id: 'e3', po: 'XX-999',     pn: 'P3', date: '2026-09-12' }    // เดาไม่ได้
+  { id: 'e1', po: 'TM5269H001', pn: 'P1', date: '2026-09-10', sub: 'NSE' },  // sub โกหก ต้องไม่เชื่อ
+  { id: 'e2', po: 'TM5269U002', pn: 'P2', date: '2026-09-11' },
+  { id: 'e3', po: 'XX-999',     pn: 'P3', date: '2026-09-12' },              // เลขบอกไม่ได้
+  { id: 'e4', po: 'TM5269A004', pn: 'P4', date: '2026-09-13' }               // TUE-A ยังไม่มีในทะเบียน
 ];
 const eKits = [{ id: 'ek1', po: 'TM5269U002', pn: 'P2', date: '2026-09-11', code: 'C1', src: '' }];
-const hNse = poHistory({ pos: ePos, kits: eKits, entity: 'NSE' });
-const hNsePo = hNse.map(r => r.po);
-ok('ใบของนิติบุคคลอื่นไม่ขึ้นในประวัติ PO', !hNsePo.includes('TM5269U002'), hNsePo.join(','));
-ok('ใบของนิติบุคคลที่เลือกอยู่ขึ้นปกติ', hNsePo.includes('TM5269H001'));
-ok('ใบที่เดานิติบุคคลไม่ได้ ขึ้นทุกนิติบุคคล (เจ้าของเลือกให้เห็นไว้ ไม่ใช่ซ่อน)', hNsePo.includes('XX-999'));
-ok('Kit List ของใบที่ไม่ใช่ของนิติบุคคลนี้ ก็ไม่ขึ้น', !hNse.some(r => r.from.includes('Kit List')));
-const hTuePo = poHistory({ pos: ePos, kits: eKits, entity: 'TUE-U' }).map(r => r.po);
-ok('สลับนิติบุคคลแล้วเห็นใบของตัวเอง', hTuePo.includes('TM5269U002') && !hTuePo.includes('TM5269H001'), hTuePo.join(','));
-ok('คอลัมน์ผู้รับเหมาในไฟล์ชนะการเดาจากเลข PO',
-   poHistory({ pos: [{ id: 'x', po: 'TM5269U777', sub: 'NSE', date: '2026-09-12' }], entity: 'NSE' }).length === 1);
+const hH = poHistory({ pos: ePos, kits: eKits, entity: 'TUE-H', known: eKnown });
+const hHPo = hH.map(r => r.po);
+ok('ใบของนิติบุคคลอื่นไม่ขึ้นในประวัติ PO', !hHPo.includes('TM5269U002'), hHPo.join(','));
+ok('ใบของนิติบุคคลที่เลือกอยู่ขึ้นปกติ', hHPo.includes('TM5269H001'));
+ok('คอลัมน์ผู้รับเหมาในไฟล์ไม่มีผล — ใบที่ sub เขียนผิดยังอยู่กับเจ้าของตามเลข PO',
+   hHPo.includes('TM5269H001')
+   && !poHistory({ pos: ePos, kits: eKits, entity: 'NSE', known: ['NSE', 'TUE-H'] }).map(r => r.po).includes('TM5269H001'));
+ok('ใบที่เลขบอกไม่ได้ ขึ้นทุกนิติบุคคล (เจ้าของเลือกให้เห็นไว้ ไม่ใช่ซ่อน)', hHPo.includes('XX-999'));
+ok('ใบของรหัสที่ยังไม่มีในทะเบียน ขึ้นทุกนิติบุคคล — ไม่งั้นไม่เหลือใครที่เห็นมันเลย',
+   hHPo.includes('TM5269A004'), hHPo.join(','));
+ok('Kit List ของใบที่ไม่ใช่ของนิติบุคคลนี้ ก็ไม่ขึ้น', !hH.some(r => r.from.includes('Kit List')));
+const hUPo = poHistory({ pos: ePos, kits: eKits, entity: 'TUE-U', known: eKnown }).map(r => r.po);
+ok('สลับนิติบุคคลแล้วเห็นใบของตัวเอง',
+   hUPo.includes('TM5269U002') && !hUPo.includes('TM5269H001'), hUPo.join(','));
 ok('ยังไม่เลือกนิติบุคคล = เห็นทุกใบเหมือนเดิม (เอกสารกลาง)',
-   poHistory({ pos: ePos, kits: eKits }).length === 3);
+   poHistory({ pos: ePos, kits: eKits, known: eKnown }).length === 4);
+ok('ไม่ส่งทะเบียนมา = กรองตามเลข PO เหมือนเดิม ไม่ใช่เปิดให้เห็นหมด',
+   !poHistory({ pos: ePos, kits: eKits, entity: 'TUE-H' }).map(r => r.po).includes('TM5269U002'));
+
 // อ่านซอร์ส — หน้าจอต้องกรองก่อนค้น และต้องบอกว่าซ่อนไปกี่ใบ ไม่ให้หายเงียบ
 ok('หน้ารายการ PO กรองตามนิติบุคคลก่อนค้น',
    /searchPos\(posVisible\.value/.test(appSrc)
    && /pos\.value\.filter\(p => poVisibleTo\(poOwnerOfRow\(p\), entity\.value\)\)/.test(appSrc));
-ok('บอกจำนวนใบที่ซ่อน และป้ายใบที่ยังไม่รู้นิติบุคคล',
-   /poHidden/.test(htmlSrc) && /ไม่รู้นิติบุคคล/.test(htmlSrc));
+ok('หน้าจอดูจากเลข PO ไม่ใช่คอลัมน์ผู้รับเหมา',
+   /poOwnerOf\(p && p\.po, \{ known: entCodes\.value \}\)/.test(appSrc));
+ok('ส่งทะเบียนนิติบุคคลเข้าไปด้วย ไม่งั้นรหัสที่ยังไม่มีในทะเบียนจะโดนซ่อน',
+   /known: entCodes\.value \}\)\);/.test(appSrc));
+ok('บอกจำนวนใบที่ซ่อน และป้ายใบที่ตัดสินไม่ได้',
+   /poHidden/.test(htmlSrc) && /เลข PO บอกไม่ได้/.test(htmlSrc));
+ok('เตือนเรื่องรหัสที่ยังไม่มีในทะเบียน',
+   htmlSrc.includes('v-if="poOffRegistry.length"') && /poOffRegistry = computed/.test(appSrc));
 ok('ตัวนับหน้าแรกนับเฉพาะใบของนิติบุคคลที่เลือกอยู่',
    /posVisible\.value\.filter\(p => p\.date === homeToday\.value\)/.test(appSrc)
    && /poVisibleTo\(ownerOfPoNo\(k\.po\), entity\.value\)/.test(appSrc));
