@@ -321,7 +321,12 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # ⚠️ **ต้องน้อยกว่า timeout-minutes ของ job เสมอ** (28 < 35)
+      #    job ที่ชนเพดานเวลาตัวเอง GitHub นับเป็น **cancelled** ไม่ใช่ failed
+      #    ขั้นตอนที่ใช้ if: !cancelled() จึงถูกข้ามทั้งขั้นตอน = ไม่มีใครรู้ว่าเกิดอะไรขึ้น
+      #    พอหมดเวลาที่ขั้นตอนแทน มันเป็น step failure ซึ่งเงื่อนไขนั้นรับแน่นอน
       - uses: anthropics/claude-code-action@v1
+        timeout-minutes: 28
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
