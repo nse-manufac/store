@@ -785,8 +785,8 @@ ok('กดเรื่องเดิมซ้ำไม่เข้าคิว�
    /if \(!buyWaits\.value\.some\(w => w\.id === row\.id\)\)/.test(appBuy));
 
 /* ⚠️ ไม่มีทางเลิกรอ = บรรทัดตามไปทุกใบจนกว่าจะรับของรหัสนั้นจริง (ผู้ตรวจรอบ 2 ข้อ 1) */
-ok('ออกจากหน้ารับเข้าแล้วเลิกรอเอง',
-   /watch\(tab, \(now, before\) => \{ if \(before === 'in' && now !== 'in'\) buyWaits\.value = \[\]; \}\)/.test(appBuy));
+ok('ออกจากหน้ารับเข้าแล้วเลิกรอเอง แต่เดินกลับไปกดเรื่องที่สองไม่นับว่าเลิกรอ',
+   /watch\(tab, \(now, before\) => \{[\s\S]{0,200}before === 'in' && now !== 'in' && now !== 'fbuy'[\s\S]{0,40}buyWaits\.value = \[\]/.test(appBuy));
 ok('มีปุ่มเลิกรอให้กดเองด้วย',
    /function cancelBuyWaits\(\)/.test(appBuy) && /@click="cancelBuyWaits"/.test(htmlBuy)
    && /v-if="buyWaits\.length"/.test(htmlBuy));
@@ -951,6 +951,68 @@ if (hasLink) {
   ok('เศษทศนิยม 0.1 + 0.2 ปิดลงพอดี ไม่ค้างเศษ (A2)',
      frac2.rows[0].done === true && frac2.rows[0].done_qty === 0.3,
      JSON.stringify(frac2.rows[0]));
+}
+
+/* ── คิวต้องรับเรื่องที่สองได้จริง ── รัน fbGo กับตัว watch ของจริงที่แกะจากซอร์ส ─────────
+ * ⚠️ ข้อที่ผู้ตรวจรอบ 5 ทัก · ปุ่ม [ไปรับของ] อยู่ในแท็บ fbuy แท็บเดียว และ fbGo จบด้วย tab='in'
+ *    การกดเรื่องที่สองจึงบังคับให้เดิน in → fbuy → in เสมอ ถ้าตัวเลิกรอนับทางนั้นเป็น
+ *    "ออกจากหน้ารับเข้า" คิวจะถูกล้างก่อนเรื่องที่สองจะเข้าไปทุกครั้ง = มีได้ไม่เกินหนึ่งเรื่องตลอดกาล
+ *    เรื่องแรกหลุดคิวเงียบ ๆ ทั้งที่บรรทัดยังค้างอยู่ในใบ แล้วของกองเดียวถูกรับเข้าคลังสองรอบ
+ *    เทสเดิมเป็น regex ที่ยืนยันแค่ว่าบรรทัด watch มีอยู่ จับลำดับนี้ไม่ได้เลย */
+function cutWatchTab(src) {
+  const cut = i => {
+    let depth = 0;
+    for (let k = src.indexOf('(', i); k < src.length; k++) {
+      if (src[k] === '(') depth++;
+      else if (src[k] === ')' && --depth === 0) return src.slice(src.indexOf(',', i) + 1, k);
+    }
+    throw new Error('อ่าน watch(tab, ...) ใน v2/app.js ไม่จบ');
+  };
+  // ไฟล์มี watch(tab, ...) มากกว่าหนึ่งที่ — เอาตัวที่ยุ่งกับคิวรอ
+  for (let i = src.indexOf('watch(tab,'); i >= 0; i = src.indexOf('watch(tab,', i + 1)) {
+    const body = cut(i);
+    if (body.includes('buyWaits')) return body;
+  }
+  throw new Error('ไม่พบ watch(tab, ...) ที่เลิกรอคิวซื้อทดแทน ใน v2/app.js');
+}
+
+const hasGo = appBuy.includes('function fbGo(');
+ok('มี fbGo ให้ปุ่ม [ไปรับของ] เรียก', hasGo);
+if (hasGo) {
+  const goFn = new Function('buyWaits', 'inH', 'inLines', 'bomHint', 'tab',
+                            'normCode', 'remainOf', 'blankLine', 'fillInLine', 'row',
+                            cutFn(appBuy, 'fbGo') + '\nreturn fbGo(row);');
+  const q = { value: [] };
+  const lines = { value: [] };
+  const hint = { value: '' };
+  const tabRef = { value: 'fbuy' };
+  const onTab = new Function('buyWaits', 'return (' + cutWatchTab(appBuy) + ')')(q);
+  const hop = now => {
+    const before = tabRef.value;
+    tabRef.value = now;
+    if (now !== before) onTab(now, before);
+  };
+  const press = row => {
+    const before = tabRef.value;
+    goFn(q, { po: '' }, lines, hint, tabRef, normCode, remainOf,
+         code => ({ k: 'L', code, desc: '', unit: '', reqmt: null, qty: null }), () => {}, row);
+    if (tabRef.value !== before) onTab(tabRef.value, before);
+  };
+
+  press(buyCase);        // อยู่แท็บ fbuy กด [ไปรับของ] เรื่องแรก → เด้งไปแท็บ in
+  hop('fbuy');           // เดินกลับไปกดเรื่องที่สอง — ไม่ใช่การเลิกรอ
+  press(buy2);
+  ok('กดไปรับของสองเรื่องติดกัน คิวต้องเก็บไว้ทั้งคู่ ไม่ใช่เหลือเรื่องเดียว',
+     q.value.length === 2 && q.value[0].id === buyCase.id && q.value[1].id === buy2.id,
+     JSON.stringify(q.value));
+  ok('บรรทัดของทั้งสองเรื่องอยู่ในใบรับเข้าครบ',
+     lines.value.length === 2, JSON.stringify(lines.value.map(l => l.code)));
+  ok('กดเรื่องเดิมซ้ำหลังเดินกลับไปกลับมา ไม่เข้าคิวสองรอบ',
+     (() => { hop('fbuy'); press(buy2); return q.value.length === 2; })(),
+     JSON.stringify(q.value));
+  hop('card');
+  ok('ออกจากหน้ารับเข้าไปแท็บอื่น ยังเลิกรอให้เหมือนเดิม',
+     q.value.length === 0, JSON.stringify(q.value));
 }
 
 /* ต้องครบ "ทุก" สาขา — สาขา Kit List กับสาขาสูตรเขียนทับ inLines ทั้งกองคนละบรรทัดกัน */
