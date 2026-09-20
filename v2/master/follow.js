@@ -149,8 +149,12 @@ export function overdue(row, today) {
  * ปิดเรื่อง — ปิดทั้งใบ หรือปิดบางส่วนเมื่อของทยอยมา
  *
  * ไม่ส่ง qty มา = ปิดทั้งใบ (เคสปกติที่กดปุ่มเดียวจบ)
+ *
+ * `doneAt` = วันที่ของงานจริง (คนเลือกเอง คีย์ย้อนหลังได้) ลงเฉพาะ `done_at`
+ * ⚠️ `updated_at` ห้ามถอยหลังตาม — เป็นเวลาที่ชั้นซิงค์ใช้ตัดสินว่าของใครใหม่กว่า
+ *    ถอยหลังแล้วการแก้นี้จะถูกเครื่องอื่นมองข้ามตลอดไป (INVARIANTS D5)
  */
-export function closeFollow(row, { qty, by = '', at } = {}) {
+export function closeFollow(row, { qty, by = '', at, doneAt } = {}) {
   if (!row) throw new Error('ไม่มีรายการให้ปิด');
   if (row.voided) throw new Error('รายการนี้ถูกยกเลิกไปแล้ว ปิดไม่ได้');
   const now = txt(at) || new Date().toISOString();
@@ -172,7 +176,7 @@ export function closeFollow(row, { qty, by = '', at } = {}) {
   // ⚠️ qty ต้องปัดด้วย — done_qty ปัดแล้ว ถ้า qty ยังดิบ การปิดยอดที่เหลือพอดีจะไม่ติด done
   const q = round5(Number(row.qty) || 0);
   return { ...row, done_qty, done: q > 0 ? done_qty >= q : true,
-           done_at: now, done_by: txt(by), updated_at: now };
+           done_at: txt(doneAt) || now, done_by: txt(by), updated_at: now };
 }
 
 /**
@@ -472,7 +476,10 @@ export function shortOfPo(entries, entity, po, { headerOf, bomRowsOf } = {}) {
   for (const b of bomRowsOf(head.pn) || []) {
     const need = round5((Number(b && b.usage) || 0) * order);
     if (need <= 0) continue;
-    const have = got.get(txt(b.code).toUpperCase()) || 0;
+    /* ⚠️ ตัดไม่ให้ติดลบ — ยอดคืนที่มากกว่ายอดรับเกิดได้ถ้าใบรับเข้าถูกยกเลิกทีหลัง
+     * หรือเรื่องถูกตั้งด้วยมือเกินของจริง · ปล่อยติดลบแล้วคำเตือนจะขึ้น "ขาด 40"
+     * ทั้งที่ทั้งใบสั่งมาแค่ 4 ซึ่งอ่านเหมือนข้อมูลเพี้ยนมากกว่าคำเตือน (ผู้ตรวจ #90 รอบ 3 ข้อ 1) */
+    const have = Math.max(0, got.get(txt(b.code).toUpperCase()) || 0);
     const miss = round5(need - have);
     if (miss > 0) out.push({ code: txt(b.code), need, have: round5(have), miss });
   }

@@ -1847,6 +1847,9 @@ createApp({
     /** เทียบไม่ได้เพราะอะไร — "ไม่มีคำเตือน" ต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา" */
     const rbShortWhy = computed(() => {
       if (!rb.row) return '';
+      /* ⚠️ ไม่มีนิติบุคคล = rbShort คืน [] เสมอ · ต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ
+       * เงียบตรงนี้คือช่องโหว่แบบเดียวกับที่ shortWhyOf ตั้งใจปิด (A3 · ผู้ตรวจ #90 รอบ 3 ข้อ 3) */
+      if (!entity.value) return 'ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';
       return shortWhyOf(rb.row.po, {
         headerOf: po => poHeader(pos.value, po),
         bomRowsOf: pn => activeBomRowsOf(bom.value, pn)
@@ -1875,7 +1878,8 @@ createApp({
         entries.value.push(e);
         db.announce('entries');
         // ปิดเรื่องตามยอดที่คืนจริง แล้วผูกเลขที่รายการในสมุดไว้ให้ไล่ย้อนได้
-        const rec = closeFollow(row, { qty, by: rb.person.trim() });
+        // วันที่ปิดเรื่องตามวันที่คนคีย์ · เวลาซิงค์ยังเป็นเวลาจริงใน closeFollow (D5)
+        const rec = closeFollow(row, { qty, by: rb.person.trim(), doneAt: atFrom(rb.date) });
         /* ⚠️ ต่อท้าย ไม่ทับของเดิม · คืนบางส่วนหลายรอบแล้วทับ จะไล่ย้อนได้แค่รอบสุดท้าย
          * เก็บเป็นข้อความเว้นวรรคในช่องเดิม ไม่เพิ่มช่องใหม่ จึงไม่ต้อง redeploy Apps Script */
         rec.return_entry_id = [String(row.return_entry_id || '').trim(), e.id].filter(Boolean).join(' ');

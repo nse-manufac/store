@@ -528,6 +528,29 @@ ok('สูตรที่มีแต่บรรทัดต่อชิ้น�
 ok('ไม่มีเลข PO ก็ต้องบอก ไม่ใช่เงียบ', shortWhyOf('', sOpt) !== '');
 throws('ลืมส่งสูตรต้องดัง (shortWhyOf)', () => shortWhyOf(PO, { headerOf }), 'bomRowsOf');
 
+/* ⚠️ ยอดคืนมากกว่ายอดรับเกิดได้ถ้าใบรับเข้าถูกยกเลิกทีหลัง หรือเรื่องถูกตั้งด้วยมือเกินของจริง
+ *    ถ้าปล่อยให้ "รับมาแล้ว" ติดลบ เลขขาดจะโตเกินยอดสั่งจนอ่านเหมือนข้อมูลเพี้ยน
+ *    (ผู้ตรวจ #90 รอบ 3 ข้อ 1 · เจ้าของสั่งให้แก้) */
+{
+  const over = [recv(), { ...back, material_code: C2, qty: 50 }];   // คืน C2 ทั้งที่ไม่เคยรับ
+  const r = shortOfPo(over, 'TUE-H', PO, sOpt)[0];
+  ok('คืนมากกว่าที่รับ "ขาด" ต้องไม่เกินยอดที่สูตรต้องใช้',
+     r.have === 0 && r.miss === r.need && r.need === 20, JSON.stringify(r));
+}
+
+/* ── ข้อ 2 · วันที่ปิดเรื่องตามวันที่คนคีย์ · เวลาซิงค์ห้ามถอยหลัง (D5) ── */
+{
+  const base = makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO, part_no: PN, qty: 10 });
+  const yday = '2026-09-19T03:00:00.000Z';
+  const rec = closeFollow(base, { qty: 4, by: 'ก', doneAt: yday });
+  ok('done_at ตามวันที่ที่คนคีย์', rec.done_at === yday, rec.done_at);
+  ok('updated_at ยังเป็นเวลาจริง ไม่ถอยหลังตาม (D5)',
+     rec.updated_at !== yday && rec.updated_at > yday, rec.updated_at);
+  ok('ไม่ส่ง doneAt ก็ยังเป็นเวลาปัจจุบันเหมือนเดิม',
+     closeFollow(base, { qty: 4, by: 'ก' }).done_at > yday);
+  ok('done_qty ยังคิดเหมือนเดิม ไม่โดนวันที่กวน', rec.done_qty === 4 && rec.done === false);
+}
+
 console.log('\n=== M. ต่อสายหน้า over รอคืน (อ่านซอร์ส) ===');
 const appOver = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
 const htmlOver = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
@@ -576,7 +599,7 @@ ok('เตือนเมื่อใบนั้นยังรับมาไ�
    /v-if="rbShort\.length"/.test(htmlOver)
    && /:disabled="!rbReady \|\| rb\.busy"/.test(htmlOver));
 ok('บันทึกลงสมุดก่อน แล้วค่อยปิดเรื่อง และผูกเลขที่รายการไว้ให้ไล่ย้อนได้',
-   /db\.put\('entries', e\)[\s\S]{0,500}rec\.return_entry_id =/.test(appOver));
+   /db\.put\('entries', e\)[\s\S]{0,800}rec\.return_entry_id =/.test(appOver));
 
 /* ── ข้อสังเกตหกข้อของผู้ตรวจ #90 (เจ้าของสั่งให้แก้ 20 ก.ย. 2026) ── */
 ok('จับค่าจาก rb.row ไว้ก่อน await — กล่องปิดกลางคันแล้วต้องไม่โยน TypeError',
@@ -587,6 +610,11 @@ ok('คืนหลายรอบต้องต่อท้ายเลขท�
 ok('กล่องคืนของมีช่องวันที่ และส่ง atFrom(rb.date) เข้าไป',
    /v-model="rb\.date" type="date"/.test(htmlOver) && /at: atFrom\(rb\.date\)/.test(appOver)
    && /rb\.date = todayLocal\(\)/.test(appOver));
+ok('กล่องส่งวันที่ที่คนคีย์ไปเป็นวันที่ปิดเรื่องด้วย',
+   /closeFollow\(row, \{ qty, by: rb\.person\.trim\(\), doneAt: atFrom\(rb\.date\) \}\)/.test(appOver));
+ok('ยังไม่เลือกนิติบุคคล กล่องต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ (A3)',
+   /if \(!entity\.value\) return 'ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';/.test(appOver)
+   && /const rbShortWhy = computed/.test(appOver));
 ok('เทียบไม่ได้ต้องขึ้นบอกในกล่อง ไม่ใช่เงียบเหมือนตอนรับครบ',
    /const rbShortWhy = computed/.test(appOver) && /shortWhyOf\(rb\.row\.po/.test(appOver)
    && /v-if="rbShortWhy"/.test(htmlOver)
