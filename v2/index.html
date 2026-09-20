@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-20.2">
+<meta name="app-version" content="2026-09-20.7">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1958,11 +1958,13 @@ textarea{font:inherit}
                     รับมา {{ r.s.recv_qty }}</td>
                   <td>
                     <template v-if="r.st==='done'">
-                      <span class="hint">คืน {{ (r.s.done_at || '').slice(0,10) }}
+                      <span class="hint">คืน {{ localDate(r.s.done_at) }}
                         {{ r.s.done_by }}</span>
                     </template>
                     <template v-else>
-                      <button class="btn" style="padding:2px 8px"
+                      <button class="btn primary" style="padding:2px 9px"
+                              @click="askReturn(r.s)">คืนแล้ว…</button>
+                      <button class="btn" style="padding:2px 8px;margin-left:4px"
                               @click="foVoid(r.s)">ยกเลิกเรื่อง</button>
                     </template>
                   </td>
@@ -1978,7 +1980,8 @@ textarea{font:inherit}
             แสดง {{ foRows.length }} จาก {{ foAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
           <p class="hint" style="margin:8px 0 0">
             ยอดสามตัวที่แช่แข็งไว้คือค่า ณ วันที่ตั้งเรื่อง — ใบรับเข้าที่คีย์ทีหลังจะไม่ทำให้ยอดของเรื่องนี้ขยับเอง<br>
-            ตั้งเรื่องยังไม่ตัดของออกจากคลัง — ปุ่มคืนของจะตามมาในรุ่นถัดไป</p>
+            กด <b>คืนแล้ว…</b> แล้วจะมีกล่องให้ยืนยัน เพราะปุ่มนี้<b>ตัดของออกจากคลังจริง</b>
+            และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า</p>
         </div>
 
         <div class="card" v-if="foBlocked.length">
@@ -2351,6 +2354,94 @@ textarea{font:inherit}
             <button class="btn" @click="voidBox.row=null">ไม่ยกเลิกแล้ว</button>
             <button class="btn primary" @click="doVoid"
                     :disabled="!voidBox.reason.trim() || !voidBox.by.trim()">ยืนยันยกเลิก</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════ คืนของให้ Delta (Mat Follow up 6/8) ════════ -->
+      <div class="modal" v-if="rb.row" @click.self="rb.row=null">
+        <div class="modal-box" style="width:min(560px,100%)">
+          <h2>คืนของให้ Delta</h2>
+          <p class="hint" style="margin:-4px 0 10px">
+            ปุ่มนี้<b>ตัดของออกจากคลังจริง</b> และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า
+            พร้อมหมายเหตุ "ส่งคืน Delta"
+          </p>
+          <table><tbody>
+            <tr><td class="hint" style="width:110px">PO</td>
+                <td class="mono">{{ rb.row.po }}
+                  <span class="hint">· P/N {{ rb.row.part_no }}</span></td></tr>
+            <tr><td class="hint">รหัส</td><td class="mono">{{ rb.row.code }} {{ rb.row.unit }}</td></tr>
+            <tr><td class="hint">ตั้งเรื่องไว้</td>
+                <td class="mono">{{ rb.row.qty }} · ยังค้าง {{ rbRemain }}</td></tr>
+          </tbody></table>
+
+          <div class="row" style="margin-top:12px">
+            <label class="f" style="width:130px">จำนวนที่คืน
+              <input v-model="rb.qty" type="number" step="any" class="mono"
+                     @keyup.enter="rbReady && doReturn()"></label>
+            <label class="f grow" style="min-width:170px">เพราะอะไร
+              <select v-model="rb.reason">
+                <option v-for="r in rbReasons" :key="r.code" :value="r.code">{{ r.label }}</option>
+              </select></label>
+            <label class="f" style="width:150px">ล็อต (ไม่บังคับ)
+              <input v-model.trim="rb.lot" class="mono" placeholder="ถ้ารู้"></label>
+          </div>
+
+          <!-- เลือกจากล็อตที่มีของจริง — แบบเดียวกับการ์ด "ล็อตที่ยังมีของ" ของหน้าของเสีย · คืน · ปรับยอด
+               ⚠️ ไม่ใช้ <datalist> · v1 เคยใช้แล้วแยกของที่ซ้ำกันไม่ออก (issue #26) -->
+          <div class="scroll" style="max-height:15vh;margin-top:8px" v-if="rbLots.length">
+            <table>
+              <thead><tr><th style="width:170px">ล็อตที่ยังมีของ</th>
+                <th style="width:100px">คงเหลือ</th><th style="width:70px"></th></tr></thead>
+              <tbody><tr v-for="l in rbLots" :key="l.lot">
+                <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต)' }}</td>
+                <td class="mono">{{ l.qty }}</td>
+                <td><button class="btn" style="padding:2px 9px" @click="rb.lot = l.lot">เลือก</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+
+          <div class="row" style="margin-top:8px">
+            <label class="f" style="width:145px">วันที่คืน
+              <input v-model="rb.date" type="date"></label>
+            <label class="f" style="width:170px">ผู้บันทึก
+              <input v-model.trim="rb.person" placeholder="ชื่อคนที่คืน"></label>
+            <label class="f grow">หมายเหตุ
+              <input v-model="rb.note"
+                     :placeholder="rb.reason === 'other' ? 'เลือกอื่น ๆ แล้วต้องเขียน' : 'ไม่บังคับ'"></label>
+          </div>
+
+          <div class="row" style="margin-top:12px;gap:26px;align-items:flex-end">
+            <div><div class="hint">ยอดคงคลังตอนนี้</div><div class="big">{{ rbBook }}</div></div>
+            <div><div class="hint">ยอดหลังคืน</div>
+              <div class="big" :class="rbAfter < 0 ? 'bad' : ''">{{ rbAfter }}</div></div>
+          </div>
+
+          <!-- ไม่มีคำเตือน ≠ ตรวจแล้วไม่มีปัญหา — ต้องบอกว่าเทียบไม่ได้เพราะอะไร -->
+          <div class="msg warn" v-if="rbShortWhy" style="margin:12px 0 0">
+            <b>เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง</b> —
+            <span class="hint">{{ rbShortWhy }} · คืนได้ แต่ไม่มีใครช่วยตรวจให้ในจอนี้</span>
+          </div>
+          <div class="msg warn" v-if="rbShort.length" style="margin:12px 0 0">
+            <b>PO ใบนี้ยังรับมาไม่ครบตามสูตรอีก {{ rbShort.length }} รหัส</b><br>
+            <span class="mono hint">
+              <span v-for="x in rbShort.slice(0,6)" :key="x.code" style="margin-right:10px">
+                {{ x.code }} ขาด {{ x.miss }}</span>
+              <span v-if="rbShort.length > 6">· และอีก {{ rbShort.length - 6 }} รหัส</span>
+            </span><br>
+            <span class="hint">คืนได้ แต่ดูให้แน่ก่อนว่าไม่ได้คีย์รับเข้าผิดใบ —
+              รหัสหนึ่งเกินทั้งที่อีกรหัสของใบเดียวกันยังมาไม่ครบ เป็นอาการที่เจอได้ทั้งสองแบบ</span>
+          </div>
+          <div class="msg bad" v-if="rbAfter < 0" style="margin:12px 0 0">
+            <b>ยอดคงคลังจะติดลบ</b> —
+            <span class="hint">แปลว่าของในสมุดน้อยกว่าที่กำลังจะคืน ตรวจก่อนว่ายอดรับเข้าคีย์ครบหรือยัง</span>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="rb.row=null">ยังไม่คืน</button>
+            <button class="btn primary" @click="doReturn" :disabled="!rbReady || rb.busy">
+              {{ rb.busy ? 'กำลังบันทึก...' : 'ยืนยันคืนของ' }}</button>
           </div>
         </div>
       </div>

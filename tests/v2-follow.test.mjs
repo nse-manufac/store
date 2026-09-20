@@ -11,9 +11,11 @@ import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
-         OVER_MIN, overAll, overPending, fromOverRow }
+         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
+import { signedQty, KINDS } from '../v2/core/ledger.js';
+import { localDate, atFrom } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -402,7 +404,7 @@ const bookMix = [recv(), recv({ id: 'E6', qty: 30 }), recv({ id: 'E5', qty: 9, v
 ok('ยอดรับตรงกับ receivedOfDoc ของ balance.js',
    overAll(bookMix, 'TUE-H', opt)[0].recv === receivedOfDoc(bookMix, 'TUE-H', PO).get(C1).qty);
 
-console.log('\n=== K. ตั้งเรื่องคืน ===');
+console.log('\n=== K. ตั้งเรื่องคืน · ใบส่งคืน Delta ===');
 const candRow = overAll([recv()], 'TUE-H', opt)[0];
 ok('ตัดคู่ที่ตั้งเรื่องไว้แล้วออก',
    overPending([candRow], [makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO,
@@ -437,6 +439,119 @@ const later = overAll([recv(), recv({ id: 'E4', qty: 500 })], 'TUE-H', opt)[0];
 ok('คีย์รับเพิ่มทีหลัง ยอดในเรื่องที่ตั้งไปแล้วต้องไม่ขยับ',
    overCase.recv_qty === 120 && later.recv === 620);
 
+const sb = sendbackEntry(overCase, { qty: 20, person: 'ผู้ทดสอบ', device: 'test',
+                                 reason_code: 'over', at: '2026-09-05T03:00:00.000Z' });
+ok('ใบส่งคืนเป็นชนิด sendback', sb.kind === 'sendback' && sb.qty === 20);
+ok('ใบส่งคืนต้องพกเลข PO ไปด้วย ไม่งั้นหักกับใบเดิมไม่ได้',
+   sb.doc_ref === PO && sb.doc_kind === 'po');
+ok('ใบส่งคืนตัดสต็อกจริง (sign = -1)', signedQty(sb) === -20, String(signedQty(sb)));
+ok('ติดรหัสวัตถุดิบกับ P/N ไปด้วย', sb.material_code === C1 && sb.part_no === PN);
+throws('คืนเกินยอดที่ค้างอยู่ไม่ได้', () => sendbackEntry(overCase, { qty: 21, person: 'ก',
+                                                                 reason_code: 'over' }), 'ไม่เกิน');
+throws('คืนจำนวนศูนย์ไม่ได้', () => sendbackEntry(overCase, { qty: 0, person: 'ก', reason_code: 'over' }));
+throws('ต้องเลือกเหตุผล', () => sendbackEntry(overCase, { qty: 1, person: 'ก' }), 'เหตุผล');
+throws('เลือกอื่น ๆ แล้วต้องเขียนอธิบาย',
+       () => sendbackEntry(overCase, { qty: 1, person: 'ก', reason_code: 'other' }), 'อธิบาย');
+throws('เรื่องของขาดเอามาคืนไม่ได้',
+       () => sendbackEntry(makeFollow({ kind: 'short', entity: 'TUE-H', code: C1, po: PO,
+                                        type: 'ขาด', qty: 1 }), { qty: 1, person: 'ก',
+                                        reason_code: 'over' }), 'ของเกิน');
+throws('เรื่องที่ยกเลิกแล้วคืนไม่ได้',
+       () => sendbackEntry({ ...overCase, voided: true }, { qty: 1, person: 'ก',
+                                                        reason_code: 'over' }), 'ยกเลิก');
+ok('ล็อตไม่บังคับ — ของเกินคิดต่อ PO ล็อตมักไม่รู้ (A4)', KINDS.sendback.lot === false);
+
+// คืนแล้วต้องหายไปจากรายการที่ระบบคำนวณได้ทันที
+ok('บันทึกใบส่งคืนแล้ว ของเกินก้อนนั้นหายไปจากจอ',
+   overAll([recv(), sb], 'TUE-H', opt).length === 0);
+
+console.log('\n=== L. ใบนี้ยังรับมาไม่ครบอีกกี่รหัส (คำเตือนก่อนกดคืน) ===');
+/* ⚠️ เตือนอย่างเดียว ห้ามบล็อก (A4) — แต่ต้องเตือน เพราะ "รหัสหนึ่งเกินทั้งที่อีกรหัสยังไม่มา"
+ *    เป็นอาการของการคีย์รับเข้าผิดใบได้พอ ๆ กับเป็นเรื่องปกติ */
+const bomRowsOf = pn => pn === PN ? [{ code: C1, usage: 10 }, { code: C2, usage: 2 }] : [];
+const sOpt = { headerOf, bomRowsOf };
+
+const sh1 = shortOfPo([recv()], 'TUE-H', PO, sOpt);
+ok('รหัสที่ยังไม่ได้รับเลย ขึ้นว่าขาดเต็มจำนวน',
+   sh1.length === 1 && sh1[0].code === C2 && sh1[0].miss === 20 && sh1[0].have === 0,
+   JSON.stringify(sh1));
+ok('รหัสที่รับเกินแล้วไม่ขึ้นในรายการขาด', !sh1.some(x => x.code === C1));
+
+ok('รับครบทุกรหัสแล้วไม่เตือนอะไร',
+   shortOfPo([recv(), recv({ id: 'X1', material_code: C2, qty: 20 })], 'TUE-H', PO, sOpt).length === 0);
+const sh2 = shortOfPo([recv(), recv({ id: 'X2', material_code: C2, qty: 5 })], 'TUE-H', PO, sOpt);
+ok('รับมาบางส่วน บอกว่าขาดอีกเท่าไหร่', sh2[0].miss === 15 && sh2[0].have === 5);
+
+/* ⚠️ ต้องหักของที่คืนไปแล้วออกจากยอดรับ เงื่อนไขเดียวกับ overAll (ผู้ตรวจ #90 รอบ 1 ข้อสังเกต 3)
+ *    ของที่คืนได้ถูกจำกัดไว้ไม่เกินส่วนที่เกินอยู่แล้ว ใบที่คืนตามปกติจึงยังไม่ขึ้นว่าขาด */
+ok('รับเกินแล้วคืนส่วนที่เกิน ยังไม่นับว่าขาด',
+   shortOfPo([recv(), recv({ id: 'X3', material_code: C2, qty: 25 }),
+              { ...back, material_code: C2, qty: 5 }], 'TUE-H', PO, sOpt).length === 0);
+ok('คืนไปจนต่ำกว่าที่สูตรต้องใช้ ต้องขึ้นว่าขาดตามจริง',
+   (shortOfPo([recv(), recv({ id: 'X3b', material_code: C2, qty: 25 }),
+              { ...back, material_code: C2, qty: 8 }], 'TUE-H', PO, sOpt)[0] || {}).miss === 3);
+ok('ใบส่งคืนที่ยกเลิกแล้วไม่ถูกหัก',
+   shortOfPo([recv(), recv({ id: 'X3c', material_code: C2, qty: 20 }),
+              { ...back, material_code: C2, qty: 20, voided: true }], 'TUE-H', PO, sOpt).length === 0);
+ok('รายการที่ยกเลิกแล้วไม่นับเป็นของที่รับมา',
+   shortOfPo([recv(), recv({ id: 'X4', material_code: C2, qty: 20, voided: true })],
+             'TUE-H', PO, sOpt)[0].miss === 20);
+ok('ของนิติบุคคลอื่นไม่นับ (A3)',
+   shortOfPo([recv(), recv({ id: 'X5', material_code: C2, qty: 20, entity: 'TUE-U' })],
+             'TUE-H', PO, sOpt)[0].miss === 20);
+ok('ของ PO อื่นไม่นับ',
+   shortOfPo([recv(), recv({ id: 'X6', material_code: C2, qty: 20, doc_ref: PO2 })],
+             'TUE-H', PO, sOpt)[0].miss === 20);
+
+ok('ไม่รู้จำนวนสั่ง = ไม่มีอะไรให้เทียบ ตอบว่าง ไม่ใช่เตือนมั่ว',
+   shortOfPo([recv()], 'TUE-H', PO, { headerOf: () => ({ pn: PN, order: 0 }), bomRowsOf }).length === 0);
+ok('ไม่รู้จัก PO ใบนี้ ตอบว่าง', shortOfPo([recv()], 'TUE-H', 'TM9000H777', sOpt).length === 0);
+ok('ไม่มีสูตรของ P/N นั้น ตอบว่าง',
+   shortOfPo([recv()], 'TUE-H', PO, { headerOf, bomRowsOf: () => [] }).length === 0);
+throws('ลืมส่งนิติบุคคลต้องดัง', () => shortOfPo([recv()], '', PO, sOpt), 'A3');
+throws('ลืมส่งสูตรต้องดัง', () => shortOfPo([recv()], 'TUE-H', PO, { headerOf }), 'bomRowsOf');
+
+/* ⚠️ shortOfPo คืน [] ทั้งตอนรับครบและตอนเทียบไม่ได้ · บนกล่องที่ตัดของจริง
+ *    "ไม่มีคำเตือน" ต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา" (ผู้ตรวจ #90 รอบ 2 ข้อ 1) */
+ok('รับครบแล้ว = เทียบได้ และไม่มีเหตุผลค้าง',
+   shortWhyOf(PO, sOpt) === '' &&
+   shortOfPo([recv(), recv({ id: 'W1', material_code: C2, qty: 20 })], 'TUE-H', PO, sOpt).length === 0);
+ok('ไม่รู้จัก PO ใบนี้ บอกว่ายังไม่ได้นำเข้าไฟล์ PO',
+   shortWhyOf('TM9000H777', sOpt).includes('ยังไม่รู้จัก PO'), shortWhyOf('TM9000H777', sOpt));
+ok('ยังไม่รู้จำนวนสั่ง บอกตรง ๆ',
+   shortWhyOf(PO, { headerOf: () => ({ pn: PN, order: 0 }), bomRowsOf }).includes('จำนวนสั่ง'));
+ok('ไม่มี P/N ของใบนั้น บอกตรง ๆ',
+   shortWhyOf(PO, { headerOf: () => ({ pn: '', order: 3 }), bomRowsOf }).includes('P/N'));
+ok('ไม่มีสูตรของ P/N นั้น บอกว่าไม่มีสูตรและบอกว่า P/N ไหน',
+   shortWhyOf(PO, { headerOf, bomRowsOf: () => [] }) === 'ไม่มีสูตรของ ' + PN);
+ok('สูตรที่มีแต่บรรทัดต่อชิ้นศูนย์ ก็เทียบไม่ได้',
+   shortWhyOf(PO, { headerOf, bomRowsOf: () => [{ code: C1, usage: 0 }] }).includes('ไม่มีสูตร'));
+ok('ไม่มีเลข PO ก็ต้องบอก ไม่ใช่เงียบ', shortWhyOf('', sOpt) !== '');
+throws('ลืมส่งสูตรต้องดัง (shortWhyOf)', () => shortWhyOf(PO, { headerOf }), 'bomRowsOf');
+
+/* ⚠️ ยอดคืนมากกว่ายอดรับเกิดได้ถ้าใบรับเข้าถูกยกเลิกทีหลัง หรือเรื่องถูกตั้งด้วยมือเกินของจริง
+ *    ถ้าปล่อยให้ "รับมาแล้ว" ติดลบ เลขขาดจะโตเกินยอดสั่งจนอ่านเหมือนข้อมูลเพี้ยน
+ *    (ผู้ตรวจ #90 รอบ 3 ข้อ 1 · เจ้าของสั่งให้แก้) */
+{
+  const over = [recv(), { ...back, material_code: C2, qty: 50 }];   // คืน C2 ทั้งที่ไม่เคยรับ
+  const r = shortOfPo(over, 'TUE-H', PO, sOpt)[0];
+  ok('คืนมากกว่าที่รับ "ขาด" ต้องไม่เกินยอดที่สูตรต้องใช้',
+     r.have === 0 && r.miss === r.need && r.need === 20, JSON.stringify(r));
+}
+
+/* ── ข้อ 2 · วันที่ปิดเรื่องตามวันที่คนคีย์ · เวลาซิงค์ห้ามถอยหลัง (D5) ── */
+{
+  const base = makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO, part_no: PN, qty: 10 });
+  const yday = '2026-09-19T03:00:00.000Z';
+  const rec = closeFollow(base, { qty: 4, by: 'ก', doneAt: yday });
+  ok('done_at ตามวันที่ที่คนคีย์', rec.done_at === yday, rec.done_at);
+  ok('updated_at ยังเป็นเวลาจริง ไม่ถอยหลังตาม (D5)',
+     rec.updated_at !== yday && rec.updated_at > yday, rec.updated_at);
+  ok('ไม่ส่ง doneAt ก็ยังเป็นเวลาปัจจุบันเหมือนเดิม',
+     closeFollow(base, { qty: 4, by: 'ก' }).done_at > yday);
+  ok('done_qty ยังคิดเหมือนเดิม ไม่โดนวันที่กวน', rec.done_qty === 4 && rec.done === false);
+}
+
 console.log('\n=== M. ต่อสายหน้า over รอคืน (อ่านซอร์ส) ===');
 const appOver = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
 const htmlOver = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
@@ -458,8 +573,86 @@ ok('การ์ด "คำนวณไม่ได้" มีจริง — �
 ok('foStart ส่งวันที่ตามเวลาไทยเข้าไปเอง ไม่ปล่อยให้เป็น UTC',
    /fromOverRow\(row, \{[\s\S]{0,160}date: todayLocal\(\)/.test(appOver));
 
+// ปุ่มนี้ตัดของจริงออกจากคลัง ห้ามเป็นปุ่มติ๊กเดียวจบ
+ok('ปุ่มคืนเปิดกล่องให้ยืนยันก่อน ไม่ใช่ตัดสต็อกทันที',
+   /@click="askReturn\(r\.s\)"/.test(htmlOver) && /v-if="rb\.row"/.test(htmlOver));
+ok('กล่องคืนของให้เลือกล็อตจากของที่มีจริง และไม่ใช้ datalist (issue #26)',
+   /rbLots/.test(htmlOver) && /@click="rb\.lot = l\.lot"/.test(htmlOver)
+   && !/id="rblots"/.test(htmlOver));
+ok('กล่องคืนของบอกยอดหลังคืน และย้อมแดงเมื่อติดลบ',
+   /rbAfter/.test(htmlOver) && /rbAfter < 0/.test(htmlOver));
+/* ⚠️ เคมีคิดเป็นกิโลกรัม มีทศนิยม · ลบ float ดิบ ๆ ในเทมเพลตจะได้ 1.3499999999999999
+ *    ขณะที่ตารางข้างหลังขึ้น 1.35 เพราะผ่าน remainOf — สองตัวเลขในจอเดียวกันไม่ตรงกัน
+ *    บนกล่องที่ตัดของจริงออกจากคลัง (ผู้ตรวจ #90 รอบ 1 · INVARIANTS A2) */
+ok('ยอด "ยังค้าง" ในกล่องคืนของมาจาก remainOf ไม่ใช่ลบ float ดิบ ๆ ในเทมเพลต — A2',
+   /ยังค้าง \{\{ rbRemain \}\}/.test(htmlOver)
+   && !/rb\.row\.qty\s*-\s*\(?rb\.row\.done_qty/.test(htmlOver));
+ok('rbRemain ต่อสายไว้จริงและส่งออกให้เทมเพลตใช้ได้',
+   /const rbRemain = computed\(\(\) => \(rb\.row \? remainOf\(rb\.row\) : 0\)\)/.test(appOver)
+   && /\brbRemain\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+{ // ค่าที่ rbRemain คืน ต้องตรงกับค่าตั้งต้นของช่อง "จำนวนที่คืน" เป๊ะ (ทางเดียวกัน)
+  const frac2 = { qty: 2.96, done_qty: 1.61 };
+  ok('เคสทศนิยมที่เคยโชว์ยาวเกินจอ ผ่าน remainOf แล้วได้ 1.35',
+     remainOf(frac2) === 1.35 && frac2.qty - frac2.done_qty !== 1.35,
+     `${remainOf(frac2)} vs ${frac2.qty - frac2.done_qty}`);
+}
+ok('เตือนเมื่อใบนั้นยังรับมาไม่ครบ แต่ยังกดต่อได้ (A4)',
+   /v-if="rbShort\.length"/.test(htmlOver)
+   && /:disabled="!rbReady \|\| rb\.busy"/.test(htmlOver));
+ok('บันทึกลงสมุดก่อน แล้วค่อยปิดเรื่อง และผูกเลขที่รายการไว้ให้ไล่ย้อนได้',
+   /db\.put\('entries', e\)[\s\S]{0,800}rec\.return_entry_id =/.test(appOver));
+
+/* ── ข้อสังเกตหกข้อของผู้ตรวจ #90 (เจ้าของสั่งให้แก้ 20 ก.ย. 2026) ── */
+ok('จับค่าจาก rb.row ไว้ก่อน await — กล่องปิดกลางคันแล้วต้องไม่โยน TypeError',
+   /const row = plain\(rb\.row\);[\s\S]{0,120}const qty = Number\(rb\.qty\);/.test(appOver)
+   && !/flash\(`คืน \$\{rb\.row/.test(appOver));
+ok('คืนหลายรอบต้องต่อท้ายเลขที่รายการ ไม่ทับของเดิม',
+   /rec\.return_entry_id = \[String\(row\.return_entry_id[\s\S]{0,60}\.join\(' '\)/.test(appOver));
+ok('กล่องคืนของมีช่องวันที่ และส่ง atFrom(rb.date) เข้าไป',
+   /v-model="rb\.date" type="date"/.test(htmlOver) && /at: atFrom\(rb\.date\)/.test(appOver)
+   && /rb\.date = todayLocal\(\)/.test(appOver));
+ok('กล่องส่งวันที่ที่คนคีย์ไปเป็นวันที่ปิดเรื่องด้วย',
+   /closeFollow\(row, \{ qty, by: rb\.person\.trim\(\), doneAt: atFrom\(rb\.date\) \}\)/.test(appOver));
+ok('ยังไม่เลือกนิติบุคคล กล่องต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ (A3)',
+   /if \(!entity\.value\) return 'ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';/.test(appOver)
+   && /const rbShortWhy = computed/.test(appOver));
+ok('เทียบไม่ได้ต้องขึ้นบอกในกล่อง ไม่ใช่เงียบเหมือนตอนรับครบ',
+   /const rbShortWhy = computed/.test(appOver) && /shortWhyOf\(rb\.row\.po/.test(appOver)
+   && /v-if="rbShortWhy"/.test(htmlOver)
+   && /\brbShortWhy\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
 ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
    /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
+
+/* ── ผู้ตรวจ #90 รอบ 4 ข้อ 1 — วันที่คืนที่โชว์กลับมาในตาราง ──────────────
+ * done_at ของเรื่องของเกินเป็นวันที่ที่คนเลือกเอง (atFrom) แล้ว
+ * ถ้าเทมเพลต slice เอา 10 ตัวแรกของ ISO จะได้วันที่ตาม UTC
+ * คนกะเช้ากดตอนตีห้าครึ่งจะเห็น "เมื่อวาน" ขณะที่รายการในสมุดลงวันที่ที่เลือกจริง
+ * (ตรวจเฉพาะบล็อกแท็บ fover — บรรทัดของแท็บ fshort เป็นของเดิม ไม่ใช่ของใบนี้) */
+{
+  const iOver = htmlOver.indexOf(`tab==='fover'`);
+  const foverSrc = iOver < 0 ? ''
+    : htmlOver.slice(iOver, htmlOver.indexOf(`v-else-if="tab===`, iOver + 1));
+  ok('หาบล็อกแท็บ over รอคืน ใน index.html เจอ', foverSrc.length > 0);
+  ok('วันที่คืนในตารางผ่าน localDate ไม่ slice ISO เอาเอง',
+     /คืน \{\{ localDate\(r\.s\.done_at\) \}\}/.test(foverSrc)
+     && !/done_at[^}]*\.slice\(0,\s*10\)/.test(foverSrc));
+  ok('localDate ส่งออกให้เทมเพลตใช้ได้จริง',
+     /\blocalDate\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+}
+{ /* พิสูจน์ว่าสองวิธีให้คนละคำตอบจริง ไม่ใช่เทสที่เขียวทั้งก่อนและหลัง
+   * เครื่องในโรงงานตั้งเป็นเวลาไทย (+7) แต่เครื่องที่รันเทสอาจเป็น UTC
+   * จึงเลือกเวลาหลังเที่ยงคืนนิดเดียว ซึ่งเลื่อนวันแน่นอนในทุกโซนที่เร็วกว่า UTC */
+  const early = new Date(2026, 8, 19, 0, 30, 0);
+  const doneAt = atFrom('2026-09-19', early);
+  const rec = closeFollow(makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO,
+                                       part_no: PN, qty: 10 }),
+                          { qty: 10, by: 'ก', doneAt });
+  ok('วันที่คืนที่คนเลือกอ่านกลับมาผ่าน localDate ได้ตรงเดิม',
+     localDate(rec.done_at) === '2026-09-19', rec.done_at);
+  const eastOfUtc = early.getTimezoneOffset() < 0;   // ไทยคือ -420
+  ok('โซนที่เร็วกว่า UTC — slice ISO ได้คนละวันกับ localDate (เครื่องที่รันที่ UTC ข้ามข้อนี้)',
+     !eastOfUtc || rec.done_at.slice(0, 10) === '2026-09-18', rec.done_at);
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

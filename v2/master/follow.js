@@ -15,7 +15,7 @@
  * ไม่เขียนลงฐานข้อมูลเอง ไม่แตะหน้าจอ คืนอ็อบเจกต์ให้ผู้เรียกไปบันทึก
  * แบบเดียวกับ core/count.js — เพื่อให้เทสด้วย node ล้วนได้โดยไม่ต้องมีเบราว์เซอร์
  */
-import { round5 } from '../core/ledger.js';
+import { round5, makeEntry } from '../core/ledger.js';
 import { resolveEntity } from './entities.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
@@ -149,8 +149,12 @@ export function overdue(row, today) {
  * ปิดเรื่อง — ปิดทั้งใบ หรือปิดบางส่วนเมื่อของทยอยมา
  *
  * ไม่ส่ง qty มา = ปิดทั้งใบ (เคสปกติที่กดปุ่มเดียวจบ)
+ *
+ * `doneAt` = วันที่ของงานจริง (คนเลือกเอง คีย์ย้อนหลังได้) ลงเฉพาะ `done_at`
+ * ⚠️ `updated_at` ห้ามถอยหลังตาม — เป็นเวลาที่ชั้นซิงค์ใช้ตัดสินว่าของใครใหม่กว่า
+ *    ถอยหลังแล้วการแก้นี้จะถูกเครื่องอื่นมองข้ามตลอดไป (INVARIANTS D5)
  */
-export function closeFollow(row, { qty, by = '', at } = {}) {
+export function closeFollow(row, { qty, by = '', at, doneAt } = {}) {
   if (!row) throw new Error('ไม่มีรายการให้ปิด');
   if (row.voided) throw new Error('รายการนี้ถูกยกเลิกไปแล้ว ปิดไม่ได้');
   const now = txt(at) || new Date().toISOString();
@@ -172,7 +176,7 @@ export function closeFollow(row, { qty, by = '', at } = {}) {
   // ⚠️ qty ต้องปัดด้วย — done_qty ปัดแล้ว ถ้า qty ยังดิบ การปิดยอดที่เหลือพอดีจะไม่ติด done
   const q = round5(Number(row.qty) || 0);
   return { ...row, done_qty, done: q > 0 ? done_qty >= q : true,
-           done_at: now, done_by: txt(by), updated_at: now };
+           done_at: txt(doneAt) || now, done_by: txt(by), updated_at: now };
 }
 
 /**
@@ -415,6 +419,74 @@ export function overPending(rows, follows) {
 }
 
 /**
+ * เตือนเรื่อง "ใบนี้ยังรับมาไม่ครบ" ให้ใบนี้ได้ไหม — คืน '' ถ้าเตือนได้ · ถ้าไม่ได้คืนว่าติดตรงไหน
+ *
+ * ⚠️ มีตัวนี้เพราะ shortOfPo คืน [] ทั้งตอน "รับครบแล้ว" และตอน "ไม่มีข้อมูลให้เทียบ"
+ *    บนกล่องที่ตัดของจริงออกจากคลัง "ไม่มีคำเตือน" ต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา"
+ *    (ผู้ตรวจ #90 รอบ 2 ข้อ 1 · เจ้าของสั่งให้แก้ 20 ก.ย. 2026)
+ */
+export function shortWhyOf(po, { headerOf, bomRowsOf } = {}) {
+  if (typeof headerOf !== 'function' || typeof bomRowsOf !== 'function') {
+    throw new Error('ต้องส่ง headerOf และ bomRowsOf เข้ามา');
+  }
+  const key = txt(po);
+  if (!key) return 'ไม่มีเลข PO ให้เทียบ';
+  const head = headerOf(key);
+  if (!head) return 'ยังไม่รู้จัก PO ใบนี้ — ยังไม่ได้นำเข้าไฟล์ PO ของวันนั้น';
+  if (!txt(head.pn)) return 'ยังไม่รู้ P/N ของใบนี้';
+  if (!(Number(head.order) || 0)) return 'ยังไม่รู้จำนวนสั่งของใบนี้';
+  const rows = (bomRowsOf(head.pn) || []).filter(b => (Number(b && b.usage) || 0) > 0);
+  if (!rows.length) return 'ไม่มีสูตรของ ' + txt(head.pn);
+  return '';
+}
+
+/**
+ * PO ใบนี้ยังรับมาไม่ครบตามสูตรอีกกี่รหัส — คิดสดจากของวันนี้ ไม่ใช่ค่าที่แช่แข็งไว้
+ *
+ * ⚠️ ใช้เตือนก่อนกดคืน ไม่ใช่ใช้บล็อก (INVARIANTS A4)
+ *    รหัสหนึ่งเกินในขณะที่อีกรหัสของใบเดียวกันยังมาไม่ครบ เกิดขึ้นจริงได้
+ *    แต่ก็เป็นอาการของ "คีย์รับเข้าผิดใบ" ได้เหมือนกัน คนกดควรได้เห็นก่อนตัดของจริงออกจากคลัง
+ *
+ * ⚠️ [] แปลว่า "ไม่มีรหัสไหนขาด" เท่านั้น · กรณีที่เทียบไม่ได้ก็คืน [] เหมือนกัน
+ *    คนเรียกที่ต้องบอกผู้ใช้ให้ถาม shortWhyOf ควบคู่เสมอ
+ *
+ * bomRowsOf(pn) ต้องคืนบรรทัดสูตรที่ยังใช้อยู่ [{ code, usage }]
+ */
+export function shortOfPo(entries, entity, po, { headerOf, bomRowsOf } = {}) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  if (shortWhyOf(po, { headerOf, bomRowsOf })) return [];
+  const key = txt(po);
+  const head = headerOf(key);
+  if (!head) return [];   // shortWhyOf กันไว้แล้ว · กันไว้อีกชั้นกันคนแก้สองที่ให้หลุดจากกัน
+  const order = Number(head.order) || 0;
+
+  /* ⚠️ หักยอดที่ส่งคืนไปแล้วด้วย เงื่อนไขการนับต้องตรงกับ overAll
+   * ไม่หัก ใบที่คืนของไปแล้วจะกลายเป็น "รับไม่ครบ" ทั้งที่เป็นของที่เราคืนเอง */
+  const got = new Map();
+  for (const e of entries || []) {
+    if (!e || e.entity !== entity || e.voided) continue;
+    if (e.kind !== 'receive' && e.kind !== 'sendback') continue;
+    if (txt(e.doc_ref) !== key) continue;
+    const c = txt(e.material_code).toUpperCase();
+    const sign = e.kind === 'receive' ? 1 : -1;
+    got.set(c, round5((got.get(c) || 0) + sign * (Number(e.qty) || 0)));
+  }
+
+  const out = [];
+  for (const b of bomRowsOf(head.pn) || []) {
+    const need = round5((Number(b && b.usage) || 0) * order);
+    if (need <= 0) continue;
+    /* ⚠️ ตัดไม่ให้ติดลบ — ยอดคืนที่มากกว่ายอดรับเกิดได้ถ้าใบรับเข้าถูกยกเลิกทีหลัง
+     * หรือเรื่องถูกตั้งด้วยมือเกินของจริง · ปล่อยติดลบแล้วคำเตือนจะขึ้น "ขาด 40"
+     * ทั้งที่ทั้งใบสั่งมาแค่ 4 ซึ่งอ่านเหมือนข้อมูลเพี้ยนมากกว่าคำเตือน (ผู้ตรวจ #90 รอบ 3 ข้อ 1) */
+    const have = Math.max(0, got.get(txt(b.code).toUpperCase()) || 0);
+    const miss = round5(need - have);
+    if (miss > 0) out.push({ code: txt(b.code), need, have: round5(have), miss });
+  }
+  return out;
+}
+
+/**
  * ตั้งเรื่องคืนจากแถวที่ระบบคำนวณได้
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้
  *    ใบรับเข้าที่คีย์ทีหลังจะทำให้ยอดของเรื่องที่ตั้งไปแล้วขยับเองถ้าไม่แช่แข็ง
@@ -430,5 +502,28 @@ export function fromOverRow(row, { entity, person = '', at = '', unit = '', date
     // ⚠️ คนเรียกต้องส่ง date ตามเวลาไทยมาเอง — ค่าตั้งต้นของ makeFollow สไลซ์จาก
     //    toISOString() ซึ่งเป็น UTC ช่วงตีศูนย์ถึงเจ็ดโมงเช้าจะได้ "ตั้งวันที่" เป็นเมื่อวาน
     by: person, now: at, date
+  });
+}
+
+/**
+ * ใบส่งคืน Delta หนึ่งรายการ — คืน makeEntry ให้ผู้เรียกไปบันทึก ไม่เขียนเอง
+ *
+ * ⚠️ ต้องพกเลข PO ไปด้วย (doc_ref) ของเกินนิยามต่อใบ
+ *    ไม่พกไปแล้วยอดที่คืนจะหักกับใบไหนไม่ได้ และ overAll จะเห็นของเกินก้อนเดิมอีกรอบ
+ */
+export function sendbackEntry(row, { qty, person, device = '', at = '',
+                                     reason_code = '', lot = '', note = '' } = {}) {
+  if (!row) throw new Error('ไม่มีเรื่องให้คืน');
+  if (row.kind !== 'over') throw new Error('คืนของได้เฉพาะเรื่องของเกิน');
+  if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
+  const n = Number(qty);
+  if (!isFinite(n) || n <= 0) throw new Error('จำนวนที่คืนต้องมากกว่าศูนย์');
+  if (round5(n) > remainOf(row)) {
+    throw new Error(`คืนได้ไม่เกินยอดที่ค้างอยู่ (${remainOf(row)})`);
+  }
+  return makeEntry({
+    kind: 'sendback', entity: row.entity, material_code: row.code,
+    qty: n, lot, doc_kind: 'po', doc_ref: row.po, part_no: row.part_no,
+    person, device, at, reason_code, note
   });
 }
