@@ -5,7 +5,7 @@
  * เลข PO · รหัสวัตถุดิบ · จำนวน ในไฟล์นี้ **สมมติขึ้นทั้งหมด** (repo นี้เป็น public)
  * รูปแบบของไฟล์จริงถูกยกมาแค่โครง — หัวตารางแถวสอง · VAR เป็นสูตร · หมายเหตุปนสามแบบ
  */
-import { matDate, numOf, readNote, rowToFollow, parseMatFollow, planMatFollow, matKey }
+import { matDate, numOf, readNote, rowToFollow, parseMatFollow, planMatFollow, matKey, dedupeMatRows }
   from '../v2/master/matfollow.js';
 import { makeFollow, closeFollow, voidFollow, statusOf, remainOf } from '../v2/master/follow.js';
 
@@ -165,6 +165,41 @@ ok('กุญแจจับคู่แยกของขาดกับขอ�
    !== matKey({ entity: 'TUE-H', po: PO_H, code: C1, kind: 'over' }));
 throws('สร้างเรื่องโดยไม่รู้นิติบุคคลไม่ได้ (A3)',
        () => planMatFollow([{ ...fileRows[0], entity: '' }], [], {}), 'A3');
+
+console.log('\n=== F. ไฟล์แบบต่อท้าย · ไฟล์ที่ส่งมาไม่ครบทุกโรงงาน ===');
+/* ⚠️ เจ้าของยังไม่แน่ใจว่า Delta ส่งใหม่ทั้งใบหรือต่อท้ายไปเรื่อย ๆ (20 ก.ย. 2026)
+ * ตัวอ่านต้องถูกทั้งสองแบบ — จับคู่ด้วยกุญแจ PO+รหัส+ชนิด ไม่ได้ดูตำแหน่งแถว */
+{
+  const dup = parseMatFollow({ 'H-M5': [head, cols,
+    line({ date: 25413, order: 100, actual: 80 }),        // ยอดเก่า ขาด 20
+    line({ date: 25420, order: 100, actual: 95 })         // แถวที่ใหม่กว่า ขาดเหลือ 5
+  ] }).rows;
+  const { rows, dropped } = dedupeMatRows(dup);
+  ok('คู่เดิมที่โผล่สองแถว เอาแถวที่วันที่ใหม่กว่า',
+     rows.length === 1 && rows[0].qty === 5 && dropped === 1, JSON.stringify(rows.map(r => r.qty)));
+
+  const tie = parseMatFollow({ 'H-M5': [head, cols,
+    line({ date: 25413, order: 100, actual: 80 }),
+    line({ date: 25413, order: 100, actual: 90 })
+  ] }).rows;
+  ok('วันที่เท่ากัน เอาแถวล่างสุด (คนพิมพ์ต่อท้ายลงไปเรื่อย ๆ)', dedupeMatRows(tie).rows[0].qty === 10);
+
+  const plan = planMatFollow(dup, [], {});
+  ok('planMatFollow ตัดแถวซ้ำให้เอง ไม่สร้างสองใบของคู่เดียวกัน',
+     plan.create.length === 1 && plan.dropped === 1);
+}
+/* ⚠️ บางรอบ Delta อาจส่งมาไม่ครบทุกโรงงาน · ถ้าไม่จำกัดขอบเขตของ "หายจากไฟล์"
+ * รอบที่ส่งมาแค่ฝั่งเดียวจะประกาศว่าอีกฝั่งหายทั้งกอง แล้วคนจะเลิกเชื่อรายการนี้ */
+{
+  const onlyH = parseMatFollow({ 'H-M5': [head, cols, line({ order: 100, actual: 80 })] }).rows;
+  const mineU = makeFollow({ kind: 'short', entity: 'TUE-U', code: C2, po: PO_U, type: 'ขาด', qty: 9 });
+  const mineH = makeFollow({ kind: 'short', entity: 'TUE-H', code: C2, po: PO_H2, type: 'ขาด', qty: 9 });
+  const p = planMatFollow(onlyH, [mineU, mineH], {});
+  ok('ไฟล์มาแค่ฝั่ง H — เรื่องฝั่ง U ต้องไม่ถูกหาว่าหายจากไฟล์',
+     p.gone.length === 1 && p.gone[0].cur.entity === 'TUE-H',
+     JSON.stringify(p.gone.map(g => g.cur.entity)));
+  ok('บอกด้วยว่าไฟล์รอบนี้ครอบคลุมนิติบุคคลไหนบ้าง', p.entities.join(',') === 'TUE-H');
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

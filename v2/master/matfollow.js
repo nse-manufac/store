@@ -148,7 +148,25 @@ export const matKey = r => txt(r.entity) + '|' + txt(r.po) + '|' + txt(r.code).t
  *    เครื่องรุ่นเก่าเขียน source ทับเป็น 'file' ได้ตอน migrate ถ้าไปจับคู่ด้วย source
  *    ของเดิมจะกลายเป็นคนละแถวแล้วเกิดเรื่องซ้ำสองใบของ PO เดียวกัน
  */
-export function planMatFollow(parsed, existing = [], { now = '', by = '' } = {}) {
+export function dedupeMatRows(parsed = []) {
+  /* ⚠️ ไฟล์อาจเป็นแบบ "ต่อท้ายไปเรื่อย ๆ" ไม่ใช่แบบส่งใหม่ทั้งใบ (เจ้าของยังไม่แน่ใจ 20 ก.ย. 2026)
+   * ถ้าต่อท้าย คู่ PO+รหัสเดิมจะโผล่ได้หลายแถว โดยแถวหลังคือยอดที่แก้แล้ว
+   * เอาแถวที่วันที่ใหม่สุดไว้ · วันที่เท่ากันเอาแถวล่างสุด (คนพิมพ์ต่อท้ายลงไปเรื่อย ๆ)
+   * จับแถวแรกไว้จะได้ยอดเก่าค้างอยู่ทั้งที่ Delta แก้มาแล้ว — ผิดแบบเงียบสนิท */
+  const keep = new Map();
+  (parsed || []).forEach((r, i) => {
+    const k = matKey(r);
+    const cur = keep.get(k);
+    if (!cur || txt(r.date) > txt(cur.row.date) || (txt(r.date) === txt(cur.row.date) && i > cur.i)) {
+      keep.set(k, { row: r, i });
+    }
+  });
+  return { rows: [...keep.values()].sort((a, b) => a.i - b.i).map(x => x.row),
+           dropped: (parsed || []).length - keep.size };
+}
+
+export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) {
+  const { rows: parsed, dropped } = dedupeMatRows(input);
   const live = (existing || []).filter(r => r && !r.voided && (r.kind === 'short' || r.kind === 'over'));
   const byKey = new Map();
   for (const r of live) {
@@ -189,9 +207,16 @@ export function planMatFollow(parsed, existing = [], { now = '', by = '' } = {})
     update.push({ row: p, cur, rec, wasDone: !!cur.done, nowDone: rec.done });
   }
 
-  /** เรื่องที่ยังเปิดอยู่แต่ไม่อยู่ในไฟล์รอบนี้ — ไม่ลบให้ เพราะอาจเป็นของที่คีย์เอง */
-  const gone = live.filter(r => !seen.has(matKey(r)) && statusOf(r) !== 'done')
+  /**
+   * เรื่องที่ยังเปิดอยู่แต่ไม่อยู่ในไฟล์รอบนี้ — **บอกเฉย ๆ ไม่ลบให้ ไม่ปิดให้**
+   *
+   * ⚠️ ดูเฉพาะนิติบุคคลที่มีอยู่ในไฟล์รอบนี้เท่านั้น
+   *    Delta ส่งมาทีละชีต และบางรอบอาจส่งมาไม่ครบทุกโรงงาน
+   *    ถ้าไม่จำกัดขอบเขต รอบที่ส่งมาแค่ฝั่งเดียว จะประกาศว่าอีกฝั่ง "หายจากไฟล์" ทั้งกอง
+   */
+  const ents = new Set(parsed.map(p => txt(p.entity)).filter(Boolean));
+  const gone = live.filter(r => ents.has(txt(r.entity)) && !seen.has(matKey(r)) && statusOf(r) !== 'done')
                    .map(r => ({ cur: r, remain: remainOf(r), source: txt(r.source) || 'manual' }));
 
-  return { create, update, same, gone };
+  return { create, update, same, gone, dropped, entities: [...ents].sort() };
 }
