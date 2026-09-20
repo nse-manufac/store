@@ -63,7 +63,26 @@ jobs:
       # ความเสี่ยงต่ำ แต่ปิดสนิทได้ด้วยบรรทัดเดียว
       # ═══════════════════════════════════════════════════════════════
       - name: ล้างไฟล์ผลลัพธ์เก่า
-        run: rm -f review-report.md review-verdict.txt fallback.md
+        run: rm -f review-report.md review-verdict.txt fallback.md pr.txt
+
+      # ═══════════════════════════════════════════════════════════════
+      # ส่งเลข PR ให้ผู้ตรวจทางไฟล์ ไม่ใช่ทาง ${{ }} ใน prompt
+      #
+      # เพราะค่าที่มี ${{ }} อยู่ข้างในติดเพดาน 21,000 ไบต์ (ดูคอมเมนต์เหนือ prompt)
+      # พอเลขไม่ได้อยู่ใน prompt แล้ว prompt ก็ไม่มี ${{ }} เหลือเลย = ไม่ติดเพดานอีก
+      #
+      # ⚠️ อย่าเปลี่ยนไปใช้ `gh pr view` เปล่า ๆ แทน — actions/checkout ของ event
+      #    pull_request วางโค้ดไว้แบบ detached HEAD ไม่ได้อยู่บน branch ไหน
+      #    `gh` จึงหา PR จากชื่อ branch ไม่เจอ
+      # ═══════════════════════════════════════════════════════════════
+      - name: เขียนเลข PR ลงไฟล์ให้ผู้ตรวจอ่าน
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          printf 'pr_number=%s\nrepo=%s\n' "$PR" "$REPO" > pr.txt
+          cat pr.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -82,7 +101,14 @@ jobs:
       - name: เตรียมเครื่องมือทดสอบ
         run: npm install --no-audit --no-fund
 
+      # ⚠️ **`timeout-minutes` ตรงนี้ต้องน้อยกว่าของ job เสมอ** (24 < 30)
+      #    job ที่ชนเพดานเวลาของตัวเอง GitHub นับเป็น **cancelled** ไม่ใช่ failed
+      #    แล้ว `if: !cancelled()` ของขั้นตอนส่งรายงานจะเป็นเท็จ = ไม่มีทั้งรายงานและ fallback
+      #    = เงียบเหมือนผ่าน ซึ่งเป็นอาการที่ทั้งไฟล์นี้ตั้งใจกำจัด
+      #    พอผู้ตรวจหมดเวลาที่ขั้นตอนแทน มันกลายเป็น step failure ซึ่ง `!cancelled()` รับแน่นอน
+      #    (ผู้ตรวจของ repo `plan` เป็นคนทักไว้ใน plan#92 — ยืนยันด้วยการอ่าน ยังไม่เคยเกิดจริง)
       - uses: anthropics/claude-code-action@v1
+        timeout-minutes: 24
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # ใช้ token ที่ GitHub ออกให้ workflow นี้โดยตรง แทนการติดตั้ง Claude GitHub App
@@ -129,9 +155,22 @@ jobs:
             --model claude-opus-5
             --max-turns 70
             --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git fetch:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(node:*),Bash(npm run test:core),Bash(npm test),Bash(npx playwright:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(grep:*),Bash(awk:*),Bash(wc:*),Bash(sed:*),Bash(sort:*),Bash(uniq:*),Bash(diff:*)"
+          # 🛑 **ห้ามใส่ `${{` `}}` ลงใน prompt เด็ดขาด** — ค่าที่มีมันอยู่ข้างในติดเพดาน
+          #    **21,000 ไบต์** ของ GitHub (ไม่ใช่ 21,000 ตัวอักษร · ไทยตัวละ 3 ไบต์
+          #    ของจริงจึงได้ราว 7,000 ตัวอักษร) ส่วน prompt ที่ไม่มีมันเลย ไม่ถูกนับ
+          #
+          #    เกินเพดานแล้ว **workflow ทั้งไฟล์กลายเป็นไฟล์เสีย ไม่ใช่แค่ขั้นตอนนี้ล้ม**
+          #    PR ใบนั้นจะไม่มีผู้ตรวจเลย และ **หน้า PR ไม่ขึ้นเช็คสีแดงให้เห็นด้วย**
+          #    ต้องเปิดหน้า run ถึงจะเห็น "Exceeded max expression length 21000"
+          #    (เจอจริงที่ repo `plan` เมื่อ 20 ก.ย. 2026 เกินไป 64 ไบต์ — ใบนั้นไม่ถูกตรวจ
+          #    โดยไม่มีอะไรฟ้อง · ตอนนั้น prompt ของที่นี่เหลือระยะแค่ 2,519 ไบต์)
+          #
+          #    ต้องส่งค่าอะไรเข้าไปให้ผู้ตรวจ ให้เขียนลงไฟล์ในขั้นตอนก่อนหน้าแทน (ดู pr.txt)
+          #    ด่าน `.github/workflows/prompt-size.yml` ตรวจข้อนี้ให้ทุก PR
           prompt: |
-            ตรวจ PR #${{ github.event.pull_request.number }} ของ ${{ github.repository }}
-            ก่อนที่เจ้าของจะอ่าน
+            ตรวจ PR ของ repo นี้ ก่อนที่เจ้าของจะอ่าน
+            **เลข PR กับชื่อ repo อยู่ในไฟล์ `pr.txt` ที่ราก repo — อ่านก่อนเริ่มเสมอ**
+            (`pr_number=<เลข>` · `repo=<เจ้าของ/ชื่อ>`) ทุกคำสั่ง `gh` ข้างล่างให้ใส่เลขนั้นแทน `<PR>`
 
             `Stock-log.html` และ `v2/` คือระบบบันทึกสต็อกที่พนักงานโรงงานคีย์ของจริงทุกวัน
             **push เข้า main = ขึ้น production ทันที** ไม่มี staging ไม่มี build step
@@ -249,7 +288,7 @@ jobs:
             ## อ่านรอบก่อนแล้วไปที่อื่น
 
             ```
-            gh pr view ${{ github.event.pull_request.number }} --json comments -q '.comments[].body'
+            gh pr view <PR> --json comments -q '.comments[].body'
             ```
 
             PR นี้อาจถูกตรวจมาแล้วหลายรอบ และช่างซ่อมอาจแก้ตามที่ทักไปแล้ว
@@ -346,6 +385,14 @@ jobs:
           set -euo pipefail
 
           if [ -s review-report.md ]; then
+            # ⚠️ คอมเมนต์ของ GitHub ยาวได้ไม่เกิน 65,536 ตัวอักษร เกินแล้ว `gh pr comment` ปฏิเสธ
+            #    และ `set -e` จะทำให้ขั้นตอนนี้ล้มโดย **ไม่ตกไปที่ fallback** = เงียบเหมือนผ่าน
+            #    ตัดให้พอดีดีกว่าไม่ได้รายงานเลย
+            if [ "$(wc -c < review-report.md)" -gt 60000 ]; then
+              head -c 60000 review-report.md > report-cut.md
+              printf '\n\n---\n⚠️ **รายงานยาวเกินโควตาคอมเมนต์ของ GitHub จึงถูกตัด** — ตัวเต็มอยู่ใน log ของ run นี้\n' >> report-cut.md
+              mv report-cut.md review-report.md
+            fi
             printf '\n\n<!-- ตรวจแล้วที่ %s -->\n' "$SHA" >> review-report.md
             gh pr comment "$PR" -R "$REPO" --body-file review-report.md
             echo "ส่งรายงานแล้ว ($(wc -c < review-report.md) ไบต์)"

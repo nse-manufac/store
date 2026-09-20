@@ -11,10 +11,12 @@ import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
-         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf }
+         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
-import { signedQty, KINDS } from '../v2/core/ledger.js';
+import { normCode } from '../v2/master/materials.js';
+import { signedQty, KINDS, round5 } from '../v2/core/ledger.js';
 import { localDate, atFrom } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
@@ -653,6 +655,379 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
   ok('โซนที่เร็วกว่า UTC — slice ISO ได้คนละวันกับ localDate (เครื่องที่รันที่ UTC ข้ามข้อนี้)',
      !eastOfUtc || rec.done_at.slice(0, 10) === '2026-09-18', rec.done_at);
 }
+
+console.log('\n=== N. ซื้อแมททดแทนของเสีย ===');
+/* ของเสียถูกตัดออกจากคลังไปแล้ว · ของที่หายไปต้องสั่งทดแทนผ่าน Delta
+ * เรื่องผูกกับรายการของเสียใบนั้นเสมอ ไม่ใช่ผูกกับรหัสลอย ๆ */
+const scrap = (o = {}) => ({ id: 'S1', entity: 'TUE-H', kind: 'scrap', material_code: C1,
+  qty: 6, lot: 'L-9', at: '2026-09-10T03:00:00.000Z', reason_code: 'wind',
+  person: 'ก', note: '', voided: false, ...o });
+
+{
+  const list = pendingScraps([scrap(), recv()], 'TUE-H', []);
+  ok('ของเสียที่ยังไม่มีใครตั้งเรื่อง ขึ้นในรายการ · ใบรับเข้าไม่ปนมา',
+     list.length === 1 && list[0].id === 'S1' && list[0].qty === 6, JSON.stringify(list));
+  ok('พกล็อตกับเหตุผลมาให้ดูด้วย', list[0].lot === 'L-9' && list[0].reason_code === 'wind');
+}
+ok('ของเสียที่ยกเลิกแล้วไม่ขึ้น (B1)',
+   pendingScraps([scrap({ voided: true })], 'TUE-H', []).length === 0);
+ok('ของเสียของนิติบุคคลอื่นไม่ปน (A3)',
+   pendingScraps([scrap({ entity: 'TUE-U' })], 'TUE-H', []).length === 0);
+throws('ลืมส่งนิติบุคคลต้องดัง ไม่ใช่รวมทุกโรงงาน',
+       () => pendingScraps([scrap()], '', []), 'A3');
+ok('ใหม่สุดขึ้นก่อน',
+   pendingScraps([scrap(), scrap({ id: 'S2', at: '2026-09-12T03:00:00.000Z' })],
+                 'TUE-H', [])[0].id === 'S2');
+
+const scrapRow = pendingScraps([scrap()], 'TUE-H', [])[0];
+const buyCase = fromScrapRow(scrapRow, { entity: 'TUE-H', person: 'ผู้ทดสอบ', unit: 'PCS' });
+ok('ตั้งเรื่องแล้วได้งานตามแบบซื้อทดแทน',
+   buyCase.kind === 'buy' && buyCase.qty === 6 && buyCase.code === C1);
+ok('ผูกกับรายการของเสียใบนั้นไว้ ไล่ย้อนได้ว่าซื้อแทนของที่เสียครั้งไหน',
+   buyCase.scrap_entry_id === 'S1' && buyCase.source === 'auto');
+ok('PO ยังว่างได้ — ตอนตั้งเรื่องมักยังไม่รู้ว่า Delta จะออกใบไหน', buyCase.po === '');
+throws('ตั้งเรื่องโดยไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromScrapRow(scrapRow, {}), 'A3');
+throws('ไม่มีรายการของเสียก็ตั้งเรื่องไม่ได้',
+       () => fromScrapRow(null, { entity: 'TUE-H' }), 'ของเสีย');
+
+// ⚠️ ตั้งซ้ำใบเดิม = สั่งของสองเท่าโดยไม่มีใครรู้
+throws('ของเสียใบเดียวตั้งเรื่องซ้ำไม่ได้',
+       () => fromScrapRow(scrapRow, { entity: 'TUE-H', follows: [buyCase] }), 'ตั้งเรื่อง');
+ok('ตั้งเรื่องไว้แล้ว ของเสียใบนั้นหายจากรายการที่รอ',
+   pendingScraps([scrap()], 'TUE-H', [buyCase]).length === 0);
+ok('เรื่องที่ยกเลิกไปแล้วไม่กันไว้ — ของเสียใบนั้นต้องกลับมาตั้งเรื่องใหม่ได้',
+   pendingScraps([scrap()], 'TUE-H', [{ ...buyCase, voided: true }]).length === 1);
+ok('buyFor หาเรื่องที่ผูกอยู่เจอ และไม่สับสนกับของเสียใบอื่น',
+   buyFor([buyCase], 'S1') === buyCase && buyFor([buyCase], 'S2') === null);
+
+const got = linkReceive(buyCase, { entryId: 'E-IN-1', qty: 6, by: 'ผู้รับ',
+                                   doneAt: '2026-09-20T03:00:00.000Z' });
+ok('รับของครบแล้วเรื่องปิด', got.done === true && got.done_qty === 6);
+ok('ผูกเลขที่รายการรับเข้าไว้', got.receive_entry_id === 'E-IN-1');
+ok('วันที่รับของตามที่ส่งมา แต่เวลาซิงค์ยังเป็นเวลาจริง (D5)',
+   got.done_at === '2026-09-20T03:00:00.000Z' && got.updated_at > got.done_at);
+
+const part1 = linkReceive(buyCase, { entryId: 'E-IN-A', qty: 2, by: 'ก' });
+ok('รับมาบางส่วน เรื่องยังไม่ปิด', part1.done === false && remainOf(part1) === 4);
+const part2 = linkReceive(part1, { entryId: 'E-IN-B', qty: 4, by: 'ก' });
+ok('ของทยอยมา เลขที่รายการต้องต่อท้าย ไม่ทับของเดิม',
+   part2.receive_entry_id === 'E-IN-A E-IN-B' && part2.done === true, part2.receive_entry_id);
+
+// ⚠️ Delta ส่งเผื่อมาเกินเกิดขึ้นจริง · ปิดได้แค่ยอดที่ค้าง ไม่ใช่โยนทิ้งทั้งที่ของมาถึงแล้ว
+ok('รับมามากกว่าที่ตั้งเรื่องไว้ ต้องปิดเรื่องได้ ไม่ใช่ error',
+   linkReceive(buyCase, { entryId: 'E-IN-2', qty: 99, by: 'ก' }).done_qty === 6);
+
+throws('ผูกของที่รับมากับเรื่องของขาดไม่ได้',
+       () => linkReceive(makeFollow({ kind: 'short', entity: 'TUE-H', code: C1, po: PO,
+                                      type: 'ขาด', qty: 1 }), { entryId: 'E1', qty: 1 }), 'ซื้อทดแทน');
+throws('เรื่องที่ยกเลิกแล้วผูกไม่ได้',
+       () => linkReceive({ ...buyCase, voided: true }, { entryId: 'E1', qty: 1 }), 'ยกเลิก');
+throws('เรื่องที่ปิดไปแล้วผูกซ้ำไม่ได้', () => linkReceive(got, { entryId: 'E1', qty: 1 }), 'ปิด');
+throws('ไม่มีเลขที่รายการรับเข้า ผูกไม่ได้', () => linkReceive(buyCase, { qty: 1 }), 'เลขที่');
+throws('จำนวนที่รับต้องมากกว่าศูนย์', () => linkReceive(buyCase, { entryId: 'E1', qty: 0 }), 'ศูนย์');
+
+/* ⚠️ ผูกใบเดิมซ้ำ = ปิดยอดซ้ำสองรอบจากของกองเดียว (ผู้ตรวจรอบ 1 ข้อสังเกต 5) */
+{
+  const once = linkReceive(buyCase, { entryId: 'E-DUP', qty: 2, by: 'ก' });
+  throws('ผูกกับใบรับเข้าใบเดิมซ้ำไม่ได้',
+         () => linkReceive(once, { entryId: 'E-DUP', qty: 2, by: 'ก' }), 'ไปแล้ว');
+  ok('ใบอื่นยังผูกต่อได้ตามปกติ',
+     linkReceive(once, { entryId: 'E-OTHER', qty: 2, by: 'ก' }).receive_entry_id === 'E-DUP E-OTHER');
+}
+
+/* ── I · ของเสียต้นเรื่องถูกยกเลิกทีหลัง — ต้องเห็น ไม่ใช่ค้างเงียบ (เจ้าของสั่ง 20 ก.ย. 2026) ── */
+{
+  const dead = [scrap({ voided: true })];
+  const o = orphanBuys(dead, 'TUE-H', [buyCase]);
+  ok('ของเสียถูกยกเลิกทีหลัง เรื่องซื้อขึ้นเป็นรายการที่ต้นเหตุหายไป',
+     o.length === 1 && o[0].id === buyCase.id && o[0].why.includes('ยกเลิก'), JSON.stringify(o[0] || {}));
+  ok('ของเสียยังอยู่ดี ๆ ไม่ขึ้นเป็นรายการที่ต้องเตือน',
+     orphanBuys([scrap()], 'TUE-H', [buyCase]).length === 0);
+  ok('หารายการของเสียไม่เจอในสมุด ก็ต้องเตือนเหมือนกัน',
+     orphanBuys([], 'TUE-H', [buyCase])[0].why.includes('ไม่เจอ'));
+  ok('เรื่องที่รับของครบแล้ว ไม่ต้องเตือนย้อนหลัง',
+     orphanBuys(dead, 'TUE-H', [{ ...buyCase, done: true, done_qty: buyCase.qty }]).length === 0);
+  ok('เรื่องที่ยกเลิกไปแล้ว ไม่ต้องเตือน',
+     orphanBuys(dead, 'TUE-H', [{ ...buyCase, voided: true }]).length === 0);
+  ok('เรื่องของนิติบุคคลอื่นไม่ปน (A3)',
+     orphanBuys(dead, 'TUE-H', [{ ...buyCase, entity: 'TUE-U' }]).length === 0);
+  ok('เรื่องของขาด/ของเกิน ไม่เกี่ยวกับการ์ดนี้',
+     orphanBuys(dead, 'TUE-H', [{ ...buyCase, kind: 'short' }]).length === 0);
+  throws('ลืมส่งนิติบุคคลต้องดัง', () => orphanBuys(dead, '', [buyCase]), 'A3');
+  ok('ไม่ยกเลิกเรื่องให้เอง — คืนสำเนาพร้อมเหตุผล ของเดิมไม่ถูกแตะ (B1)',
+     o[0] !== buyCase && buyCase.voided === false && !('why' in buyCase));
+}
+
+console.log('\n=== O. ต่อสายหน้าซื้อแมททดแทน (อ่านซอร์ส) ===');
+const appBuy = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+const htmlBuy = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+
+ok('มีแท็บซื้อแมททดแทนในกลุ่ม Mat Follow up',
+   /\{ k: 'fbuy',\s+label: 'ซื้อแมททดแทน' \}/.test(appBuy));
+ok('มีแผงรองรับจริง ไม่ใช่ปุ่มที่กดแล้วได้จอเปล่า', htmlBuy.includes(`tab==='fbuy'`));
+ok('รายการของเสียที่รอ คิดจาก pendingScraps และกรองนิติบุคคล (A3)',
+   /pendingScraps\(entries\.value, entity\.value, shorts\.value\)/.test(appBuy));
+ok('ตั้งเรื่องส่ง follows เข้าไปด้วย — กันตั้งซ้ำใบเดิม',
+   /fromScrapRow\(row, \{[\s\S]{0,220}follows: shorts\.value/.test(appBuy));
+
+/* ⚠️ ข้อนี้คือหัวใจของใบนี้ — หน้านี้ต้องไม่มีทางเขียนของเข้าคลังเอง
+ *    มีสองทางรับเข้าเมื่อไหร่ ช่องผู้รับ/ล็อต/วันหมดอายุจะเต็มบ้างไม่เต็มบ้าง */
+ok('หน้านี้ไม่สร้างรายการรับเข้าเอง — ส่งไปหน้ารับเข้าหน้าเดิม',
+   /function fbGo\(row\)[\s\S]{0,600}tab\.value = 'in'/.test(appBuy)
+   && !/fbGo[\s\S]{0,600}makeEntry\(/.test(appBuy));
+
+/* ⚠️ กดไปรับของสองเรื่องติดกันเกิดขึ้นจริง · ค่าเดี่ยวจะทับเรื่องแรกเงียบ ๆ (ผู้ตรวจรอบ 2 ข้อ 2) */
+ok('คิวรอเป็นรายการ ไม่ใช่ค่าเดี่ยวที่ทับกันเอง',
+   /const buyWaits = ref\(\[\]\)/.test(appBuy)
+   && /buyWaits\.value\.push\(\{ id: row\.id, code: normCode\(row\.code\) \}\)/.test(appBuy)
+   && !/\bbuyWait\b(?!s)/.test(appBuy));
+ok('กดเรื่องเดิมซ้ำไม่เข้าคิวสองรอบ',
+   /if \(!buyWaits\.value\.some\(w => w\.id === row\.id\)\)/.test(appBuy));
+
+/* ⚠️ ไม่มีทางเลิกรอ = บรรทัดตามไปทุกใบจนกว่าจะรับของรหัสนั้นจริง (ผู้ตรวจรอบ 2 ข้อ 1) */
+ok('ออกจากหน้ารับเข้าแล้วเลิกรอเอง แต่เดินกลับไปกดเรื่องที่สองไม่นับว่าเลิกรอ',
+   /watch\(tab, \(now, before\) => \{[\s\S]{0,200}before === 'in' && now !== 'in' && now !== 'fbuy'[\s\S]{0,40}buyWaits\.value = \[\]/.test(appBuy));
+ok('มีปุ่มเลิกรอให้กดเองด้วย',
+   /function cancelBuyWaits\(\)/.test(appBuy) && /@click="cancelBuyWaits"/.test(htmlBuy)
+   && /v-if="buyWaits\.length"/.test(htmlBuy));
+ok('ผูกเลขที่รายการกลับมาหลังบันทึกรับเข้าสำเร็จแล้วเท่านั้น',
+   /db\.announce\('entries'\);[\s\S]{0,260}await linkBuy\(posted\)/.test(appBuy));
+/* ⚠️ ข้อความปิดเรื่องเคยทับ "บันทึกรับเข้า N รายการ" จนไม่เห็นยืนยันว่าบันทึกกี่รายการ */
+ok('ข้อความเดียวจบ — linkBuy คืนข้อความให้ saveIn ไม่ flash เอง',
+   /const extra = await linkBuy\(posted\)/.test(appBuy)
+   && /flash\(\[`บันทึกรับเข้า/.test(appBuy)
+   && !/linkBuy[\s\S]{0,900}flash\(`ปิดเรื่องซื้อทดแทน/.test(appBuy));
+ok('ยกเลิกเรื่องใช้ voidFollow ไม่ลบทิ้ง (B1)', /fbVoid[\s\S]{0,300}voidFollow\(plain\(row\)/.test(appBuy));
+/* เรื่องถูกยกเลิกหรือปิดไปก่อนของจะมาถึง — ต้องเงียบ ไม่ใช่เด้ง error ทับข้อความบันทึกสำเร็จ (G3) */
+ok('เรื่องหายไประหว่างรอของ ต้องไม่เด้ง error หลังบันทึกรับเข้าสำเร็จ',
+   /if \(!row \|\| row\.voided \|\| remainOf\(row\) <= 0\) continue;/.test(appBuy));
+ok('การ์ดเตือนเรื่องที่ต้นเหตุหายไปมีจริงบนจอ',
+   /const fbOrphans = computed/.test(appBuy) && /v-if="fbOrphans\.length"/.test(htmlBuy));
+/* ── บรรทัดที่รออยู่ ต้องรอดจาก expandBom() ── รันของจริงที่แกะออกมาจากซอร์ส ───────────
+ * ⚠️ ข้อที่ผู้ตรวจรอบ 1 ทักไว้ · เทสหมวดนี้ที่เหลืออ่านซอร์สล้วน จับพฤติกรรมข้อนี้ไม่ได้เลย
+ * เรื่องซื้อทดแทนไม่มีเลข PO ตอนตั้งเรื่อง พนักงานจึงคีย์เลข PO หลังกด [ไปรับของ] เสมอ
+ * ซึ่งวิ่งเข้า expandBom() ที่สั่ง `inLines.value = ...` ตรง ๆ — บรรทัดที่เพิ่งใส่ให้หายเงียบ
+ * แล้ว linkBuy() หารหัสนั้นไม่เจอ เรื่องไม่ถูกปิดโดยไม่มีอะไรฟ้อง */
+function cutFn(src, name) {
+  const i = src.indexOf(`function ${name}(`);
+  if (i < 0) throw new Error(`ไม่พบ function ${name} ใน v2/app.js`);
+  let depth = 0;
+  for (let k = src.indexOf('{', i); k < src.length; k++) {
+    if (src[k] === '{') depth++;
+    else if (src[k] === '}' && --depth === 0) return src.slice(i, k + 1);
+  }
+  throw new Error(`อ่าน function ${name} ใน v2/app.js ไม่จบ`);
+}
+
+// ถ้าฟังก์ชันหายไป รายงานเป็นข้อที่ตก ไม่ใช่ทิ้งทั้งไฟล์ — ข้ออื่นอีกสองร้อยกว่าข้อต้องยังรายงานได้
+const hasKeep = appBuy.includes('function keepBuyLine(');
+ok('มี keepBuyLine ให้ expandBom เรียก', hasKeep);
+
+// ตัวแปรที่ keepBuyLine อ้างถึงใน setup() ส่งเข้าไปเป็นพารามิเตอร์แทน
+const keepFn = hasKeep && new Function('buyWaits', 'shorts', 'inLines', 'bomHint',
+                            'blankLine', 'fillInLine', 'normCode', 'remainOf', 'round5',
+                            cutFn(appBuy, 'keepBuyLine') + '\nreturn keepBuyLine();');
+const HINT = 'กางสูตร 3 รายการ';
+// waiting = แถวเดียว หรือหลายแถว (รหัสเดียวกันได้ — ของเสียรหัสเดิมหลายรอบเป็นเรื่องปกติ)
+const keepRun = (lines, waiting, rows) => {
+  const ctx = { lines: { value: lines }, hint: { value: HINT }, ran: hasKeep };
+  if (!hasKeep) return ctx;
+  const queue = (Array.isArray(waiting) ? waiting : waiting ? [waiting] : [])
+    .map(r => ({ id: r.id, code: normCode(r.code) }));
+  // คิวรอเป็นรายการตั้งแต่รอบแก้ข้อสังเกต — ส่งเข้าไปเป็น array
+  keepFn({ value: queue }, { value: rows }, ctx.lines, ctx.hint,
+         code => ({ k: 'L', code, desc: '', unit: '', reqmt: null, qty: null }),
+         () => {}, normCode, remainOf, round5);
+  return ctx;
+};
+
+{
+  const c = keepRun([{ code: 'ZZ-อื่น', qty: 2 }], buyCase, [buyCase]);
+  ok('บรรทัดที่ expandBom ล้างไป ต้องงอกกลับพร้อมยอดที่ยังค้าง',
+     c.lines.value.length === 2 && normCode(c.lines.value[1].code) === normCode(C1)
+     && c.lines.value[1].qty === 6, JSON.stringify(c.lines.value));
+  ok('bomHint ที่ถูกทับ ต้องเตือนว่ายังมีเรื่องซื้อทดแทนรอผูกอยู่',
+     c.hint.value.startsWith(HINT) && c.hint.value.includes('ซื้อทดแทน'), c.hint.value);
+}
+// รหัสนั้นบังเอิญอยู่ใน Kit List — ยอดที่ Delta จ่ายมาน่าเชื่อกว่ายอดที่ค้าง ห้ามทับ
+ok('รหัสนั้นอยู่ในใบอยู่แล้ว ไม่งอกซ้ำ และไม่ทับยอดที่ Kit List เติมให้',
+   (() => { const c = keepRun([{ code: C1, qty: 4 }], buyCase, [buyCase]);
+            return c.ran && c.lines.value.length === 1 && c.lines.value[0].qty === 4; })());
+ok('เรื่องถูกยกเลิกไประหว่างรอ ไม่งอกบรรทัดให้',
+   (() => { const c = keepRun([], buyCase, [{ ...buyCase, voided: true }]);
+            return c.ran && c.lines.value.length === 0 && c.hint.value === HINT; })());
+ok('เรื่องปิดครบไปแล้ว ไม่งอกบรรทัดให้',
+   (() => { const c = keepRun([], got, [got]);
+            return c.ran && c.lines.value.length === 0 && c.hint.value === HINT; })());
+ok('ไม่มีเรื่องรออยู่ หน้ารับเข้าต้องไม่ถูกแตะเลย',
+   (() => { const c = keepRun([], null, []);
+            return c.ran && c.lines.value.length === 0 && c.hint.value === HINT; })());
+
+/* ── สองเรื่องรหัสเดียวกันรอพร้อมกัน ── ของเสียรหัสเดิมเสียหลายรอบเป็นเรื่องปกติ ───────
+ * ⚠️ คนละเรื่องกับ "เรื่องเดียวสองบรรทัดในใบ" ที่เทสเดิมคุมไว้
+ *    ถ้ายอดที่งอกกลับเป็นของเรื่องแรกเรื่องเดียว จอจะบอกว่ารอ 6 กับ 4 แต่เติมให้แค่ 6
+ *    แล้ว linkBuy จะปิดให้ทั้งสองเรื่องรวม 10 จากของ 6 ชิ้น (ผู้ตรวจรอบ 4 ข้อ 1.2) */
+const buy2 = fromScrapRow({ id: 'S2', code: C1, qty: 4 },
+                          { entity: 'TUE-H', person: 'ผู้ทดสอบ', unit: 'PCS' });
+{
+  const c = keepRun([], [buyCase, buy2], [buyCase, buy2]);
+  ok('สองเรื่องรหัสเดียวกัน — บรรทัดเดียวแต่ยอดต้องเป็นผลรวมของทุกเรื่องที่รออยู่',
+     c.ran && c.lines.value.length === 1 && c.lines.value[0].qty === 10,
+     JSON.stringify(c.lines.value));
+  ok('คำเตือนบอกว่ารออยู่กี่เรื่อง ค้างรวมเท่าไหร่',
+     c.hint.value.includes('2 เรื่อง') && c.hint.value.includes('ค้าง 10'), c.hint.value);
+}
+
+/* ── ของกองเดียวต้องถูกหักไปทีละเรื่อง ── รัน linkBuy ตัวจริงที่แกะจากซอร์ส ────────────
+ * ⚠️ ข้อที่ผู้ตรวจรอบ 4 ทัก · ถ้าแต่ละเรื่องหยิบ "ผลรวมทุกบรรทัดของรหัสนั้น" ไปคนละครั้งเต็ม ๆ
+ *    เรื่องที่สองจะขึ้นว่าของมาครบแล้วทั้งที่ยังไม่ได้รับสักชิ้น แล้วหายจากรายการที่ต้องตาม */
+const hasLink = appBuy.includes('async function linkBuy(');
+ok('มี linkBuy ให้ saveIn เรียก', hasLink);
+const linkFn = hasLink && new Function('buyWaits', 'shorts', 'inH', 'fsPut', 'plain',
+                            'normCode', 'remainOf', 'round5', 'linkReceive', 'posted',
+                            'async ' + cutFn(appBuy, 'linkBuy') + '\nreturn linkBuy(posted);');
+/** waiting = เรื่องที่กด [ไปรับของ] ไว้ · posted = บรรทัดที่เพิ่งบันทึกรับเข้า */
+const linkRun = async (waiting, posted) => {
+  const rows = waiting.map(r => ({ ...r }));
+  const queue = { value: rows.map(r => ({ id: r.id, code: normCode(r.code) })) };
+  const put = rec => { const i = rows.findIndex(x => x.id === rec.id); rows.splice(i, 1, rec); };
+  const msgs = await linkFn(queue, { value: rows }, { person: 'ผู้รับ' }, put,
+                            r => JSON.parse(JSON.stringify(r)), normCode, remainOf, round5,
+                            linkReceive, posted);
+  return { rows, left: queue.value, msgs };
+};
+
+if (hasLink) {
+  // ของมา 4 ชิ้น แต่รออยู่สองเรื่อง 6 กับ 4 — ปิดรวมต้องไม่เกิน 4
+  const r = await linkRun([buyCase, buy2],
+                          [{ id: 'E-1', material_code: C1, qty: 4, at: NOW }]);
+  const sum = round5(r.rows.reduce((n, x) => n + (Number(x.done_qty) || 0), 0));
+  ok('ของกองเดียวปิดได้ไม่เกินที่รับจริง — ไม่ใช่ทุกเรื่องหยิบกองเต็ม',
+     sum === 4, `ปิดรวม ${sum} จากของ 4`);
+  ok('เรื่องแรกได้ของไปก่อน · เรื่องที่สองยังไม่ได้รับสักชิ้น',
+     r.rows[0].done_qty === 4 && r.rows[0].done === false
+     && !r.rows[1].done_qty && r.rows[1].done === false, JSON.stringify(r.rows[1]));
+  ok('เรื่องที่ยังไม่ได้ของ ต้องค้างอยู่ในคิวเพื่อรอใบถัดไป',
+     r.left.length === 1 && r.left[0].id === buy2.id, JSON.stringify(r.left));
+  ok('เรื่องที่ยังไม่ได้ของ ต้องไม่ถูกผูกเลขที่รายการที่ไม่เกี่ยวกัน',
+     !r.rows[1].receive_entry_id, r.rows[1].receive_entry_id);
+  ok('ข้อความบอกตามจริงว่าปิดไปเท่าไหร่ ยังค้างเท่าไหร่',
+     r.msgs.length === 1 && r.msgs[0].includes('ยังค้างอีก 2'), JSON.stringify(r.msgs));
+
+  // ของมาครบทั้งสองเรื่อง — แบ่งกันถูกใบ ไม่ปนเลขที่รายการของกันและกัน
+  const full = await linkRun([buyCase, buy2],
+                             [{ id: 'E-1', material_code: C1, qty: 6, at: NOW },
+                              { id: 'E-2', material_code: C1, qty: 4, at: NOW }]);
+  ok('ของมาครบ ปิดได้ทั้งสองเรื่อง แยกใบกันถูกตัว',
+     full.rows[0].done_qty === 6 && full.rows[0].receive_entry_id === 'E-1'
+     && full.rows[1].done_qty === 4 && full.rows[1].receive_entry_id === 'E-2'
+     && full.left.length === 0, JSON.stringify(full.rows.map(x => x.receive_entry_id)));
+
+  /* ⚠️ เรื่องเดียวแต่ใบมีรหัสเดียวกันสองบรรทัด (คนละล็อต) เป็นเรื่องปกติ
+   *    ต้องรวมทั้งสองบรรทัด ไม่ใช่หยิบบรรทัดแรก (ผู้ตรวจรอบ 2 ข้อ 2 — เดิมเป็นเทสอ่านซอร์ส) */
+  const twoLines = await linkRun([buyCase],
+                                 [{ id: 'E-1', material_code: C1, qty: 2, at: NOW },
+                                  { id: 'E-2', material_code: ' mc-100 ', qty: 4, at: NOW }]);
+  ok('เรื่องเดียว ใบมีรหัสนั้นสองบรรทัด — รวมทั้งสองบรรทัดแล้วปิดครบ',
+     twoLines.rows[0].done === true && twoLines.rows[0].done_qty === 6
+     && twoLines.rows[0].receive_entry_id === 'E-1 E-2',
+     JSON.stringify(twoLines.rows[0]));
+
+  // ใบนี้ไม่มีของที่รออยู่เลย — ต้องเงียบและค้างคิวไว้ ไม่ใช่ปิดให้
+  const none = await linkRun([buyCase], [{ id: 'E-9', material_code: C2, qty: 5, at: NOW }]);
+  ok('ใบที่ไม่มีของที่รออยู่ ไม่แตะเรื่องเลย และยังค้างคิวไว้',
+     !none.rows[0].done_qty && none.left.length === 1 && none.msgs.length === 0);
+
+  // เรื่องถูกยกเลิกไปก่อนของมาถึง — เงียบ ไม่เด้ง error ทับข้อความบันทึกสำเร็จ (G3)
+  const dead2 = await linkRun([{ ...buyCase, voided: true }],
+                              [{ id: 'E-1', material_code: C1, qty: 6, at: NOW }]);
+  ok('เรื่องถูกยกเลิกระหว่างรอ — เงียบ ไม่มีข้อความ error ปนมากับข้อความบันทึกสำเร็จ',
+     dead2.msgs.length === 0 && dead2.left.length === 0);
+
+  // เศษทศนิยมต้องไม่ทำให้ปิดไม่ลง (A2)
+  const frac2 = await linkRun([{ ...buyCase, qty: 0.3 }],
+                              [{ id: 'E-1', material_code: C1, qty: 0.1, at: NOW },
+                               { id: 'E-2', material_code: C1, qty: 0.2, at: NOW }]);
+  ok('เศษทศนิยม 0.1 + 0.2 ปิดลงพอดี ไม่ค้างเศษ (A2)',
+     frac2.rows[0].done === true && frac2.rows[0].done_qty === 0.3,
+     JSON.stringify(frac2.rows[0]));
+}
+
+/* ── คิวต้องรับเรื่องที่สองได้จริง ── รัน fbGo กับตัว watch ของจริงที่แกะจากซอร์ส ─────────
+ * ⚠️ ข้อที่ผู้ตรวจรอบ 5 ทัก · ปุ่ม [ไปรับของ] อยู่ในแท็บ fbuy แท็บเดียว และ fbGo จบด้วย tab='in'
+ *    การกดเรื่องที่สองจึงบังคับให้เดิน in → fbuy → in เสมอ ถ้าตัวเลิกรอนับทางนั้นเป็น
+ *    "ออกจากหน้ารับเข้า" คิวจะถูกล้างก่อนเรื่องที่สองจะเข้าไปทุกครั้ง = มีได้ไม่เกินหนึ่งเรื่องตลอดกาล
+ *    เรื่องแรกหลุดคิวเงียบ ๆ ทั้งที่บรรทัดยังค้างอยู่ในใบ แล้วของกองเดียวถูกรับเข้าคลังสองรอบ
+ *    เทสเดิมเป็น regex ที่ยืนยันแค่ว่าบรรทัด watch มีอยู่ จับลำดับนี้ไม่ได้เลย */
+function cutWatchTab(src) {
+  const cut = i => {
+    let depth = 0;
+    for (let k = src.indexOf('(', i); k < src.length; k++) {
+      if (src[k] === '(') depth++;
+      else if (src[k] === ')' && --depth === 0) return src.slice(src.indexOf(',', i) + 1, k);
+    }
+    throw new Error('อ่าน watch(tab, ...) ใน v2/app.js ไม่จบ');
+  };
+  // ไฟล์มี watch(tab, ...) มากกว่าหนึ่งที่ — เอาตัวที่ยุ่งกับคิวรอ
+  for (let i = src.indexOf('watch(tab,'); i >= 0; i = src.indexOf('watch(tab,', i + 1)) {
+    const body = cut(i);
+    if (body.includes('buyWaits')) return body;
+  }
+  throw new Error('ไม่พบ watch(tab, ...) ที่เลิกรอคิวซื้อทดแทน ใน v2/app.js');
+}
+
+const hasGo = appBuy.includes('function fbGo(');
+ok('มี fbGo ให้ปุ่ม [ไปรับของ] เรียก', hasGo);
+if (hasGo) {
+  const goFn = new Function('buyWaits', 'inH', 'inLines', 'bomHint', 'tab',
+                            'normCode', 'remainOf', 'blankLine', 'fillInLine', 'row',
+                            cutFn(appBuy, 'fbGo') + '\nreturn fbGo(row);');
+  const q = { value: [] };
+  const lines = { value: [] };
+  const hint = { value: '' };
+  const tabRef = { value: 'fbuy' };
+  const onTab = new Function('buyWaits', 'return (' + cutWatchTab(appBuy) + ')')(q);
+  const hop = now => {
+    const before = tabRef.value;
+    tabRef.value = now;
+    if (now !== before) onTab(now, before);
+  };
+  const press = row => {
+    const before = tabRef.value;
+    goFn(q, { po: '' }, lines, hint, tabRef, normCode, remainOf,
+         code => ({ k: 'L', code, desc: '', unit: '', reqmt: null, qty: null }), () => {}, row);
+    if (tabRef.value !== before) onTab(tabRef.value, before);
+  };
+
+  press(buyCase);        // อยู่แท็บ fbuy กด [ไปรับของ] เรื่องแรก → เด้งไปแท็บ in
+  hop('fbuy');           // เดินกลับไปกดเรื่องที่สอง — ไม่ใช่การเลิกรอ
+  press(buy2);
+  ok('กดไปรับของสองเรื่องติดกัน คิวต้องเก็บไว้ทั้งคู่ ไม่ใช่เหลือเรื่องเดียว',
+     q.value.length === 2 && q.value[0].id === buyCase.id && q.value[1].id === buy2.id,
+     JSON.stringify(q.value));
+  ok('บรรทัดของทั้งสองเรื่องอยู่ในใบรับเข้าครบ',
+     lines.value.length === 2, JSON.stringify(lines.value.map(l => l.code)));
+  ok('กดเรื่องเดิมซ้ำหลังเดินกลับไปกลับมา ไม่เข้าคิวสองรอบ',
+     (() => { hop('fbuy'); press(buy2); return q.value.length === 2; })(),
+     JSON.stringify(q.value));
+  hop('card');
+  ok('ออกจากหน้ารับเข้าไปแท็บอื่น ยังเลิกรอให้เหมือนเดิม',
+     q.value.length === 0, JSON.stringify(q.value));
+}
+
+/* ต้องครบ "ทุก" สาขา — สาขา Kit List กับสาขาสูตรเขียนทับ inLines ทั้งกองคนละบรรทัดกัน */
+{
+  const branches = cutFn(appBuy, 'expandBom').split('markReceived(recv)');
+  ok('ทุกสาขาของ expandBom เรียก keepBuyLine ก่อน markReceived',
+     branches.length === 4
+     && branches.slice(0, 3).every(b => /keepBuyLine\(\);[^\n]*\n\s*$/.test(b)),
+     `พบ ${branches.length - 1} สาขา`);
+}
+
+ok('ชื่อที่เทมเพลตเรียก ถูกส่งออกจาก setup() ครบ',
+   ['fbNew','fbRows','fbAll','fbStart','fbVoid','fbGo','fbSearch','fbShowDone','fbOrphans',
+    'buyWaits','cancelBuyWaits']
+     .every(n => new RegExp('\\b' + n + '\\b').test(appBuy.slice(appBuy.lastIndexOf('return {')))));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
