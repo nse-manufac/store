@@ -130,7 +130,8 @@ ok('บอกเหตุผลที่ถูกจับ', odd.find(o => o.cod
 {
   const srcBal = fs.readFileSync(new URL('../v2/core/balance.js', import.meta.url), 'utf8');
   const srcApp = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  ok('overBom ถูกลบออกจาก balance.js แล้ว', !/export function overBom/.test(srcBal));
+  // จับทุกรูปแบบที่ export ออกมาได้ ไม่ใช่เฉพาะ export function (ผู้ตรวจ #94 ข้อสังเกต 2)
+  ok('overBom ถูกลบออกจาก balance.js แล้ว', !/overBom/.test(srcBal));
   ok('ไม่มีใครเรียก overBom ใน app.js', !/\boverBom\s*\(/.test(srcApp));
 }
 
