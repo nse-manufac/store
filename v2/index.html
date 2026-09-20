@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-20.5">
+<meta name="app-version" content="2026-09-20.6">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1943,7 +1943,7 @@ textarea{font:inherit}
                     รับมา {{ r.s.recv_qty }}</td>
                   <td>
                     <template v-if="r.st==='done'">
-                      <span class="hint">คืน {{ (r.s.done_at || '').slice(0,10) }}
+                      <span class="hint">คืน {{ localDate(r.s.done_at) }}
                         {{ r.s.done_by }}</span>
                     </template>
                     <template v-else>

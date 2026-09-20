@@ -15,6 +15,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { signedQty, KINDS } from '../v2/core/ledger.js';
+import { localDate, atFrom } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -621,6 +622,37 @@ ok('เทียบไม่ได้ต้องขึ้นบอกในก�
    && /\brbShortWhy\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
 ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
    /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
+
+/* ── ผู้ตรวจ #90 รอบ 4 ข้อ 1 — วันที่คืนที่โชว์กลับมาในตาราง ──────────────
+ * done_at ของเรื่องของเกินเป็นวันที่ที่คนเลือกเอง (atFrom) แล้ว
+ * ถ้าเทมเพลต slice เอา 10 ตัวแรกของ ISO จะได้วันที่ตาม UTC
+ * คนกะเช้ากดตอนตีห้าครึ่งจะเห็น "เมื่อวาน" ขณะที่รายการในสมุดลงวันที่ที่เลือกจริง
+ * (ตรวจเฉพาะบล็อกแท็บ fover — บรรทัดของแท็บ fshort เป็นของเดิม ไม่ใช่ของใบนี้) */
+{
+  const iOver = htmlOver.indexOf(`tab==='fover'`);
+  const foverSrc = iOver < 0 ? ''
+    : htmlOver.slice(iOver, htmlOver.indexOf(`v-else-if="tab===`, iOver + 1));
+  ok('หาบล็อกแท็บ over รอคืน ใน index.html เจอ', foverSrc.length > 0);
+  ok('วันที่คืนในตารางผ่าน localDate ไม่ slice ISO เอาเอง',
+     /คืน \{\{ localDate\(r\.s\.done_at\) \}\}/.test(foverSrc)
+     && !/done_at[^}]*\.slice\(0,\s*10\)/.test(foverSrc));
+  ok('localDate ส่งออกให้เทมเพลตใช้ได้จริง',
+     /\blocalDate\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+}
+{ /* พิสูจน์ว่าสองวิธีให้คนละคำตอบจริง ไม่ใช่เทสที่เขียวทั้งก่อนและหลัง
+   * เครื่องในโรงงานตั้งเป็นเวลาไทย (+7) แต่เครื่องที่รันเทสอาจเป็น UTC
+   * จึงเลือกเวลาหลังเที่ยงคืนนิดเดียว ซึ่งเลื่อนวันแน่นอนในทุกโซนที่เร็วกว่า UTC */
+  const early = new Date(2026, 8, 19, 0, 30, 0);
+  const doneAt = atFrom('2026-09-19', early);
+  const rec = closeFollow(makeFollow({ kind: 'over', entity: 'TUE-H', code: C1, po: PO,
+                                       part_no: PN, qty: 10 }),
+                          { qty: 10, by: 'ก', doneAt });
+  ok('วันที่คืนที่คนเลือกอ่านกลับมาผ่าน localDate ได้ตรงเดิม',
+     localDate(rec.done_at) === '2026-09-19', rec.done_at);
+  const eastOfUtc = early.getTimezoneOffset() < 0;   // ไทยคือ -420
+  ok('โซนที่เร็วกว่า UTC — slice ISO ได้คนละวันกับ localDate (เครื่องที่รันที่ UTC ข้ามข้อนี้)',
+     !eastOfUtc || rec.done_at.slice(0, 10) === '2026-09-18', rec.done_at);
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
