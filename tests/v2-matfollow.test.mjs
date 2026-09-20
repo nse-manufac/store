@@ -51,6 +51,21 @@ ok('ช่องว่างคืน null ไม่ใช่ศูนย์', n
   ok('Over อ่านยอดออก', over.over === 13618 && over.cut === null);
   ok('หมายเหตุอื่นเก็บเป็นข้อความเฉย ๆ', other.cut === null && other.over === null && other.text === 'M508221');
 }
+/* ⚠️ ช่องนี้ปนสามแบบ และแบบหนึ่งคือเลขเอกสาร/ล็อต · ถ้าไปหยิบ "เลขตัวแรกที่เจอในช่อง"
+ * เลขเอกสารที่พิมพ์นำหน้าจะถูกเอาไปหักออกจาก VAR แทนยอด Cut Return จริง แล้วพังเงียบสองทาง:
+ * เลขใหญ่กว่า VAR → แถวของขาดหายไปทั้งแถว · เลขเล็กกว่า → หักน้อยไป แล้วไปทวง Delta เกินจริง */
+{
+  ok('เลขเอกสารนำหน้า Cut Return ต้องไม่ถูกหยิบมาหักแทนยอด',
+     readNote('TM7001A Cut Return 500').cut === 500, JSON.stringify(readNote('TM7001A Cut Return 500')));
+  ok('เลขเอกสารที่เป็นตัวเลขล้วนนำหน้า ก็ต้องไม่ถูกหยิบ',
+     readNote('INV 250912 Cut Return 500').cut === 500, String(readNote('INV 250912 Cut Return 500').cut));
+  ok('เลขล็อตสั้น ๆ นำหน้า ก็ต้องไม่ถูกหยิบ (หักน้อยไป = ทวงเกินจริง)',
+     readNote('L5 Cut Return 500').cut === 500, String(readNote('L5 Cut Return 500').cut));
+  ok('มีคำว่า Cut Return แต่ไม่มีเลขตามหลัง ยังคืน null เหมือนเดิม ไม่ใช่ศูนย์',
+     readNote('Cut Return').cut === null && readNote('M508221 Cut Return').cut === null);
+  ok('Over อ่านเฉพาะเลขที่ตามหลังคำว่า Over',
+     readNote('Over 13,618 (M508221)').over === 13618, String(readNote('Over 13,618 (M508221)').over));
+}
 
 console.log('\n=== C. หนึ่งแถว → หนึ่งเรื่อง ===');
 {
@@ -70,6 +85,12 @@ console.log('\n=== C. หนึ่งแถว → หนึ่งเรื่�
   const r = rowToFollow(line({ order: 301.5, actual: 0, note: 'Cut Return 290.5' }));
   ok('หัก Cut Return ออกจาก VAR ก่อนถือเป็นยอดขาด', r.qty === 11 && r.cut_return === 290.5, JSON.stringify(r));
   ok('ยอด VAR ดิบยังเก็บไว้ให้ตรวจย้อนได้', r.var_qty === 301.5);
+}
+{
+  /* เลขเอกสารนำหน้าในช่องหมายเหตุ ต้องไม่ทำให้แถวของขาดหายไปทั้งแถว */
+  const r = rowToFollow(line({ order: 100, actual: 90, note: 'TM7001A Cut Return 5' }));
+  ok('แถวที่มีเลขเอกสารปนในหมายเหตุ ต้องไม่หายไปทั้งแถว',
+     r && r.qty === 5 && r.cut_return === 5, JSON.stringify(r));
 }
 ok('ส่งมาพอดี ไม่ใช่งานตาม', rowToFollow(line({ order: 100, actual: 100 })) === null);
 ok('หัก Cut Return แล้วไม่เหลือ ก็ไม่ใช่งานตาม',

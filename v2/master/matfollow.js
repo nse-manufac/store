@@ -64,14 +64,18 @@ export function matDate(v) {
  *   `Over 13,618`      ย้ำยอดเกิน (ตรงกับ VAR ที่ติดลบ) — ใช้ตรวจทานกันได้
  *   `Cut Return 1929`  **มีของเกินจาก PO ใบก่อนมาหักแล้ว** ยอดขาดจริงจึงน้อยกว่า VAR
  *   อย่างอื่น           เลขเอกสาร/ล็อต หรือข้อความอิสระ — เก็บไว้เป็นหมายเหตุเฉย ๆ
+ *
+ * ⚠️ เอาเฉพาะเลขที่อยู่ **ถัดจากคำสำคัญ** ห้ามหยิบเลขตัวแรกที่เจอในช่อง
+ *    เพราะสามแบบนี้ปนกันในเซลล์เดียวได้ (`TM7001A Cut Return 500`) ถ้าหยิบตัวแรก
+ *    เลขเอกสารจะถูกเอาไปหักออกจาก VAR แทนยอดจริง แล้วพังเงียบสองทาง —
+ *    เลขใหญ่กว่า VAR ทำให้แถวของขาดหายไปทั้งแถว · เลขเล็กกว่าทำให้ไปทวง Delta เกินจริง
+ *    มีคำสำคัญแต่ไม่มีเลขตามหลัง = null (ไม่ใช่ศูนย์) คือไม่หักอะไรเลย
  */
 export function readNote(s) {
   const note = txt(s);
-  const cut = /cut\s*return/i.test(note);
-  const over = /^over\b/i.test(note);
-  if (!cut && !over) return { cut: null, over: null, text: note };
-  const n = numOf((note.match(/-?[\d,.]+/) || [''])[0]);
-  return { cut: cut ? n : null, over: over ? n : null, text: note };
+  const cutM = /cut\s*return\s*:?\s*(-?[\d,.]+)/i.exec(note);
+  const overM = /^over\b\s*:?\s*(-?[\d,.]+)/i.exec(note);
+  return { cut: cutM ? numOf(cutM[1]) : null, over: overM ? numOf(overM[1]) : null, text: note };
 }
 
 /**
