@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-20.3">
+<meta name="app-version" content="2026-09-20.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2387,6 +2387,8 @@ textarea{font:inherit}
           </div>
 
           <div class="row" style="margin-top:8px">
+            <label class="f" style="width:145px">วันที่คืน
+              <input v-model="rb.date" type="date"></label>
             <label class="f" style="width:170px">ผู้บันทึก
               <input v-model.trim="rb.person" placeholder="ชื่อคนที่คืน"></label>
             <label class="f grow">หมายเหตุ
@@ -2400,6 +2402,11 @@ textarea{font:inherit}
               <div class="big" :class="rbAfter < 0 ? 'bad' : ''">{{ rbAfter }}</div></div>
           </div>
 
+          <!-- ไม่มีคำเตือน ≠ ตรวจแล้วไม่มีปัญหา — ต้องบอกว่าเทียบไม่ได้เพราะอะไร -->
+          <div class="msg warn" v-if="rbShortWhy" style="margin:12px 0 0">
+            <b>เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง</b> —
+            <span class="hint">{{ rbShortWhy }} · คืนได้ แต่ไม่มีใครช่วยตรวจให้ในจอนี้</span>
+          </div>
           <div class="msg warn" v-if="rbShort.length" style="margin:12px 0 0">
             <b>PO ใบนี้ยังรับมาไม่ครบตามสูตรอีก {{ rbShort.length }} รหัส</b><br>
             <span class="mono hint">

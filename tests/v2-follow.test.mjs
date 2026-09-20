@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
-         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo }
+         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { signedQty, KINDS } from '../v2/core/ledger.js';
@@ -481,9 +481,17 @@ ok('รับครบทุกรหัสแล้วไม่เตือน�
 const sh2 = shortOfPo([recv(), recv({ id: 'X2', material_code: C2, qty: 5 })], 'TUE-H', PO, sOpt);
 ok('รับมาบางส่วน บอกว่าขาดอีกเท่าไหร่', sh2[0].miss === 15 && sh2[0].have === 5);
 
-ok('ใบส่งคืนไม่ทำให้กลายเป็นรับไม่ครบ',
-   shortOfPo([recv(), recv({ id: 'X3', material_code: C2, qty: 20 }),
-              { ...back, material_code: C2, qty: 20 }], 'TUE-H', PO, sOpt).length === 0);
+/* ⚠️ ต้องหักของที่คืนไปแล้วออกจากยอดรับ เงื่อนไขเดียวกับ overAll (ผู้ตรวจ #90 รอบ 1 ข้อสังเกต 3)
+ *    ของที่คืนได้ถูกจำกัดไว้ไม่เกินส่วนที่เกินอยู่แล้ว ใบที่คืนตามปกติจึงยังไม่ขึ้นว่าขาด */
+ok('รับเกินแล้วคืนส่วนที่เกิน ยังไม่นับว่าขาด',
+   shortOfPo([recv(), recv({ id: 'X3', material_code: C2, qty: 25 }),
+              { ...back, material_code: C2, qty: 5 }], 'TUE-H', PO, sOpt).length === 0);
+ok('คืนไปจนต่ำกว่าที่สูตรต้องใช้ ต้องขึ้นว่าขาดตามจริง',
+   (shortOfPo([recv(), recv({ id: 'X3b', material_code: C2, qty: 25 }),
+              { ...back, material_code: C2, qty: 8 }], 'TUE-H', PO, sOpt)[0] || {}).miss === 3);
+ok('ใบส่งคืนที่ยกเลิกแล้วไม่ถูกหัก',
+   shortOfPo([recv(), recv({ id: 'X3c', material_code: C2, qty: 20 }),
+              { ...back, material_code: C2, qty: 20, voided: true }], 'TUE-H', PO, sOpt).length === 0);
 ok('รายการที่ยกเลิกแล้วไม่นับเป็นของที่รับมา',
    shortOfPo([recv(), recv({ id: 'X4', material_code: C2, qty: 20, voided: true })],
              'TUE-H', PO, sOpt)[0].miss === 20);
@@ -501,6 +509,24 @@ ok('ไม่มีสูตรของ P/N นั้น ตอบว่าง'
    shortOfPo([recv()], 'TUE-H', PO, { headerOf, bomRowsOf: () => [] }).length === 0);
 throws('ลืมส่งนิติบุคคลต้องดัง', () => shortOfPo([recv()], '', PO, sOpt), 'A3');
 throws('ลืมส่งสูตรต้องดัง', () => shortOfPo([recv()], 'TUE-H', PO, { headerOf }), 'bomRowsOf');
+
+/* ⚠️ shortOfPo คืน [] ทั้งตอนรับครบและตอนเทียบไม่ได้ · บนกล่องที่ตัดของจริง
+ *    "ไม่มีคำเตือน" ต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา" (ผู้ตรวจ #90 รอบ 2 ข้อ 1) */
+ok('รับครบแล้ว = เทียบได้ และไม่มีเหตุผลค้าง',
+   shortWhyOf(PO, sOpt) === '' &&
+   shortOfPo([recv(), recv({ id: 'W1', material_code: C2, qty: 20 })], 'TUE-H', PO, sOpt).length === 0);
+ok('ไม่รู้จัก PO ใบนี้ บอกว่ายังไม่ได้นำเข้าไฟล์ PO',
+   shortWhyOf('TM9000H777', sOpt).includes('ยังไม่รู้จัก PO'), shortWhyOf('TM9000H777', sOpt));
+ok('ยังไม่รู้จำนวนสั่ง บอกตรง ๆ',
+   shortWhyOf(PO, { headerOf: () => ({ pn: PN, order: 0 }), bomRowsOf }).includes('จำนวนสั่ง'));
+ok('ไม่มี P/N ของใบนั้น บอกตรง ๆ',
+   shortWhyOf(PO, { headerOf: () => ({ pn: '', order: 3 }), bomRowsOf }).includes('P/N'));
+ok('ไม่มีสูตรของ P/N นั้น บอกว่าไม่มีสูตรและบอกว่า P/N ไหน',
+   shortWhyOf(PO, { headerOf, bomRowsOf: () => [] }) === 'ไม่มีสูตรของ ' + PN);
+ok('สูตรที่มีแต่บรรทัดต่อชิ้นศูนย์ ก็เทียบไม่ได้',
+   shortWhyOf(PO, { headerOf, bomRowsOf: () => [{ code: C1, usage: 0 }] }).includes('ไม่มีสูตร'));
+ok('ไม่มีเลข PO ก็ต้องบอก ไม่ใช่เงียบ', shortWhyOf('', sOpt) !== '');
+throws('ลืมส่งสูตรต้องดัง (shortWhyOf)', () => shortWhyOf(PO, { headerOf }), 'bomRowsOf');
 
 console.log('\n=== M. ต่อสายหน้า over รอคืน (อ่านซอร์ส) ===');
 const appOver = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
@@ -550,7 +576,21 @@ ok('เตือนเมื่อใบนั้นยังรับมาไ�
    /v-if="rbShort\.length"/.test(htmlOver)
    && /:disabled="!rbReady \|\| rb\.busy"/.test(htmlOver));
 ok('บันทึกลงสมุดก่อน แล้วค่อยปิดเรื่อง และผูกเลขที่รายการไว้ให้ไล่ย้อนได้',
-   /db\.put\('entries', e\)[\s\S]{0,400}return_entry_id = e\.id/.test(appOver));
+   /db\.put\('entries', e\)[\s\S]{0,500}rec\.return_entry_id =/.test(appOver));
+
+/* ── ข้อสังเกตหกข้อของผู้ตรวจ #90 (เจ้าของสั่งให้แก้ 20 ก.ย. 2026) ── */
+ok('จับค่าจาก rb.row ไว้ก่อน await — กล่องปิดกลางคันแล้วต้องไม่โยน TypeError',
+   /const row = plain\(rb\.row\);[\s\S]{0,120}const qty = Number\(rb\.qty\);/.test(appOver)
+   && !/flash\(`คืน \$\{rb\.row/.test(appOver));
+ok('คืนหลายรอบต้องต่อท้ายเลขที่รายการ ไม่ทับของเดิม',
+   /rec\.return_entry_id = \[String\(row\.return_entry_id[\s\S]{0,60}\.join\(' '\)/.test(appOver));
+ok('กล่องคืนของมีช่องวันที่ และส่ง atFrom(rb.date) เข้าไป',
+   /v-model="rb\.date" type="date"/.test(htmlOver) && /at: atFrom\(rb\.date\)/.test(appOver)
+   && /rb\.date = todayLocal\(\)/.test(appOver));
+ok('เทียบไม่ได้ต้องขึ้นบอกในกล่อง ไม่ใช่เงียบเหมือนตอนรับครบ',
+   /const rbShortWhy = computed/.test(appOver) && /shortWhyOf\(rb\.row\.po/.test(appOver)
+   && /v-if="rbShortWhy"/.test(htmlOver)
+   && /\brbShortWhy\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
 ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
    /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
 

@@ -415,31 +415,57 @@ export function overPending(rows, follows) {
 }
 
 /**
+ * เตือนเรื่อง "ใบนี้ยังรับมาไม่ครบ" ให้ใบนี้ได้ไหม — คืน '' ถ้าเตือนได้ · ถ้าไม่ได้คืนว่าติดตรงไหน
+ *
+ * ⚠️ มีตัวนี้เพราะ shortOfPo คืน [] ทั้งตอน "รับครบแล้ว" และตอน "ไม่มีข้อมูลให้เทียบ"
+ *    บนกล่องที่ตัดของจริงออกจากคลัง "ไม่มีคำเตือน" ต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา"
+ *    (ผู้ตรวจ #90 รอบ 2 ข้อ 1 · เจ้าของสั่งให้แก้ 20 ก.ย. 2026)
+ */
+export function shortWhyOf(po, { headerOf, bomRowsOf } = {}) {
+  if (typeof headerOf !== 'function' || typeof bomRowsOf !== 'function') {
+    throw new Error('ต้องส่ง headerOf และ bomRowsOf เข้ามา');
+  }
+  const key = txt(po);
+  if (!key) return 'ไม่มีเลข PO ให้เทียบ';
+  const head = headerOf(key);
+  if (!head) return 'ยังไม่รู้จัก PO ใบนี้ — ยังไม่ได้นำเข้าไฟล์ PO ของวันนั้น';
+  if (!txt(head.pn)) return 'ยังไม่รู้ P/N ของใบนี้';
+  if (!(Number(head.order) || 0)) return 'ยังไม่รู้จำนวนสั่งของใบนี้';
+  const rows = (bomRowsOf(head.pn) || []).filter(b => (Number(b && b.usage) || 0) > 0);
+  if (!rows.length) return 'ไม่มีสูตรของ ' + txt(head.pn);
+  return '';
+}
+
+/**
  * PO ใบนี้ยังรับมาไม่ครบตามสูตรอีกกี่รหัส — คิดสดจากของวันนี้ ไม่ใช่ค่าที่แช่แข็งไว้
  *
  * ⚠️ ใช้เตือนก่อนกดคืน ไม่ใช่ใช้บล็อก (INVARIANTS A4)
  *    รหัสหนึ่งเกินในขณะที่อีกรหัสของใบเดียวกันยังมาไม่ครบ เกิดขึ้นจริงได้
  *    แต่ก็เป็นอาการของ "คีย์รับเข้าผิดใบ" ได้เหมือนกัน คนกดควรได้เห็นก่อนตัดของจริงออกจากคลัง
  *
+ * ⚠️ [] แปลว่า "ไม่มีรหัสไหนขาด" เท่านั้น · กรณีที่เทียบไม่ได้ก็คืน [] เหมือนกัน
+ *    คนเรียกที่ต้องบอกผู้ใช้ให้ถาม shortWhyOf ควบคู่เสมอ
+ *
  * bomRowsOf(pn) ต้องคืนบรรทัดสูตรที่ยังใช้อยู่ [{ code, usage }]
  */
 export function shortOfPo(entries, entity, po, { headerOf, bomRowsOf } = {}) {
   if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
-  if (typeof headerOf !== 'function' || typeof bomRowsOf !== 'function') {
-    throw new Error('ต้องส่ง headerOf และ bomRowsOf เข้ามา');
-  }
+  if (shortWhyOf(po, { headerOf, bomRowsOf })) return [];
   const key = txt(po);
-  if (!key) return [];
   const head = headerOf(key);
-  const order = head ? Number(head.order) || 0 : 0;
-  if (!head || !txt(head.pn) || !order) return [];
+  if (!head) return [];   // shortWhyOf กันไว้แล้ว · กันไว้อีกชั้นกันคนแก้สองที่ให้หลุดจากกัน
+  const order = Number(head.order) || 0;
 
+  /* ⚠️ หักยอดที่ส่งคืนไปแล้วด้วย เงื่อนไขการนับต้องตรงกับ overAll
+   * ไม่หัก ใบที่คืนของไปแล้วจะกลายเป็น "รับไม่ครบ" ทั้งที่เป็นของที่เราคืนเอง */
   const got = new Map();
   for (const e of entries || []) {
-    if (!e || e.entity !== entity || e.voided || e.kind !== 'receive') continue;
+    if (!e || e.entity !== entity || e.voided) continue;
+    if (e.kind !== 'receive' && e.kind !== 'sendback') continue;
     if (txt(e.doc_ref) !== key) continue;
     const c = txt(e.material_code).toUpperCase();
-    got.set(c, round5((got.get(c) || 0) + (Number(e.qty) || 0)));
+    const sign = e.kind === 'receive' ? 1 : -1;
+    got.set(c, round5((got.get(c) || 0) + sign * (Number(e.qty) || 0)));
   }
 
   const out = [];
