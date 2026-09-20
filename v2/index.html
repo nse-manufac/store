@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-20.7">
+<meta name="app-version" content="2026-09-20.8">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -918,6 +918,9 @@ textarea{font:inherit}
             <button class="btn" @click="addInLine">+ เพิ่มบรรทัด</button>
           </div>
           <p class="hint" style="margin:9px 0 0" v-if="bomHint">{{ bomHint }}</p>
+          <p style="margin:8px 0 0" v-if="buyWaits.length">
+            <button class="btn" @click="cancelBuyWaits">ไม่รับของแล้ว — เลิกรอผูกเรื่องซื้อทดแทน</button>
+            <span class="hint" style="margin-left:8px">รอผูกอยู่ {{ buyWaits.length }} เรื่อง</span></p>
         </div>
 
         <div class="card" v-if="inLines.length">
@@ -1901,6 +1904,26 @@ textarea{font:inherit}
           </div>
           <p v-else-if="entity" class="empty" style="margin-top:10px">
             ของเสียทุกใบตั้งเรื่องซื้อทดแทนไว้แล้ว 🎉</p>
+        </div>
+
+        <div class="card" v-if="fbOrphans.length">
+          <div class="msg warn">
+            <b>มี {{ fbOrphans.length }} เรื่องที่ต้นเหตุหายไปแล้ว</b> —
+            <span class="hint">ของเสียที่ผูกไว้ถูกยกเลิกทีหลัง · ระบบไม่ยกเลิกเรื่องให้เอง
+              เพราะของอาจสั่งไปแล้วจริง ดูแล้วตัดสินเองว่ายังต้องซื้อไหม</span>
+          </div>
+          <div class="scroll" style="max-height:26vh">
+            <table>
+              <thead><tr><th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th>
+                <th style="width:100px">ต้องซื้อ</th><th>ติดตรงไหน</th></tr></thead>
+              <tbody><tr v-for="r in fbOrphans" :key="r.id">
+                <td class="mono hint">{{ r.date }}</td>
+                <td class="mono">{{ r.code }}</td>
+                <td class="mono">{{ r.qty }} {{ r.unit }}</td>
+                <td><span class="tag warn">{{ r.why }}</span></td>
+              </tr></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="card">

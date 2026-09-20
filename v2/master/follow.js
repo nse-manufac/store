@@ -589,6 +589,10 @@ export function linkReceive(row, { entryId, qty, by = '', at = '', doneAt = '' }
   if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
   const id = txt(entryId);
   if (!id) throw new Error('ต้องบอกเลขที่รายการรับเข้า');
+  /* ⚠️ ผูกใบเดิมซ้ำ = ปิดยอดซ้ำสองรอบจากของกองเดียว · ยอดที่ค้างจะหายไปทั้งที่ของยังไม่มา */
+  if (String(row.receive_entry_id || '').split(/\s+/).includes(id)) {
+    throw new Error('ผูกกับใบรับเข้าใบนี้ไปแล้ว');
+  }
   const remain = remainOf(row);
   if (remain <= 0) throw new Error('เรื่องนี้ปิดไปแล้ว');
   const got = Number(qty);
@@ -597,4 +601,27 @@ export function linkReceive(row, { entryId, qty, by = '', at = '', doneAt = '' }
   const rec = closeFollow(row, { qty: Math.min(round5(got), remain), by, at, doneAt });
   rec.receive_entry_id = [txt(row.receive_entry_id), id].filter(Boolean).join(' ');
   return rec;
+}
+
+/**
+ * เรื่องซื้อทดแทนที่ "ต้นเหตุหายไปแล้ว" — ของเสียที่ผูกไว้ถูกยกเลิก หรือหาไม่เจอในสมุด
+ *
+ * ⚠️ ห้ามยกเลิกเรื่องให้เอง · ของอาจสั่งไปแล้วจริง การตัดสินว่ายังต้องซื้อไหมเป็นของคน
+ *    หน้าที่ของตัวนี้คือทำให้เห็น ไม่ใช่ตัดสินแทน (เจ้าของสั่ง 20 ก.ย. 2026 ให้แจ้งเตือน)
+ */
+export function orphanBuys(entries, entity, follows) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const alive = new Map();
+  for (const e of entries || []) {
+    if (e && e.entity === entity && e.kind === 'scrap') alive.set(txt(e.id), !e.voided);
+  }
+  return (follows || []).filter(r => {
+    if (!r || r.kind !== 'buy' || r.voided || r.entity !== entity) return false;
+    if (statusOf(r) === 'done') return false;
+    const key = txt(r.scrap_entry_id);
+    if (!key) return false;
+    return alive.get(key) !== true;   // ยกเลิกไปแล้ว หรือไม่มีในสมุดของนิติบุคคลนี้
+  }).map(r => ({ ...r, why: alive.has(txt(r.scrap_entry_id))
+    ? 'รายการของเสียที่ผูกไว้ถูกยกเลิกทีหลัง'
+    : 'หารายการของเสียที่ผูกไว้ไม่เจอในสมุด' }));
 }

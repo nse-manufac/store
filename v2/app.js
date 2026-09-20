@@ -34,7 +34,7 @@ import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/ent
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         pendingScraps, fromScrapRow, linkReceive,
+         pendingScraps, fromScrapRow, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -945,8 +945,9 @@ createApp({
         await db.put('entries', posted);
         entries.value.push(...posted);
         db.announce('entries');
-        flash(`บันทึกรับเข้า ${posted.length} รายการ · PO ${inH.po}`);
-        await linkBuy(posted);   // ปิดเรื่องซื้อทดแทนที่กด "ไปรับของ" ไว้ (ใบ 7)
+        // ข้อความเดียวจบ — linkBuy ไม่ flash เอง ไม่งั้นจะทับยืนยันว่าบันทึกไปกี่รายการ
+        const extra = await linkBuy(posted);   // ปิดเรื่องซื้อทดแทนที่กด "ไปรับของ" ไว้ (ใบ 7)
+        flash([`บันทึกรับเข้า ${posted.length} รายการ · PO ${inH.po}`, ...extra].join(' · '));
         inLines.value = []; bomHint.value = ''; inH.po = ''; inH.pn = ''; inH.order = null;
         inShownPo = '';   // บันทึกแล้วจอว่าง ไม่มีบรรทัดของใบไหนเหลือ — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนใส่ PO ใหม่
       } catch (err) { flash(err.message, true); }
@@ -1919,7 +1920,9 @@ createApp({
       kind: 'buy', entity: entity.value, q: fbSearch.value, showDone: fbShowDone.value
     }));
     const fbRows = computed(() => fbAll.value.slice(0, SHOW_MAX));
-    const fbOpen = computed(() => openFollow(shorts.value, { kind: 'buy', entity: entity.value }));
+    /** เรื่องที่ต้นเหตุหายไปแล้ว — แสดงให้เห็น ไม่ตัดสินแทนคน */
+    const fbOrphans = computed(() =>
+      entity.value ? orphanBuys(entries.value, entity.value, shorts.value) : []);
 
     async function fbStart(row) {
       try {
@@ -1942,10 +1945,17 @@ createApp({
     }
 
     /* เรื่องที่กด "ไปรับของ" ค้างไว้ · saveIn() จะผูกเลขที่รายการกลับมาให้
-     * เก็บรหัสไว้ด้วย เพราะใบรับเข้าใบเดียวมีหลายบรรทัด ต้องรู้ว่าบรรทัดไหนคือของที่รอ */
-    const buyWait = ref(null);
+     * เก็บรหัสไว้ด้วย เพราะใบรับเข้าใบเดียวมีหลายบรรทัด ต้องรู้ว่าบรรทัดไหนคือของที่รอ
+     *
+     * ⚠️ เป็น "คิว" ไม่ใช่ค่าเดี่ยว · กดไปรับของสองเรื่องติดกันเกิดขึ้นจริง
+     *    ค่าเดี่ยวจะทับเรื่องแรกเงียบ ๆ แล้วเรื่องนั้นไม่ถูกปิดโดยไม่มีอะไรฟ้อง (ผู้ตรวจรอบ 2)
+     * ⚠️ การรอต้องเลิกได้ · ไม่งั้นบรรทัดจะตามไปทุกใบจนกว่าจะรับของรหัสนั้นจริง
+     *    แล้วไปปิดเรื่องผูกกับใบที่ไม่เกี่ยวกัน = พังตรงจุดที่หน้านี้ตั้งใจสร้าง */
+    const buyWaits = ref([]);
     function fbGo(row) {
-      buyWait.value = { id: row.id, code: normCode(row.code) };
+      if (!buyWaits.value.some(w => w.id === row.id)) {
+        buyWaits.value.push({ id: row.id, code: normCode(row.code) });
+      }
       if (row.po && !inH.po) inH.po = row.po;
       const l = blankLine(row.code);
       fillInLine(l);
@@ -1954,6 +1964,15 @@ createApp({
       bomHint.value = `เพิ่ม ${row.code} เข้าหน้ารับเข้าแล้ว — บันทึกเสร็จจะปิดเรื่องซื้อทดแทนให้เอง`;
       tab.value = 'in';
     }
+
+    /** เลิกรอ — บรรทัดที่ใส่ไว้ยังอยู่ให้ลบเอง เพราะอาจคีย์อย่างอื่นต่อไปแล้ว */
+    function cancelBuyWaits() {
+      if (!buyWaits.value.length) return;
+      buyWaits.value = [];
+      flash('เลิกรอผูกเรื่องซื้อทดแทนแล้ว — บรรทัดที่ยังอยู่ในใบต้องลบเองถ้าไม่ได้รับของจริง');
+    }
+    /* ออกจากหน้ารับเข้า = เลิกรอ · ไม่งั้นบรรทัดจะงอกตามไปทุกใบที่เปิดทีหลัง */
+    watch(tab, (now, before) => { if (before === 'in' && now !== 'in') buyWaits.value = []; });
 
     /**
      * บรรทัดของเรื่องที่รออยู่ ต้องรอดจาก expandBom() ที่เขียนทับ inLines ทั้งกอง (ผู้ตรวจรอบ 1 ของใบ 7)
@@ -1967,40 +1986,54 @@ createApp({
      * เรียกก่อน markReceived(recv) ของทุกสาขาใน expandBom() จึงครอบทุกทางที่เขียนทับ
      */
     function keepBuyLine() {
-      const wait = buyWait.value;
-      if (!wait) return;
-      const row = shorts.value.find(s => s.id === wait.id);
-      // เรื่องถูกยกเลิกหรือปิดไปแล้วระหว่างรอ — ไม่ต้องงอกบรรทัดให้ ไม่ใช่ของที่ยังรออยู่
-      if (!row || row.voided || remainOf(row) <= 0) return;
-      let l = inLines.value.find(x => normCode(x.code) === wait.code);
-      if (!l) {
-        l = blankLine(row.code);
-        fillInLine(l);
-        inLines.value.push(l);
+      // เรื่องที่ถูกยกเลิกหรือปิดไปแล้วระหว่างรอ ออกจากคิวไปเลย ไม่ต้องงอกบรรทัดให้
+      buyWaits.value = buyWaits.value.filter(w => {
+        const row = shorts.value.find(s => s.id === w.id);
+        return row && !row.voided && remainOf(row) > 0;
+      });
+      for (const w of buyWaits.value) {
+        const row = shorts.value.find(s => s.id === w.id);
+        let l = inLines.value.find(x => normCode(x.code) === w.code);
+        if (!l) {
+          l = blankLine(row.code);
+          fillInLine(l);
+          inLines.value.push(l);
+        }
+        // ยอดที่ Kit List จ่ายมาน่าเชื่อกว่ายอดที่ค้าง จึงเติมเฉพาะตอนบรรทัดยังไม่มีจำนวน
+        if (!(Number(l.qty) > 0)) l.qty = remainOf(row);
+        bomHint.value += (bomHint.value ? ' · ' : '')
+          + `⚠ ยังมีเรื่องซื้อทดแทน ${row.code} รอผูกอยู่ (ค้าง ${remainOf(row)})`
+          + ' — บรรทัดนี้ต้องอยู่ในใบ บันทึกเสร็จจะปิดเรื่องให้เอง';
       }
-      // ยอดที่ Kit List จ่ายมาน่าเชื่อกว่ายอดที่ค้าง จึงเติมเฉพาะตอนบรรทัดยังไม่มีจำนวน
-      if (!(Number(l.qty) > 0)) l.qty = remainOf(row);
-      bomHint.value += (bomHint.value ? ' · ' : '')
-        + `⚠ ยังมีเรื่องซื้อทดแทน ${row.code} รอผูกอยู่ (ค้าง ${remainOf(row)})`
-        + ' — บรรทัดนี้ต้องอยู่ในใบ บันทึกเสร็จจะปิดเรื่องให้เอง';
     }
 
-    /** ผูกของที่รับมาเข้ากับเรื่องที่รออยู่ — เรียกหลังบันทึกรับเข้าสำเร็จเท่านั้น */
+    /**
+     * ผูกของที่รับมาเข้ากับเรื่องที่รออยู่ — เรียกหลังบันทึกรับเข้าสำเร็จเท่านั้น
+     * คืนข้อความให้ saveIn เอาไปต่อท้ายข้อความเดียว ไม่ flash เอง
+     * ไม่งั้นข้อความนี้จะทับ "บันทึกรับเข้า N รายการ" จนพนักงานไม่เห็นยืนยันว่าบันทึกกี่รายการ
+     */
     async function linkBuy(posted) {
-      const wait = buyWait.value;
-      if (!wait) return;
-      const hit = posted.find(e => normCode(e.material_code) === wait.code);
-      if (!hit) return;                       // ใบนี้ไม่มีของที่รออยู่ ปล่อยให้รอใบถัดไป
-      const row = shorts.value.find(s => s.id === wait.id);
-      buyWait.value = null;
-      /* เรื่องถูกยกเลิกหรือปิดไปก่อนของจะมาถึง — เงียบไป ไม่ใช่เด้ง error หลังบันทึกสำเร็จ
-       * ใบรับเข้าบันทึกไปแล้วจริง คนคีย์ไม่ได้ทำอะไรผิด (G3) */
-      if (!row || row.voided || remainOf(row) <= 0) return;
-      try {
-        await fsPut(linkReceive(plain(row), { entryId: hit.id, qty: Number(hit.qty),
-                                              by: inH.person, doneAt: hit.at }));
-        flash(`ปิดเรื่องซื้อทดแทน ${row.code} แล้ว — ผูกกับใบรับเข้าที่เพิ่งบันทึก`);
-      } catch (err) { flash(err.message, true); }
+      const msgs = [];
+      const left = [];
+      for (const w of buyWaits.value) {
+        /* ⚠️ รวมทุกบรรทัดของรหัสนั้นในใบ ไม่ใช่หยิบบรรทัดแรก
+         *    ใบเดียวมีรหัสเดียวกันสองบรรทัด (คนละล็อต) เป็นเรื่องปกติ
+         *    หยิบบรรทัดเดียวแล้วเรื่องจะปิดแค่บางส่วนทั้งที่ของมาครบ */
+        const hits = posted.filter(e => normCode(e.material_code) === w.code);
+        if (!hits.length) { left.push(w); continue; }   // ใบนี้ไม่มีของที่รออยู่ รอใบถัดไป
+        const row = shorts.value.find(s => s.id === w.id);
+        /* เรื่องถูกยกเลิกหรือปิดไปก่อนของจะมาถึง — เงียบไป ไม่ใช่เด้ง error หลังบันทึกสำเร็จ
+         * ใบรับเข้าบันทึกไปแล้วจริง คนคีย์ไม่ได้ทำอะไรผิด (G3) */
+        if (!row || row.voided || remainOf(row) <= 0) continue;
+        const qty = round5(hits.reduce((n, e) => n + (Number(e.qty) || 0), 0));
+        try {
+          await fsPut(linkReceive(plain(row), { entryId: hits.map(e => e.id).join(' '), qty,
+                                                by: inH.person, doneAt: hits[0].at }));
+          msgs.push(`ปิดเรื่องซื้อทดแทน ${row.code} แล้ว`);
+        } catch (err) { msgs.push(err.message); }
+      }
+      buyWaits.value = left;
+      return msgs;
     }
 
     /* ── คีย์เรื่องใหม่เอง ──────────────────────────────────────────
@@ -2608,7 +2641,8 @@ createApp({
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
-      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOpen, fbStart, fbVoid, fbGo, buyWait,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo,
+      buyWaits, cancelBuyWaits,
       foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
