@@ -394,7 +394,7 @@ const noOrder = overAll([recv({ doc_ref: PO2 })], 'TUE-H',
 ok('ยังไม่รู้จำนวนสั่ง = คำนวณไม่ได้ ไม่ใช่เกินทั้งก้อน',
    noOrder.length === 1 && noOrder[0].why.includes('จำนวนสั่ง'));
 
-// ⚠️ กับดักที่ overBom ของเดิมตกไปแล้ว — byPn() คืนอ็อบเจกต์ทั้งแถว คูณแล้วได้ NaN
+// ⚠️ กับดักที่ตัวคิดยอดเกินรุ่นแรกตกไปแล้ว — byPn() คืนอ็อบเจกต์ทั้งแถว คูณแล้วได้ NaN
 const objUsage = overAll([recv()], 'TUE-H',
                          { headerOf, usageOf: () => ({ usage: 10 }) });
 ok('ส่ง usageOf ที่คืนอ็อบเจกต์ ต้องกลายเป็นคำนวณไม่ได้ ไม่ใช่ NaN เงียบ ๆ',
@@ -563,7 +563,7 @@ ok('มีแท็บ over รอคืน ในกลุ่ม Mat Follow up'
 ok('มีแผงรองรับจริง ไม่ใช่ปุ่มที่กดแล้วได้จอเปล่า',
    htmlOver.includes(`tab==='fover'`));
 
-// ⚠️ กับดักเดิมของ overBom — ส่งอ็อบเจกต์ทั้งแถวเข้าไปแล้วคูณได้ NaN เงียบ ๆ
+// ⚠️ กับดักเดิมของตัวคิดยอดเกินรุ่นแรก — ส่งอ็อบเจกต์ทั้งแถวเข้าไปแล้วคูณได้ NaN เงียบ ๆ
 ok('หน้าจอส่ง usageOf ที่คืนตัวเลขต่อชิ้น ไม่ใช่ byPn ทั้งแถว',
    /const bomUsageOf = \(pn, code\) => \{[\s\S]{0,220}Number\(hit\.usage\)/.test(appOver)
    && !/usageOf: byPn/.test(appOver));

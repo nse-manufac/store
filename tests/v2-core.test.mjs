@@ -5,8 +5,9 @@
  * เน้นข้อที่ถ้าพลาดแล้วยอดเพี้ยนโดยไม่มีอะไรเตือน ซึ่งเป็นความผิดพลาดชนิดที่แพงที่สุด
  * ในโปรแกรมคลัง เพราะกว่าจะรู้ก็ผ่านไปหลายเดือนแล้ว
  */
+import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, overBom, receivedOfDoc, movedOfDoc } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -122,13 +123,16 @@ ok('จับที่จ่ายเกินที่เคยรับได�
 ok('ของปกติไม่ถูกจับ', !codes.includes('OK1'));
 ok('บอกเหตุผลที่ถูกจับ', odd.find(o => o.code === 'NEG1').why.includes('ยอดติดลบ'));
 
-console.log('\n=== J. ของเกินสูตร ===');
-const bom = new Map([['3220130200', 0.15]]);
-const over = overBom([
-  makeEntry({ ...base, kind: 'issue', qty: 20, part_no: '2800404400' })
-], E, { bomFor: pn => (pn === '2800404400' ? bom : null), orderOf: () => 100 });
-ok('เบิก 20 ทั้งที่สูตรบอก 15 = เกิน 5', over.length === 1 && over[0].over === 5,
-   JSON.stringify(over));
+/* ── ของที่ลบทิ้งไปแล้ว ต้องไม่กลับมาเงียบ ๆ (Mat Follow up 8/8) ──
+ * overBom เคยคิด "ของเบิกเกินสูตร" แต่ไม่มีใครเรียกมาตั้งแต่ v2 ขึ้น และคิดยอดคนละสูตร
+ * กับที่หน้าจอใช้จริง · ของเกินตัวจริงอยู่ที่ overAll ของ master/follow.js (ใบ 6)
+ * ถ้ามีคนเติมกลับมาโดยไม่มีใครเรียก เราจะมีสองสูตรที่ค่อย ๆ เพี้ยนจากกันอีกรอบ */
+{
+  const srcBal = fs.readFileSync(new URL('../v2/core/balance.js', import.meta.url), 'utf8');
+  const srcApp = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('overBom ถูกลบออกจาก balance.js แล้ว', !/export function overBom/.test(srcBal));
+  ok('ไม่มีใครเรียก overBom ใน app.js', !/\boverBom\s*\(/.test(srcApp));
+}
 
 console.log('\n=== K. ยอดที่เคยคีย์รับไปแล้วของ PO ใบเดียวกัน (issue #52) ===');
 const rcv = [

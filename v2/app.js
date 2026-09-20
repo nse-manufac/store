@@ -1783,7 +1783,8 @@ createApp({
     const foShowDone = ref(false);
 
     /** ยอดต่อชิ้นจากสูตร — ⚠️ ต้องคืน "ตัวเลข" ไม่ใช่อ็อบเจกต์ทั้งแถว
-     *  ส่ง byPn() ของ bom.js เข้าไปแล้วจะคูณได้ NaN เงียบ ๆ (บั๊กเดิมของ overBom) */
+     *  ส่ง byPn() ของ bom.js เข้าไปแล้วจะคูณได้ NaN เงียบ ๆ
+     *  (กับดักเดิมของตัวคิดยอดเกินรุ่นแรก ซึ่งลบทิ้งไปแล้วในใบ 8) */
     const bomUsageOf = (pn, code) => {
       const hit = activeBomRowsOf(bom.value, pn)
         .find(r => normCode(r.code) === normCode(code));

@@ -137,30 +137,3 @@ export function oddBalances(entries, entity, { staleDays = 90, now = new Date() 
   }
   return out.sort((x, y) => (y.unknown - x.unknown) || (x.bal - y.bal));
 }
-
-/**
- * ของที่เบิกเกินสูตร — เทียบยอดจ่ายออกจริงกับที่ BOM บอกไว้
- * bomFor(pn) ต้องคืน Map<code, usagePerPiece>
- */
-export function overBom(entries, entity, { bomFor, orderOf }) {
-  need(entity);
-  const used = new Map();   // key = pn|code
-  for (const e of entries) {
-    if (e.entity !== entity || !counts(e) || e.kind !== 'issue' || !e.part_no) continue;
-    const k = e.part_no + '|' + e.material_code;
-    used.set(k, round5((used.get(k) || 0) + e.qty));
-  }
-  const rows = [];
-  for (const [k, qty] of used) {
-    const [pn, code] = k.split('|');
-    const bom = bomFor(pn);
-    if (!bom) continue;
-    const per = bom.get(code);
-    if (per == null) { rows.push({ pn, code, qty, expect: null, over: null, note: 'ไม่มีในสูตร' }); continue; }
-    const expect = round5(per * (orderOf(pn) || 0));
-    if (expect > 0 && qty > expect) {
-      rows.push({ pn, code, qty, expect, over: round5(qty - expect), note: '' });
-    }
-  }
-  return rows.sort((a, b) => (b.over || 0) - (a.over || 0));
-}
