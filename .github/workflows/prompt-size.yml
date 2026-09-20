@@ -1,0 +1,28 @@
+name: ตรวจขนาด prompt ของ workflow
+
+# ทำไมต้องมีด่านนี้ — ดูเหตุผลเต็มใน .github/scripts/check-prompt-size.mjs
+# สรุปสั้น ๆ: prompt ที่ยาวเกินเพดานของ GitHub ทำให้ทั้งไฟล์ workflow เสีย
+# ผู้ตรวจจึงไม่รันเลย **และหน้า PR ไม่ขึ้นเช็คสีแดงให้เห็น** — ของพังแบบเงียบ
+# ด่านนี้ทำให้มันไม่เงียบ
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: prompt-size-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: prompt ต้องไม่ติดเพดาน 21,000 ไบต์
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/check-prompt-size.mjs
