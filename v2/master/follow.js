@@ -29,7 +29,10 @@ export const FOLLOW_KINDS = {
 export const SHORT_TYPES = ['ขาด', 'รอส่ง'];
 
 /** มาจากไหน — แกะจากไฟล์ PO · คีย์เอง · หรือระบบคำนวณให้แล้วคนกดยืนยัน */
-export const SOURCES = ['file', 'manual', 'auto'];
+/* 'delta' = มาจากไฟล์ MAT'L FOLLOWING ที่ Delta ส่งมา · ต่อท้ายเท่านั้น
+ * ⚠️ migrateFollow เขียน source ที่ไม่รู้จักทับเป็น 'file' — เครื่องรุ่นเก่าจึงลบป้ายนี้ทิ้งได้
+ *    การจับคู่ตอนนำเข้าซ้ำจึงห้ามพึ่ง source (ดู planMatFollow ของ matfollow.js) */
+export const SOURCES = ['file', 'manual', 'auto', 'delta'];
 
 const FIELD_LABEL = {
   po: 'PO', type: 'ประเภท (ขาด/รอส่ง)', part_no: 'P/N',
