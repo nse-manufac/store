@@ -15,7 +15,12 @@
 //   2. prompt อันไหนก็ตามห้ามเกิน 20,500 ไบต์ — ต่อให้ตอนนี้ไม่มี ${{ }}
 //      เพราะวันที่มีคนเติมกลับเข้ามาแม้จุดเดียว มันจะพังทันทีในวันนั้น
 //   3. มี ${{ }} และเกิน 12,000 ไบต์ = ขึ้นเตือน (ยังเขียว) — ให้รู้ตัวก่อนจะชน
-//   4. หาไม่เจอสักอัน = ตก — ตัวอ่านที่หาไม่เจอแล้วเขียวคือด่านที่ไม่ได้ตรวจอะไรเลย
+//   4. **ไฟล์ที่เรียก `anthropics/claude-code-action` ต้องมี `prompt: |` ที่วัดได้**
+//      ไม่งั้นตก — ผู้ตรวจ (PR #92) พิสูจน์ให้ดูแล้วว่าถ้านับรวมทั้งโฟลเดอร์อย่างเดียว
+//      การเปลี่ยน prompt ไฟล์หนึ่งเป็น string บรรทัดเดียวยาว 21,000+ ไบต์ **ผ่านฉลุย**
+//      เพราะไฟล์อื่นยังมี `prompt: |` อยู่ = พังเงียบแบบเดียวกับที่ด่านนี้ตั้งใจกำจัด
+//   5. `prompt:` ที่ไม่ใช่บล็อก (`prompt: "..."`) = ตก — **วัดไม่ได้ต้องแดง ไม่ใช่ข้าม**
+//   6. หาไม่เจอสักอันทั้งโฟลเดอร์ = ตก — ตัวอ่านที่หาไม่เจอแล้วเขียวคือด่านที่ไม่ได้ตรวจอะไรเลย
 //
 // อ่าน YAML แบบหยาบ ๆ เองเพราะ runner ไม่มี dependency ให้ใช้ตอนด่านนี้รัน
 // (ตัวแอปและด่านอื่นก็ไม่มี dependency เหมือนกัน)
@@ -55,9 +60,31 @@ function promptBlocks(text) {
 let found = 0;
 let bad = 0;
 
+/** `prompt:` ที่เขียนเป็นค่าบรรทัดเดียว — วัดด้วยตัวอ่านนี้ไม่ได้ */
+function inlinePromptLines(text) {
+  return text.split(/\r?\n/)
+    .map((l, i) => [l, i + 1])
+    .filter(([l]) => /^\s*prompt:\s*\S/.test(l) && !/^\s*prompt:\s*[|>][-+0-9]*\s*$/.test(l));
+}
+
 for (const name of fs.readdirSync(DIR).filter(f => /\.ya?ml$/.test(f)).sort()) {
   const file = path.join(DIR, name);
-  for (const block of promptBlocks(fs.readFileSync(file, 'utf8'))) {
+  const text = fs.readFileSync(file, 'utf8');
+  const blocks = promptBlocks(text);
+
+  // ไฟล์ที่เรียก action ของ Claude ต้องมี prompt ที่วัดได้เสมอ
+  if (/anthropics\/claude-code-action/.test(text) && blocks.length === 0) {
+    bad++;
+    console.log(`::error file=${file}::ไฟล์นี้เรียก anthropics/claude-code-action แต่หา \`prompt: |\` ` +
+      `ที่วัดได้ไม่เจอเลย — เขียน prompt เป็นบล็อก \`|\` เสมอ ไม่งั้นด่านนี้มองไม่เห็นว่ามันยาวแค่ไหน`);
+  }
+  for (const [line, no] of inlinePromptLines(text)) {
+    bad++;
+    console.log(`::error file=${file},line=${no}::\`prompt:\` เขียนเป็นค่าบรรทัดเดียว วัดขนาดไม่ได้ — ` +
+      `ให้เขียนเป็นบล็อก \`prompt: |\` แทน (${line.trim().slice(0, 40)}…)`);
+  }
+
+  for (const block of blocks) {
     found++;
     const bytes = Buffer.byteLength(block.text, 'utf8');
     const hasExpr = block.text.includes('${{');
