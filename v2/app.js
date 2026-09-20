@@ -848,6 +848,7 @@ createApp({
         const missing = rows.filter(r => !kit.some(k => String(k.code) === String(r.code)));
         bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมยอดที่ Delta จ่ายให้แล้ว)`
           + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้จ่ายมา` : '');
+        keepBuyLine();   // บรรทัดที่ "ไปรับของ" ใส่ไว้ เพิ่งถูก inLines.value = kit.map(...) ล้างไป
         markReceived(recv);
         return;
       }
@@ -861,6 +862,7 @@ createApp({
         bomHint.value = inH.po
           ? `ยังไม่มีทั้ง Kit List ของ PO ${inH.po} และสูตรของ ${inH.pn || '(ยังไม่ใส่ P/N)'} — คีย์เองได้`
           : `ยังไม่มีสูตรของ ${inH.pn} ในเครื่อง — คีย์เองได้`;
+        keepBuyLine();   // สาขานี้ล้าง inLines เมื่อเปลี่ยนใบ (poSwitched) และทับ bomHint ทุกครั้ง
         markReceived(recv);
         return;
       }
@@ -877,6 +879,7 @@ createApp({
         + (inH.po ? ` · ยังไม่มี Kit List ของ PO ${inH.po} จึงใช้สูตรแทน` : '')
         + (order ? ` · คิดจากจำนวนสั่ง ${order}` : ' · ใส่จำนวนสั่งเพื่อให้คำนวณยอดตามสูตร')
         + (un ? ` · ⚠️ ${un} รายการใช้หน่วยที่ยังไม่ยืนยันกับ Delta` : '');
+      keepBuyLine();   // บรรทัดที่ "ไปรับของ" ใส่ไว้ เพิ่งถูก inLines.value = rows.map(...) ล้างไป
       markReceived(recv);
     }
 
@@ -1950,6 +1953,36 @@ createApp({
       inLines.value.push(l);
       bomHint.value = `เพิ่ม ${row.code} เข้าหน้ารับเข้าแล้ว — บันทึกเสร็จจะปิดเรื่องซื้อทดแทนให้เอง`;
       tab.value = 'in';
+    }
+
+    /**
+     * บรรทัดของเรื่องที่รออยู่ ต้องรอดจาก expandBom() ที่เขียนทับ inLines ทั้งกอง (ผู้ตรวจรอบ 1 ของใบ 7)
+     *
+     * เรื่องซื้อทดแทนไม่มีเลข PO ตอนตั้งเรื่อง พนักงานจึงกด [ไปรับของ] ก่อน แล้วค่อยคีย์เลข PO เสมอ
+     * ช่อง PO ผูก @change="pickPo" → expandBom() ซึ่งสั่ง `inLines.value = ...` ตรง ๆ ทั้งสาขา Kit List
+     * และสาขาสูตร บรรทัดที่ fbGo เพิ่งใส่ให้จึงหายทั้งบรรทัดพร้อม bomHint ที่บอกว่าเรื่องจะถูกปิดให้เอง
+     * ถ้าพนักงานไม่ทันสังเกตแล้วกดบันทึก linkBuy() หารหัสนั้นไม่เจอ → เรื่องไม่ถูกปิดโดยไม่มีอะไรฟ้อง
+     * แล้วไปปิดตัวเองกับใบรับเข้าใบอื่นของรหัสเดียวกันที่คีย์ทีหลัง = ไล่ย้อนผิดใบ
+     *
+     * เรียกก่อน markReceived(recv) ของทุกสาขาใน expandBom() จึงครอบทุกทางที่เขียนทับ
+     */
+    function keepBuyLine() {
+      const wait = buyWait.value;
+      if (!wait) return;
+      const row = shorts.value.find(s => s.id === wait.id);
+      // เรื่องถูกยกเลิกหรือปิดไปแล้วระหว่างรอ — ไม่ต้องงอกบรรทัดให้ ไม่ใช่ของที่ยังรออยู่
+      if (!row || row.voided || remainOf(row) <= 0) return;
+      let l = inLines.value.find(x => normCode(x.code) === wait.code);
+      if (!l) {
+        l = blankLine(row.code);
+        fillInLine(l);
+        inLines.value.push(l);
+      }
+      // ยอดที่ Kit List จ่ายมาน่าเชื่อกว่ายอดที่ค้าง จึงเติมเฉพาะตอนบรรทัดยังไม่มีจำนวน
+      if (!(Number(l.qty) > 0)) l.qty = remainOf(row);
+      bomHint.value += (bomHint.value ? ' · ' : '')
+        + `⚠ ยังมีเรื่องซื้อทดแทน ${row.code} รอผูกอยู่ (ค้าง ${remainOf(row)})`
+        + ' — บรรทัดนี้ต้องอยู่ในใบ บันทึกเสร็จจะปิดเรื่องให้เอง';
     }
 
     /** ผูกของที่รับมาเข้ากับเรื่องที่รออยู่ — เรียกหลังบันทึกรับเข้าสำเร็จเท่านั้น */

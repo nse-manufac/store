@@ -15,6 +15,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, linkReceive }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
+import { normCode } from '../v2/master/materials.js';
 import { signedQty, KINDS } from '../v2/core/ledger.js';
 import { localDate, atFrom } from '../v2/core/localtime.js';
 
@@ -750,6 +751,72 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ลบท�
 /* เรื่องถูกยกเลิกหรือปิดไปก่อนของจะมาถึง — ต้องเงียบ ไม่ใช่เด้ง error ทับข้อความบันทึกสำเร็จ (G3) */
 ok('เรื่องหายไประหว่างรอของ ต้องไม่เด้ง error หลังบันทึกรับเข้าสำเร็จ',
    /if \(!row \|\| row\.voided \|\| remainOf\(row\) <= 0\) return;/.test(appBuy));
+/* ── บรรทัดที่รออยู่ ต้องรอดจาก expandBom() ── รันของจริงที่แกะออกมาจากซอร์ส ───────────
+ * ⚠️ ข้อที่ผู้ตรวจรอบ 1 ทักไว้ · เทสหมวดนี้ที่เหลืออ่านซอร์สล้วน จับพฤติกรรมข้อนี้ไม่ได้เลย
+ * เรื่องซื้อทดแทนไม่มีเลข PO ตอนตั้งเรื่อง พนักงานจึงคีย์เลข PO หลังกด [ไปรับของ] เสมอ
+ * ซึ่งวิ่งเข้า expandBom() ที่สั่ง `inLines.value = ...` ตรง ๆ — บรรทัดที่เพิ่งใส่ให้หายเงียบ
+ * แล้ว linkBuy() หารหัสนั้นไม่เจอ เรื่องไม่ถูกปิดโดยไม่มีอะไรฟ้อง */
+function cutFn(src, name) {
+  const i = src.indexOf(`function ${name}(`);
+  if (i < 0) throw new Error(`ไม่พบ function ${name} ใน v2/app.js`);
+  let depth = 0;
+  for (let k = src.indexOf('{', i); k < src.length; k++) {
+    if (src[k] === '{') depth++;
+    else if (src[k] === '}' && --depth === 0) return src.slice(i, k + 1);
+  }
+  throw new Error(`อ่าน function ${name} ใน v2/app.js ไม่จบ`);
+}
+
+// ถ้าฟังก์ชันหายไป รายงานเป็นข้อที่ตก ไม่ใช่ทิ้งทั้งไฟล์ — ข้ออื่นอีกสองร้อยกว่าข้อต้องยังรายงานได้
+const hasKeep = appBuy.includes('function keepBuyLine(');
+ok('มี keepBuyLine ให้ expandBom เรียก', hasKeep);
+
+// ตัวแปรที่ keepBuyLine อ้างถึงใน setup() ส่งเข้าไปเป็นพารามิเตอร์แทน
+const keepFn = hasKeep && new Function('buyWait', 'shorts', 'inLines', 'bomHint',
+                            'blankLine', 'fillInLine', 'normCode', 'remainOf',
+                            cutFn(appBuy, 'keepBuyLine') + '\nreturn keepBuyLine();');
+const HINT = 'กางสูตร 3 รายการ';
+const keepRun = (lines, waitRow, rows) => {
+  const ctx = { lines: { value: lines }, hint: { value: HINT }, ran: hasKeep };
+  if (!hasKeep) return ctx;
+  keepFn({ value: waitRow ? { id: waitRow.id, code: normCode(waitRow.code) } : null },
+         { value: rows }, ctx.lines, ctx.hint,
+         code => ({ k: 'L', code, desc: '', unit: '', reqmt: null, qty: null }),
+         () => {}, normCode, remainOf);
+  return ctx;
+};
+
+{
+  const c = keepRun([{ code: 'ZZ-อื่น', qty: 2 }], buyCase, [buyCase]);
+  ok('บรรทัดที่ expandBom ล้างไป ต้องงอกกลับพร้อมยอดที่ยังค้าง',
+     c.lines.value.length === 2 && normCode(c.lines.value[1].code) === normCode(C1)
+     && c.lines.value[1].qty === 6, JSON.stringify(c.lines.value));
+  ok('bomHint ที่ถูกทับ ต้องเตือนว่ายังมีเรื่องซื้อทดแทนรอผูกอยู่',
+     c.hint.value.startsWith(HINT) && c.hint.value.includes('ซื้อทดแทน'), c.hint.value);
+}
+// รหัสนั้นบังเอิญอยู่ใน Kit List — ยอดที่ Delta จ่ายมาน่าเชื่อกว่ายอดที่ค้าง ห้ามทับ
+ok('รหัสนั้นอยู่ในใบอยู่แล้ว ไม่งอกซ้ำ และไม่ทับยอดที่ Kit List เติมให้',
+   (() => { const c = keepRun([{ code: C1, qty: 4 }], buyCase, [buyCase]);
+            return c.ran && c.lines.value.length === 1 && c.lines.value[0].qty === 4; })());
+ok('เรื่องถูกยกเลิกไประหว่างรอ ไม่งอกบรรทัดให้',
+   (() => { const c = keepRun([], buyCase, [{ ...buyCase, voided: true }]);
+            return c.ran && c.lines.value.length === 0 && c.hint.value === HINT; })());
+ok('เรื่องปิดครบไปแล้ว ไม่งอกบรรทัดให้',
+   (() => { const c = keepRun([], got, [got]);
+            return c.ran && c.lines.value.length === 0 && c.hint.value === HINT; })());
+ok('ไม่มีเรื่องรออยู่ หน้ารับเข้าต้องไม่ถูกแตะเลย',
+   (() => { const c = keepRun([], null, []);
+            return c.ran && c.lines.value.length === 0 && c.hint.value === HINT; })());
+
+/* ต้องครบ "ทุก" สาขา — สาขา Kit List กับสาขาสูตรเขียนทับ inLines ทั้งกองคนละบรรทัดกัน */
+{
+  const branches = cutFn(appBuy, 'expandBom').split('markReceived(recv)');
+  ok('ทุกสาขาของ expandBom เรียก keepBuyLine ก่อน markReceived',
+     branches.length === 4
+     && branches.slice(0, 3).every(b => /keepBuyLine\(\);[^\n]*\n\s*$/.test(b)),
+     `พบ ${branches.length - 1} สาขา`);
+}
+
 ok('ชื่อที่เทมเพลตเรียก ถูกส่งออกจาก setup() ครบ',
    ['fbNew','fbRows','fbAll','fbStart','fbVoid','fbGo','fbSearch','fbShowDone']
      .every(n => new RegExp('\\b' + n + '\\b').test(appBuy.slice(appBuy.lastIndexOf('return {')))));
