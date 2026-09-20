@@ -1829,6 +1829,9 @@ createApp({
       rb.row && entity.value ? (bookBalances.value.get(normCode(rb.row.code)) || 0) : 0);
     const rbAfter = computed(() =>
       round5(rbBook.value - (Number(rb.qty) || 0)));
+    /** ยอดที่ยังค้างของเรื่องนี้ — ผ่าน remainOf ทางเดียวกับตารางข้างหลังและค่าตั้งต้นของ rb.qty
+     *  ห้ามลบ qty − done_qty ดิบ ๆ ในเทมเพลต จะได้ 1.3499999999999999 (INVARIANTS A2) */
+    const rbRemain = computed(() => (rb.row ? remainOf(rb.row) : 0));
 
     /** PO ใบนี้ยังรับมาไม่ครบตามสูตรอีกกี่รหัส — คืนได้ แต่ต้องเตือนก่อน (INVARIANTS A4)
      *  คิดจากของวันนี้ ไม่ใช่ค่าที่แช่แข็งไว้ตอนตั้งเรื่อง เพราะคำเตือนต้องพูดถึงสภาพตอนกด */
@@ -2481,7 +2484,8 @@ createApp({
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
-      foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbShort, rbReady, rbReasons, doReturn,
+      foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbReady,
+      rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };

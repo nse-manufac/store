@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-20.2">
+<meta name="app-version" content="2026-09-20.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2357,7 +2357,7 @@ textarea{font:inherit}
                   <span class="hint">· P/N {{ rb.row.part_no }}</span></td></tr>
             <tr><td class="hint">รหัส</td><td class="mono">{{ rb.row.code }} {{ rb.row.unit }}</td></tr>
             <tr><td class="hint">ตั้งเรื่องไว้</td>
-                <td class="mono">{{ rb.row.qty }} · ยังค้าง {{ rb.row.qty - (rb.row.done_qty || 0) }}</td></tr>
+                <td class="mono">{{ rb.row.qty }} · ยังค้าง {{ rbRemain }}</td></tr>
           </tbody></table>
 
           <div class="row" style="margin-top:12px">

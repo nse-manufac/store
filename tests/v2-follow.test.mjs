@@ -531,6 +531,21 @@ ok('กล่องคืนของให้เลือกล็อตจา�
    && !/id="rblots"/.test(htmlOver));
 ok('กล่องคืนของบอกยอดหลังคืน และย้อมแดงเมื่อติดลบ',
    /rbAfter/.test(htmlOver) && /rbAfter < 0/.test(htmlOver));
+/* ⚠️ เคมีคิดเป็นกิโลกรัม มีทศนิยม · ลบ float ดิบ ๆ ในเทมเพลตจะได้ 1.3499999999999999
+ *    ขณะที่ตารางข้างหลังขึ้น 1.35 เพราะผ่าน remainOf — สองตัวเลขในจอเดียวกันไม่ตรงกัน
+ *    บนกล่องที่ตัดของจริงออกจากคลัง (ผู้ตรวจ #90 รอบ 1 · INVARIANTS A2) */
+ok('ยอด "ยังค้าง" ในกล่องคืนของมาจาก remainOf ไม่ใช่ลบ float ดิบ ๆ ในเทมเพลต — A2',
+   /ยังค้าง \{\{ rbRemain \}\}/.test(htmlOver)
+   && !/rb\.row\.qty\s*-\s*\(?rb\.row\.done_qty/.test(htmlOver));
+ok('rbRemain ต่อสายไว้จริงและส่งออกให้เทมเพลตใช้ได้',
+   /const rbRemain = computed\(\(\) => \(rb\.row \? remainOf\(rb\.row\) : 0\)\)/.test(appOver)
+   && /\brbRemain\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+{ // ค่าที่ rbRemain คืน ต้องตรงกับค่าตั้งต้นของช่อง "จำนวนที่คืน" เป๊ะ (ทางเดียวกัน)
+  const frac2 = { qty: 2.96, done_qty: 1.61 };
+  ok('เคสทศนิยมที่เคยโชว์ยาวเกินจอ ผ่าน remainOf แล้วได้ 1.35',
+     remainOf(frac2) === 1.35 && frac2.qty - frac2.done_qty !== 1.35,
+     `${remainOf(frac2)} vs ${frac2.qty - frac2.done_qty}`);
+}
 ok('เตือนเมื่อใบนั้นยังรับมาไม่ครบ แต่ยังกดต่อได้ (A4)',
    /v-if="rbShort\.length"/.test(htmlOver)
    && /:disabled="!rbReady \|\| rb\.busy"/.test(htmlOver));
