@@ -191,8 +191,11 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
     const k = matKey(p);
     seen.add(k);
     const cur = byKey.get(k);
+    /* ⚠️ วันที่ว่างจากไฟล์แปลว่า "Delta ไม่ได้แจ้งวันที่มา" ไม่ใช่ "ให้ลบวันที่เดิม"
+     * matDate() คืน '' ได้หลายทาง (เซลล์ว่าง · เซลล์ผสานที่ค่าอยู่แค่แถวบน · ข้อความที่อ่านไม่ออก)
+     * เขียนทับด้วยค่าว่างแล้วแถวนั้นจะไม่มีวันที่บนจอถาวร (ผู้ตรวจ #96 รอบสอง) */
     const fields = {
-      qty: p.qty, date: p.date, part_no: p.part_no, note: p.note,
+      qty: p.qty, date: txt(p.date) || txt(cur && cur.date), part_no: p.part_no, note: p.note,
       order_qty: p.order, recv_qty: p.actual
     };
     if (!cur) {
@@ -217,9 +220,11 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
     const done = round5(Number(cur.done_qty) || 0);
     /* ⚠️ ต้องเทียบวันที่ด้วย · วันที่บนแถวคือ "วันที่ Delta แจ้งรอบล่าสุด"
      * ไม่เทียบแล้วแถวที่ Delta แจ้งใหม่แต่ยอดเท่าเดิม จะค้างวันที่เก่าไว้ตลอดไป
-     * แล้วคนอ่านจะเข้าใจว่าเรื่องนี้เงียบมาหลายสัปดาห์ทั้งที่เพิ่งแจ้งมาเมื่อวาน (ผู้ตรวจ #96 ข้อ 4) */
+     * แล้วคนอ่านจะเข้าใจว่าเรื่องนี้เงียบมาหลายสัปดาห์ทั้งที่เพิ่งแจ้งมาเมื่อวาน (ผู้ตรวจ #96 ข้อ 4)
+     * ⚠️ เทียบเฉพาะตอนที่ไฟล์แจ้งวันที่มาจริง — ไฟล์ที่ช่องวันที่ว่างจะขึ้นว่า "อัปเดต" ทุกรอบ
+     *    ทั้งที่ไม่มีอะไรเปลี่ยน แล้วคนคีย์จะเลิกเชื่อการ์ดดูก่อนยืนยัน (ผู้ตรวจ #96 รอบสอง) */
     const changed = round5(Number(cur.qty) || 0) !== round5(p.qty)
-      || txt(cur.date) !== txt(p.date)
+      || (txt(p.date) && txt(cur.date) !== txt(p.date))
       || txt(cur.note) !== txt(p.note)
       || (numOf(cur.order_qty) ?? null) !== (p.order ?? null)
       || (numOf(cur.recv_qty) ?? null) !== (p.actual ?? null);

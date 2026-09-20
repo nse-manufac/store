@@ -227,6 +227,20 @@ ok('กุญแจจับคู่แยกของขาดกับขอ�
      JSON.stringify({ u: p.update.length, d: p.update[0]?.rec.date }));
   ok('ยอดกับความคืบหน้าไม่ถูกแตะตอนอัปเดตแค่วันที่',
      p.update[0].rec.qty === saved[0].qty && p.update[0].rec.done_qty === saved[0].done_qty);
+
+  /* ⚠️ ด้านกลับของข้อบน — ช่องวันที่ว่างแปลว่า Delta ไม่ได้แจ้งวันที่มา ไม่ใช่ให้ลบวันที่เดิม
+   * ไม่ดักแล้วนำเข้าไฟล์เดิมซ้ำจะขึ้นว่า "อัปเดต" ทุกรอบ แล้วลบวันที่ที่เคยมีทิ้ง (ผู้ตรวจ #96 รอบสอง) */
+  const blank = fileRows.map((r, i) => i === 0 ? { ...r, date: '' } : r);
+  const pb = planMatFollow(blank, saved, { now: '2026-09-21T03:00:00.000Z' });
+  ok('ไฟล์ที่ช่องวันที่ว่าง ต้องไม่ลบวันที่เดิม และนับเป็นเท่าเดิม',
+     !pb.update.length && pb.same.length === 2,
+     JSON.stringify({ u: pb.update.length, d: pb.update[0]?.rec.date, s: pb.same.length }));
+  const blankMoved = blank.map((r, i) => i === 0 ? { ...r, qty: r.qty + 5 } : r);
+  const pb2 = planMatFollow(blankMoved, saved, { now: '2026-09-21T04:00:00.000Z' });
+  ok('ช่องวันที่ว่างแต่ยอดเปลี่ยน ยังอัปเดตยอดให้โดยเก็บวันที่เดิมไว้',
+     pb2.update.length === 1 && pb2.update[0].rec.qty === saved[0].qty + 5
+     && pb2.update[0].rec.date === saved[0].date,
+     JSON.stringify({ q: pb2.update[0]?.rec.qty, d: pb2.update[0]?.rec.date }));
 }
 
 console.log('\n=== F. ไฟล์แบบต่อท้าย · ไฟล์ที่ส่งมาไม่ครบทุกโรงงาน ===');
