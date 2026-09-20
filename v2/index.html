@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-19.2">
+<meta name="app-version" content="2026-09-20.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1882,6 +1882,128 @@ textarea{font:inherit}
       </template>
 
       <!-- ════════ ซิงค์ ════════ -->
+      <!-- ════════ over รอคืน (Mat Follow up 6/8) ════════ -->
+      <template v-else-if="tab==='fover'">
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>
+            <span class="hint">รับเข้าตามใบ − ที่คืนไปแล้ว − ยอดตามสูตรของใบนั้น</span>
+            <div class="grow"></div>
+            <div><div class="hint">รอตั้งเรื่อง</div>
+              <div class="big" :class="foNew.length ? 'warn' : ''">{{ foNew.length }}</div></div>
+          </div>
+          <p class="hint" style="margin:6px 0 0" v-if="!entity">
+            ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — คิดยอดเกินไม่ได้</p>
+
+          <div class="scroll" style="max-height:38vh;margin-top:10px" v-if="foNew.length">
+            <table>
+              <thead><tr>
+                <th style="width:125px">PO</th><th style="width:80px">P/N</th>
+                <th style="width:125px">รหัส</th><th style="width:95px">สั่ง</th>
+                <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
+                <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
+                <th style="width:130px"></th></tr></thead>
+              <tbody><tr v-for="r in foNew" :key="r.po + r.code">
+                <td class="mono">{{ r.po }}</td>
+                <td class="mono hint">{{ r.pn }}</td>
+                <td class="mono">{{ r.code }}</td>
+                <td class="mono hint">{{ r.order }}</td>
+                <td class="mono hint">{{ r.bom_qty }}</td>
+                <td class="mono">{{ r.recv }}</td>
+                <td class="mono hint">{{ r.sentBack || '—' }}</td>
+                <td class="mono"><b>{{ r.over }}</b></td>
+                <td><button class="btn" style="padding:2px 9px" :disabled="!entity"
+                            @click="foStart(r)">ตั้งเรื่องคืน</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+          <p v-else class="empty" style="margin-top:10px">
+            ไม่มีของเกินที่ต้องคืน 🎉
+            <span class="hint">— ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน</span></p>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">เรื่องที่ตั้งไว้แล้ว</h2>
+            <div class="grow"></div>
+            <label class="f" style="width:200px">ค้นหา PO · รหัส
+              <input v-model="foSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
+            <label class="f" style="width:150px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <label style="font-weight:600;font-size:12.5px">
+              <input type="checkbox" v-model="foShowDone"> แสดงที่คืนแล้ว</label>
+          </div>
+
+          <div class="scroll" style="max-height:44vh;margin-top:10px">
+            <table>
+              <thead><tr>
+                <th style="width:105px">ตั้งวันที่</th><th style="width:125px">PO</th>
+                <th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
+                <th style="width:100px">ต้องคืน</th><th style="width:100px">ยังค้าง</th>
+                <th>ยอดที่แช่แข็งไว้ตอนตั้งเรื่อง</th>
+                <th style="width:185px"></th></tr></thead>
+              <tbody>
+                <tr v-for="r in foRows" :key="r.s.id">
+                  <td class="mono hint">{{ r.s.date }}</td>
+                  <td class="mono">{{ r.s.po }}</td>
+                  <td class="mono hint">{{ r.s.part_no }}</td>
+                  <td class="mono">{{ r.s.code }}</td>
+                  <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
+                  <td class="mono">
+                    <b v-if="r.st==='partial'">{{ r.remain }}</b>
+                    <span v-else-if="r.st==='done'" class="tag ok">คืนครบแล้ว</span>
+                    <span v-else class="hint">—</span></td>
+                  <td class="hint mono">สั่ง {{ r.s.order_qty }} · ตามสูตร {{ r.s.bom_qty }} ·
+                    รับมา {{ r.s.recv_qty }}</td>
+                  <td>
+                    <template v-if="r.st==='done'">
+                      <span class="hint">คืน {{ (r.s.done_at || '').slice(0,10) }}
+                        {{ r.s.done_by }}</span>
+                    </template>
+                    <template v-else>
+                      <button class="btn" style="padding:2px 8px"
+                              @click="foVoid(r.s)">ยกเลิกเรื่อง</button>
+                    </template>
+                  </td>
+                </tr>
+                <tr v-if="!foRows.length"><td colspan="8" class="empty">
+                  ยังไม่มีเรื่องที่ตั้งไว้
+                  <span v-if="!foShowDone" class="hint">· ที่คืนแล้วดูได้จากช่องติ๊กด้านบน</span>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="hint" style="margin:8px 0 0" v-if="foAll.length > foRows.length">
+            แสดง {{ foRows.length }} จาก {{ foAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
+          <p class="hint" style="margin:8px 0 0">
+            ยอดสามตัวที่แช่แข็งไว้คือค่า ณ วันที่ตั้งเรื่อง — ใบรับเข้าที่คีย์ทีหลังจะไม่ทำให้ยอดของเรื่องนี้ขยับเอง<br>
+            ตั้งเรื่องยังไม่ตัดของออกจากคลัง — ปุ่มคืนของจะตามมาในรุ่นถัดไป</p>
+        </div>
+
+        <div class="card" v-if="foBlocked.length">
+          <div class="msg warn">
+            <b>มี {{ foBlocked.length }} รายการที่คำนวณยอดเกินไม่ได้</b> —
+            <span class="hint">ไม่ได้แปลว่าไม่เกิน แต่แปลว่ายังขาดข้อมูลที่จะคิด
+              ปล่อยไว้เฉย ๆ ของเกินของใบพวกนี้จะไม่มีใครเห็นเลย</span>
+          </div>
+          <div class="scroll" style="max-height:30vh">
+            <table>
+              <thead><tr><th style="width:125px">PO</th><th style="width:80px">P/N</th>
+                <th style="width:125px">รหัส</th><th style="width:110px">รับมาแล้ว</th>
+                <th>ติดตรงไหน</th></tr></thead>
+              <tbody><tr v-for="r in foBlocked" :key="r.po + r.code">
+                <td class="mono">{{ r.po }}</td>
+                <td class="mono hint">{{ r.pn || '—' }}</td>
+                <td class="mono">{{ r.code }}</td>
+                <td class="mono">{{ r.recv }}</td>
+                <td><span class="tag warn">{{ r.why }}</span></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
       <template v-else-if="tab==='sync'">
         <div class="card">
           <div class="row">
