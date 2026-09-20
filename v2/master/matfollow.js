@@ -41,7 +41,14 @@ export function numOf(v) {
 export function matDate(v) {
   let y, m, d;
   if (v instanceof Date && !isNaN(v)) {
-    y = v.getUTCFullYear(); m = v.getUTCMonth() + 1; d = v.getUTCDate();
+    /* ⚠️ สองข้อในบรรทัดเดียว ทั้งคู่ทำให้ทั้งไฟล์เลื่อนไปหนึ่งวันแบบไม่มีอะไรฟ้อง
+     *  1. ต้องอ่านด้วยตัวอ่าน "เวลาท้องถิ่น" ไม่ใช่ UTC — xlsx สร้าง Date ตามเขตเวลาของเครื่อง
+     *  2. ค่าที่ xlsx คืนมาไม่ได้ตรงเที่ยงคืน · เซลล์ที่แสดง 29/7 ได้ Date เป็น
+     *     28/7 เวลา 23:59:56 (เศษจากการแปลง serial) — อ่านตรง ๆ ได้วันที่ 28
+     *     จึงปัดเป็นนาทีที่ใกล้ที่สุดก่อน แล้วค่อยอ่านวัน
+     * เจอจริงตอนเปิดเบราว์เซอร์ทดสอบ · เทสที่รันด้วย node ล้วนจับไม่ได้ */
+    const t = new Date(Math.round(v.getTime() / 60000) * 60000);
+    y = t.getFullYear(); m = t.getMonth() + 1; d = t.getDate();
   } else if (typeof v === 'number' && isFinite(v) && v > 0) {
     const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
     y = dt.getUTCFullYear(); m = dt.getUTCMonth() + 1; d = dt.getUTCDate();
