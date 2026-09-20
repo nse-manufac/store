@@ -527,3 +527,101 @@ export function sendbackEntry(row, { qty, person, device = '', at = '',
     person, device, at, reason_code, note
   });
 }
+
+/* ══════════ ซื้อแมททดแทนของเสีย (Mat Follow up 7/8) ══════════
+ * ของเสียตัดออกจากคลังไปแล้วด้วยรายการชนิด scrap · ของที่หายไปต้องซื้อทดแทนผ่าน Delta
+ * เรื่องซื้อทดแทนจึงผูกกับ "รายการของเสียใบนั้น" เสมอ ไม่ใช่ผูกกับรหัสลอย ๆ
+ * ไม่งั้นไล่ย้อนไม่ได้ว่าซื้อมาทดแทนของที่เสียครั้งไหน และตั้งเรื่องซ้ำใบเดิมได้ไม่รู้ตัว
+ */
+
+/** เรื่องซื้อทดแทนที่ผูกกับรายการของเสียใบนี้อยู่แล้ว — ที่ยกเลิกไปแล้วไม่นับ */
+export function buyFor(follows, scrapEntryId) {
+  const key = txt(scrapEntryId);
+  if (!key) return null;
+  return (follows || []).find(f => f && f.kind === 'buy' && !f.voided
+                                && txt(f.scrap_entry_id) === key) || null;
+}
+
+/**
+ * ของเสียของนิติบุคคลนี้ที่ยังไม่มีใครตั้งเรื่องซื้อทดแทน — คิดสดจากสมุด ไม่เก็บ
+ * ใหม่สุดขึ้นก่อน เพราะของที่เพิ่งเสียคือของที่ต้องรีบสั่ง
+ */
+export function pendingScraps(entries, entity, follows) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  return (entries || [])
+    .filter(e => e && e.entity === entity && e.kind === 'scrap' && !e.voided
+                 && !buyFor(follows, e.id))
+    .map(e => ({ id: txt(e.id), code: txt(e.material_code), qty: round5(Number(e.qty) || 0),
+                 lot: txt(e.lot), at: txt(e.at), reason_code: txt(e.reason_code),
+                 note: txt(e.note), person: txt(e.person) }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+/**
+ * ตั้งเรื่องซื้อทดแทนจากรายการของเสียหนึ่งใบ
+ * ⚠️ ส่ง follows เข้ามาด้วยเสมอ — กันตั้งเรื่องซ้ำใบเดิม ซึ่งจะกลายเป็นสั่งของสองเท่า
+ * PO ยังว่างได้ เพราะตอนตั้งเรื่องมักยังไม่รู้ว่า Delta จะออกใบไหนให้
+ */
+export function fromScrapRow(row, { entity, person = '', unit = '', date = '',
+                                    at = '', follows = null } = {}) {
+  if (!row || !txt(row.id)) throw new Error('ไม่มีรายการของเสียให้ตั้งเรื่อง');
+  if (follows && buyFor(follows, row.id)) {
+    throw new Error('ของเสียใบนี้ตั้งเรื่องซื้อทดแทนไว้แล้ว');
+  }
+  return makeFollow({
+    kind: 'buy', entity, source: 'auto',
+    code: row.code, qty: row.qty, unit,
+    scrap_entry_id: row.id,
+    note: txt(row.note), by: person, now: at, date
+  });
+}
+
+/**
+ * ของที่ซื้อทดแทนมาถึงแล้ว — ผูกเลขที่รายการรับเข้าไว้ แล้วปิดเรื่องตามจำนวนที่รับจริง
+ *
+ * ⚠️ รับมามากกว่าที่ตั้งเรื่องไว้ไม่ใช่ความผิดพลาด (Delta ส่งเผื่อ) · ปิดได้แค่ยอดที่ค้าง
+ *    ไม่งั้น closeFollow จะโยนทิ้งทั้งที่ของมาถึงจริง แล้วเรื่องจะค้างอยู่ตลอดไป
+ * ⚠️ ต่อท้ายเลขที่รายการ ไม่ทับของเดิม · ของทยอยมาหลายรอบได้ (กฎเดียวกับ return_entry_id ของใบ 6)
+ */
+export function linkReceive(row, { entryId, qty, by = '', at = '', doneAt = '' } = {}) {
+  if (!row) throw new Error('ไม่มีเรื่องให้ผูกของที่รับมา');
+  if (row.kind !== 'buy') throw new Error('ผูกของที่รับมาได้เฉพาะเรื่องซื้อทดแทน');
+  if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
+  const id = txt(entryId);
+  if (!id) throw new Error('ต้องบอกเลขที่รายการรับเข้า');
+  /* ⚠️ ผูกใบเดิมซ้ำ = ปิดยอดซ้ำสองรอบจากของกองเดียว · ยอดที่ค้างจะหายไปทั้งที่ของยังไม่มา */
+  if (String(row.receive_entry_id || '').split(/\s+/).includes(id)) {
+    throw new Error('ผูกกับใบรับเข้าใบนี้ไปแล้ว');
+  }
+  const remain = remainOf(row);
+  if (remain <= 0) throw new Error('เรื่องนี้ปิดไปแล้ว');
+  const got = Number(qty);
+  if (!isFinite(got) || got <= 0) throw new Error('จำนวนที่รับต้องมากกว่าศูนย์');
+
+  const rec = closeFollow(row, { qty: Math.min(round5(got), remain), by, at, doneAt });
+  rec.receive_entry_id = [txt(row.receive_entry_id), id].filter(Boolean).join(' ');
+  return rec;
+}
+
+/**
+ * เรื่องซื้อทดแทนที่ "ต้นเหตุหายไปแล้ว" — ของเสียที่ผูกไว้ถูกยกเลิก หรือหาไม่เจอในสมุด
+ *
+ * ⚠️ ห้ามยกเลิกเรื่องให้เอง · ของอาจสั่งไปแล้วจริง การตัดสินว่ายังต้องซื้อไหมเป็นของคน
+ *    หน้าที่ของตัวนี้คือทำให้เห็น ไม่ใช่ตัดสินแทน (เจ้าของสั่ง 20 ก.ย. 2026 ให้แจ้งเตือน)
+ */
+export function orphanBuys(entries, entity, follows) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const alive = new Map();
+  for (const e of entries || []) {
+    if (e && e.entity === entity && e.kind === 'scrap') alive.set(txt(e.id), !e.voided);
+  }
+  return (follows || []).filter(r => {
+    if (!r || r.kind !== 'buy' || r.voided || r.entity !== entity) return false;
+    if (statusOf(r) === 'done') return false;
+    const key = txt(r.scrap_entry_id);
+    if (!key) return false;
+    return alive.get(key) !== true;   // ยกเลิกไปแล้ว หรือไม่มีในสมุดของนิติบุคคลนี้
+  }).map(r => ({ ...r, why: alive.has(txt(r.scrap_entry_id))
+    ? 'รายการของเสียที่ผูกไว้ถูกยกเลิกทีหลัง'
+    : 'หารายการของเสียที่ผูกไว้ไม่เจอในสมุด' }));
+}
