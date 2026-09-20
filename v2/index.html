@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-20.6">
+<meta name="app-version" content="2026-09-20.7">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1863,6 +1863,101 @@ textarea{font:inherit}
             <span v-if="fu.unit">· หน่วย {{ fu.unit }}</span></p>
           <p class="hint" style="margin:8px 0 0" v-if="!entity">
             ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — เพิ่มเรื่องไม่ได้</p>
+        </div>
+      </template>
+
+      <!-- ════════ ซื้อแมททดแทน (Mat Follow up 7/8) ════════ -->
+      <template v-else-if="tab==='fbuy'">
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">ของเสียที่ยังไม่ได้ตั้งเรื่องซื้อทดแทน</h2>
+            <span class="hint">ของที่ตัดออกจากคลังไปแล้ว ต้องสั่งทดแทนผ่าน Delta</span>
+            <div class="grow"></div>
+            <div><div class="hint">รอตั้งเรื่อง</div>
+              <div class="big" :class="fbNew.length ? 'warn' : ''">{{ fbNew.length }}</div></div>
+          </div>
+          <p class="hint" style="margin:6px 0 0" v-if="!entity">
+            ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — ดูรายการของเสียไม่ได้</p>
+
+          <div class="scroll" style="max-height:34vh;margin-top:10px" v-if="fbNew.length">
+            <table>
+              <thead><tr>
+                <th style="width:105px">วันที่เสีย</th><th style="width:125px">รหัส</th>
+                <th style="width:95px">จำนวน</th><th style="width:140px">ล็อต</th>
+                <th style="width:150px">เพราะอะไร</th><th>หมายเหตุ</th>
+                <th style="width:140px"></th></tr></thead>
+              <tbody><tr v-for="r in fbNew" :key="r.id">
+                <td class="mono hint">{{ localDate(r.at) }}</td>
+                <td class="mono">{{ r.code }}</td>
+                <td class="mono"><b>{{ r.qty }}</b></td>
+                <td class="mono hint">{{ r.lot || '—' }}</td>
+                <td>{{ reasonLabel({ kind: 'scrap', reason_code: r.reason_code }) }}</td>
+                <td class="hint">{{ r.note || '—' }}</td>
+                <td><button class="btn" style="padding:2px 9px" :disabled="!entity"
+                            @click="fbStart(r)">ตั้งเรื่องซื้อ</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+          <p v-else-if="entity" class="empty" style="margin-top:10px">
+            ของเสียทุกใบตั้งเรื่องซื้อทดแทนไว้แล้ว 🎉</p>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">เรื่องที่ตั้งไว้แล้ว</h2>
+            <div class="grow"></div>
+            <label class="f" style="width:200px">ค้นหา รหัส · PO
+              <input v-model="fbSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
+            <label class="f" style="width:150px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <label style="font-weight:600;font-size:12.5px">
+              <input type="checkbox" v-model="fbShowDone"> แสดงที่รับของแล้ว</label>
+          </div>
+
+          <div class="scroll" style="max-height:44vh;margin-top:10px">
+            <table>
+              <thead><tr>
+                <th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th>
+                <th style="width:100px">ต้องซื้อ</th><th style="width:100px">ยังค้าง</th>
+                <th style="width:125px">PO ที่สั่ง</th><th>หมายเหตุ</th>
+                <th style="width:185px"></th></tr></thead>
+              <tbody>
+                <tr v-for="r in fbRows" :key="r.s.id">
+                  <td class="mono hint">{{ r.s.date }}</td>
+                  <td class="mono">{{ r.s.code }}</td>
+                  <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
+                  <td class="mono">
+                    <b v-if="r.st==='partial'">{{ r.remain }}</b>
+                    <span v-else-if="r.st==='done'" class="tag ok">รับของแล้ว</span>
+                    <span v-else class="hint">—</span></td>
+                  <td class="mono hint">{{ r.s.po || 'ยังไม่รู้' }}</td>
+                  <td class="hint">{{ r.s.note || '—' }}</td>
+                  <td>
+                    <template v-if="r.st==='done'">
+                      <span class="hint">รับ {{ localDate(r.s.done_at) }} {{ r.s.done_by }}</span>
+                    </template>
+                    <template v-else>
+                      <button class="btn primary" style="padding:2px 9px"
+                              @click="fbGo(r.s)">ไปรับของ</button>
+                      <button class="btn" style="padding:2px 8px;margin-left:4px"
+                              @click="fbVoid(r.s)">ยกเลิกเรื่อง</button>
+                    </template>
+                  </td>
+                </tr>
+                <tr v-if="!fbRows.length"><td colspan="7" class="empty">
+                  ยังไม่มีเรื่องที่ตั้งไว้
+                  <span v-if="!fbShowDone" class="hint">· ที่รับของแล้วดูได้จากช่องติ๊กด้านบน</span>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="hint" style="margin:8px 0 0" v-if="fbAll.length > fbRows.length">
+            แสดง {{ fbRows.length }} จาก {{ fbAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
+          <p class="hint" style="margin:8px 0 0">
+            กด <b>ไปรับของ</b> แล้วจะพาไปหน้ารับเข้าพร้อมกรอกรหัสกับจำนวนให้ —
+            <b>รับเข้าทางเดิมทางเดียว</b> หน้านี้ไม่มีทางบันทึกของเข้าคลังเอง<br>
+            บันทึกใบรับเข้าเสร็จแล้วเรื่องจะถูกปิดและผูกกับเลขที่รายการนั้นให้เอง</p>
         </div>
       </template>
 

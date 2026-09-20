@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
-         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf }
+         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         buyFor, pendingScraps, fromScrapRow, linkReceive }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { signedQty, KINDS } from '../v2/core/ledger.js';
@@ -653,6 +654,105 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
   ok('โซนที่เร็วกว่า UTC — slice ISO ได้คนละวันกับ localDate (เครื่องที่รันที่ UTC ข้ามข้อนี้)',
      !eastOfUtc || rec.done_at.slice(0, 10) === '2026-09-18', rec.done_at);
 }
+
+console.log('\n=== N. ซื้อแมททดแทนของเสีย ===');
+/* ของเสียถูกตัดออกจากคลังไปแล้ว · ของที่หายไปต้องสั่งทดแทนผ่าน Delta
+ * เรื่องผูกกับรายการของเสียใบนั้นเสมอ ไม่ใช่ผูกกับรหัสลอย ๆ */
+const scrap = (o = {}) => ({ id: 'S1', entity: 'TUE-H', kind: 'scrap', material_code: C1,
+  qty: 6, lot: 'L-9', at: '2026-09-10T03:00:00.000Z', reason_code: 'wind',
+  person: 'ก', note: '', voided: false, ...o });
+
+{
+  const list = pendingScraps([scrap(), recv()], 'TUE-H', []);
+  ok('ของเสียที่ยังไม่มีใครตั้งเรื่อง ขึ้นในรายการ · ใบรับเข้าไม่ปนมา',
+     list.length === 1 && list[0].id === 'S1' && list[0].qty === 6, JSON.stringify(list));
+  ok('พกล็อตกับเหตุผลมาให้ดูด้วย', list[0].lot === 'L-9' && list[0].reason_code === 'wind');
+}
+ok('ของเสียที่ยกเลิกแล้วไม่ขึ้น (B1)',
+   pendingScraps([scrap({ voided: true })], 'TUE-H', []).length === 0);
+ok('ของเสียของนิติบุคคลอื่นไม่ปน (A3)',
+   pendingScraps([scrap({ entity: 'TUE-U' })], 'TUE-H', []).length === 0);
+throws('ลืมส่งนิติบุคคลต้องดัง ไม่ใช่รวมทุกโรงงาน',
+       () => pendingScraps([scrap()], '', []), 'A3');
+ok('ใหม่สุดขึ้นก่อน',
+   pendingScraps([scrap(), scrap({ id: 'S2', at: '2026-09-12T03:00:00.000Z' })],
+                 'TUE-H', [])[0].id === 'S2');
+
+const scrapRow = pendingScraps([scrap()], 'TUE-H', [])[0];
+const buyCase = fromScrapRow(scrapRow, { entity: 'TUE-H', person: 'ผู้ทดสอบ', unit: 'PCS' });
+ok('ตั้งเรื่องแล้วได้งานตามแบบซื้อทดแทน',
+   buyCase.kind === 'buy' && buyCase.qty === 6 && buyCase.code === C1);
+ok('ผูกกับรายการของเสียใบนั้นไว้ ไล่ย้อนได้ว่าซื้อแทนของที่เสียครั้งไหน',
+   buyCase.scrap_entry_id === 'S1' && buyCase.source === 'auto');
+ok('PO ยังว่างได้ — ตอนตั้งเรื่องมักยังไม่รู้ว่า Delta จะออกใบไหน', buyCase.po === '');
+throws('ตั้งเรื่องโดยไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromScrapRow(scrapRow, {}), 'A3');
+throws('ไม่มีรายการของเสียก็ตั้งเรื่องไม่ได้',
+       () => fromScrapRow(null, { entity: 'TUE-H' }), 'ของเสีย');
+
+// ⚠️ ตั้งซ้ำใบเดิม = สั่งของสองเท่าโดยไม่มีใครรู้
+throws('ของเสียใบเดียวตั้งเรื่องซ้ำไม่ได้',
+       () => fromScrapRow(scrapRow, { entity: 'TUE-H', follows: [buyCase] }), 'ตั้งเรื่อง');
+ok('ตั้งเรื่องไว้แล้ว ของเสียใบนั้นหายจากรายการที่รอ',
+   pendingScraps([scrap()], 'TUE-H', [buyCase]).length === 0);
+ok('เรื่องที่ยกเลิกไปแล้วไม่กันไว้ — ของเสียใบนั้นต้องกลับมาตั้งเรื่องใหม่ได้',
+   pendingScraps([scrap()], 'TUE-H', [{ ...buyCase, voided: true }]).length === 1);
+ok('buyFor หาเรื่องที่ผูกอยู่เจอ และไม่สับสนกับของเสียใบอื่น',
+   buyFor([buyCase], 'S1') === buyCase && buyFor([buyCase], 'S2') === null);
+
+const got = linkReceive(buyCase, { entryId: 'E-IN-1', qty: 6, by: 'ผู้รับ',
+                                   doneAt: '2026-09-20T03:00:00.000Z' });
+ok('รับของครบแล้วเรื่องปิด', got.done === true && got.done_qty === 6);
+ok('ผูกเลขที่รายการรับเข้าไว้', got.receive_entry_id === 'E-IN-1');
+ok('วันที่รับของตามที่ส่งมา แต่เวลาซิงค์ยังเป็นเวลาจริง (D5)',
+   got.done_at === '2026-09-20T03:00:00.000Z' && got.updated_at > got.done_at);
+
+const part1 = linkReceive(buyCase, { entryId: 'E-IN-A', qty: 2, by: 'ก' });
+ok('รับมาบางส่วน เรื่องยังไม่ปิด', part1.done === false && remainOf(part1) === 4);
+const part2 = linkReceive(part1, { entryId: 'E-IN-B', qty: 4, by: 'ก' });
+ok('ของทยอยมา เลขที่รายการต้องต่อท้าย ไม่ทับของเดิม',
+   part2.receive_entry_id === 'E-IN-A E-IN-B' && part2.done === true, part2.receive_entry_id);
+
+// ⚠️ Delta ส่งเผื่อมาเกินเกิดขึ้นจริง · ปิดได้แค่ยอดที่ค้าง ไม่ใช่โยนทิ้งทั้งที่ของมาถึงแล้ว
+ok('รับมามากกว่าที่ตั้งเรื่องไว้ ต้องปิดเรื่องได้ ไม่ใช่ error',
+   linkReceive(buyCase, { entryId: 'E-IN-2', qty: 99, by: 'ก' }).done_qty === 6);
+
+throws('ผูกของที่รับมากับเรื่องของขาดไม่ได้',
+       () => linkReceive(makeFollow({ kind: 'short', entity: 'TUE-H', code: C1, po: PO,
+                                      type: 'ขาด', qty: 1 }), { entryId: 'E1', qty: 1 }), 'ซื้อทดแทน');
+throws('เรื่องที่ยกเลิกแล้วผูกไม่ได้',
+       () => linkReceive({ ...buyCase, voided: true }, { entryId: 'E1', qty: 1 }), 'ยกเลิก');
+throws('เรื่องที่ปิดไปแล้วผูกซ้ำไม่ได้', () => linkReceive(got, { entryId: 'E1', qty: 1 }), 'ปิด');
+throws('ไม่มีเลขที่รายการรับเข้า ผูกไม่ได้', () => linkReceive(buyCase, { qty: 1 }), 'เลขที่');
+throws('จำนวนที่รับต้องมากกว่าศูนย์', () => linkReceive(buyCase, { entryId: 'E1', qty: 0 }), 'ศูนย์');
+
+console.log('\n=== O. ต่อสายหน้าซื้อแมททดแทน (อ่านซอร์ส) ===');
+const appBuy = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+const htmlBuy = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+
+ok('มีแท็บซื้อแมททดแทนในกลุ่ม Mat Follow up',
+   /\{ k: 'fbuy',\s+label: 'ซื้อแมททดแทน' \}/.test(appBuy));
+ok('มีแผงรองรับจริง ไม่ใช่ปุ่มที่กดแล้วได้จอเปล่า', htmlBuy.includes(`tab==='fbuy'`));
+ok('รายการของเสียที่รอ คิดจาก pendingScraps และกรองนิติบุคคล (A3)',
+   /pendingScraps\(entries\.value, entity\.value, shorts\.value\)/.test(appBuy));
+ok('ตั้งเรื่องส่ง follows เข้าไปด้วย — กันตั้งซ้ำใบเดิม',
+   /fromScrapRow\(row, \{[\s\S]{0,220}follows: shorts\.value/.test(appBuy));
+
+/* ⚠️ ข้อนี้คือหัวใจของใบนี้ — หน้านี้ต้องไม่มีทางเขียนของเข้าคลังเอง
+ *    มีสองทางรับเข้าเมื่อไหร่ ช่องผู้รับ/ล็อต/วันหมดอายุจะเต็มบ้างไม่เต็มบ้าง */
+ok('หน้านี้ไม่สร้างรายการรับเข้าเอง — ส่งไปหน้ารับเข้าหน้าเดิม',
+   /function fbGo\(row\)[\s\S]{0,400}tab\.value = 'in'/.test(appBuy)
+   && !/fbGo[\s\S]{0,400}makeEntry\(/.test(appBuy));
+ok('ผูกเลขที่รายการกลับมาหลังบันทึกรับเข้าสำเร็จแล้วเท่านั้น',
+   /db\.announce\('entries'\);[\s\S]{0,260}await linkBuy\(posted\)/.test(appBuy));
+ok('ผูกกับบรรทัดที่รหัสตรงกับเรื่องที่รออยู่ ไม่ใช่บรรทัดแรกของใบ',
+   /posted\.find\(e => normCode\(e\.material_code\) === wait\.code\)/.test(appBuy));
+ok('ยกเลิกเรื่องใช้ voidFollow ไม่ลบทิ้ง (B1)', /fbVoid[\s\S]{0,300}voidFollow\(plain\(row\)/.test(appBuy));
+/* เรื่องถูกยกเลิกหรือปิดไปก่อนของจะมาถึง — ต้องเงียบ ไม่ใช่เด้ง error ทับข้อความบันทึกสำเร็จ (G3) */
+ok('เรื่องหายไประหว่างรอของ ต้องไม่เด้ง error หลังบันทึกรับเข้าสำเร็จ',
+   /if \(!row \|\| row\.voided \|\| remainOf\(row\) <= 0\) return;/.test(appBuy));
+ok('ชื่อที่เทมเพลตเรียก ถูกส่งออกจาก setup() ครบ',
+   ['fbNew','fbRows','fbAll','fbStart','fbVoid','fbGo','fbSearch','fbShowDone']
+     .every(n => new RegExp('\\b' + n + '\\b').test(appBuy.slice(appBuy.lastIndexOf('return {')))));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

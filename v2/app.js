@@ -34,6 +34,7 @@ import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/ent
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         pendingScraps, fromScrapRow, linkReceive,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -62,11 +63,10 @@ const GROUPS = [
     { k: 'po',    label: 'PO / Kit List' },
     { k: 'count', label: 'นับของ' }
   ] },
-  /* แท็บย่อยของ Mat Follow up จะเพิ่มทีละหน้าตามที่ทำเสร็จ
-     ซื้อแมททดแทนยังไม่มีแผงรองรับ ถ้าใส่ปุ่มไว้ก่อนจะกดแล้วได้จอเปล่า */
   { k: 'follow', label: 'Mat Follow up', tabs: [
     { k: 'fshort', label: 'short รอส่ง' },
-    { k: 'fover',  label: 'over รอคืน' }
+    { k: 'fover',  label: 'over รอคืน' },
+    { k: 'fbuy',   label: 'ซื้อแมททดแทน' }
   ] },
   { k: 'sys',  label: 'ระบบ', tabs: [
     { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
@@ -943,6 +943,7 @@ createApp({
         entries.value.push(...posted);
         db.announce('entries');
         flash(`บันทึกรับเข้า ${posted.length} รายการ · PO ${inH.po}`);
+        await linkBuy(posted);   // ปิดเรื่องซื้อทดแทนที่กด "ไปรับของ" ไว้ (ใบ 7)
         inLines.value = []; bomHint.value = ''; inH.po = ''; inH.pn = ''; inH.order = null;
         inShownPo = '';   // บันทึกแล้วจอว่าง ไม่มีบรรทัดของใบไหนเหลือ — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนใส่ PO ใหม่
       } catch (err) { flash(err.message, true); }
@@ -1900,6 +1901,75 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ── หน้าซื้อแมททดแทน (Mat Follow up 7/8) ──────────────────────
+     * ของเสียถูกตัดออกจากคลังไปแล้ว · ของที่หายไปต้องสั่งทดแทนผ่าน Delta
+     * เรื่องผูกกับ "รายการของเสียใบนั้น" เสมอ จึงไล่ย้อนได้ว่าซื้อมาแทนของที่เสียครั้งไหน
+     *
+     * ⚠️ ไม่มีเส้นทางรับเข้าของตัวเอง · ปุ่ม "ไปรับของ" พาไปหน้ารับเข้าหน้าเดิม
+     *    แล้วผูกเลขที่รายการกลับมาให้เมื่อบันทึกสำเร็จ — มีทางรับของทางเดียวเสมอ */
+    const fbSearch = ref('');
+    const fbShowDone = ref(false);
+
+    const fbNew = computed(() =>
+      entity.value ? pendingScraps(entries.value, entity.value, shorts.value) : []);
+    const fbAll = computed(() => listFollow(shorts.value, {
+      kind: 'buy', entity: entity.value, q: fbSearch.value, showDone: fbShowDone.value
+    }));
+    const fbRows = computed(() => fbAll.value.slice(0, SHOW_MAX));
+    const fbOpen = computed(() => openFollow(shorts.value, { kind: 'buy', entity: entity.value }));
+
+    async function fbStart(row) {
+      try {
+        const rec = fromScrapRow(row, { entity: entity.value, person: fsBy.value,
+                                        unit: unitOf(row.code), date: todayLocal(),
+                                        follows: shorts.value });
+        await fsPut(rec);
+        flash(`ตั้งเรื่องซื้อทดแทน ${rec.code} จำนวน ${rec.qty} แล้ว`);
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) · ของเสียใบนั้นกลับมาให้ตั้งเรื่องใหม่ได้ */
+    async function fbVoid(row) {
+      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
+      if (!why || !why.trim()) return;
+      try {
+        await fsPut(voidFollow(plain(row), { by: fsBy.value || 'ไม่ระบุ', reason: why.trim() }));
+        flash('ยกเลิกเรื่องแล้ว — ยังอยู่ในระบบให้ตรวจย้อนหลังได้');
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /* เรื่องที่กด "ไปรับของ" ค้างไว้ · saveIn() จะผูกเลขที่รายการกลับมาให้
+     * เก็บรหัสไว้ด้วย เพราะใบรับเข้าใบเดียวมีหลายบรรทัด ต้องรู้ว่าบรรทัดไหนคือของที่รอ */
+    const buyWait = ref(null);
+    function fbGo(row) {
+      buyWait.value = { id: row.id, code: normCode(row.code) };
+      if (row.po && !inH.po) inH.po = row.po;
+      const l = blankLine(row.code);
+      fillInLine(l);
+      l.qty = remainOf(row);
+      inLines.value.push(l);
+      bomHint.value = `เพิ่ม ${row.code} เข้าหน้ารับเข้าแล้ว — บันทึกเสร็จจะปิดเรื่องซื้อทดแทนให้เอง`;
+      tab.value = 'in';
+    }
+
+    /** ผูกของที่รับมาเข้ากับเรื่องที่รออยู่ — เรียกหลังบันทึกรับเข้าสำเร็จเท่านั้น */
+    async function linkBuy(posted) {
+      const wait = buyWait.value;
+      if (!wait) return;
+      const hit = posted.find(e => normCode(e.material_code) === wait.code);
+      if (!hit) return;                       // ใบนี้ไม่มีของที่รออยู่ ปล่อยให้รอใบถัดไป
+      const row = shorts.value.find(s => s.id === wait.id);
+      buyWait.value = null;
+      /* เรื่องถูกยกเลิกหรือปิดไปก่อนของจะมาถึง — เงียบไป ไม่ใช่เด้ง error หลังบันทึกสำเร็จ
+       * ใบรับเข้าบันทึกไปแล้วจริง คนคีย์ไม่ได้ทำอะไรผิด (G3) */
+      if (!row || row.voided || remainOf(row) <= 0) return;
+      try {
+        await fsPut(linkReceive(plain(row), { entryId: hit.id, qty: Number(hit.qty),
+                                              by: inH.person, doneAt: hit.at }));
+        flash(`ปิดเรื่องซื้อทดแทน ${row.code} แล้ว — ผูกกับใบรับเข้าที่เพิ่งบันทึก`);
+      } catch (err) { flash(err.message, true); }
+    }
+
     /* ── คีย์เรื่องใหม่เอง ──────────────────────────────────────────
      * ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L ของไฟล์ PO
      * เรื่องที่ Delta แจ้งทางโทรศัพท์หรือทาง LINE จึงไม่มีที่ให้ลง */
@@ -2505,6 +2575,7 @@ createApp({
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOpen, fbStart, fbVoid, fbGo, buyWait,
       foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
