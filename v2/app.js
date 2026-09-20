@@ -1991,18 +1991,29 @@ createApp({
         const row = shorts.value.find(s => s.id === w.id);
         return row && !row.voided && remainOf(row) > 0;
       });
+      /* ⚠️ รวมเรื่องที่รหัสเดียวกันเข้าเป็นก้อนเดียวก่อน — บรรทัดเดียวใช้ร่วมกันได้
+       *    แต่ยอดที่งอกกลับต้องเป็น "ผลรวมของทุกเรื่องที่รออยู่" ไม่ใช่ของเรื่องแรกเรื่องเดียว
+       *    ไม่งั้นจอบอกว่ารอสองเรื่อง 6 กับ 4 แต่เติมบรรทัดให้แค่ 6 พนักงานกดบันทึกตามที่จอเติมให้
+       *    แล้วของ 6 ชิ้นจะถูกนับปิดให้ทั้งสองเรื่องรวม 10 (ผู้ตรวจรอบ 4 ข้อ 1.2) */
+      const byCode = new Map();
       for (const w of buyWaits.value) {
         const row = shorts.value.find(s => s.id === w.id);
-        let l = inLines.value.find(x => normCode(x.code) === w.code);
+        const g = byCode.get(w.code) || { code: row.code, remain: 0, n: 0 };
+        g.remain = round5(g.remain + remainOf(row));
+        g.n++;
+        byCode.set(w.code, g);
+      }
+      for (const [code, g] of byCode) {
+        let l = inLines.value.find(x => normCode(x.code) === code);
         if (!l) {
-          l = blankLine(row.code);
+          l = blankLine(g.code);
           fillInLine(l);
           inLines.value.push(l);
         }
         // ยอดที่ Kit List จ่ายมาน่าเชื่อกว่ายอดที่ค้าง จึงเติมเฉพาะตอนบรรทัดยังไม่มีจำนวน
-        if (!(Number(l.qty) > 0)) l.qty = remainOf(row);
+        if (!(Number(l.qty) > 0)) l.qty = g.remain;
         bomHint.value += (bomHint.value ? ' · ' : '')
-          + `⚠ ยังมีเรื่องซื้อทดแทน ${row.code} รอผูกอยู่ (ค้าง ${remainOf(row)})`
+          + `⚠ ยังมีเรื่องซื้อทดแทน ${g.code} รอผูกอยู่${g.n > 1 ? ` ${g.n} เรื่อง` : ''} (ค้าง ${g.remain})`
           + ' — บรรทัดนี้ต้องอยู่ในใบ บันทึกเสร็จจะปิดเรื่องให้เอง';
       }
     }
@@ -2015,21 +2026,43 @@ createApp({
     async function linkBuy(posted) {
       const msgs = [];
       const left = [];
+      /* ⚠️ ของที่รับมาเป็น "กองเดียวต่อรหัส" ที่ทุกเรื่องต้องหักออกจากกัน ไม่ใช่ต่างคนต่างหยิบกองเต็ม
+       *    รหัสเดียวเสียหลายรอบเป็นเรื่องปกติ คิวจึงมีสองเรื่องรหัสเดียวกันพร้อมกันได้
+       *    ถ้าไม่หักกอง เรื่องที่สองจะขึ้นว่า "ของมาครบแล้ว" ทั้งที่ยังไม่ได้รับสักชิ้น
+       *    แล้วหายจากรายการที่ต้องตาม ไม่มีใครไปทวง Delta (ผู้ตรวจรอบ 4 ข้อ 1)
+       * ⚠️ ในกองนับทุกบรรทัดของรหัสนั้น ไม่ใช่บรรทัดแรกบรรทัดเดียว
+       *    ใบเดียวมีรหัสเดียวกันสองบรรทัด (คนละล็อต) เป็นเรื่องปกติ */
+      const pool = new Map();
+      for (const e of posted) {
+        const code = normCode(e.material_code);
+        if (!pool.has(code)) pool.set(code, []);
+        pool.get(code).push({ id: e.id, at: e.at, left: round5(Number(e.qty) || 0) });
+      }
       for (const w of buyWaits.value) {
-        /* ⚠️ รวมทุกบรรทัดของรหัสนั้นในใบ ไม่ใช่หยิบบรรทัดแรก
-         *    ใบเดียวมีรหัสเดียวกันสองบรรทัด (คนละล็อต) เป็นเรื่องปกติ
-         *    หยิบบรรทัดเดียวแล้วเรื่องจะปิดแค่บางส่วนทั้งที่ของมาครบ */
-        const hits = posted.filter(e => normCode(e.material_code) === w.code);
-        if (!hits.length) { left.push(w); continue; }   // ใบนี้ไม่มีของที่รออยู่ รอใบถัดไป
+        // กองของรหัสนี้หมดแล้ว (ไม่มีในใบ หรือเรื่องก่อนหน้ากินไปหมด) — รอใบถัดไป ไม่ใช่ปิดให้
+        const bin = (pool.get(w.code) || []).filter(p => p.left > 0);
+        if (!bin.length) { left.push(w); continue; }
         const row = shorts.value.find(s => s.id === w.id);
         /* เรื่องถูกยกเลิกหรือปิดไปก่อนของจะมาถึง — เงียบไป ไม่ใช่เด้ง error หลังบันทึกสำเร็จ
          * ใบรับเข้าบันทึกไปแล้วจริง คนคีย์ไม่ได้ทำอะไรผิด (G3) */
         if (!row || row.voided || remainOf(row) <= 0) continue;
-        const qty = round5(hits.reduce((n, e) => n + (Number(e.qty) || 0), 0));
+        let need = remainOf(row);
+        let qty = 0;
+        const used = [];                 // เฉพาะบรรทัดที่เรื่องนี้กินไปจริง ไม่ใช่ทั้งกอง
+        for (const p of bin) {
+          if (need <= 0) break;
+          const take = round5(Math.min(p.left, need));
+          p.left = round5(p.left - take);
+          need = round5(need - take);
+          qty = round5(qty + take);
+          used.push(p);
+        }
         try {
-          await fsPut(linkReceive(plain(row), { entryId: hits.map(e => e.id).join(' '), qty,
-                                                by: inH.person, doneAt: hits[0].at }));
-          msgs.push(`ปิดเรื่องซื้อทดแทน ${row.code} แล้ว`);
+          await fsPut(linkReceive(plain(row), { entryId: used.map(p => p.id).join(' '), qty,
+                                                by: inH.person, doneAt: used[0].at }));
+          msgs.push(need > 0
+            ? `ปิดเรื่องซื้อทดแทน ${row.code} ไป ${qty} — ยังค้างอีก ${need}`
+            : `ปิดเรื่องซื้อทดแทน ${row.code} แล้ว`);
         } catch (err) { msgs.push(err.message); }
       }
       buyWaits.value = left;

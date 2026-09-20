@@ -16,7 +16,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
-import { signedQty, KINDS } from '../v2/core/ledger.js';
+import { signedQty, KINDS, round5 } from '../v2/core/ledger.js';
 import { localDate, atFrom } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
@@ -792,13 +792,6 @@ ok('มีปุ่มเลิกรอให้กดเองด้วย',
    && /v-if="buyWaits\.length"/.test(htmlBuy));
 ok('ผูกเลขที่รายการกลับมาหลังบันทึกรับเข้าสำเร็จแล้วเท่านั้น',
    /db\.announce\('entries'\);[\s\S]{0,260}await linkBuy\(posted\)/.test(appBuy));
-/* ⚠️ ใบเดียวมีรหัสเดียวกันสองบรรทัด (คนละล็อต) เป็นเรื่องปกติ
- *    หยิบบรรทัดแรกบรรทัดเดียว เรื่องจะปิดแค่บางส่วนทั้งที่ของมาครบ (ผู้ตรวจรอบ 2 ข้อ 2) */
-ok('รวมทุกบรรทัดของรหัสที่รออยู่ ไม่ใช่หยิบบรรทัดแรก',
-   /posted\.filter\(e => normCode\(e\.material_code\) === w\.code\)/.test(appBuy)
-   && /round5\(hits\.reduce\(/.test(appBuy)
-   && /entryId: hits\.map\(e => e\.id\)\.join\(' '\)/.test(appBuy));
-
 /* ⚠️ ข้อความปิดเรื่องเคยทับ "บันทึกรับเข้า N รายการ" จนไม่เห็นยืนยันว่าบันทึกกี่รายการ */
 ok('ข้อความเดียวจบ — linkBuy คืนข้อความให้ saveIn ไม่ flash เอง',
    /const extra = await linkBuy\(posted\)/.test(appBuy)
@@ -832,17 +825,19 @@ ok('มี keepBuyLine ให้ expandBom เรียก', hasKeep);
 
 // ตัวแปรที่ keepBuyLine อ้างถึงใน setup() ส่งเข้าไปเป็นพารามิเตอร์แทน
 const keepFn = hasKeep && new Function('buyWaits', 'shorts', 'inLines', 'bomHint',
-                            'blankLine', 'fillInLine', 'normCode', 'remainOf',
+                            'blankLine', 'fillInLine', 'normCode', 'remainOf', 'round5',
                             cutFn(appBuy, 'keepBuyLine') + '\nreturn keepBuyLine();');
 const HINT = 'กางสูตร 3 รายการ';
-const keepRun = (lines, waitRow, rows) => {
+// waiting = แถวเดียว หรือหลายแถว (รหัสเดียวกันได้ — ของเสียรหัสเดิมหลายรอบเป็นเรื่องปกติ)
+const keepRun = (lines, waiting, rows) => {
   const ctx = { lines: { value: lines }, hint: { value: HINT }, ran: hasKeep };
   if (!hasKeep) return ctx;
+  const queue = (Array.isArray(waiting) ? waiting : waiting ? [waiting] : [])
+    .map(r => ({ id: r.id, code: normCode(r.code) }));
   // คิวรอเป็นรายการตั้งแต่รอบแก้ข้อสังเกต — ส่งเข้าไปเป็น array
-  keepFn({ value: waitRow ? [{ id: waitRow.id, code: normCode(waitRow.code) }] : [] },
-         { value: rows }, ctx.lines, ctx.hint,
+  keepFn({ value: queue }, { value: rows }, ctx.lines, ctx.hint,
          code => ({ k: 'L', code, desc: '', unit: '', reqmt: null, qty: null }),
-         () => {}, normCode, remainOf);
+         () => {}, normCode, remainOf, round5);
   return ctx;
 };
 
@@ -867,6 +862,96 @@ ok('เรื่องปิดครบไปแล้ว ไม่งอกบ
 ok('ไม่มีเรื่องรออยู่ หน้ารับเข้าต้องไม่ถูกแตะเลย',
    (() => { const c = keepRun([], null, []);
             return c.ran && c.lines.value.length === 0 && c.hint.value === HINT; })());
+
+/* ── สองเรื่องรหัสเดียวกันรอพร้อมกัน ── ของเสียรหัสเดิมเสียหลายรอบเป็นเรื่องปกติ ───────
+ * ⚠️ คนละเรื่องกับ "เรื่องเดียวสองบรรทัดในใบ" ที่เทสเดิมคุมไว้
+ *    ถ้ายอดที่งอกกลับเป็นของเรื่องแรกเรื่องเดียว จอจะบอกว่ารอ 6 กับ 4 แต่เติมให้แค่ 6
+ *    แล้ว linkBuy จะปิดให้ทั้งสองเรื่องรวม 10 จากของ 6 ชิ้น (ผู้ตรวจรอบ 4 ข้อ 1.2) */
+const buy2 = fromScrapRow({ id: 'S2', code: C1, qty: 4 },
+                          { entity: 'TUE-H', person: 'ผู้ทดสอบ', unit: 'PCS' });
+{
+  const c = keepRun([], [buyCase, buy2], [buyCase, buy2]);
+  ok('สองเรื่องรหัสเดียวกัน — บรรทัดเดียวแต่ยอดต้องเป็นผลรวมของทุกเรื่องที่รออยู่',
+     c.ran && c.lines.value.length === 1 && c.lines.value[0].qty === 10,
+     JSON.stringify(c.lines.value));
+  ok('คำเตือนบอกว่ารออยู่กี่เรื่อง ค้างรวมเท่าไหร่',
+     c.hint.value.includes('2 เรื่อง') && c.hint.value.includes('ค้าง 10'), c.hint.value);
+}
+
+/* ── ของกองเดียวต้องถูกหักไปทีละเรื่อง ── รัน linkBuy ตัวจริงที่แกะจากซอร์ส ────────────
+ * ⚠️ ข้อที่ผู้ตรวจรอบ 4 ทัก · ถ้าแต่ละเรื่องหยิบ "ผลรวมทุกบรรทัดของรหัสนั้น" ไปคนละครั้งเต็ม ๆ
+ *    เรื่องที่สองจะขึ้นว่าของมาครบแล้วทั้งที่ยังไม่ได้รับสักชิ้น แล้วหายจากรายการที่ต้องตาม */
+const hasLink = appBuy.includes('async function linkBuy(');
+ok('มี linkBuy ให้ saveIn เรียก', hasLink);
+const linkFn = hasLink && new Function('buyWaits', 'shorts', 'inH', 'fsPut', 'plain',
+                            'normCode', 'remainOf', 'round5', 'linkReceive', 'posted',
+                            'async ' + cutFn(appBuy, 'linkBuy') + '\nreturn linkBuy(posted);');
+/** waiting = เรื่องที่กด [ไปรับของ] ไว้ · posted = บรรทัดที่เพิ่งบันทึกรับเข้า */
+const linkRun = async (waiting, posted) => {
+  const rows = waiting.map(r => ({ ...r }));
+  const queue = { value: rows.map(r => ({ id: r.id, code: normCode(r.code) })) };
+  const put = rec => { const i = rows.findIndex(x => x.id === rec.id); rows.splice(i, 1, rec); };
+  const msgs = await linkFn(queue, { value: rows }, { person: 'ผู้รับ' }, put,
+                            r => JSON.parse(JSON.stringify(r)), normCode, remainOf, round5,
+                            linkReceive, posted);
+  return { rows, left: queue.value, msgs };
+};
+
+if (hasLink) {
+  // ของมา 4 ชิ้น แต่รออยู่สองเรื่อง 6 กับ 4 — ปิดรวมต้องไม่เกิน 4
+  const r = await linkRun([buyCase, buy2],
+                          [{ id: 'E-1', material_code: C1, qty: 4, at: NOW }]);
+  const sum = round5(r.rows.reduce((n, x) => n + (Number(x.done_qty) || 0), 0));
+  ok('ของกองเดียวปิดได้ไม่เกินที่รับจริง — ไม่ใช่ทุกเรื่องหยิบกองเต็ม',
+     sum === 4, `ปิดรวม ${sum} จากของ 4`);
+  ok('เรื่องแรกได้ของไปก่อน · เรื่องที่สองยังไม่ได้รับสักชิ้น',
+     r.rows[0].done_qty === 4 && r.rows[0].done === false
+     && !r.rows[1].done_qty && r.rows[1].done === false, JSON.stringify(r.rows[1]));
+  ok('เรื่องที่ยังไม่ได้ของ ต้องค้างอยู่ในคิวเพื่อรอใบถัดไป',
+     r.left.length === 1 && r.left[0].id === buy2.id, JSON.stringify(r.left));
+  ok('เรื่องที่ยังไม่ได้ของ ต้องไม่ถูกผูกเลขที่รายการที่ไม่เกี่ยวกัน',
+     !r.rows[1].receive_entry_id, r.rows[1].receive_entry_id);
+  ok('ข้อความบอกตามจริงว่าปิดไปเท่าไหร่ ยังค้างเท่าไหร่',
+     r.msgs.length === 1 && r.msgs[0].includes('ยังค้างอีก 2'), JSON.stringify(r.msgs));
+
+  // ของมาครบทั้งสองเรื่อง — แบ่งกันถูกใบ ไม่ปนเลขที่รายการของกันและกัน
+  const full = await linkRun([buyCase, buy2],
+                             [{ id: 'E-1', material_code: C1, qty: 6, at: NOW },
+                              { id: 'E-2', material_code: C1, qty: 4, at: NOW }]);
+  ok('ของมาครบ ปิดได้ทั้งสองเรื่อง แยกใบกันถูกตัว',
+     full.rows[0].done_qty === 6 && full.rows[0].receive_entry_id === 'E-1'
+     && full.rows[1].done_qty === 4 && full.rows[1].receive_entry_id === 'E-2'
+     && full.left.length === 0, JSON.stringify(full.rows.map(x => x.receive_entry_id)));
+
+  /* ⚠️ เรื่องเดียวแต่ใบมีรหัสเดียวกันสองบรรทัด (คนละล็อต) เป็นเรื่องปกติ
+   *    ต้องรวมทั้งสองบรรทัด ไม่ใช่หยิบบรรทัดแรก (ผู้ตรวจรอบ 2 ข้อ 2 — เดิมเป็นเทสอ่านซอร์ส) */
+  const twoLines = await linkRun([buyCase],
+                                 [{ id: 'E-1', material_code: C1, qty: 2, at: NOW },
+                                  { id: 'E-2', material_code: ' mc-100 ', qty: 4, at: NOW }]);
+  ok('เรื่องเดียว ใบมีรหัสนั้นสองบรรทัด — รวมทั้งสองบรรทัดแล้วปิดครบ',
+     twoLines.rows[0].done === true && twoLines.rows[0].done_qty === 6
+     && twoLines.rows[0].receive_entry_id === 'E-1 E-2',
+     JSON.stringify(twoLines.rows[0]));
+
+  // ใบนี้ไม่มีของที่รออยู่เลย — ต้องเงียบและค้างคิวไว้ ไม่ใช่ปิดให้
+  const none = await linkRun([buyCase], [{ id: 'E-9', material_code: C2, qty: 5, at: NOW }]);
+  ok('ใบที่ไม่มีของที่รออยู่ ไม่แตะเรื่องเลย และยังค้างคิวไว้',
+     !none.rows[0].done_qty && none.left.length === 1 && none.msgs.length === 0);
+
+  // เรื่องถูกยกเลิกไปก่อนของมาถึง — เงียบ ไม่เด้ง error ทับข้อความบันทึกสำเร็จ (G3)
+  const dead2 = await linkRun([{ ...buyCase, voided: true }],
+                              [{ id: 'E-1', material_code: C1, qty: 6, at: NOW }]);
+  ok('เรื่องถูกยกเลิกระหว่างรอ — เงียบ ไม่มีข้อความ error ปนมากับข้อความบันทึกสำเร็จ',
+     dead2.msgs.length === 0 && dead2.left.length === 0);
+
+  // เศษทศนิยมต้องไม่ทำให้ปิดไม่ลง (A2)
+  const frac2 = await linkRun([{ ...buyCase, qty: 0.3 }],
+                              [{ id: 'E-1', material_code: C1, qty: 0.1, at: NOW },
+                               { id: 'E-2', material_code: C1, qty: 0.2, at: NOW }]);
+  ok('เศษทศนิยม 0.1 + 0.2 ปิดลงพอดี ไม่ค้างเศษ (A2)',
+     frac2.rows[0].done === true && frac2.rows[0].done_qty === 0.3,
+     JSON.stringify(frac2.rows[0]));
+}
 
 /* ต้องครบ "ทุก" สาขา — สาขา Kit List กับสาขาสูตรเขียนทับ inLines ทั้งกองคนละบรรทัดกัน */
 {
