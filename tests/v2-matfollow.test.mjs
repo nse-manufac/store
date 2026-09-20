@@ -198,8 +198,36 @@ const fileRows = parseMatFollow({
 ok('กุญแจจับคู่แยกของขาดกับของเกินออกจากกัน',
    matKey({ entity: 'TUE-H', po: PO_H, code: C1, kind: 'short' })
    !== matKey({ entity: 'TUE-H', po: PO_H, code: C1, kind: 'over' }));
-throws('สร้างเรื่องโดยไม่รู้นิติบุคคลไม่ได้ (A3)',
-       () => planMatFollow([{ ...fileRows[0], entity: '' }], [], {}), 'A3');
+/* ⚠️ แถวเดียวที่สร้างเรื่องไม่ได้ ห้ามทำให้ทั้งไฟล์นำเข้าไม่ได้ และห้ามเงียบ
+ * ต้องบอกให้ครบว่าชีตไหน แถวไหน เพราะอะไร ไม่งั้นคนคีย์เห็นข้อความแดงบรรทัดเดียวแล้วทำอะไรต่อไม่ถูก
+ * (G3 · ผู้ตรวจ #96 ข้อ 1 · เจ้าของสั่งให้แก้ 21 ก.ย. 2026) */
+{
+  const bad = { ...fileRows[0], entity: '', sheet: 'H-M5', line: 7 };
+  const p = planMatFollow([bad, fileRows[1]], [], {});
+  ok('แถวที่ไม่รู้นิติบุคคล ไม่ล้มทั้งไฟล์ — แถวที่เหลือยังนำเข้าได้',
+     p.create.length === 1 && p.failed.length === 1, JSON.stringify({ c: p.create.length, f: p.failed.length }));
+  ok('บอกชีต แถว และเหตุผลของแถวที่สร้างไม่ได้ (A3)',
+     p.failed[0].sheet === 'H-M5' && p.failed[0].line === 7 && p.failed[0].why.includes('A3'),
+     JSON.stringify(p.failed[0]));
+  const noPn = { ...fileRows[0], kind: 'over', part_no: '' };
+  ok('แถวของเกินที่ไม่มี P/N ก็เข้ากองเดียวกัน ไม่ใช่โยนทิ้งทั้งไฟล์',
+     planMatFollow([noPn], [], {}).failed[0].why.includes('P/N'));
+  ok('ไฟล์ที่ทุกแถวดี ไม่มีอะไรในกองที่สร้างไม่ได้', planMatFollow(fileRows, [], {}).failed.length === 0);
+}
+
+/* ⚠️ วันที่บนแถวคือ "วันที่ Delta แจ้งรอบล่าสุด" · ไม่อัปเดตแล้วคนจะเข้าใจว่าเรื่องนี้เงียบมานาน
+ * ทั้งที่เพิ่งแจ้งมาเมื่อวาน (ผู้ตรวจ #96 ข้อ 4 · เจ้าของสั่งให้แก้ 21 ก.ย. 2026) */
+{
+  const first = planMatFollow(fileRows, [], { now: '2026-09-20T03:00:00.000Z' });
+  const saved = first.create.map(c => c.rec);
+  const moved = fileRows.map((r, i) => i === 0 ? { ...r, date: '2026-08-05' } : r);
+  const p = planMatFollow(moved, saved, { now: '2026-09-21T03:00:00.000Z' });
+  ok('ไฟล์ที่เปลี่ยนแค่วันที่ ต้องอัปเดตวันที่ให้',
+     p.update.length === 1 && p.update[0].rec.date === '2026-08-05' && p.same.length === 1,
+     JSON.stringify({ u: p.update.length, d: p.update[0]?.rec.date }));
+  ok('ยอดกับความคืบหน้าไม่ถูกแตะตอนอัปเดตแค่วันที่',
+     p.update[0].rec.qty === saved[0].qty && p.update[0].rec.done_qty === saved[0].done_qty);
+}
 
 console.log('\n=== F. ไฟล์แบบต่อท้าย · ไฟล์ที่ส่งมาไม่ครบทุกโรงงาน ===');
 /* ⚠️ เจ้าของยังไม่แน่ใจว่า Delta ส่งใหม่ทั้งใบหรือต่อท้ายไปเรื่อย ๆ (20 ก.ย. 2026)

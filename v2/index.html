@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-21.1">
+<meta name="app-version" content="2026-09-21.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2019,7 +2019,11 @@ textarea{font:inherit}
             <p class="hint" style="margin:6px 0 0">
               ไฟล์รอบนี้ครอบคลุมนิติบุคคล <b>{{ mf.entities.join(' · ') || '—' }}</b>
               <span v-if="mf.dropped"> · มีคู่ PO+รหัสซ้ำในไฟล์ {{ mf.dropped }} แถว ใช้แถวที่วันที่ใหม่กว่า</span>
-              <span v-if="mf.skipped.length"> · ข้าม {{ mf.skipped.length }} แถวที่ไม่ใช่งานตาม</span>
+              <span v-if="mf.skippedAll"> · ข้าม {{ mf.skippedAll }} แถว</span>
+              <span v-if="mf.failed.length" class="tag warn"> {{ mf.failed.length }} แถวสร้างเรื่องไม่ได้</span>
+              <span v-if="mf.create.length + mf.update.length > mf.SHOW_MAX">
+                · ตารางข้างล่างแสดง {{ mf.showCreate.length + mf.showUpdate.length }}
+                จาก {{ mf.create.length + mf.update.length }} แถว · ยืนยันแล้วบันทึกครบทุกแถว</span>
             </p>
 
             <div class="scroll" style="max-height:38vh;margin-top:10px" v-if="mf.create.length || mf.update.length">
@@ -2030,7 +2034,7 @@ textarea{font:inherit}
                   <th style="width:95px">ยอดใหม่</th><th style="width:95px">ยอดเดิม</th>
                   <th style="width:95px">ปิดไปแล้ว</th><th>หมายเหตุจาก Delta</th></tr></thead>
                 <tbody>
-                  <tr v-for="c in mf.create" :key="'c' + c.rec.id">
+                  <tr v-for="c in mf.showCreate" :key="'c' + c.rec.id">
                     <td><span class="tag ok">ใหม่</span></td>
                     <td class="mono">{{ c.row.po }}</td><td class="mono">{{ c.row.code }}</td>
                     <td>{{ c.row.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
@@ -2038,7 +2042,7 @@ textarea{font:inherit}
                     <td class="hint">—</td><td class="hint">—</td>
                     <td class="hint">{{ c.row.note || '—' }}</td>
                   </tr>
-                  <tr v-for="u in mf.update" :key="'u' + u.rec.id">
+                  <tr v-for="u in mf.showUpdate" :key="'u' + u.rec.id">
                     <td><span class="tag warn">อัปเดต</span></td>
                     <td class="mono">{{ u.row.po }}</td><td class="mono">{{ u.row.code }}</td>
                     <td>{{ u.row.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
@@ -2061,7 +2065,7 @@ textarea{font:inherit}
                   <thead><tr><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
                     <th style="width:70px">ชนิด</th><th style="width:95px">ยังค้าง</th>
                     <th style="width:90px">มาจาก</th></tr></thead>
-                  <tbody><tr v-for="g in mf.gone" :key="g.cur.id">
+                  <tbody><tr v-for="g in mf.showGone" :key="g.cur.id">
                     <td class="mono">{{ g.cur.po }}</td><td class="mono">{{ g.cur.code }}</td>
                     <td>{{ g.cur.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
                     <td class="mono">{{ g.remain }}</td>
@@ -2080,15 +2084,16 @@ textarea{font:inherit}
             </div>
           </div>
 
-          <div class="card" v-if="mf.skipped.length">
+          <div class="card" v-if="mf.skippedAll">
             <div class="row"><h2 style="margin:0">แถวที่ข้ามไป</h2>
-              <span class="hint">ไม่ใช่งานตาม — ยกมาให้ดูเพื่อไม่ให้เข้าใจว่าตกหล่น</span></div>
+              <span class="hint">ไม่ได้ถูกนำเข้า — ยกมาให้ดูเพื่อไม่ให้เข้าใจว่าตกหล่น
+                · แถวที่ "สร้างเรื่องไม่ได้" ต้องแก้ในไฟล์แล้วนำเข้าใหม่</span></div>
             <div class="scroll" style="max-height:24vh;margin-top:10px">
               <table>
                 <thead><tr><th style="width:90px">ชีต</th><th style="width:70px">แถวที่</th>
                   <th style="width:125px">PO</th><th>เพราะอะไร</th></tr></thead>
-                <tbody><tr v-for="(s, i) in mf.skipped" :key="i">
-                  <td class="mono hint">{{ s.sheet }}</td><td class="mono hint">{{ s.line }}</td>
+                <tbody><tr v-for="(s, i) in mf.showSkipped" :key="i">
+                  <td class="mono hint">{{ s.sheet }}</td><td class="mono hint">{{ s.line || '—' }}</td>
                   <td class="mono">{{ s.po }}</td><td class="hint">{{ s.why }}</td>
                 </tr></tbody>
               </table>

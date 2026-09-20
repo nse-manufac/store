@@ -75,7 +75,7 @@ export function makeFollow(input = {}) {
   if (!isFinite(qty) || qty <= 0) throw new Error('จำนวนต้องมากกว่าศูนย์');
 
   for (const f of def.need) {
-    if (!txt(input[f])) throw new Error(`งานตามแบบ "${def.label}" ต้องระบุ${FIELD_LABEL[f] || f}`);
+    if (!txt(input[f])) throw new Error(`งานตามแบบ "${def.label}" ต้องระบุ ${FIELD_LABEL[f] || f}`);
   }
   if (kind === 'short' && SHORT_TYPES.indexOf(txt(input.type)) < 0) {
     throw new Error('ประเภทของขาดต้องเป็น "ขาด" หรือ "รอส่ง" เท่านั้น');

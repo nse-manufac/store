@@ -2113,7 +2113,13 @@ createApp({
         }
         const plan = planMatFollow(rows, shorts.value,
                                    { by: fsBy.value, now: new Date().toISOString() });
-        mf.value = { fileName: file.name, sheets: wb.SheetNames, skipped, ...plan };
+        /* ⚠️ หยิบไฟล์ผิดใบที่มีหลายพันแถวเกิดขึ้นได้ · วาดทุกแถวแล้วจอค้างตอนวาด
+         * ตัดเท่าหน้านำเข้า PO/Kit ที่มีอยู่ แล้วบอกว่าแสดงกี่จากกี่ (ผู้ตรวจ #96 ข้อ 2) */
+        const cut = list => list.slice(0, SHOW_MAX);
+        mf.value = { fileName: file.name, sheets: wb.SheetNames, skipped, ...plan,
+                     showCreate: cut(plan.create), showUpdate: cut(plan.update),
+                     showGone: cut(plan.gone), showSkipped: cut([...plan.failed, ...skipped]),
+                     skippedAll: plan.failed.length + skipped.length, SHOW_MAX };
       } catch (err) { mfMsg.value = err.message; }
       finally { mfBusy.value = false; }
     }
@@ -2122,7 +2128,7 @@ createApp({
     async function mfApply() {
       if (!mf.value || mfBusy.value) return;
       const plan = mf.value;
-      mfBusy.value = true;
+      mfBusy.value = true; mfMsg.value = '';   // ข้อความแดงของรอบก่อนต้องไม่ค้างคู่กับข้อความว่าบันทึกแล้ว
       try {
         /* ⚠️ ต้องผ่าน plain() ก่อนเสมอ · แผนถูกเก็บไว้ใน ref แถวในนั้นจึงเป็นพร็อกซีของ Vue
          * IndexedDB โคลนพร็อกซีไม่ได้ แล้วจะล้มทั้งชุดด้วยข้อความภาษาอังกฤษที่คนคีย์อ่านไม่รู้เรื่อง
