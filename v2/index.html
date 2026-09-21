@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-21.2">
+<meta name="app-version" content="2026-09-21.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1712,8 +1712,8 @@ textarea{font:inherit}
             <label class="f" style="width:230px">ค้นเลข PO หรือ P/N
               <input v-model.trim="poQ" class="mono" placeholder="พิมพ์บางส่วน เช่น 4 ตัวท้าย"></label>
             <div class="grow"></div>
-            <span class="hint">วันนี้ {{ poToday.length }} PO · ทั้งหมด {{ pos.length }} ·
-              Kit List {{ kits.length }} บรรทัด</span>
+            <span class="hint">วันนี้ {{ poToday.length }} PO · ทั้งหมด {{ posVisible.length }} ·
+              Kit List {{ kitsVisible.length }} บรรทัด</span>
           </div>
           <div class="scroll" style="margin-top:8px;max-height:40vh">
             <table>
@@ -1727,15 +1727,30 @@ textarea{font:inherit}
                 <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
                 <td><span class="tag" :class="kitCountByPo.get(p.po) ? 'ok' : ''">
                   {{ kitCountByPo.get(p.po) || 'ยังไม่มี' }}</span></td>
-                <td class="hint">{{ p.remark }}</td>
+                <td class="hint">
+                  <span v-if="poOwnerOfRow(p).from === 'unknown'" class="tag warn">เลข PO บอกไม่ได้</span>
+                  <span v-else-if="poOwnerOfRow(p).from === 'unregistered'" class="tag warn"
+                        :title="poOwnerOfRow(p).code + ' ยังไม่มีในทะเบียนนิติบุคคล'">
+                    {{ poOwnerOfRow(p).code }} ยังไม่มีในทะเบียน</span>
+                  {{ p.remark }}</td>
               </tr></tbody>
             </table>
             <p v-if="!pos.length" class="empty">ยังไม่มี PO — ลากไฟล์ PO รายวันเข้ามาก่อน</p>
+            <p v-else-if="!posVisible.length" class="empty">
+              ไม่มี PO ของ {{ entity }} — อีก {{ poHidden }} ใบเป็นของนิติบุคคลอื่น</p>
             <p v-else-if="!poRows.length" class="empty">ไม่เจอ PO ที่ตรงกับ "{{ poQ }}"</p>
           </div>
           <p class="hint" style="margin:8px 0 0" v-if="pos.length">
-            แสดง {{ poRows.length }} จาก {{ pos.length }} ใบ<span v-if="poQ"> · กำลังค้น "{{ poQ }}"</span>
+            แสดง {{ poRows.length }} จาก {{ posVisible.length }} ใบของ {{ entity }}<span v-if="poQ"> · กำลังค้น "{{ poQ }}"</span>
+            <span v-if="poHidden"> · ซ่อนของนิติบุคคลอื่น {{ poHidden }} ใบ</span>
+            <span v-if="poUnknownOwner"> · <span class="tag warn">{{ poUnknownOwner }} ใบยังไม่รู้นิติบุคคล</span></span>
           </p>
+          <div class="msg warn" v-if="poOffRegistry.length" style="margin:8px 0 0">
+            <b>มีใบของรหัสที่ยังไม่มีในทะเบียนนิติบุคคล</b> —
+            <span class="mono">{{ poOffRegistry.join(' · ') }}</span><br>
+            <span class="hint">ใบพวกนี้ขึ้นให้ทุกนิติบุคคลเห็นไว้ก่อน เพราะยังไม่มีใครเลือกรหัสนั้นได้ —
+              ไปเพิ่มรหัสในหน้าระบบแล้วมันจะไปอยู่กับเจ้าของจริง</span>
+          </div>
         </div>
       </template>
 
