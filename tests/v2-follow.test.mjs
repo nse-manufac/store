@@ -73,7 +73,9 @@ ok('ซื้อทดแทนไม่ต้องมี PO ตอนตั้
 ok('ชนิดที่ระบบรู้จักมีสามแบบ',
    Object.keys(FOLLOW_KINDS).join(',') === 'short,over,buy', Object.keys(FOLLOW_KINDS).join(','));
 ok('ทุกชนิดบอกชื่อไทยไว้', Object.values(FOLLOW_KINDS).every(d => d.label));
-ok('แหล่งที่มามีสามทาง', SOURCES.join(',') === 'file,manual,auto');
+/* 'delta' ต่อท้ายเมื่อ 20 ก.ย. 2026 ตอนเปิดทางนำเข้าไฟล์ MAT'L FOLLOWING ของ Delta
+ * ⚠️ ต่อท้ายเท่านั้น · migrateFollow เขียน source ที่ไม่รู้จักทับเป็น 'file' เครื่องรุ่นเก่าจึงลบป้ายนี้ได้ */
+ok('แหล่งที่มามีสี่ทาง', SOURCES.join(',') === 'file,manual,auto,delta', SOURCES.join(','));
 ok('ประเภทของขาดมีสองแบบ', SHORT_TYPES.join(',') === 'ขาด,รอส่ง');
 
 console.log('\n=== B. ปิดเรื่อง · ปิดบางส่วน ===');
