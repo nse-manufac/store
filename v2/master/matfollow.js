@@ -41,7 +41,14 @@ export function numOf(v) {
 export function matDate(v) {
   let y, m, d;
   if (v instanceof Date && !isNaN(v)) {
-    y = v.getUTCFullYear(); m = v.getUTCMonth() + 1; d = v.getUTCDate();
+    /* ⚠️ สองข้อในบรรทัดเดียว ทั้งคู่ทำให้ทั้งไฟล์เลื่อนไปหนึ่งวันแบบไม่มีอะไรฟ้อง
+     *  1. ต้องอ่านด้วยตัวอ่าน "เวลาท้องถิ่น" ไม่ใช่ UTC — xlsx สร้าง Date ตามเขตเวลาของเครื่อง
+     *  2. ค่าที่ xlsx คืนมาไม่ได้ตรงเที่ยงคืน · เซลล์ที่แสดง 29/7 ได้ Date เป็น
+     *     28/7 เวลา 23:59:56 (เศษจากการแปลง serial) — อ่านตรง ๆ ได้วันที่ 28
+     *     จึงปัดเป็นนาทีที่ใกล้ที่สุดก่อน แล้วค่อยอ่านวัน
+     * เจอจริงตอนเปิดเบราว์เซอร์ทดสอบ · เทสที่รันด้วย node ล้วนจับไม่ได้ */
+    const t = new Date(Math.round(v.getTime() / 60000) * 60000);
+    y = t.getFullYear(); m = t.getMonth() + 1; d = t.getDate();
   } else if (typeof v === 'number' && isFinite(v) && v > 0) {
     const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
     y = dt.getUTCFullYear(); m = dt.getUTCMonth() + 1; d = dt.getUTCDate();
@@ -122,7 +129,7 @@ export function parseMatFollow(book = {}) {
     (aoa || []).forEach((raw, i) => {
       if (i < 2 || !raw || !raw.some(c => txt(c))) return;   // แถว 1 เป็นหัวเรื่อง แถว 2 เป็นหัวตาราง
       const hit = rowToFollow(raw, { sheet });
-      if (hit) rows.push(hit);
+      if (hit) rows.push({ ...hit, line: i + 1 });
       else if (txt(raw[1])) skipped.push({ sheet, line: i + 1, po: txt(raw[1]), why: whySkipped(raw) });
     });
   }
@@ -178,29 +185,46 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
     if (!byKey.has(k)) byKey.set(k, r);          // ถ้าซ้ำ ใช้ใบแรกที่เจอ ใบที่เหลือไปโผล่ในรายการซ้ำ
   }
 
-  const create = [], update = [], same = [];
+  const create = [], update = [], same = [], failed = [];
   const seen = new Set();
   for (const p of parsed) {
     const k = matKey(p);
     seen.add(k);
     const cur = byKey.get(k);
+    /* ⚠️ วันที่ว่างจากไฟล์แปลว่า "Delta ไม่ได้แจ้งวันที่มา" ไม่ใช่ "ให้ลบวันที่เดิม"
+     * matDate() คืน '' ได้หลายทาง (เซลล์ว่าง · เซลล์ผสานที่ค่าอยู่แค่แถวบน · ข้อความที่อ่านไม่ออก)
+     * เขียนทับด้วยค่าว่างแล้วแถวนั้นจะไม่มีวันที่บนจอถาวร (ผู้ตรวจ #96 รอบสอง) */
     const fields = {
-      qty: p.qty, date: p.date, part_no: p.part_no, note: p.note,
+      qty: p.qty, date: txt(p.date) || txt(cur && cur.date), part_no: p.part_no, note: p.note,
       order_qty: p.order, recv_qty: p.actual
     };
     if (!cur) {
-      create.push({ row: p, rec: makeFollow({
-        kind: p.kind, entity: p.entity, source: 'delta',
-        code: p.code, po: p.po, part_no: p.part_no,
-        type: p.kind === 'short' ? 'ขาด' : '',
-        qty: p.qty, date: p.date, note: p.note,
-        order_qty: p.order, recv_qty: p.actual,
-        by, now
-      }) });
+      /* ⚠️ แถวเดียวที่ makeFollow ไม่รับ (ไม่มีนิติบุคคล · แถวเกินที่ไม่มี P/N)
+       * ห้ามทำให้ทั้งไฟล์นำเข้าไม่ได้ และห้ามเงียบ — ต้องบอกว่าชีตไหน แถวไหน เพราะอะไร
+       * ไม่งั้นคนคีย์เห็นแค่ข้อความแดงหนึ่งบรรทัดแล้วทำอะไรต่อไม่ถูก (G3 · ผู้ตรวจ #96 ข้อ 1) */
+      try {
+        create.push({ row: p, rec: makeFollow({
+          kind: p.kind, entity: p.entity, source: 'delta',
+          code: p.code, po: p.po, part_no: p.part_no,
+          type: p.kind === 'short' ? 'ขาด' : '',
+          qty: p.qty, date: p.date, note: p.note,
+          order_qty: p.order, recv_qty: p.actual,
+          by, now
+        }) });
+      } catch (err) {
+        failed.push({ sheet: p.sheet, line: p.line || null, po: p.po, code: p.code,
+                      why: err.message });
+      }
       continue;
     }
     const done = round5(Number(cur.done_qty) || 0);
+    /* ⚠️ ต้องเทียบวันที่ด้วย · วันที่บนแถวคือ "วันที่ Delta แจ้งรอบล่าสุด"
+     * ไม่เทียบแล้วแถวที่ Delta แจ้งใหม่แต่ยอดเท่าเดิม จะค้างวันที่เก่าไว้ตลอดไป
+     * แล้วคนอ่านจะเข้าใจว่าเรื่องนี้เงียบมาหลายสัปดาห์ทั้งที่เพิ่งแจ้งมาเมื่อวาน (ผู้ตรวจ #96 ข้อ 4)
+     * ⚠️ เทียบเฉพาะตอนที่ไฟล์แจ้งวันที่มาจริง — ไฟล์ที่ช่องวันที่ว่างจะขึ้นว่า "อัปเดต" ทุกรอบ
+     *    ทั้งที่ไม่มีอะไรเปลี่ยน แล้วคนคีย์จะเลิกเชื่อการ์ดดูก่อนยืนยัน (ผู้ตรวจ #96 รอบสอง) */
     const changed = round5(Number(cur.qty) || 0) !== round5(p.qty)
+      || (txt(p.date) && txt(cur.date) !== txt(p.date))
       || txt(cur.note) !== txt(p.note)
       || (numOf(cur.order_qty) ?? null) !== (p.order ?? null)
       || (numOf(cur.recv_qty) ?? null) !== (p.actual ?? null);
@@ -222,5 +246,5 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
   const gone = live.filter(r => ents.has(txt(r.entity)) && !seen.has(matKey(r)) && statusOf(r) !== 'done')
                    .map(r => ({ cur: r, remain: remainOf(r), source: txt(r.source) || 'manual' }));
 
-  return { create, update, same, gone, dropped, entities: [...ents].sort() };
+  return { create, update, same, gone, failed, dropped, entities: [...ents].sort() };
 }

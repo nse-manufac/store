@@ -31,6 +31,7 @@ import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
+import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
@@ -66,7 +67,8 @@ const GROUPS = [
   { k: 'follow', label: 'Mat Follow up', tabs: [
     { k: 'fshort', label: 'short รอส่ง' },
     { k: 'fover',  label: 'over รอคืน' },
-    { k: 'fbuy',   label: 'ซื้อแมททดแทน' }
+    { k: 'fbuy',   label: 'ซื้อแมททดแทน' },
+    { k: 'fmat',   label: 'นำเข้าใบแจ้งของ Delta' }
   ] },
   { k: 'sys',  label: 'ระบบ', tabs: [
     { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
@@ -2079,6 +2081,67 @@ createApp({
       return msgs;
     }
 
+    /* ── นำเข้าใบแจ้งยอดขาด/เกินของ Delta (MAT'L FOLLOWING) ─────────
+     * ไฟล์นี้คือความจริงฝั่ง Delta ว่าใบไหนส่งของมาครบไหม
+     * ตรรกะการอ่านและการวางแผนอยู่ใน master/matfollow.js ทั้งหมด (มีเทสครบ)
+     * ตรงนี้ทำแค่สามอย่าง — เปิดไฟล์ · โชว์แผนให้คนดู · เขียนลงฐานข้อมูลเมื่อกดยืนยัน
+     *
+     * ⚠️ ต้องให้ดูแผนก่อนเสมอ ห้ามนำเข้าทันทีที่ลากไฟล์เข้ามา
+     *    ไฟล์รอบหนึ่งแตะงานตามหลายสิบเรื่อง ถ้าไฟล์ผิดใบแล้วเขียนทับไปเลย
+     *    คนจะรู้ตอนยอดบนจอเปลี่ยนไปแล้วเท่านั้น */
+    const mf = ref(null);          // แผนที่รอยืนยัน
+    const mfBusy = ref(false);
+    const mfMsg = ref('');
+
+    async function onMfFile(ev) {
+      const file = ev.target.files[0];
+      ev.target.value = '';
+      if (!file) return;
+      mfBusy.value = true; mfMsg.value = ''; mf.value = null;
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()),
+                             { type: 'array', cellDates: true });
+        const book = {};
+        for (const n of wb.SheetNames) {
+          book[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '', blankrows: true });
+        }
+        const { rows, skipped } = parseMatFollow(book);
+        if (!rows.length) {
+          throw new Error('อ่านไฟล์แล้วไม่เจอแถวที่เป็นงานตามเลย — '
+                        + 'ไฟล์ของ Delta หัวตารางต้องอยู่แถวที่สอง และต้องมีช่อง VAR.');
+        }
+        const plan = planMatFollow(rows, shorts.value,
+                                   { by: fsBy.value, now: new Date().toISOString() });
+        /* ⚠️ หยิบไฟล์ผิดใบที่มีหลายพันแถวเกิดขึ้นได้ · วาดทุกแถวแล้วจอค้างตอนวาด
+         * ตัดเท่าหน้านำเข้า PO/Kit ที่มีอยู่ แล้วบอกว่าแสดงกี่จากกี่ (ผู้ตรวจ #96 ข้อ 2) */
+        const cut = list => list.slice(0, SHOW_MAX);
+        mf.value = { fileName: file.name, sheets: wb.SheetNames, skipped, ...plan,
+                     showCreate: cut(plan.create), showUpdate: cut(plan.update),
+                     showGone: cut(plan.gone), showSkipped: cut([...plan.failed, ...skipped]),
+                     skippedAll: plan.failed.length + skipped.length, SHOW_MAX };
+      } catch (err) { mfMsg.value = err.message; }
+      finally { mfBusy.value = false; }
+    }
+
+    /** เขียนลงฐานข้อมูลจริง — เรียกได้เฉพาะตอนคนกดยืนยันแผนที่เห็นอยู่ */
+    async function mfApply() {
+      if (!mf.value || mfBusy.value) return;
+      const plan = mf.value;
+      mfBusy.value = true; mfMsg.value = '';   // ข้อความแดงของรอบก่อนต้องไม่ค้างคู่กับข้อความว่าบันทึกแล้ว
+      try {
+        /* ⚠️ ต้องผ่าน plain() ก่อนเสมอ · แผนถูกเก็บไว้ใน ref แถวในนั้นจึงเป็นพร็อกซีของ Vue
+         * IndexedDB โคลนพร็อกซีไม่ได้ แล้วจะล้มทั้งชุดด้วยข้อความภาษาอังกฤษที่คนคีย์อ่านไม่รู้เรื่อง
+         * (เจอจริงตอนเปิดเบราว์เซอร์ทดสอบใบนี้) */
+        for (const c of plan.create) await fsPut(plain(c.rec));
+        for (const u of plan.update) await fsPut(plain(u.rec));
+        flash('นำเข้าใบแจ้งของ Delta แล้ว — เรื่องใหม่ ' + plan.create.length
+            + ' · อัปเดต ' + plan.update.length + ' · เท่าเดิม ' + plan.same.length);
+        mf.value = null;
+      } catch (err) { mfMsg.value = err.message; }
+      finally { mfBusy.value = false; }
+    }
+
     /* ── คีย์เรื่องใหม่เอง ──────────────────────────────────────────
      * ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L ของไฟล์ PO
      * เรื่องที่ Delta แจ้งทางโทรศัพท์หรือทาง LINE จึงไม่มีที่ให้ลง */
@@ -2684,6 +2747,7 @@ createApp({
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
+      mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo,
       buyWaits, cancelBuyWaits,
       foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,

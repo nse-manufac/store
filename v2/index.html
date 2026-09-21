@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-20.10">
+<meta name="app-version" content="2026-09-21.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1982,6 +1982,124 @@ textarea{font:inherit}
             <b>รับเข้าทางเดิมทางเดียว</b> หน้านี้ไม่มีทางบันทึกของเข้าคลังเอง<br>
             บันทึกใบรับเข้าเสร็จแล้วเรื่องจะถูกปิดและผูกกับเลขที่รายการนั้นให้เอง</p>
         </div>
+      </template>
+
+      <!-- ════════ นำเข้าใบแจ้งยอดขาด/เกินของ Delta ════════ -->
+      <template v-else-if="tab==='fmat'">
+
+        <div class="card">
+          <div class="row">
+            <h2 style="margin:0">นำเข้าใบแจ้งของ Delta (MAT'L FOLLOWING)</h2>
+            <div class="grow"></div>
+            <label class="f" style="width:170px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่นำเข้า" @change="saveFsBy"></label>
+          </div>
+          <p class="hint" style="margin:6px 0 0">
+            ไฟล์ที่ Delta ส่งมาบอกว่าแต่ละ PO ส่งของครบไหม — หนึ่งชีตต่อหนึ่งแอดมินของเขา<br>
+            <b>ยอดขาดที่ระบบใช้ = VAR − Cut Return</b> เพราะ Cut Return คือของเกินจาก PO ใบก่อนที่หักมาแล้ว ·
+            นิติบุคคลดูจากเลขที่ PO ไม่ใช่ชื่อชีต
+          </p>
+          <p style="margin:10px 0 0">
+            <input type="file" accept=".xlsx,.xls" @change="onMfFile" :disabled="mfBusy">
+            <span class="hint" v-if="mfBusy"> กำลังอ่านไฟล์...</span></p>
+          <div class="msg bad" v-if="mfMsg" style="margin-top:10px">{{ mfMsg }}</div>
+        </div>
+
+        <template v-if="mf">
+          <div class="card">
+            <div class="row">
+              <h2 style="margin:0">ดูก่อนยืนยัน</h2>
+              <span class="hint">{{ mf.fileName }} · ชีต {{ mf.sheets.join(' · ') }}</span>
+              <div class="grow"></div>
+              <div><div class="hint">เรื่องใหม่</div><div class="big">{{ mf.create.length }}</div></div>
+              <div><div class="hint">อัปเดตยอด</div>
+                <div class="big" :class="mf.update.length ? 'warn' : ''">{{ mf.update.length }}</div></div>
+              <div><div class="hint">เท่าเดิม</div><div class="big hint">{{ mf.same.length }}</div></div>
+            </div>
+            <p class="hint" style="margin:6px 0 0">
+              ไฟล์รอบนี้ครอบคลุมนิติบุคคล <b>{{ mf.entities.join(' · ') || '—' }}</b>
+              <span v-if="mf.dropped"> · มีคู่ PO+รหัสซ้ำในไฟล์ {{ mf.dropped }} แถว ใช้แถวที่วันที่ใหม่กว่า</span>
+              <span v-if="mf.skippedAll"> · ข้าม {{ mf.skippedAll }} แถว</span>
+              <span v-if="mf.failed.length" class="tag warn"> {{ mf.failed.length }} แถวสร้างเรื่องไม่ได้</span>
+              <span v-if="mf.create.length + mf.update.length > mf.SHOW_MAX">
+                · ตารางข้างล่างแสดง {{ mf.showCreate.length + mf.showUpdate.length }}
+                จาก {{ mf.create.length + mf.update.length }} แถว · ยืนยันแล้วบันทึกครบทุกแถว</span>
+            </p>
+
+            <div class="scroll" style="max-height:38vh;margin-top:10px" v-if="mf.create.length || mf.update.length">
+              <table>
+                <thead><tr>
+                  <th style="width:70px">สถานะ</th><th style="width:125px">PO</th>
+                  <th style="width:125px">รหัส</th><th style="width:70px">ชนิด</th>
+                  <th style="width:95px">ยอดใหม่</th><th style="width:95px">ยอดเดิม</th>
+                  <th style="width:95px">ปิดไปแล้ว</th><th>หมายเหตุจาก Delta</th></tr></thead>
+                <tbody>
+                  <tr v-for="c in mf.showCreate" :key="'c' + c.rec.id">
+                    <td><span class="tag ok">ใหม่</span></td>
+                    <td class="mono">{{ c.row.po }}</td><td class="mono">{{ c.row.code }}</td>
+                    <td>{{ c.row.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
+                    <td class="mono"><b>{{ c.row.qty }}</b></td>
+                    <td class="hint">—</td><td class="hint">—</td>
+                    <td class="hint">{{ c.row.note || '—' }}</td>
+                  </tr>
+                  <tr v-for="u in mf.showUpdate" :key="'u' + u.rec.id">
+                    <td><span class="tag warn">อัปเดต</span></td>
+                    <td class="mono">{{ u.row.po }}</td><td class="mono">{{ u.row.code }}</td>
+                    <td>{{ u.row.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
+                    <td class="mono"><b>{{ u.rec.qty }}</b></td>
+                    <td class="mono hint">{{ u.cur.qty }}</td>
+                    <td class="mono">{{ u.rec.done_qty || 0 }}</td>
+                    <td class="hint">{{ u.row.note || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="empty" style="margin-top:10px">ไฟล์นี้ตรงกับของที่มีอยู่ทุกแถว ไม่มีอะไรต้องเปลี่ยน</p>
+
+            <div class="msg warn" v-if="mf.gone.length" style="margin-top:12px">
+              <b>{{ mf.gone.length }} เรื่องที่ยังเปิดอยู่ แต่ไม่มีในไฟล์รอบนี้</b> —
+              <span class="hint">ระบบ<b>ไม่ปิดและไม่ลบให้</b> · อาจเป็นเรื่องที่คีย์เอง
+                หรือ Delta ตัดออกเพราะจบแล้ว ดูแล้วปิดเองทีละเรื่องที่แท็บ short รอส่ง</span>
+              <div class="scroll" style="max-height:20vh;margin-top:8px">
+                <table>
+                  <thead><tr><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
+                    <th style="width:70px">ชนิด</th><th style="width:95px">ยังค้าง</th>
+                    <th style="width:90px">มาจาก</th></tr></thead>
+                  <tbody><tr v-for="g in mf.showGone" :key="g.cur.id">
+                    <td class="mono">{{ g.cur.po }}</td><td class="mono">{{ g.cur.code }}</td>
+                    <td>{{ g.cur.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
+                    <td class="mono">{{ g.remain }}</td>
+                    <td class="hint">{{ g.source === 'delta' ? 'ไฟล์ของ Delta' : g.source }}</td>
+                  </tr></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:12px">
+              <div class="grow"></div>
+              <button class="btn" @click="mf = null">ยกเลิก</button>
+              <button class="btn primary" @click="mfApply"
+                      :disabled="mfBusy || !(mf.create.length || mf.update.length)">
+                {{ mfBusy ? 'กำลังบันทึก...' : 'ยืนยันนำเข้า' }}</button>
+            </div>
+          </div>
+
+          <div class="card" v-if="mf.skippedAll">
+            <div class="row"><h2 style="margin:0">แถวที่ข้ามไป</h2>
+              <span class="hint">ไม่ได้ถูกนำเข้า — ยกมาให้ดูเพื่อไม่ให้เข้าใจว่าตกหล่น
+                · แถวที่ "สร้างเรื่องไม่ได้" ต้องแก้ในไฟล์แล้วนำเข้าใหม่</span></div>
+            <div class="scroll" style="max-height:24vh;margin-top:10px">
+              <table>
+                <thead><tr><th style="width:90px">ชีต</th><th style="width:70px">แถวที่</th>
+                  <th style="width:125px">PO</th><th>เพราะอะไร</th></tr></thead>
+                <tbody><tr v-for="(s, i) in mf.showSkipped" :key="i">
+                  <td class="mono hint">{{ s.sheet }}</td><td class="mono hint">{{ s.line || '—' }}</td>
+                  <td class="mono">{{ s.po }}</td><td class="hint">{{ s.why }}</td>
+                </tr></tbody>
+              </table>
+            </div>
+          </div>
+        </template>
       </template>
 
       <!-- ════════ ซิงค์ ════════ -->
