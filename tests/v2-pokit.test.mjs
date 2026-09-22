@@ -537,7 +537,8 @@ const ret = parseKitChem({ sheets: [
   ] }
 ] }, { fallbackDate: '2026-09-22' });
 
-ok('อ่านเลขที่เอกสารจากช่อง Location', ret.location === '0014', ret.location);
+// ช่อง Location เป็นรหัสที่เก็บฝั่ง Delta ทุกไฟล์เลขเดียวกัน — ไม่ใช่เลขที่เอกสาร (เจ้าของ 22 ก.ย. 2026)
+ok('อ่านรหัส location จากหัวเอกสารได้', ret.location === '0014', ret.location);
 ok('ไฟล์ไม่มีวันที่ ใช้วันที่ที่ส่งเข้าไปแทน ไม่ใช่เดาเอง',
    ret.docDate === '' && ret.rows.every(r => r.date === '2026-09-22'),
    JSON.stringify(ret.docDate) + ' / ' + ret.rows[0].date);
@@ -570,7 +571,7 @@ const locNext = parseKitChem({ sheets: [
     [1, 'TM9269H001', 'H', 'PN9001', 100, 9000000001, 'GLUE', 1, 1, '', '']
   ] }
 ] });
-ok('เลขที่เอกสารอยู่เซลล์ถัดไปก็อ่านได้', locNext.location === '0021', locNext.location);
+ok('รหัส location อยู่เซลล์ถัดไปก็อ่านได้', locNext.location === '0021', locNext.location);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

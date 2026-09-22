@@ -124,6 +124,6 @@ export function chemPlan(parsed, { date = '' } = {}) {
   return {
     receive: rows.filter(r => !r.fromOver).map(line),
     fromOver: rows.filter(r => r.fromOver).map(line),
-    totals, docNo: parsed.location || '', date
+    totals, location: parsed.location || '', date
   };
 }

@@ -126,7 +126,9 @@ ok('ยอดรวมรายรหัสมาจากแถว Total ใน
    plan.totals['9000000001'] === 0.75, JSON.stringify(plan.totals));
 ok('รหัสที่เอกสารไม่ได้พิมพ์ยอดรวมมา ต้องไม่ถูกเดาให้', !('9000000002' in plan.totals));
 ok('บล็อกที่รหัสปนกัน ไม่ถูกนับเป็นยอดของรหัสไหน', !('(ปนกัน)' in plan.totals));
-ok('เอาเลขที่เอกสารจากช่อง Location มาให้ด้วย', plan.docNo === '0014');
+// ⚠️ ห้ามเอารหัส location ไปเติมเป็นเลขที่เอกสาร — ทุกไฟล์เป็นเลขเดียวกันหมด
+ok('ส่งรหัส location ต่อให้หน้าจอ ไม่ใช่ในชื่อเลขที่เอกสาร',
+   plan.location === '0014' && !('docNo' in plan), JSON.stringify(Object.keys(plan)));
 const csum = summarize(plan.receive, plan.totals);
 ok('บวกยอดเองแล้วตรงกับที่เอกสารพิมพ์มา',
    csum.find(x => x.code === '9000000001').match === true, JSON.stringify(csum));
