@@ -1658,7 +1658,7 @@ textarea{font:inherit}
           </div>
           <p class="hint" v-if="impBusy" style="margin:10px 0 0">กำลังอ่านไฟล์...</p>
           <!-- รู้จักไฟล์แบบนี้ แต่ไม่รับที่หน้านี้ — ต้องบอกทางไป ไม่ใช่เงียบหรือด่าว่าอ่านไม่ออก -->
-          <div class="msg warn" v-if="impChem" style="margin:10px 0 0">
+          <div class="msg warn" v-if="impChem && tab==='po'" style="margin:10px 0 0">
             <b>ไฟล์นี้เป็น Kit List กลุ่มจ่ายรวม</b> — {{ impChem }}<br>
             <span class="hint">ของกลุ่มนี้นำเข้าที่แท็บ "รับเข้ารวมรายรอบ" ซึ่งกางเป็นรายการรับเข้า
               ให้ตรวจแล้วกดบันทึกได้เลย และแยกแถวที่ Delta ตัดจากยอด over ออกให้ด้วย</span><br>
