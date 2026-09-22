@@ -731,6 +731,13 @@ createApp({
 
     const matOf = code => materials.value.find(m => normCode(m.material_code) === normCode(code));
 
+    /**
+     * หมวดหมู่ของรหัสนี้ — ฝั่ง Mat Follow up เห็นแต่รหัสล้วน ซึ่งบอกไม่ได้ว่าของคืออะไร
+     * (เจ้าของสั่ง 22 ก.ย. 2026) · รหัสที่ยังไม่มีในทะเบียนคืนค่าว่าง ให้หน้าจอขึ้นขีด
+     * ห้ามเดาจากรูปแบบรหัส — เดาผิดแล้วคนจะเชื่อว่าของคือคนละอย่าง
+     */
+    const catOf = code => { const m = matOf(code); return m && m.category ? m.category : ''; };
+
     /** เหตุผลเก็บเป็นรหัสในสมุด แต่บนจอต้องอ่านรู้เรื่อง */
     const reasonLabel = e => {
       if (!e || !e.reason_code) return '';
@@ -2811,7 +2818,7 @@ createApp({
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
-             ready, bootMsg, bootError, tab, entity,
+             ready, bootMsg, bootError, tab, entity, catOf,
              materials, entries, bom, q, fCat, fState, edit, toast,
              activeCount, needReview, shown, codeCheck, dupOf,
              startAdd, startEdit, saveEdit, approve,

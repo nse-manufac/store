@@ -1031,5 +1031,34 @@ ok('ชื่อที่เทมเพลตเรียก ถูกส่ง
     'buyWaits','cancelBuyWaits']
      .every(n => new RegExp('\\b' + n + '\\b').test(appBuy.slice(appBuy.lastIndexOf('return {')))));
 
+
+console.log('\n=== P. คอลัมน์หมวดหมู่ทุกตารางฝั่ง Mat Follow up (เจ้าของ 22 ก.ย. 2026) ===');
+// เจ้าของบอกว่า "มีแค่ code mat แล้วไม่รู้ว่าคืออะไร" — ทุกตารางที่โชว์รหัสต้องบอกหมวดหมู่ด้วย
+// นับหัวคอลัมน์แทนการไล่ดูทีละตาราง จะได้ไม่ลืมตอนมีคนเพิ่มตารางใหม่ในอนาคต
+const appSrcP = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+const blockOf = tab => {
+  const i = htmlSrc.indexOf("tab==='" + tab + "'");
+  if (i < 0) return '';
+  const j = htmlSrc.indexOf('<template v-else-if', i + 10);   // ข้าม <template> ซ้อนในบล็อกเดียวกัน
+  return htmlSrc.slice(i, j < 0 ? htmlSrc.length : j);
+};
+const count = (str, needle) => str.split(needle).length - 1;
+for (const tab of ['fshort', 'fover', 'fbuy', 'fmat']) {
+  const b = blockOf(tab);
+  const codes = count(b, '>รหัส</th>'), cats = count(b, '>หมวดหมู่</th>');
+  ok('แท็บ ' + tab + ' — ทุกตารางที่โชว์รหัส มีหมวดหมู่ครบ',
+     codes > 0 && codes === cats, 'รหัส ' + codes + ' · หมวดหมู่ ' + cats);
+}
+ok('ทุกช่องหมวดหมู่อ่านจาก catOf ไม่ใช่เดาเอง',
+   count(htmlSrc, 'catOf(') >= count(htmlSrc, '>หมวดหมู่</th>'),
+   count(htmlSrc, 'catOf(') + ' / ' + count(htmlSrc, '>หมวดหมู่</th>'));
+ok('catOf อ่านจากทะเบียนวัตถุดิบ และเปิดให้เทมเพลตใช้จริง',
+   /const catOf = code => \{ const m = matOf\(code\)/.test(appSrcP) && /entity, catOf,/.test(appSrcP));
+// รหัสที่ยังไม่มีในทะเบียนต้องขึ้นขีด ไม่ใช่ช่องว่างเปล่าที่ดูเหมือนยังโหลดไม่เสร็จ
+const catCells = htmlSrc.match(/\{\{ catOf\([^)]*\)[^}]*\}\}/g) || [];
+ok('ทุกช่องหมวดหมู่ ถ้าไม่มีในทะเบียนต้องขึ้นขีด',
+   catCells.length === count(htmlSrc, 'catOf(') && catCells.every(c => c.includes("|| '—'")),
+   JSON.stringify(catCells.filter(c => !c.includes("|| '—'"))));
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
