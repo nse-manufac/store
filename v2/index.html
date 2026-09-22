@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-22.4">
+<meta name="app-version" content="2026-09-22.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1879,7 +1879,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fsRows.length"><td colspan="9" class="empty">
+                <tr v-if="!fsRows.length"><td colspan="10" class="empty">
                   ไม่มีเรื่องค้าง 🎉<span v-if="fsSearch"> — หรือคำค้นไม่ตรงกับอะไรเลย</span>
                   <span v-else-if="!fsShowDone"> · ที่ปิดแล้วดูได้จากช่องติ๊กด้านบน</span></td></tr>
               </tbody>
@@ -2027,7 +2027,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fbRows.length"><td colspan="7" class="empty">
+                <tr v-if="!fbRows.length"><td colspan="8" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!fbShowDone" class="hint">· ที่รับของแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
@@ -2249,7 +2249,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!foRows.length"><td colspan="8" class="empty">
+                <tr v-if="!foRows.length"><td colspan="9" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!foShowDone" class="hint">· ที่คืนแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>

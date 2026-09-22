@@ -1059,6 +1059,21 @@ const catCells = htmlSrc.match(/\{\{ catOf\([^)]*\)[^}]*\}\}/g) || [];
 ok('ทุกช่องหมวดหมู่ ถ้าไม่มีในทะเบียนต้องขึ้นขีด',
    catCells.length === count(htmlSrc, 'catOf(') && catCells.every(c => c.includes("|| '—'")),
    JSON.stringify(catCells.filter(c => !c.includes("|| '—'"))));
+// แทรกคอลัมน์แล้วลืมบวก colspan ของแถว "ไม่มีเรื่อง" = แถวว่างเหลื่อมไปหนึ่งช่อง
+// เทสนับหัวคอลัมน์ข้างบนมองไม่เห็น จึงต้องไล่ colspan เทียบ <th> ของตารางเดียวกันด้วย
+for (const tab of ['fshort', 'fover', 'fbuy', 'fmat']) {
+  const tables = blockOf(tab).split('<table').slice(1);
+  const bad = [];
+  tables.forEach((t, k) => {
+    const head = (t.match(/<thead>[\s\S]*?<\/thead>/) || [''])[0];
+    const th = (head.match(/<th[ >]/g) || []).length;
+    for (const m of t.matchAll(/colspan="(\d+)"/g)) {
+      if (+m[1] !== th) bad.push(`ตารางที่ ${k + 1}: colspan=${m[1]} แต่หัวมี ${th}`);
+    }
+  });
+  ok('แท็บ ' + tab + ' — colspan ของแถวว่างเท่ากับจำนวนหัวคอลัมน์',
+     tables.length > 0 && bad.length === 0, bad.join(' · '));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
