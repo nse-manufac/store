@@ -573,6 +573,20 @@ ok('ทั้งสองป้ายต้องไม่โผล่ในห�
 // ทั้งที่ทุกแถวในตารางยังขึ้นว่า "ยังไม่มี" — ตัวเลขสองที่ขัดกันเอง
 ok('ตัวนับ Kit List บนหัวการ์ดไม่นับแถวตระกูล chem',
    /kits\.value\.filter\(k => !isChemKit\(k\) && poVisibleTo\(ownerOfPoNo\(k\.po\), entity\.value\)\)/.test(appSrc));
+// ⚠️ เก็บลงเครื่องไม่สำเร็จแล้วบอกผ่าน flash อย่างเดียว = เงียบสนิท — toast มีตัวเดียวและถูกทับ
+// ด้วย "อ่านไฟล์แล้ว …" ที่บรรทัดล่าง (ไม่มี await คั่น) เหลือแต่ "เก็บไว้ 0 แถว" ซึ่งแยกไม่ออก
+// จาก "นำไฟล์เดิมเข้าซ้ำ" แล้วแท็บ over รอคืนจะบอกว่า "ตรง" ทั้งที่ยังไม่ได้เทียบ (ผู้ตรวจ #101)
+const wkFileSrc = bodyOf('onWkFile');
+const iNoDocMsg = wkFileSrc.indexOf('parsed.noDocCol.length');
+const iOverErr = wkFileSrc.indexOf('if (overErr) {');
+ok('เก็บใบแจ้งตัดยอด over ไม่สำเร็จ ต้องค้างบนจอที่ wkMsg โทน bad ไม่ใช่ฝากไว้กับ toast',
+   iOverErr > 0 && /if \(overErr\) \{\s*wkTone\.value = 'bad';\s*wkMsg\.value \+=/.test(wkFileSrc));
+ok('catch ของการเก็บลงเครื่องไม่เรียก flash ตรง ๆ แต่จำข้อความไว้ก่อน',
+   /catch \(err\) \{ overErr = err\.message; \}/.test(wkFileSrc));
+ok('ข้อความนั้นต้องอยู่หลังบล็อก noDocCol โทน bad จึงไม่ถูกลดเป็น warn',
+   iNoDocMsg > 0 && iOverErr > iNoDocMsg);
+ok('toast ปิดท้ายต้องไม่ขึ้นเขียวว่ากดบันทึกได้เลย ทั้งที่เก็บไม่สำเร็จ',
+   /flash\(overErr\s*\?/.test(wkFileSrc) && /!!overErr\)/.test(wkFileSrc));
 // ⚠️ ไม่มีคอลัมน์ = แยกแถวที่ตัดจากยอด over ไม่ได้เลย ต้องบอก ไม่ใช่เงียบ (ผู้ตรวจ #97)
 ok('บอกชื่อชีตที่ไม่มีคอลัมน์ Material Document No.',
    chem.noDocCol.join(',') === 'H,U', JSON.stringify(chem.noDocCol));

@@ -1579,7 +1579,7 @@ createApp({
         const overRows = parsed.rows.filter(r => r.fromOver);
         const haveIds = new Set(kits.value.map(k => String(k.id)));
         const freshOver = overRows.filter(r => !haveIds.has(String(r.id)));
-        let keptOver = 0;
+        let keptOver = 0, overErr = '';
         if (freshOver.length) {
           // ⚠️ ล้อมด้วย try ของตัวเอง — รายการรับเข้ากางบนจอไปแล้วและกดบันทึกได้อยู่
           // ถ้าปล่อยให้ตกไป catch ข้างนอก จะขึ้นว่า "อ่านไฟล์ไม่สำเร็จ" ทั้งที่อ่านได้ครบ
@@ -1588,10 +1588,7 @@ createApp({
             await db.put('kits', freshOver.map(plain));
             kits.value.push(...freshOver);
             keptOver = freshOver.length;
-          } catch (err) {
-            flash('เก็บใบแจ้งตัดยอด over ไม่สำเร็จ: ' + err.message
-                  + ' — รายการรับเข้าบนจอยังบันทึกได้ตามปกติ', true);
-          }
+          } catch (err) { overErr = err.message; }
         }
         // ⚠️ ไม่เติมเลขที่เอกสารให้จากช่อง Location ในไฟล์ — ทุกไฟล์เป็นเลขเดียวกันหมด
         // เป็นรหัสที่เก็บฝั่ง Delta ไม่ใช่เลขของรอบนั้น (เจ้าของทัก 22 ก.ย. 2026)
@@ -1611,7 +1608,19 @@ createApp({
             + ' ไม่มีคอลัมน์ Material Document No. — ทุกแถวของชีตนั้นถูกนับเป็นของที่มาจริง'
             + ' ถ้ารอบนี้มีของที่ตัดจากยอด over ต้องลบบรรทัดออกเองก่อนบันทึก';
         }
-        flash('อ่านไฟล์แล้ว ' + plan.receive.length + ' บรรทัด — ตรวจแล้วกดบันทึกได้เลย');
+        // ⚠️ ห้ามฝากความจริงข้อนี้ไว้กับ flash — toast มีตัวเดียวและถูกทับด้วยข้อความ
+        // "อ่านไฟล์แล้ว" ที่บรรทัดล่าง (ไม่มี await คั่น) คนจะเหลือแต่ "เก็บไว้ 0 แถว"
+        // ซึ่งแยกไม่ออกจาก "นำไฟล์เดิมเข้าซ้ำ ของเก่าเก็บครบแล้ว" (ผู้ตรวจ #101 รอบที่ 3)
+        // วางไว้ท้ายสุดเพื่อให้โทน bad ชนะ warn ของ noDocCol ไม่ใช่ถูกลดเป็น warn
+        if (overErr) {
+          wkTone.value = 'bad';
+          wkMsg.value += ' · ⚠️ เก็บใบแจ้งตัดยอด over ลงเครื่องไม่สำเร็จ: ' + overErr
+            + ' — รายการรับเข้าบนจอยังกดบันทึกได้ตามปกติ · ถ้าต้องเทียบยอด over ให้นำไฟล์นี้เข้าใหม่อีกครั้ง';
+        }
+        flash(overErr
+          ? 'อ่านไฟล์แล้ว ' + plan.receive.length + ' บรรทัด แต่เก็บใบแจ้งตัดยอด over ไม่สำเร็จ'
+            + ' — อ่านข้อความสีแดงบนจอ แล้วนำไฟล์นี้เข้าใหม่อีกครั้ง'
+          : 'อ่านไฟล์แล้ว ' + plan.receive.length + ' บรรทัด — ตรวจแล้วกดบันทึกได้เลย', !!overErr);
       } catch (err) {
         wkMsg.value = 'อ่านไฟล์ไม่สำเร็จ: ' + err.message; wkTone.value = 'bad';
         flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true);
