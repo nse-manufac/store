@@ -109,9 +109,15 @@ export function chemPlan(parsed, { date = '' } = {}) {
 
   // ยอดรวมรายรหัสที่เอกสารพิมพ์มาในแถว Total — เดิมคนคีย์ต้องพิมพ์เองทีละรหัส
   // รหัสเดียวโผล่ได้ทั้งสองชีต (H และ U) จึงต้องบวกกันก่อน ไม่ใช่ทับกัน
+  // ⚠️ บล็อกที่มีแถวตัดจากยอด over ปนอยู่ ห้ามเติมยอดรวมให้ (ผู้ตรวจ #97)
+  // ยอด Total ของบล็อกนั้นรวมแถว Return ไว้ด้วย แต่รายการรับเข้าตัดแถวพวกนั้นออกไปแล้ว
+  // เติมไปจะขึ้นเตือน "ยอดไม่ตรง" ทั้งที่ไม่มีใครทำอะไรผิด แล้วพนักงานหาสาเหตุไม่เจอ
+  // ปล่อยว่างแทน = "ยังไม่กรอก" ซึ่งเป็นความจริง · เอกสารรอบที่เจอจริงไม่พิมพ์ Total
+  // ให้รหัสที่เป็น Return อยู่แล้ว ข้อนี้กันไว้เผื่อไฟล์รอบหน้าเปลี่ยนรูปแบบ
+  const mixed = new Set((parsed.blocks || []).filter(b => b.overLines).map(b => b.code));
   const totals = {};
   for (const b of parsed.blocks || []) {
-    if (b.docTotal === null || !b.code || b.code === '(ปนกัน)') continue;
+    if (b.docTotal === null || !b.code || b.code === '(ปนกัน)' || mixed.has(b.code)) continue;
     totals[b.code] = round5((totals[b.code] || 0) + b.docTotal);
   }
 

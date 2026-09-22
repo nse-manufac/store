@@ -555,6 +555,22 @@ ok('PO+รหัสเดียวกันที่มาทั้งสอง�
 ok('id ของสองแถวนั้นไม่ชนกัน', both[0].id !== both[1].id, both.map(r => r.id).join(' / '));
 ok('ไฟล์เก่าที่ไม่มีคอลัมน์นั้น ทุกแถวยังเป็นของที่มาจริงเหมือนเดิม',
    chem.rows.length > 0 && chem.rows.every(r => r.fromOver === false));
+// ⚠️ ไม่มีคอลัมน์ = แยกแถวที่ตัดจากยอด over ไม่ได้เลย ต้องบอก ไม่ใช่เงียบ (ผู้ตรวจ #97)
+ok('บอกชื่อชีตที่ไม่มีคอลัมน์ Material Document No.',
+   chem.noDocCol.join(',') === 'H,U', JSON.stringify(chem.noDocCol));
+ok('ชีตที่มีคอลัมน์ครบ ไม่ถูกฟ้อง', ret.noDocCol.length === 0, JSON.stringify(ret.noDocCol));
+ok('นับจำนวนแถวที่ตัดจากยอด over ไว้รายบล็อก',
+   ret.blocks.some(b => b.overLines > 0), JSON.stringify(ret.blocks.map(b => b.code + ':' + b.overLines)));
+
+// เลขที่เอกสารอาจอยู่เซลล์ถัดไป เพราะหัวเอกสารเป็นช่อง merge ที่ขยับได้
+const locNext = parseKitChem({ sheets: [
+  { name: 'H', hidden: false, aoa: [
+    ['Location  :', '0021'],
+    headR,
+    [1, 'TM9269H001', 'H', 'PN9001', 100, 9000000001, 'GLUE', 1, 1, '', '']
+  ] }
+] });
+ok('เลขที่เอกสารอยู่เซลล์ถัดไปก็อ่านได้', locNext.location === '0021', locNext.location);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

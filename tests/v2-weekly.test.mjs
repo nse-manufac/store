@@ -133,5 +133,19 @@ ok('บวกยอดเองแล้วตรงกับที่เอก�
 ok('ไฟล์เปล่าไม่พัง',
    chemPlan({}, {}).receive.length === 0 && chemPlan({}).fromOver.length === 0);
 
+// ⚠️ บล็อกที่มีแถว Return ปน ยอด Total ของเอกสารรวมแถวพวกนั้นไว้ด้วย
+// แต่รายการรับเข้าตัดออกแล้ว ถ้าเติมยอดให้จะขึ้นเตือน "ไม่ตรง" ทั้งที่ไม่มีใครผิด (ผู้ตรวจ #97)
+const mixPlan = chemPlan({
+  rows: [
+    { code: '9000000004', po: 'TM9269H005', issue: 1, fromOver: false },
+    { code: '9000000004', po: 'TM9269H006', issue: 2, fromOver: true }
+  ],
+  blocks: [{ sheet: 'H', code: '9000000004', docTotal: 3, overLines: 1 }]
+}, { date: '2026-09-22' });
+ok('บล็อกที่มีแถว over ปน ไม่ถูกเติมยอดรวมให้ — ปล่อยเป็นยังไม่กรอก',
+   !('9000000004' in mixPlan.totals), JSON.stringify(mixPlan.totals));
+ok('ยอดที่ไม่ได้เติม ต้องขึ้นว่ายังไม่กรอก ไม่ใช่ว่าไม่ตรง',
+   summarize(mixPlan.receive, mixPlan.totals)[0].match === null);
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

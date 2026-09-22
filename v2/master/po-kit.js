@@ -241,12 +241,19 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
     }
     if (sheetDate && !docDate) docDate = sheetDate;
 
-    // "Location  : 0014" — เลขที่เอกสารของรอบนั้น อยู่ในเซลล์เดียวกับคำว่า Location
+    // "Location  : 0014" — เลขที่เอกสารของรอบนั้น
+    // ของจริงอยู่ในเซลล์เดียวกับคำว่า Location แต่ไล่เซลล์ถัดไปให้ด้วย
+    // เพราะหัวเอกสารเป็นช่อง merge ที่ขยับได้ แบบเดียวกับตัวอ่านวันที่ข้างบน (ผู้ตรวจ #97)
     for (let i = 0; i < h && !location; i++) {
-      for (const v of aoa[i] || []) {
-        if (typeof v !== 'string' || !/LOCATION/.test(norm(v))) continue;
-        const t = (v.split(':')[1] || '').trim();
-        if (t) { location = t; break; }
+      const row = aoa[i] || [];
+      for (let c = 0; c < row.length && !location; c++) {
+        if (typeof row[c] !== 'string' || !/LOCATION/.test(norm(row[c]))) continue;
+        const same = (row[c].split(':')[1] || '').trim();
+        if (same) { location = same; break; }
+        for (let k = c + 1; k < row.length; k++) {
+          const t = String(row[k] == null ? '' : row[k]).replace(/^[\s:]+/, '').trim();
+          if (t) { location = t; break; }
+        }
       }
     }
 
@@ -255,6 +262,8 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
       if (!blk || !blk.n) { blk = null; return; }
       blocks.push({ sheet: sh.name, code: blk.code, lines: blk.n, calc: r6(blk.sum),
         docTotal: docTotal === null ? null : r6(docTotal),
+        // กี่บรรทัดในบล็อกนี้เป็นแถวที่ตัดจากยอด over — ปลายทางต้องรู้ว่ายอดรวมนี้ปนมาไหม
+        overLines: blk.over,
         // ยอมให้ต่างได้ไม่เกินครึ่งของหลักทศนิยมสุดท้ายที่เอกสารใช้ (3 ตำแหน่ง)
         match: docTotal === null ? null : Math.abs(docTotal - blk.sum) < 5e-4 });
       blk = null;
@@ -272,7 +281,8 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
       rawLines++; nSheet++;
       const over = col.doc >= 0 && /RETURN/i.test(String(row[col.doc] == null ? '' : row[col.doc]));
       const day = sheetDate || docDate || fallbackDate;
-      if (!blk) blk = { code, n: 0, sum: 0 };
+      if (!blk) blk = { code, n: 0, sum: 0, over: 0 };
+      if (over) blk.over++;
 
       // เลข Item ต้องเดินทีละ 1 ถ้ากระโดดแปลว่าบรรทัดหายตอน export
       // ⚠️ สองชีตในไฟล์เดียวกันนับคนละแบบ — ชีต H รีเซ็ตเป็น 1 เมื่อขึ้นรหัสใหม่
@@ -312,11 +322,14 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
       });
     }
     closeBlock(null);
-    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate });
+    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate, hasDocCol: col.doc >= 0 });
   }
 
   const rows = [...agg.values()];
-  return { rows, docDate, location, sheets, skipped, gaps, blocks, rawLines,
+  // ชีตที่ไม่มีคอลัมน์ Material Document No. = แยกแถวที่ตัดจากยอด over ไม่ได้เลย
+  // ปล่อยเงียบแล้วทุกแถวจะกลายเป็นของที่มาจริง ซึ่งเป็นโหมดพังที่อันตรายที่สุดของไฟล์นี้ (ผู้ตรวจ #97)
+  const noDocCol = sheets.filter(x => !x.hasDocCol).map(x => x.name);
+  return { rows, docDate, location, sheets, skipped, gaps, blocks, rawLines, noDocCol,
            merged: rows.filter(r => r.n > 1),
            codes: [...new Set(rows.map(r => r.code))],
            pos: [...new Set(rows.map(r => r.po))] };
