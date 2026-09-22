@@ -181,13 +181,18 @@ export function parseKitList(aoa) {
  *   1. ไฟล์เดียวมีหลายชีต (แยกตามกลุ่มโรงงาน H / U) และมีชีตซ่อนที่ไม่ใช่ข้อมูล
  *   2. ชีตเดียวมีได้หลายรหัส คั่นด้วยแถวรวมยอด — ห้ามเชื่อชื่อชีต ต้องอ่านรายบรรทัด
  *   3. มีคอลัมน์ Order Q'TY และ Model (P/N) มาให้ → เทียบกับ BOM ได้เลย
+ *   4. บางบรรทัดเขียน Return ในคอลัมน์ Material Document No. — ของไม่ได้มาใหม่
+ *      แต่ตัดจากยอด over ที่ค้างอยู่ที่เรา จึงติดธง fromOver ไว้ให้ปลายทางแยกเอง
+ *
+ * ⚠️ ไฟล์จริงเว้นช่องวันที่ไว้ว่างทั้งสองที่ (Documet Issue Date และ Date)
+ * จึงรับ fallbackDate มาใช้แทน ไม่ใช่เดาวันที่เอง — วันที่ผิดแปลว่ารายการไปโผล่ผิดวัน
  *
  * รับ { sheets: [{ name, hidden, aoa }] } ไม่ใช่ workbook ของ SheetJS
  * เพื่อให้เทสได้โดยไม่ต้องมีไฟล์จริง
  */
-export function parseKitChem(book) {
+export function parseKitChem(book, { fallbackDate = '' } = {}) {
   const agg = new Map(), sheets = [], skipped = [], gaps = [], blocks = [];
-  let rawLines = 0, docDate = '';
+  let rawLines = 0, docDate = '', location = '';
 
   for (const sh of book.sheets || []) {
     if (sh.hidden) { skipped.push({ name: sh.name, why: 'ชีตซ่อน' }); continue; }
@@ -206,6 +211,9 @@ export function parseKitChem(book) {
               desc: n.indexOf('DESCRIPTION'),
               req: n.findIndex(x => x.startsWith('REQQTY')),
               s41: n.findIndex(x => x.startsWith('541QTY')),
+              // หัวคอลัมน์เขียนว่า Material Document No. แต่ของจริงใส่คำว่า Return มา
+              // = รอบนี้ Delta ไม่ได้ส่งของ ตัดจากยอด over ที่ค้างอยู่ที่เราแทน
+              doc: n.findIndex(x => x.startsWith('MATERIALDOCUMENT')),
               rem: n.indexOf('REMARK') };
       break;
     }
@@ -233,6 +241,15 @@ export function parseKitChem(book) {
     }
     if (sheetDate && !docDate) docDate = sheetDate;
 
+    // "Location  : 0014" — เลขที่เอกสารของรอบนั้น อยู่ในเซลล์เดียวกับคำว่า Location
+    for (let i = 0; i < h && !location; i++) {
+      for (const v of aoa[i] || []) {
+        if (typeof v !== 'string' || !/LOCATION/.test(norm(v))) continue;
+        const t = (v.split(':')[1] || '').trim();
+        if (t) { location = t; break; }
+      }
+    }
+
     let blk = null, nSheet = 0, prevItem = null, blockStart = false;
     const closeBlock = docTotal => {
       if (!blk || !blk.n) { blk = null; return; }
@@ -253,6 +270,8 @@ export function parseKitChem(book) {
         continue;
       }
       rawLines++; nSheet++;
+      const over = col.doc >= 0 && /RETURN/i.test(String(row[col.doc] == null ? '' : row[col.doc]));
+      const day = sheetDate || docDate || fallbackDate;
       if (!blk) blk = { code, n: 0, sum: 0 };
 
       // เลข Item ต้องเดินทีละ 1 ถ้ากระโดดแปลว่าบรรทัดหายตอน export
@@ -276,14 +295,14 @@ export function parseKitChem(book) {
 
       // ⚠️ PO เดียวกัน + รหัสเดียวกัน โผล่ได้หลายบรรทัด ต้องรวมยอดก่อนเทียบ BOM
       // ของจริงเจอ 3 คู่ เช่น TM5267H332 0.539 + 0.231 = 0.770
-      const key = po + '|' + code, hit = agg.get(key);
+      const key = po + '|' + code + (over ? '|R' : ''), hit = agg.get(key);
       if (hit) {
         hit.req   = (req === null && hit.req   === null) ? null : r6((hit.req   || 0) + (req || 0));
         hit.issue = (s41 === null && hit.issue === null) ? null : r6((hit.issue || 0) + (s41 || 0));
         hit.n++;
       } else agg.set(key, {
-        id: 'C' + (sheetDate || docDate) + '-' + po + '-' + code,
-        src: 'chem', date: sheetDate || docDate,
+        id: 'C' + day + '-' + po + '-' + code + (over ? '-R' : ''),
+        src: 'chem', date: day, fromOver: over,
         group: String(row[col.group] == null ? '' : row[col.group]).trim().toUpperCase(),
         po, code, pn: codeOf(row[col.pn]), orderQty: numOf(row[col.order]),
         desc: String(row[col.desc] == null ? '' : row[col.desc]).trim(), unit: '',
@@ -297,7 +316,7 @@ export function parseKitChem(book) {
   }
 
   const rows = [...agg.values()];
-  return { rows, docDate, sheets, skipped, gaps, blocks, rawLines,
+  return { rows, docDate, location, sheets, skipped, gaps, blocks, rawLines,
            merged: rows.filter(r => r.n > 1),
            codes: [...new Set(rows.map(r => r.code))],
            pos: [...new Set(rows.map(r => r.po))] };

@@ -87,3 +87,37 @@ export function checkWeekly(lines, { totals = {}, materials = [], entity = '' } 
     entities: [...new Set(perLine.filter(Boolean))].sort()
   };
 }
+
+/**
+ * แปลงผลอ่าน Kit List กลุ่มจ่ายรวม เป็นบรรทัดของหน้านี้ — คนคีย์ไม่ต้องพิมพ์ตามเอกสารทีละแถว
+ *
+ * ⚠️ แถวที่เอกสารเขียน Return ในคอลัมน์ Material Document No. ห้ามรวมกับรายการรับเข้า
+ * มันคือยอดที่เกินค้างอยู่ที่เราอยู่แล้ว รอบนี้ Delta ตัดจากยอด over แทนการส่งของมาใหม่
+ * ถ้าปนไปด้วย ยอดจะเข้าคลังสองรอบสำหรับของก้อนเดียว โดยไม่มีอะไรฟ้อง
+ * (ไฟล์จริงรอบ ก.ย. 2026 เป็นแถวแบบนี้ 155 จาก 309 บรรทัด — ไม่ใช่เคสหายาก)
+ *
+ * เลขล็อตตั้งเป็นวันที่รับเข้า (เจ้าของเคาะ 22 ก.ย. 2026) เพราะเอกสารไม่มีเลขล็อตมาให้เลย
+ * ของกลุ่มนี้มาเป็นรอบ วันที่รับจึงเป็นตัวแยกรอบที่ตรงที่สุดเท่าที่มี
+ */
+export function chemPlan(parsed, { date = '' } = {}) {
+  const line = r => ({
+    code: String(r.code), po: r.po, pn: r.pn || '', orderQty: r.orderQty,
+    req: r.req, s41: r.issue, qty: r.issue, lot: date,
+    desc: r.desc || '', remark: r.remark || ''
+  });
+  const rows = parsed.rows || [];
+
+  // ยอดรวมรายรหัสที่เอกสารพิมพ์มาในแถว Total — เดิมคนคีย์ต้องพิมพ์เองทีละรหัส
+  // รหัสเดียวโผล่ได้ทั้งสองชีต (H และ U) จึงต้องบวกกันก่อน ไม่ใช่ทับกัน
+  const totals = {};
+  for (const b of parsed.blocks || []) {
+    if (b.docTotal === null || !b.code || b.code === '(ปนกัน)') continue;
+    totals[b.code] = round5((totals[b.code] || 0) + b.docTotal);
+  }
+
+  return {
+    receive: rows.filter(r => !r.fromOver).map(line),
+    fromOver: rows.filter(r => r.fromOver).map(line),
+    totals, docNo: parsed.location || '', date
+  };
+}
