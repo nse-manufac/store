@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -556,6 +556,37 @@ ok('PO+รหัสเดียวกันที่มาทั้งสอง�
 ok('id ของสองแถวนั้นไม่ชนกัน', both[0].id !== both[1].id, both.map(r => r.id).join(' / '));
 ok('ไฟล์เก่าที่ไม่มีคอลัมน์นั้น ทุกแถวยังเป็นของที่มาจริงเหมือนเดิม',
    chem.rows.length > 0 && chem.rows.every(r => r.fromOver === false));
+// ⚠️ ป้ายที่มาต้องต่างกัน ไม่ใช่แค่ธง fromOver — ธงไม่ใช่คอลัมน์ที่ซิงค์
+// เครื่องที่รับข้อมูลมาทางชีตจึงแยกสองอย่างนี้ได้จากป้ายที่มาเท่านั้น
+ok('แถวที่ตัดจากยอด over ได้ป้ายที่มาเป็น chemover',
+   ret.rows.filter(r => r.src === 'chemover').length === 2
+   && ret.rows.filter(r => r.src === 'chem').length === 3,
+   JSON.stringify(ret.rows.map(r => r.src)));
+ok('ตัวช่วยกลางรู้จักทั้งสองป้าย',
+   isChemKit({ src: 'chem' }) && isChemKit({ src: 'chemover' })
+   && !isChemKit({ src: '' }) && !isChemKit(null));
+ok('ทั้งสองป้ายต้องไม่โผล่ในหน้าคีย์รับเข้าปกติ',
+   kitsOfPo([{ po: 'PO-9001', src: 'chem' }, { po: 'PO-9001', src: 'chemover' },
+             { po: 'PO-9001', src: '' }], 'PO-9001').length === 1);
+// ⚠️ ตัวนับ "Kit List N บรรทัด" บนหัวการ์ด ต้องนับชุดเดียวกับคอลัมน์ Kit List ในตารางเดียวกัน
+// (kitCountByPo กรอง isChemKit อยู่แล้ว) ไม่งั้นหัวการ์ดเด้งขึ้นตามแถว chemover
+// ทั้งที่ทุกแถวในตารางยังขึ้นว่า "ยังไม่มี" — ตัวเลขสองที่ขัดกันเอง
+ok('ตัวนับ Kit List บนหัวการ์ดไม่นับแถวตระกูล chem',
+   /kits\.value\.filter\(k => !isChemKit\(k\) && poVisibleTo\(ownerOfPoNo\(k\.po\), entity\.value\)\)/.test(appSrc));
+// ⚠️ เก็บลงเครื่องไม่สำเร็จแล้วบอกผ่าน flash อย่างเดียว = เงียบสนิท — toast มีตัวเดียวและถูกทับ
+// ด้วย "อ่านไฟล์แล้ว …" ที่บรรทัดล่าง (ไม่มี await คั่น) เหลือแต่ "เก็บไว้ 0 แถว" ซึ่งแยกไม่ออก
+// จาก "นำไฟล์เดิมเข้าซ้ำ" แล้วแท็บ over รอคืนจะบอกว่า "ตรง" ทั้งที่ยังไม่ได้เทียบ (ผู้ตรวจ #101)
+const wkFileSrc = bodyOf('onWkFile');
+const iNoDocMsg = wkFileSrc.indexOf('parsed.noDocCol.length');
+const iOverErr = wkFileSrc.indexOf('if (overErr) {');
+ok('เก็บใบแจ้งตัดยอด over ไม่สำเร็จ ต้องค้างบนจอที่ wkMsg โทน bad ไม่ใช่ฝากไว้กับ toast',
+   iOverErr > 0 && /if \(overErr\) \{\s*wkTone\.value = 'bad';\s*wkMsg\.value \+=/.test(wkFileSrc));
+ok('catch ของการเก็บลงเครื่องไม่เรียก flash ตรง ๆ แต่จำข้อความไว้ก่อน',
+   /catch \(err\) \{ overErr = err\.message; \}/.test(wkFileSrc));
+ok('ข้อความนั้นต้องอยู่หลังบล็อก noDocCol โทน bad จึงไม่ถูกลดเป็น warn',
+   iNoDocMsg > 0 && iOverErr > iNoDocMsg);
+ok('toast ปิดท้ายต้องไม่ขึ้นเขียวว่ากดบันทึกได้เลย ทั้งที่เก็บไม่สำเร็จ',
+   /flash\(overErr\s*\?/.test(wkFileSrc) && /!!overErr\)/.test(wkFileSrc));
 // ⚠️ ไม่มีคอลัมน์ = แยกแถวที่ตัดจากยอด over ไม่ได้เลย ต้องบอก ไม่ใช่เงียบ (ผู้ตรวจ #97)
 ok('บอกชื่อชีตที่ไม่มีคอลัมน์ Material Document No.',
    chem.noDocCol.join(',') === 'H,U', JSON.stringify(chem.noDocCol));

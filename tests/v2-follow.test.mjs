@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
-         OVER_MIN, overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
@@ -1087,6 +1087,93 @@ for (const tab of ['fshort', 'fover', 'fbuy', 'fmat']) {
   ok('แท็บ ' + tab + ' — colspan ของแถวว่างเท่ากับจำนวนหัวคอลัมน์',
      tables.length > 0 && bad.length === 0, bad.join(' · '));
 }
+
+
+console.log('\n=== Q. เทียบยอดที่ Delta ตัดจาก over กับของที่เรามี (เจ้าของ 22 ก.ย. 2026) ===');
+// ⚠️ ต้องจับคู่ด้วยรหัส ไม่ใช่ PO — ของเกินเกิดจาก PO ใบเก่า แต่ Delta ตัดตอนจ่ายของให้ PO ใบใหม่
+const cuts = [
+  { po: 'TM9269H001', code: '9000000001', issue: 2, date: '2026-09-22', src: 'chemover' },
+  { po: 'TM9269H002', code: '9000000001', issue: 1, date: '2026-09-22', src: 'chemover' },
+  { po: 'TM9269H003', code: '9000000002', issue: 5, date: '2026-09-22', src: 'chemover' },
+  { po: 'TM4269U001', code: '9000000001', issue: 9, date: '2026-09-22', src: 'chemover' },  // คนละโรงงาน
+  { po: 'PO-เก่า',     code: '9000000001', issue: 7, date: '2026-09-22', src: 'chemover' }   // อ่านเลขไม่ออก
+];
+const pend = [{ po: 'TM9269H900', code: '9000000001', over: 3 }];
+const tickets = [
+  { id: 'F1', kind: 'over', entity: 'TUE-H', po: 'TM9269H901', code: '9000000001', qty: 2, done_qty: 1 },
+  { id: 'F2', kind: 'over', entity: 'TUE-U', po: 'TM4269U900', code: '9000000001', qty: 8, done_qty: 0 },
+  { id: 'F3', kind: 'over', entity: 'TUE-H', po: 'TM9269H902', code: '9000000002', qty: 4, done_qty: 4 },
+  { id: 'F4', kind: 'over', entity: 'TUE-H', po: 'TM9269H903', code: '9000000002', qty: 6, done_qty: 0, voided: true }
+];
+const m = overCutMatch(cuts, { pending: pend, follows: tickets, entity: 'TUE-H' });
+
+ok('รวมยอดที่ตัดรายรหัส ข้าม PO ให้', m.rows.find(r => r.code === '9000000001').cut === 3,
+   JSON.stringify(m.rows));
+ok('บอกด้วยว่ามาจาก PO ไหนบ้าง กี่บรรทัด',
+   m.rows.find(r => r.code === '9000000001').pos.length === 2
+   && m.rows.find(r => r.code === '9000000001').lines === 2);
+// ของที่เรามี = ที่ยังไม่ตั้งเรื่อง (3) + ที่ตั้งแล้วยังค้าง (2-1=1) = 4
+ok('ของเกินที่เรามี รวมทั้งที่ยังไม่ตั้งเรื่องและที่ตั้งแล้วยังคืนไม่หมด',
+   m.rows.find(r => r.code === '9000000001').have === 4,
+   String(m.rows.find(r => r.code === '9000000001').have));
+ok('ต่างกันเท่าไหร่ คิดจาก ของที่เรามี − ที่ Delta ตัด',
+   m.rows.find(r => r.code === '9000000001').diff === 1);
+ok('เรื่องที่ปิดแล้วกับที่ถูกยกเลิก ไม่นับเป็นของที่เรามี',
+   m.rows.find(r => r.code === '9000000002').have === 0
+   && m.rows.find(r => r.code === '9000000002').diff === -5);
+// A3 — ข้อสำคัญที่สุดในหมวดนี้
+ok('แถวของอีกโรงงานไม่ถูกนับมารวม (A3)',
+   m.rows.find(r => r.code === '9000000001').cut === 3 && m.lines === 3, String(m.lines));
+ok('เรื่องของอีกโรงงานก็ไม่ถูกนับเป็นของที่เรามี (A3)',
+   m.rows.find(r => r.code === '9000000001').have === 4);
+ok('แถวที่อ่านนิติบุคคลจากเลขที่ PO ไม่ได้ ต้องนับแยกไว้บอก ไม่ใช่เททิ้งเงียบ',
+   m.unreadable === 1, String(m.unreadable));
+ok('ไม่มีนิติบุคคล = ไม่ตอบ ไม่ใช่รวมทุกโรงงาน (A3)',
+   overCutMatch(cuts, { pending: pend, follows: tickets }).rows.length === 0);
+ok('เรียงเอาคู่ที่ต่างกันมากที่สุดขึ้นก่อน',
+   m.rows[0].code === '9000000002', JSON.stringify(m.rows.map(r => r.code + ':' + r.diff)));
+ok('บอกวันที่ของรอบที่เทียบ และรอบทั้งหมดที่มีในเครื่อง',
+   m.date === '2026-09-22' && m.dates.join(',') === '2026-09-22', m.date + ' / ' + m.dates.join(','));
+// เลือกดูรอบเก่าได้ ไม่งั้นข้อมูลที่เก็บไว้ก็ไม่มีประโยชน์
+const two = overCutMatch([...cuts, { po: 'TM9269H001', code: '9000000001', issue: 4, date: '2026-09-15' }],
+                         { pending: [], follows: [], entity: 'TUE-H', date: '2026-09-15' });
+ok('เลือกดูเฉพาะรอบที่ต้องการได้', two.rows.length === 1 && two.rows[0].cut === 4,
+   JSON.stringify(two.rows));
+// ⚠️ ในเครื่องมีหลายรอบคือเคสปกติ (เก็บไว้กลับมาดูทีหลังได้)
+// "ไม่ระบุรอบ" ต้องหมายถึงรอบล่าสุด ไม่ใช่รวมทุกรอบมากองเดียวแล้วติดป้ายว่าเป็นรอบล่าสุด
+const rounds = [
+  { po: 'TM9269H001', code: '9000000001', issue: 2, date: '2026-09-22', src: 'chemover' },
+  { po: 'TM9269H001', code: '9000000001', issue: 1, date: '2026-09-15', src: 'chemover' }
+];
+const last = overCutMatch(rounds, { entity: 'TUE-H' });
+ok('ไม่ระบุรอบ = เอาเฉพาะรอบล่าสุด ไม่ใช่รวมทุกรอบมากองเดียว',
+   last.rows.length === 1 && last.rows[0].cut === 2 && last.lines === 1,
+   JSON.stringify(last.rows) + ' / ' + last.lines);
+ok('วันที่ที่คืนต้องเป็นรอบเดียวกับยอดที่คืน', last.date === '2026-09-22', last.date);
+// เลือกรอบเก่าแล้วต้องกลับไปรอบล่าสุดได้ — ช่องเลือกรอบอ่านจาก dates
+const older = overCutMatch(rounds, { entity: 'TUE-H', date: '2026-09-15' });
+ok('เลือกรอบเก่าแล้ว รอบอื่นต้องยังอยู่ในรายการรอบครบ',
+   older.dates.join(',') === '2026-09-22,2026-09-15' && older.rows[0].cut === 1,
+   older.dates.join(',') + ' / ' + JSON.stringify(older.rows));
+ok('ไม่มีอะไรเลยก็ไม่พัง',
+   overCutMatch([], { entity: 'TUE-H' }).rows.length === 0
+   && overCutMatch(null, { entity: 'TUE-H' }).lines === 0);
+
+// ⚠️ PO ที่รูปแบบถูกแต่ตัวอักษรโรงงานไม่มีในทะเบียน เคยหายไปเงียบทั้งแถว (ผู้ตรวจ #101)
+// เครื่องมือที่มีหน้าที่ตอบว่า "ตรงกับที่ Delta แจ้งไหม" ห้ามทิ้งแถวโดยไม่บอก
+const odd = [
+  { po: 'TM9269H001', code: '9000000001', issue: 2, date: '2026-09-22' },
+  { po: 'TM9269G001', code: '9000000001', issue: 5, date: '2026-09-22' },   // G ไม่มีในทะเบียน
+  { po: 'อ่านไม่ออก',   code: '9000000001', issue: 9, date: '2026-09-22' }
+];
+const withReg = overCutMatch(odd, { entity: 'TUE-H', known: ['TUE-H', 'TUE-U'] });
+ok('รหัสที่เดาได้แต่ไม่มีในทะเบียน ถูกนับแยกไว้บอก ไม่ใช่หายเงียบ',
+   withReg.unregistered === 1 && withReg.unreadable === 1 && withReg.rows[0].cut === 2,
+   JSON.stringify({ u: withReg.unregistered, r: withReg.unreadable }));
+ok('ส่งทะเบียนมาแล้ว ยอดของโรงงานที่ไม่มีในทะเบียนต้องไม่ปนเข้ามา',
+   withReg.rows.length === 1 && withReg.lines === 1);
+ok('ไม่ส่งทะเบียนมา = ไม่เช็ก (พฤติกรรมเดิม ไม่พัง)',
+   overCutMatch(odd, { entity: 'TUE-H' }).unregistered === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

@@ -16,7 +16,7 @@
  * แบบเดียวกับ core/count.js — เพื่อให้เทสด้วย node ล้วนได้โดยไม่ต้องมีเบราว์เซอร์
  */
 import { round5, makeEntry } from '../core/ledger.js';
-import { resolveEntity } from './entities.js';
+import { resolveEntity, entityOfPo } from './entities.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
 export const FOLLOW_KINDS = {
@@ -632,4 +632,84 @@ export function orphanBuys(entries, entity, follows) {
   }).map(r => ({ ...r, why: alive.has(txt(r.scrap_entry_id))
     ? 'รายการของเสียที่ผูกไว้ถูกยกเลิกทีหลัง'
     : 'หารายการของเสียที่ผูกไว้ไม่เจอในสมุด' }));
+}
+
+/**
+ * เทียบ "ยอดที่ Delta ตัดจาก over" ในไฟล์ Kit List กลุ่มจ่ายรวม กับของเกินที่เรามีอยู่จริง
+ *
+ * ⚠️ จับคู่ด้วย **รหัส** ไม่ใช่ PO โดยตั้งใจ
+ * ของเกินเกิดจาก PO ใบเก่า แต่ Delta ไปตัดตอนจ่ายของให้ PO ใบใหม่
+ * จับคู่ด้วย PO เมื่อไหร่จะไม่เจอกันสักคู่ แล้วหน้าจอจะบอกว่า "ไม่ตรงทั้งหมด" ทั้งที่ของตรง
+ *
+ * "ของเกินที่เรามีอยู่" = ที่ยังไม่ได้ตั้งเรื่อง (pending) + ที่ตั้งเรื่องแล้วยังคืนไม่หมด
+ * สองก้อนนี้ไม่ทับกัน เพราะ overPending ตัดคู่ที่ตั้งเรื่องแล้วออกไปตั้งแต่ต้นทาง
+ *
+ * ⚠️ A3 — ไม่มีนิติบุคคลคืนรายการว่าง ไม่ใช่รวมทุกโรงงานมากองเดียวกัน
+ * แถวที่อ่านนิติบุคคลจากเลขที่ PO ไม่ได้ ถูกนับแยกไว้ให้หน้าจอบอก ไม่ใช่เททิ้งเงียบ ๆ
+ * (pending ต้องถูกกรองนิติบุคคลมาแล้วจากผู้เรียก เพราะแถวพวกนั้นมาจากสมุดโดยตรง)
+ */
+export function overCutMatch(cuts = [], { pending = [], follows = [], entity = '', date = '', known = null } = {}) {
+  const ent = String(entity || '').trim().toUpperCase();
+  const empty = { rows: [], lines: 0, unreadable: 0, unregistered: 0, dates: [], date: '' };
+  if (!ent) return empty;
+
+  const want = String(date || '').trim();
+  // รอบทั้งหมดที่มีในเครื่อง — ต้องนับให้ครบ "ก่อน" กรองรอบ
+  // ไม่งั้นพอเลือกรอบเก่า ช่องเลือกรอบจะเหลือรอบเดียว แล้วกลับไปรอบล่าสุดไม่ได้อีก
+  const dates = new Set();
+  for (const c of cuts || []) if (c && c.code && c.date) dates.add(String(c.date));
+  const all = [...dates].sort().reverse();
+  // ไม่ระบุรอบ = รอบล่าสุด ห้ามรวมทุกรอบมากองเดียวแล้วติดป้ายว่าเป็นรอบล่าสุด
+  // (ยอดที่เอาไปเทียบก่อนตัดของจริงออกจากคลัง จะบวกยอดของรอบเก่าที่เก็บไว้เข้ามาด้วย)
+  const pick = want || all[0] || '';
+
+  // ⚠️ รหัสนิติบุคคลที่อ่านจากเลข PO ได้ แต่ยังไม่มีในทะเบียน ต้องนับแยกไว้บอก
+  // ไม่ใช่ทิ้งเงียบ ๆ ปนกับ "เป็นของอีกโรงงานจริง ๆ" (ผู้ตรวจ #101)
+  // เครื่องมือนี้มีหน้าที่ตอบว่า "ของเกินที่เรามีตรงกับที่ Delta แจ้งไหม"
+  // แถวที่หายเงียบจะทำให้คำตอบเป็น "ตรง" ทั้งที่ไม่ตรง
+  // ไม่ส่งทะเบียนมา = ไม่เช็ก (พฤติกรรมเดิม) แต่หน้าจอควรส่งมาเสมอ
+  const reg = known ? new Set((known || []).map(x => String(x).trim().toUpperCase())) : null;
+  const mine = [];
+  let unreadable = 0, unregistered = 0;
+  for (const c of cuts || []) {
+    if (!c || !c.code) continue;
+    if (pick && String(c.date || '') !== pick) continue;
+    const e = entityOfPo(c.po);
+    if (!e) { unreadable++; continue; }
+    if (reg && !reg.has(e)) { unregistered++; continue; }
+    if (e === ent) mine.push(c);
+  }
+
+  const cut = new Map();
+  for (const c of mine) {
+    const key = String(c.code);
+    const hit = cut.get(key) || { code: key, cut: 0, lines: 0, pos: [] };
+    hit.cut = round5(hit.cut + (Number(c.issue) || 0));
+    hit.lines++;
+    if (c.po && !hit.pos.includes(c.po)) hit.pos.push(c.po);
+    cut.set(key, hit);
+  }
+
+  const have = new Map();
+  const add = (code, n) => {
+    const key = String(code);
+    if (!key || !n) return;
+    have.set(key, round5((have.get(key) || 0) + n));
+  };
+  for (const p of pending || []) add(p.code, Number(p.over) || 0);
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'over' || f.voided) continue;
+    if (String(f.entity || '').trim().toUpperCase() !== ent) continue;
+    const st = statusOf(f);
+    if (st !== 'open' && st !== 'partial') continue;
+    add(f.code, remainOf(f));
+  }
+
+  const rows = [...cut.values()].map(x => {
+    const own = have.get(x.code) || 0;
+    return { ...x, have: own, diff: round5(own - x.cut) };
+  }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)
+                 || String(a.code).localeCompare(String(b.code)));
+
+  return { rows, lines: mine.length, unreadable, unregistered, dates: all, date: pick };
 }

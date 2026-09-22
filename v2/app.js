@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -1571,11 +1571,31 @@ createApp({
         });
         wkTotals.value = { ...plan.totals };
         wkOver.value = plan.fromOver;
+
+        // ⚠️ เก็บแถวที่ Delta ตัดจากยอด over ลงเครื่องตั้งแต่ตอนอ่านไฟล์ (เจ้าของสั่ง 22 ก.ย. 2026)
+        // ไม่รอปุ่มบันทึก เพราะแถวพวกนี้ไม่ใช่รายการรับเข้า คนที่เปิดไฟล์มาเพื่อเทียบยอด over
+        // อย่างเดียวจะได้ไม่ต้องกดบันทึกของที่ไม่เกี่ยวกัน · ซ้ำไม่ได้เพราะกันด้วย id
+        // (id ผูกกับวันที่+PO+รหัส) และบอกบนจอทุกครั้งว่าเก็บไว้กี่แถว ไม่ใช่เขียนเงียบ ๆ
+        const overRows = parsed.rows.filter(r => r.fromOver);
+        const haveIds = new Set(kits.value.map(k => String(k.id)));
+        const freshOver = overRows.filter(r => !haveIds.has(String(r.id)));
+        let keptOver = 0, overErr = '';
+        if (freshOver.length) {
+          // ⚠️ ล้อมด้วย try ของตัวเอง — รายการรับเข้ากางบนจอไปแล้วและกดบันทึกได้อยู่
+          // ถ้าปล่อยให้ตกไป catch ข้างนอก จะขึ้นว่า "อ่านไฟล์ไม่สำเร็จ" ทั้งที่อ่านได้ครบ
+          // แล้วคนจะปิดจอทิ้งทั้งที่ของพร้อมบันทึก (ผู้ตรวจ #101)
+          try {
+            await db.put('kits', freshOver.map(plain));
+            kits.value.push(...freshOver);
+            keptOver = freshOver.length;
+          } catch (err) { overErr = err.message; }
+        }
         // ⚠️ ไม่เติมเลขที่เอกสารให้จากช่อง Location ในไฟล์ — ทุกไฟล์เป็นเลขเดียวกันหมด
         // เป็นรหัสที่เก็บฝั่ง Delta ไม่ใช่เลขของรอบนั้น (เจ้าของทัก 22 ก.ย. 2026)
         wkMsg.value = file.name + ' · รับเข้า ' + plan.receive.length + ' บรรทัด'
           + (plan.fromOver.length ? ' · ตัดจากยอด over ' + plan.fromOver.length
-                                    + ' บรรทัด (ไม่ได้รับเข้าในใบนี้)' : '')
+                                    + ' บรรทัด (ไม่ได้รับเข้าในใบนี้ · เก็บไว้เทียบที่แท็บ over รอคืน '
+                                    + keptOver + ' แถว)' : '')
           // ⚠️ ใช้ wkH.date เสมอ ทั้งเลขล็อตและวันที่ของรายการ ไม่ว่าไฟล์จะมีวันที่มาหรือไม่
           // เพราะเจ้าของเคาะว่าล็อตคือ "วันที่รับเข้า" ไม่ใช่วันที่ที่ Delta ออกเอกสาร (ผู้ตรวจ #98)
           + (parsed.docDate ? '' : ' · ไฟล์ไม่มีวันที่มาให้ ใช้วันที่เอกสารบนหัวจอแทน')
@@ -1588,7 +1608,19 @@ createApp({
             + ' ไม่มีคอลัมน์ Material Document No. — ทุกแถวของชีตนั้นถูกนับเป็นของที่มาจริง'
             + ' ถ้ารอบนี้มีของที่ตัดจากยอด over ต้องลบบรรทัดออกเองก่อนบันทึก';
         }
-        flash('อ่านไฟล์แล้ว ' + plan.receive.length + ' บรรทัด — ตรวจแล้วกดบันทึกได้เลย');
+        // ⚠️ ห้ามฝากความจริงข้อนี้ไว้กับ flash — toast มีตัวเดียวและถูกทับด้วยข้อความ
+        // "อ่านไฟล์แล้ว" ที่บรรทัดล่าง (ไม่มี await คั่น) คนจะเหลือแต่ "เก็บไว้ 0 แถว"
+        // ซึ่งแยกไม่ออกจาก "นำไฟล์เดิมเข้าซ้ำ ของเก่าเก็บครบแล้ว" (ผู้ตรวจ #101 รอบที่ 3)
+        // วางไว้ท้ายสุดเพื่อให้โทน bad ชนะ warn ของ noDocCol ไม่ใช่ถูกลดเป็น warn
+        if (overErr) {
+          wkTone.value = 'bad';
+          wkMsg.value += ' · ⚠️ เก็บใบแจ้งตัดยอด over ลงเครื่องไม่สำเร็จ: ' + overErr
+            + ' — รายการรับเข้าบนจอยังกดบันทึกได้ตามปกติ · ถ้าต้องเทียบยอด over ให้นำไฟล์นี้เข้าใหม่อีกครั้ง';
+        }
+        flash(overErr
+          ? 'อ่านไฟล์แล้ว ' + plan.receive.length + ' บรรทัด แต่เก็บใบแจ้งตัดยอด over ไม่สำเร็จ'
+            + ' — อ่านข้อความสีแดงบนจอ แล้วนำไฟล์นี้เข้าใหม่อีกครั้ง'
+          : 'อ่านไฟล์แล้ว ' + plan.receive.length + ' บรรทัด — ตรวจแล้วกดบันทึกได้เลย', !!overErr);
       } catch (err) {
         wkMsg.value = 'อ่านไฟล์ไม่สำเร็จ: ' + err.message; wkTone.value = 'bad';
         flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true);
@@ -1811,8 +1843,9 @@ createApp({
                                   .map(p => poOwnerOfRow(p).code))].sort());
 
     const ownerOfPoNo = po => poOwnerOf(po, { known: entCodes.value });
-    /** บรรทัด Kit List ของนิติบุคคลที่เลือกอยู่ — ตัวนับบนหัวการ์ดต้องนับชุดเดียวกับที่ตารางแสดง */
-    const kitsVisible = computed(() => kits.value.filter(k => poVisibleTo(ownerOfPoNo(k.po), entity.value)));
+    /** บรรทัด Kit List ของนิติบุคคลที่เลือกอยู่ — ตัวนับบนหัวการ์ดต้องนับชุดเดียวกับที่ตารางแสดง
+     *  ตระกูล chem (รวมแถวที่ตัดจากยอด over) ไม่นับ เพราะ kitCountByPo ในตารางเดียวกันก็ไม่นับ */
+    const kitsVisible = computed(() => kits.value.filter(k => !isChemKit(k) && poVisibleTo(ownerOfPoNo(k.po), entity.value)));
 
     const poRows = computed(() => searchPos(posVisible.value, poQ.value, { limit: Infinity }));
 
@@ -1822,7 +1855,7 @@ createApp({
     const kitCountByPo = computed(() => {
       const m = new Map();
       for (const k of kits.value) {
-        if (k.src === 'chem') continue;
+        if (isChemKit(k)) continue;
         const key = String(k.po || '');
         if (key) m.set(key, (m.get(key) || 0) + 1);
       }
@@ -2307,7 +2340,7 @@ createApp({
       posVisible.value.filter(p => p.date === homeToday.value));
 
     const homeKitToday = computed(() =>
-      kits.value.some(k => k.src !== 'chem' && k.date === homeToday.value
+      kits.value.some(k => !isChemKit(k) && k.date === homeToday.value
         && poVisibleTo(ownerOfPoNo(k.po), entity.value)));
 
     /** PO ของวันนี้ที่คีย์รับเข้าไปแล้วอย่างน้อยหนึ่งบรรทัด */
