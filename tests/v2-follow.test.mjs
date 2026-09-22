@@ -581,6 +581,18 @@ ok('ตัดคู่ที่ตั้งเรื่องไว้แล้�
 ok('การ์ด "คำนวณไม่ได้" มีจริง — ไม่งั้น PO พวกนั้นหายจากจอเงียบ ๆ',
    /foBlocked/.test(appOver) && htmlOver.includes('v-if="foBlocked.length"'));
 
+/* ⚠️ การ์ดเทียบยอดที่ Delta ตัด ต้องคิดของเกินฝั่งเราแบบไม่มีเพดาน OVER_MIN
+ *    ส่ง foNew เข้าไปเมื่อไหร่ ของเกินต่ำกว่า 1 หน่วย (ค่าปกติของไฟล์เคมี) จะหายทั้งก้อน
+ *    แล้วการ์ดขึ้นแถบแดงว่า "เรามีน้อยกว่า" ทั้งที่ยอดตรงกันเป๊ะ (ผู้ตรวจ #102 รอบ 1) */
+ok('การ์ดเทียบยอด Delta ตัด ใช้ของเกินที่ไม่มีเพดาน OVER_MIN ไม่ใช่ foNew',
+   /pending: ocPending\.value/.test(appOver)
+   && /const ocPending = computed\([\s\S]{0,500}min: 0[\s\S]{0,200}overPending\(/.test(appOver)
+   && !/pending: foNew\.value/.test(appOver));
+ok('การ์ด "ของเกินที่ระบบคำนวณได้" ยังคงเพดาน 1 หน่วยไว้เหมือนเดิม',
+   /overAll\(entries\.value, entity\.value,\s*\{ headerOf: po => poHeader\(pos\.value, po\), usageOf: bomUsageOf \}\)/
+     .test(appOver)
+   && htmlOver.includes('ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน'));
+
 ok('foStart ส่งวันที่ตามเวลาไทยเข้าไปเอง ไม่ปล่อยให้เป็น UTC',
    /fromOverRow\(row, \{[\s\S]{0,160}date: todayLocal\(\)/.test(appOver));
 
@@ -1174,6 +1186,27 @@ ok('ส่งทะเบียนมาแล้ว ยอดของโรง
    withReg.rows.length === 1 && withReg.lines === 1);
 ok('ไม่ส่งทะเบียนมา = ไม่เช็ก (พฤติกรรมเดิม ไม่พัง)',
    overCutMatch(odd, { entity: 'TUE-H' }).unregistered === 0);
+
+/* ⚠️ เส้นทางจริงทั้งสาย overAll → overPending → overCutMatch (ผู้ตรวจ #102 รอบ 1)
+ *    ไฟล์กลุ่มจ่ายรวมเป็นเคมี ยอดต่ำกว่า 1 หน่วยคือค่าปกติ
+ *    ถ้าฝั่งเราคิดด้วยเพดาน OVER_MIN ของเกินก้อนนั้นหายไปก่อนถึงการ์ด
+ *    แล้วการ์ดขึ้นแถบแดง "เรามีน้อยกว่า" ทั้งที่ยอดตรงกันเป๊ะ */
+const CHEM = '9000000001', CPO = 'TM9269H001';
+const chemBook = [{ id: 'EC1', entity: 'TUE-H', kind: 'receive', material_code: CHEM,
+                    qty: 100.062, doc_ref: CPO, at: '2026-09-01T03:00:00.000Z', voided: false }];
+const chemCut = [{ po: CPO, code: CHEM, issue: 0.062, date: '2026-09-22', src: 'chemover' }];
+const chainOf = min => overCutMatch(chemCut, {
+  entity: 'TUE-H', known: ['TUE-H'], follows: [],
+  pending: overPending(
+    overAll(chemBook, 'TUE-H', { headerOf: po => po === CPO ? { pn: PN, order: 100 } : null,
+                                 usageOf: (pn, code) => (pn === PN && code === CHEM) ? 1 : null,
+                                 min }).filter(r => !r.why), [])
+}).rows[0];
+ok('ของเกิน 0.062 ที่ยังไม่ได้ตั้งเรื่อง เทียบกับที่ Delta ตัด 0.062 แล้วต้องตรงพอดี',
+   chainOf(0).have === 0.062 && chainOf(0).diff === 0, JSON.stringify(chainOf(0)));
+ok('คิดด้วยเพดาน OVER_MIN แล้วของก้อนนี้หายทั้งก้อน — เหตุผลที่การ์ดต้องใช้ min: 0',
+   chainOf(OVER_MIN).have === 0 && chainOf(OVER_MIN).diff === -0.062,
+   JSON.stringify(chainOf(OVER_MIN)));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

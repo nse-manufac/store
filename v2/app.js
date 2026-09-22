@@ -1973,8 +1973,27 @@ createApp({
      */
     const ocDate = ref('');
     const ocCuts = computed(() => kits.value.filter(k => k.src === 'chemover'));
+    /**
+     * ของเกินฝั่งเราสำหรับการ์ดนี้โดยเฉพาะ — คิดใหม่โดย "ไม่มีเพดาน" OVER_MIN (min: 0)
+     *
+     * ⚠️ ห้ามเอา foNew มาใช้ตรงนี้ · foNew ทิ้งของเกินที่ต่ำกว่า 1 หน่วยไปตั้งแต่ overAll
+     *    ไฟล์กลุ่มจ่ายรวม (เคมี) ยอดระดับ 0.062 คือค่าปกติ เทียบด้วย foNew จะได้ have = 0
+     *    แล้วขึ้นแถบแดง "เรามีน้อยกว่า" ทั้งที่ยอดตรงกันเป๊ะ (ผู้ตรวจ #102 รอบ 1)
+     *    เพดาน 1 เป็นเกณฑ์ "เกินเท่าไรถึงคุ้มตั้งเรื่องคืน" ไม่ใช่คำประกาศว่าของก้อนนั้นไม่มีอยู่จริง
+     * ⚠️ ห้ามแก้ foCalc/foNew ให้ไม่มีเพดานตาม · การ์ด "ของเกินที่ระบบคำนวณได้" ข้างล่าง
+     *    บอกผู้ใช้ไว้ว่ายอดต่ำกว่า 1 หน่วยไม่นับว่าเกิน
+     */
+    const ocPending = computed(() => {
+      if (!entity.value) return [];
+      try {
+        const all = overAll(entries.value, entity.value,
+                            { headerOf: po => poHeader(pos.value, po),
+                              usageOf: bomUsageOf, min: 0 });
+        return overPending(all.filter(r => !r.why), shorts.value);
+      } catch (err) { console.error(err); return []; }
+    });
     const ocMatch = computed(() => overCutMatch(ocCuts.value, {
-      pending: foNew.value, follows: shorts.value, entity: entity.value,
+      pending: ocPending.value, follows: shorts.value, entity: entity.value,
       date: ocDate.value, known: entCodes.value }));
 
     const foAll = computed(() => listFollow(shorts.value, {
