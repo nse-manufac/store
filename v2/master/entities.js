@@ -86,19 +86,21 @@ export const poVisibleTo = (owner, entity) =>
 /**
  * นิติบุคคลของรายการนี้ ตามลำดับความน่าเชื่อถือ
  *   1. ที่คนบังคับมาทั้งใบ — คนตัดสินใจเองย่อมชนะการเดา
- *   2. ช่อง sub ในรายการ PO — มาจากไฟล์ของ Delta โดยตรง
- *   3. เดาจากเลขที่ PO
- *   4. ตัวที่เลือกอยู่บนหน้าจอ
+ *   2. เลขที่ PO
+ *   3. ตัวที่เลือกอยู่บนหน้าจอ
+ *
+ * ⚠️ **เลิกดูคอลัมน์ผู้รับเหมาในไฟล์ PO แล้ว** (เจ้าของสั่ง 19 ก.ย. 2026)
+ *    Delta กรอกมาไม่ตรงเป็นบางใบ · รายการที่คีย์ตามคอลัมน์นั้นจะไปลงสมุดผิดโรงงาน
+ *    ซึ่งแก้ทีหลังยากกว่าการมองเห็นผิด เพราะมันขยับยอดคงคลังไปแล้ว
  *
  * คืน { code, from } เพื่อให้หน้าจอบอกได้ว่าค่านี้มาจากไหน
+ *   forced | guess | unregistered | current
  * ค่าที่เดามาต้องดูออกว่าเป็นการเดา — กฎเดียวกับล็อตและหน่วย TP
  */
-export function resolveEntity(po, { forced = '', poList = [], current = '' } = {}) {
+export function resolveEntity(po, { forced = '', current = '', known = null } = {}) {
   if (forced) return { code: forced, from: 'forced' };
-  const hit = poList.find(p => String(p.po) === String(po || '').trim());
-  if (hit && hit.sub) return { code: String(hit.sub).trim().toUpperCase(), from: 'po' };
-  const guess = entityOfPo(po);
-  if (guess) return { code: guess, from: 'guess' };
+  const owner = poOwnerOf(po, { known });
+  if (owner.code) return { code: owner.code, from: owner.from };
   return { code: current, from: 'current' };
 }
 
