@@ -1615,6 +1615,11 @@ textarea{font:inherit}
             {{ wkCheck.unknown.length }} รหัสยังไม่มีในทะเบียน —
             <span class="mono">{{ wkCheck.unknown.join(' · ') }}</span>
           </div>
+          <div class="msg warn" v-if="wkSkip.length">
+            {{ wkSkip.length }} บรรทัดยังกรอกไม่ครบ จะไม่ถูกบันทึก —
+            <span class="hint">ต้องมีครบทั้งรหัส · PO · จำนวนที่รับจริง
+              · กดบันทึกแล้วตารางจะถูกล้าง บรรทัดพวกนี้หายไปด้วย</span>
+          </div>
           <div class="msg warn" v-if="wkNoExp.length">
             {{ wkNoExp.length }} บรรทัดยังไม่มีวันหมดอายุ —
             <span class="hint">บันทึกไปก่อนได้ แล้วกลับมาเติมทีหลัง
@@ -1630,7 +1635,7 @@ textarea{font:inherit}
           </div>
           <p class="hint" v-if="!wkCheck.otherEntities.length && !wkCheck.mismatch.length
                                 && !wkCheck.unknown.length && !wkCheck.noLot
-                                && !wkNoExp.length && !wkSeen.length"
+                                && !wkNoExp.length && !wkSeen.length && !wkSkip.length"
              style="margin:0">ตรวจแล้วไม่มีอะไรค้าง</p>
         </div>
 

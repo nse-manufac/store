@@ -1513,8 +1513,12 @@ createApp({
 
     function wkFromKit() {
       const d = wkPickDate.value || chemDates.value[0];
-      const rows = kits.value.filter(k => k.src === 'chem' && (!d || k.date === d));
+      // ⚠️ ตัดแถวที่ Delta ตัดจากยอด over ออกเหมือนทางนำเข้าไฟล์ (ผู้ตรวจ #98)
+      // สองทางบนจอเดียวกันต้องตอบเหมือนกัน ไม่งั้นของที่อยู่ในคลังแล้วจะถูกรับเข้าซ้ำ
+      // แค่ทางนี้เข้าถึงธงได้เฉพาะเครื่องที่นำเข้าไฟล์เอง เพราะ fromOver ไม่ใช่คอลัมน์ที่ซิงค์
+      const rows = kits.value.filter(k => k.src === 'chem' && !k.fromOver && (!d || k.date === d));
       if (!rows.length) { flash('ยังไม่มี Kit List กลุ่มจ่ายรวมของวันนั้น', true); return; }
+      wkOver.value = []; wkMsg.value = '';          // การ์ดของไฟล์รอบก่อนต้องไม่ค้างมาปนกับรอบนี้
       wkLines.value = rows.map(k => {
         const l = wkBlank(null);
         l.code = String(k.code); l.po = k.po; l.pn = k.pn || '';
@@ -1571,6 +1575,8 @@ createApp({
         wkMsg.value = file.name + ' · รับเข้า ' + plan.receive.length + ' บรรทัด'
           + (plan.fromOver.length ? ' · ตัดจากยอด over ' + plan.fromOver.length
                                     + ' บรรทัด (ไม่ได้รับเข้าในใบนี้)' : '')
+          // ⚠️ ใช้ wkH.date เสมอ ทั้งเลขล็อตและวันที่ของรายการ ไม่ว่าไฟล์จะมีวันที่มาหรือไม่
+          // เพราะเจ้าของเคาะว่าล็อตคือ "วันที่รับเข้า" ไม่ใช่วันที่ที่ Delta ออกเอกสาร (ผู้ตรวจ #98)
           + (parsed.docDate ? '' : ' · ไฟล์ไม่มีวันที่มาให้ ใช้วันที่เอกสารบนหัวจอแทน')
           + (plan.location ? ' · Location ' + plan.location : '');
         // ⚠️ ไม่มีคอลัมน์ Material Document No. = แยกแถวที่ Delta ตัดจากยอด over ไม่ได้เลย
@@ -1597,6 +1603,12 @@ createApp({
     // ยังไม่มีวันหมดอายุ = บันทึกได้ แต่ต้องตามมาเติม · เคยรับแล้ว = อาจนำไฟล์เดิมเข้าซ้ำ
     const wkNoExp = computed(() => wkCheck.value.ready.filter(l => l.needExp && !l.expiry));
     const wkSeen = computed(() => seenBefore(wkCheck.value.ready, entries.value));
+    // ⚠️ บรรทัดที่กรอกไม่ครบจะไม่ถูกบันทึก แล้วตารางถูกล้างทิ้งทั้งใบ = ของหายเงียบ (ผู้ตรวจ #98)
+    // ใบที่กางจากไฟล์มีร้อยกว่าบรรทัด ไม่มีใครเห็นว่าหายไปกี่บรรทัดถ้าไม่บอก
+    const wkSkip = computed(() => {
+      const ready = new Set(wkCheck.value.ready);
+      return wkLines.value.filter(l => !ready.has(l));
+    });
 
     function wkUseIssued() {
       for (const l of wkLines.value) {
@@ -1608,6 +1620,11 @@ createApp({
       const c = wkCheck.value;
       if (!wkH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
       if (!c.ready.length) { flash('ยังไม่มีบรรทัดที่กรอกครบ', true); return; }
+      if (wkSkip.value.length && !confirm(
+        [`มี ${wkSkip.value.length} บรรทัดที่ยังกรอกไม่ครบ จะไม่ถูกบันทึก`,
+         'ต้องมีครบทั้งรหัส · PO · จำนวนที่รับจริง ถึงจะบันทึกได้',
+         'บันทึกแล้วตารางจะถูกล้าง บรรทัดพวกนี้หายไปด้วย',
+         '', 'บันทึกต่อไหม'].join('\n'))) return;
 
       // ทุกข้อเตือนแล้วไปต่อได้ — INVARIANTS A4
       if (c.mismatch.length && !confirm(
@@ -1655,7 +1672,7 @@ createApp({
         entries.value.push(...posted);
         db.announce('entries');
         flash(`บันทึกรับเข้ารวม ${posted.length} รายการ · วันที่ ${wkH.date}`);
-        wkLines.value = []; wkTotals.value = {};
+        wkLines.value = []; wkTotals.value = {}; wkOver.value = []; wkMsg.value = '';
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2835,7 +2852,7 @@ createApp({
              switchEntity, startEnt, saveEnt, addMissingEnt,
              entMoves, entMoveOpen, entMove, entMoveFroms, entMovePv, entClosed, MOVE_LABEL, doMove,
              wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
-             onWkFile, wkBusy, wkMsg, wkTone, wkOver, wkNoExp, wkSeen,
+             onWkFile, wkBusy, wkMsg, wkTone, wkOver, wkNoExp, wkSeen, wkSkip,
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
