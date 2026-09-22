@@ -1052,15 +1052,21 @@ const blockOf = tab => {
 const count = (str, needle) => str.split(needle).length - 1;
 for (const tab of ['fshort', 'fover', 'fbuy', 'fmat']) {
   const b = blockOf(tab);
-  const codes = count(b, '>รหัส</th>'), cats = count(b, '>หมวดหมู่</th>');
+  // นับหัวที่ "ขึ้นต้นด้วยรหัส" ไม่ใช่คำว่ารหัสเป๊ะ ๆ — ตารางใหม่ที่ตั้งหัวว่า "รหัสวัตถุดิบ"
+  // เคยรอดเทสนี้ไปได้ (ผู้ตรวจ #100 รอบสามพิสูจน์ด้วยการกลายพันธุ์ไฟล์)
+  const codes = (b.match(/>รหัส[^<]*<\/th>/g) || []).length, cats = count(b, '>หมวดหมู่</th>');
   ok('แท็บ ' + tab + ' — ทุกตารางที่โชว์รหัส มีหมวดหมู่ครบ',
      codes > 0 && codes === cats, 'รหัส ' + codes + ' · หมวดหมู่ ' + cats);
 }
 ok('ทุกช่องหมวดหมู่อ่านจาก catOf ไม่ใช่เดาเอง',
    count(htmlSrc, 'catOf(') >= count(htmlSrc, '>หมวดหมู่</th>'),
    count(htmlSrc, 'catOf(') + ' / ' + count(htmlSrc, '>หมวดหมู่</th>'));
-ok('catOf อ่านจากทะเบียนวัตถุดิบ และเปิดให้เทมเพลตใช้จริง',
-   /const catOf = code => \{ const m = matOf\(code\)/.test(appSrcP) && /entity, catOf,/.test(appSrcP));
+// ⚠️ ต้องอ่านผ่านดัชนี ไม่ใช่ไล่ทะเบียนทั้งก้อน — ช่องนี้ถูกเรียกทุกแถวทุกครั้งที่เรนเดอร์
+ok('catOf อ่านจากดัชนีทะเบียนวัตถุดิบ และเปิดให้เทมเพลตใช้จริง',
+   /matIndex\.value\.get\(normCode\(code\)\)/.test(appSrcP)
+   && /const matIndex = computed\(/.test(appSrcP) && /entity, catOf,/.test(appSrcP));
+ok('ดัชนีเก็บตัวแรกที่เจอ ให้ผลเท่ากับ find() เดิมเมื่อทะเบียนมีรหัสซ้ำ',
+   /if \(!m\.has\(k\)\) m\.set\(k, x\);/.test(appSrcP));
 // รหัสที่ยังไม่มีในทะเบียนต้องขึ้นขีด ไม่ใช่ช่องว่างเปล่าที่ดูเหมือนยังโหลดไม่เสร็จ
 const catCells = htmlSrc.match(/\{\{ catOf\([^)]*\)[^}]*\}\}/g) || [];
 ok('ทุกช่องหมวดหมู่ ถ้าไม่มีในทะเบียนต้องขึ้นขีด',

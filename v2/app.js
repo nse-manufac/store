@@ -735,8 +735,23 @@ createApp({
      * หมวดหมู่ของรหัสนี้ — ฝั่ง Mat Follow up เห็นแต่รหัสล้วน ซึ่งบอกไม่ได้ว่าของคืออะไร
      * (เจ้าของสั่ง 22 ก.ย. 2026) · รหัสที่ยังไม่มีในทะเบียนคืนค่าว่าง ให้หน้าจอขึ้นขีด
      * ห้ามเดาจากรูปแบบรหัส — เดาผิดแล้วคนจะเชื่อว่าของคือคนละอย่าง
+     *
+     * ⚠️ ใช้ดัชนีไม่ใช่ matOf เพราะช่องนี้ถูกเรียก **ทุกแถวทุกครั้งที่เรนเดอร์**
+     * ทะเบียนของจริงหมื่นสองพันแถว · ตารางเดียวร้อยแถวก็ไล่เทียบล้านครั้งต่อการเรนเดอร์หนึ่งรอบ
+     * (ผู้ตรวจ #100 ทักไว้สองรอบ) · ดัชนีเก็บตัวแรกที่เจอ ให้ผลเท่ากับ find() เดิมเมื่อรหัสซ้ำ
      */
-    const catOf = code => { const m = matOf(code); return m && m.category ? m.category : ''; };
+    const matIndex = computed(() => {
+      const m = new Map();
+      for (const x of materials.value) {
+        const k = normCode(x.material_code);
+        if (!m.has(k)) m.set(k, x);
+      }
+      return m;
+    });
+    const catOf = code => {
+      const m = matIndex.value.get(normCode(code));
+      return m && m.category ? m.category : '';
+    };
 
     /** เหตุผลเก็บเป็นรหัสในสมุด แต่บนจอต้องอ่านรู้เรื่อง */
     const reasonLabel = e => {
