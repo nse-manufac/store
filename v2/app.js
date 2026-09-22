@@ -27,7 +27,7 @@ import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOu
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
-import { bomExpect, pctDiff, checkWeekly } from './master/weekly.js';
+import { bomExpect, pctDiff, checkWeekly, chemPlan, seenBefore } from './master/weekly.js';
 import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
@@ -1454,7 +1454,10 @@ createApp({
     // ── รับเข้ารวมรายสัปดาห์ ───────────────────────────────────────
     // Tube · Chemical · Copper foil · Solder — Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ
     // กฎทั้งหมดอยู่ใน master/weekly.js ที่นี่มีแค่การต่อสายเข้าหน้าจอ
-    const wkH = reactive({ date: todayLocal(), docNo: '', group: '', person: '', entity: '' });
+    // ⚠️ ไม่มีช่อง "เลขที่เอกสาร" แล้ว (เจ้าของสั่งเอาออก 22 ก.ย. 2026)
+    // เลขที่เคยกรอกกันคือรหัส Location ในไฟล์ ซึ่งเป็นรหัสที่เก็บฝั่ง Delta เลขเดียวกันทุกใบ
+    // ไม่ได้บอกว่าเป็นของรอบไหน · รอบของใบนี้ดูจากวันที่เอกสารแทน
+    const wkH = reactive({ date: todayLocal(), group: '', person: '', entity: '' });
     const wkLines = ref([]);
     const wkTotals = ref({});          // รหัส -> ยอดรวมตามแถว Total ในเอกสาร (คีย์เอง)
     let wkSeq = 0;
@@ -1526,11 +1529,74 @@ createApp({
       flash(`ดึงจาก Kit List ${rows.length} บรรทัด — แก้ยอดนับจริงแล้วบันทึกได้เลย`);
     }
 
+    /**
+     * นำเข้าไฟล์ Kit List กลุ่มจ่ายรวมตรงที่หน้านี้ แล้วกางเป็นรายการรับเข้าให้ตรวจ (เจ้าของ 22 ก.ย. 2026)
+     *
+     * เดิมต้องไปนำเข้าที่หน้า PO / Kit List ก่อน แล้วค่อยกลับมากดปุ่มดึงข้างบน
+     * ซึ่งกับไฟล์จริงกดไม่ได้เลย เพราะปุ่มนั้นเรียงรายการตามวันที่ แต่ไฟล์เว้นช่องวันที่ไว้ว่าง
+     * ⚠️ แถวที่เอกสารเขียน Return แยกไปกองของตัวเอง ห้ามปนมากับรายการรับเข้า
+     * มันคือของเกินที่อยู่ในคลังอยู่แล้ว รับเข้าอีกครั้งคือยอดซ้ำ
+     */
+    const wkBusy = ref(false);
+    const wkMsg = ref('');
+    const wkTone = ref('ok');
+    const wkOver = ref([]);
+
+    async function onWkFile(e) {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      wkBusy.value = true; wkMsg.value = ''; wkTone.value = 'ok';
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+        const marks = (wb.Workbook && wb.Workbook.Sheets) || [];
+        const parsed = parseKitChem({ sheets: wb.SheetNames.map(n => ({
+          name: n, hidden: marks.some(x => x.name === n && x.Hidden),
+          aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true })
+        })) }, { fallbackDate: wkH.date });
+        if (!parsed.rows.length) throw new Error('ไม่เจอบรรทัด Kit List ในไฟล์นี้ — ใช่ไฟล์กลุ่มจ่ายรวมไหม');
+
+        const plan = chemPlan(parsed, { date: wkH.date });
+        wkLines.value = plan.receive.map(r => {
+          const l = Object.assign(wkBlank(null), r);
+          wkFill(l); wkPo(l);
+          if (!l.known && r.desc) l.desc = r.desc;   // ยังไม่มีในทะเบียน ใช้ชื่อจากเอกสารไปก่อน
+          return l;
+        });
+        wkTotals.value = { ...plan.totals };
+        wkOver.value = plan.fromOver;
+        // ⚠️ ไม่เติมเลขที่เอกสารให้จากช่อง Location ในไฟล์ — ทุกไฟล์เป็นเลขเดียวกันหมด
+        // เป็นรหัสที่เก็บฝั่ง Delta ไม่ใช่เลขของรอบนั้น (เจ้าของทัก 22 ก.ย. 2026)
+        wkMsg.value = file.name + ' · รับเข้า ' + plan.receive.length + ' บรรทัด'
+          + (plan.fromOver.length ? ' · ตัดจากยอด over ' + plan.fromOver.length
+                                    + ' บรรทัด (ไม่ได้รับเข้าในใบนี้)' : '')
+          + (parsed.docDate ? '' : ' · ไฟล์ไม่มีวันที่มาให้ ใช้วันที่เอกสารบนหัวจอแทน')
+          + (plan.location ? ' · Location ' + plan.location : '');
+        // ⚠️ ไม่มีคอลัมน์ Material Document No. = แยกแถวที่ Delta ตัดจากยอด over ไม่ได้เลย
+        // ทุกแถวจะถูกนับเป็นของที่มาจริง ต้องบอกให้เห็น ไม่ใช่ปล่อยให้กดบันทึกไปเงียบ ๆ
+        if (parsed.noDocCol.length) {
+          wkTone.value = 'warn';
+          wkMsg.value += ' · ⚠️ ชีต ' + parsed.noDocCol.join(' · ')
+            + ' ไม่มีคอลัมน์ Material Document No. — ทุกแถวของชีตนั้นถูกนับเป็นของที่มาจริง'
+            + ' ถ้ารอบนี้มีของที่ตัดจากยอด over ต้องลบบรรทัดออกเองก่อนบันทึก';
+        }
+        flash('อ่านไฟล์แล้ว ' + plan.receive.length + ' บรรทัด — ตรวจแล้วกดบันทึกได้เลย');
+      } catch (err) {
+        wkMsg.value = 'อ่านไฟล์ไม่สำเร็จ: ' + err.message; wkTone.value = 'bad';
+        flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true);
+      } finally { wkBusy.value = false; }
+    }
+
     const wkBomOf = l => bomExpect(bom.value, l.pn, l.code, l.orderQty);
     const wkPctOf = l => pctDiff(l, wkBomOf(l));
 
     const wkCheck = computed(() => checkWeekly(wkLines.value, {
       totals: wkTotals.value, materials: materials.value, entity: entity.value }));
+
+    // ยังไม่มีวันหมดอายุ = บันทึกได้ แต่ต้องตามมาเติม · เคยรับแล้ว = อาจนำไฟล์เดิมเข้าซ้ำ
+    const wkNoExp = computed(() => wkCheck.value.ready.filter(l => l.needExp && !l.expiry));
+    const wkSeen = computed(() => seenBefore(wkCheck.value.ready, entries.value));
 
     function wkUseIssued() {
       for (const l of wkLines.value) {
@@ -1540,7 +1606,6 @@ createApp({
 
     async function saveWeekly() {
       const c = wkCheck.value;
-      if (!wkH.docNo) { flash('ยังไม่ได้กรอกเลขที่เอกสาร', true); return; }
       if (!wkH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
       if (!c.ready.length) { flash('ยังไม่มีบรรทัดที่กรอกครบ', true); return; }
 
@@ -1555,8 +1620,17 @@ createApp({
          `ผลคือบรรทัดพวกนั้นจะไม่โผล่ในหน้ายอดคงคลังของ ${entity.value}`,
          'ต้องสลับนิติบุคคลบนหัวจอถึงจะเห็น',
          '', 'บันทึกต่อไหม'].join('\n'))) return;
-      const badExp = c.ready.filter(l => l.needExp && !l.expiry);
-      if (badExp.length) { flash(`ต้องกรอกวันหมดอายุอีก ${badExp.length} รายการ`, true); return; }
+      // ⚠️ เคยห้ามบันทึกถ้ายังไม่มีวันหมดอายุ — เจ้าของปลดล็อกเมื่อ 22 ก.ย. 2026
+      // ไฟล์ของ Delta ไม่มีช่องวันหมดอายุมาให้เลย ถ้ายังห้ามอยู่ ทั้งใบจะบันทึกไม่ได้สักบรรทัด
+      // แล้วพนักงานจะกลับไปจดใส่กระดาษ ซึ่งแย่กว่าของที่ต้องตามมาเติมทีหลัง (A4)
+      if (wkNoExp.value.length && !confirm(
+        [`มี ${wkNoExp.value.length} บรรทัดที่ยังไม่มีวันหมดอายุ`,
+         'บันทึกไปก่อนได้ แล้วค่อยกลับมาเติมทีหลัง',
+         '', 'บันทึกต่อไหม'].join('\n'))) return;
+      if (wkSeen.value.length && !confirm(
+        [`มี ${wkSeen.value.length} บรรทัดที่ PO กับรหัสเดิมเคยคีย์รับเข้าไปแล้ว`,
+         'ถ้านี่คือการนำไฟล์เดิมเข้าซ้ำ ยอดจะเข้าคลังสองรอบ',
+         '', 'บันทึกต่อไหม'].join('\n'))) return;
       if (c.noLot && !confirm(
         [`มี ${c.noLot} บรรทัดที่ยังไม่ใส่เลขล็อต`,
          'ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป',
@@ -1575,13 +1649,13 @@ createApp({
           expiry_date: l.expiry || '',
           reqmt_qty: l.req === null || l.req === '' ? null : Number(l.req),
           issued_qty: l.s41 === null || l.s41 === '' ? null : Number(l.s41),
-          note: ['รับรวมรายรอบ ' + wkH.docNo, l.remark].filter(Boolean).join(' · ')
+          note: ['รับรวมรายรอบ', l.remark].filter(Boolean).join(' · ')
         }));
         await db.put('entries', posted);
         entries.value.push(...posted);
         db.announce('entries');
-        flash(`บันทึกรับเข้ารวม ${posted.length} รายการ · เอกสาร ${wkH.docNo}`);
-        wkLines.value = []; wkTotals.value = {}; wkH.docNo = '';
+        flash(`บันทึกรับเข้ารวม ${posted.length} รายการ · วันที่ ${wkH.date}`);
+        wkLines.value = []; wkTotals.value = {};
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2761,6 +2835,7 @@ createApp({
              switchEntity, startEnt, saveEnt, addMissingEnt,
              entMoves, entMoveOpen, entMove, entMoveFroms, entMovePv, entClosed, MOVE_LABEL, doMove,
              wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
+             onWkFile, wkBusy, wkMsg, wkTone, wkOver, wkNoExp, wkSeen,
              wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
              pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,

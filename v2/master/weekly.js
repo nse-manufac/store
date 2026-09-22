@@ -127,3 +127,20 @@ export function chemPlan(parsed, { date = '' } = {}) {
     totals, location: parsed.location || '', date
   };
 }
+
+/**
+ * บรรทัดที่ PO + รหัสนี้เคยคีย์รับเข้าไปแล้ว — กันนำไฟล์เดิมเข้าซ้ำรอบ
+ *
+ * ใบเดียวมีได้สามร้อยบรรทัด กดยืนยันซ้ำอีกครั้งเดียวคือยอดเข้าคลังสองเท่าทั้งใบ
+ * และไม่มีใครเห็นจนกว่าจะนับของ · เตือนอย่างเดียว ไม่ห้าม (A4)
+ * เพราะ PO ใบเดิมรับของรอบสองได้จริง ของกลุ่มนี้ Delta ทยอยจ่ายเป็นรอบ
+ */
+export function seenBefore(lines, entries = []) {
+  const key = (e, p, c) => String(e || '') + '|' + String(p || '') + '|' + String(c || '');
+  const seen = new Set();
+  for (const e of entries) {
+    if (e.voided || e.kind !== 'receive') continue;
+    seen.add(key(e.entity, e.doc_ref, e.material_code));
+  }
+  return lines.filter(l => seen.has(key(l.entity, l.po, l.code)));
+}
