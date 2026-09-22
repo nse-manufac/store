@@ -34,7 +34,7 @@ import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/ent
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
-         overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          pendingScraps, fromScrapRow, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
@@ -1964,6 +1964,19 @@ createApp({
       overPending(foCalc.value.filter(r => !r.why), shorts.value));
     const foBlocked = computed(() => foCalc.value.filter(r => r.why));
 
+    /**
+     * ใบแจ้งตัดยอด over ของ Delta — เทียบกับของเกินที่เรามีอยู่จริง (เจ้าของสั่ง 22 ก.ย. 2026)
+     *
+     * แถวมาจากไฟล์ Kit List กลุ่มจ่ายรวมที่นำเข้าไว้ (ป้ายที่มา chemover) ซึ่งเก็บลงเครื่องแล้ว
+     * กฎการเทียบทั้งหมดอยู่ใน master/follow.js ที่นี่มีแค่การต่อสาย
+     * ⚠️ ส่งทะเบียนนิติบุคคลเข้าไปด้วยเสมอ ไม่งั้นแถวของโรงงานที่ยังไม่มีในทะเบียนจะหายเงียบ
+     */
+    const ocDate = ref('');
+    const ocCuts = computed(() => kits.value.filter(k => k.src === 'chemover'));
+    const ocMatch = computed(() => overCutMatch(ocCuts.value, {
+      pending: foNew.value, follows: shorts.value, entity: entity.value,
+      date: ocDate.value, known: entCodes.value }));
+
     const foAll = computed(() => listFollow(shorts.value, {
       kind: 'over', entity: entity.value, q: foSearch.value, showDone: foShowDone.value
     }));
@@ -2909,6 +2922,7 @@ createApp({
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
+      ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo,
       buyWaits, cancelBuyWaits,
