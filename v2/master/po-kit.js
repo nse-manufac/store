@@ -184,7 +184,9 @@ export function parseKitList(aoa) {
  *   2. ชีตเดียวมีได้หลายรหัส คั่นด้วยแถวรวมยอด — ห้ามเชื่อชื่อชีต ต้องอ่านรายบรรทัด
  *   3. มีคอลัมน์ Order Q'TY และ Model (P/N) มาให้ → เทียบกับ BOM ได้เลย
  *   4. บางบรรทัดเขียน Return ในคอลัมน์ Material Document No. — ของไม่ได้มาใหม่
- *      แต่ตัดจากยอด over ที่ค้างอยู่ที่เรา จึงติดธง fromOver ไว้ให้ปลายทางแยกเอง
+ *      แต่ตัดจากยอด over ที่ค้างอยู่ที่เรา · แถวพวกนี้ได้ป้ายที่มาเป็น 'chemover'
+ *      ⚠️ ป้ายที่มาต้องต่างกัน ไม่ใช่แค่ธง fromOver เพราะ fromOver ไม่ใช่คอลัมน์ที่ซิงค์
+ *      เครื่องอื่นที่รับข้อมูลมาทางชีตจึงแยกสองอย่างนี้ออกจากกันไม่ได้ถ้าดูแต่ธง
  *
  * ⚠️ ไฟล์จริงเว้นช่องวันที่ไว้ว่างทั้งสองที่ (Documet Issue Date และ Date)
  * จึงรับ fallbackDate มาใช้แทน ไม่ใช่เดาวันที่เอง — วันที่ผิดแปลว่ารายการไปโผล่ผิดวัน
@@ -315,7 +317,7 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
         hit.n++;
       } else agg.set(key, {
         id: 'C' + day + '-' + po + '-' + code + (over ? '-R' : ''),
-        src: 'chem', date: day, fromOver: over,
+        src: over ? 'chemover' : 'chem', date: day, fromOver: over,
         group: String(row[col.group] == null ? '' : row[col.group]).trim().toUpperCase(),
         po, code, pn: codeOf(row[col.pn]), orderQty: numOf(row[col.order]),
         desc: String(row[col.desc] == null ? '' : row[col.desc]).trim(), unit: '',
@@ -347,7 +349,16 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
  * — กฎนี้ยกมาจาก v1 ทั้งดุ้น ห้ามแก้โดยไม่คุยกับหน้างานก่อน
  */
 export const kitsOfPo = (kits, po) =>
-  kits.filter(k => k.po === String(po || '').trim() && k.src !== 'chem');
+  kits.filter(k => k.po === String(po || '').trim() && !isChemKit(k));
+
+/**
+ * แถวนี้มาจากไฟล์กลุ่มจ่ายรวมไหม — ของที่มาจริง ('chem') หรือของที่ตัดจากยอด over ('chemover')
+ *
+ * ⚠️ มีตัวกลางตัวเดียวเพราะเดิมโค้ดเทียบ src === 'chem' ตรง ๆ อยู่สี่จุด
+ * พอเพิ่มป้ายที่มาใหม่ ถ้าไล่แก้ไม่ครบ แถวที่ตัดจากยอด over จะไปโผล่ในหน้าคีย์รับเข้าปกติ
+ * และในตัวนับหน้าแรก โดยไม่มีอะไรฟ้อง
+ */
+export const isChemKit = k => !!k && (k.src === 'chem' || k.src === 'chemover');
 
 /**
  * รหัสที่เคยคีย์รับเข้ากับ PO นี้แล้ว แต่ไม่อยู่ในรายการที่กางมา (Kit List หรือสูตร) — issue #52 · #78

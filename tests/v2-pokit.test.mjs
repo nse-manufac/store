@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -556,6 +556,18 @@ ok('PO+รหัสเดียวกันที่มาทั้งสอง�
 ok('id ของสองแถวนั้นไม่ชนกัน', both[0].id !== both[1].id, both.map(r => r.id).join(' / '));
 ok('ไฟล์เก่าที่ไม่มีคอลัมน์นั้น ทุกแถวยังเป็นของที่มาจริงเหมือนเดิม',
    chem.rows.length > 0 && chem.rows.every(r => r.fromOver === false));
+// ⚠️ ป้ายที่มาต้องต่างกัน ไม่ใช่แค่ธง fromOver — ธงไม่ใช่คอลัมน์ที่ซิงค์
+// เครื่องที่รับข้อมูลมาทางชีตจึงแยกสองอย่างนี้ได้จากป้ายที่มาเท่านั้น
+ok('แถวที่ตัดจากยอด over ได้ป้ายที่มาเป็น chemover',
+   ret.rows.filter(r => r.src === 'chemover').length === 2
+   && ret.rows.filter(r => r.src === 'chem').length === 3,
+   JSON.stringify(ret.rows.map(r => r.src)));
+ok('ตัวช่วยกลางรู้จักทั้งสองป้าย',
+   isChemKit({ src: 'chem' }) && isChemKit({ src: 'chemover' })
+   && !isChemKit({ src: '' }) && !isChemKit(null));
+ok('ทั้งสองป้ายต้องไม่โผล่ในหน้าคีย์รับเข้าปกติ',
+   kitsOfPo([{ po: 'PO-9001', src: 'chem' }, { po: 'PO-9001', src: 'chemover' },
+             { po: 'PO-9001', src: '' }], 'PO-9001').length === 1);
 // ⚠️ ไม่มีคอลัมน์ = แยกแถวที่ตัดจากยอด over ไม่ได้เลย ต้องบอก ไม่ใช่เงียบ (ผู้ตรวจ #97)
 ok('บอกชื่อชีตที่ไม่มีคอลัมน์ Material Document No.',
    chem.noDocCol.join(',') === 'H,U', JSON.stringify(chem.noDocCol));

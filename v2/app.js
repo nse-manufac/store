@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -1571,11 +1571,25 @@ createApp({
         });
         wkTotals.value = { ...plan.totals };
         wkOver.value = plan.fromOver;
+
+        // ⚠️ เก็บแถวที่ Delta ตัดจากยอด over ลงเครื่องตั้งแต่ตอนอ่านไฟล์ (เจ้าของสั่ง 22 ก.ย. 2026)
+        // ไม่รอปุ่มบันทึก เพราะแถวพวกนี้ไม่ใช่รายการรับเข้า คนที่เปิดไฟล์มาเพื่อเทียบยอด over
+        // อย่างเดียวจะได้ไม่ต้องกดบันทึกของที่ไม่เกี่ยวกัน · ซ้ำไม่ได้เพราะกันด้วย id
+        // (id ผูกกับวันที่+PO+รหัส) และบอกบนจอทุกครั้งว่าเก็บไว้กี่แถว ไม่ใช่เขียนเงียบ ๆ
+        const overRows = parsed.rows.filter(r => r.fromOver);
+        const haveIds = new Set(kits.value.map(k => String(k.id)));
+        const freshOver = overRows.filter(r => !haveIds.has(String(r.id)));
+        if (freshOver.length) {
+          await db.put('kits', freshOver.map(plain));
+          kits.value.push(...freshOver);
+          db.announce('kits');
+        }
         // ⚠️ ไม่เติมเลขที่เอกสารให้จากช่อง Location ในไฟล์ — ทุกไฟล์เป็นเลขเดียวกันหมด
         // เป็นรหัสที่เก็บฝั่ง Delta ไม่ใช่เลขของรอบนั้น (เจ้าของทัก 22 ก.ย. 2026)
         wkMsg.value = file.name + ' · รับเข้า ' + plan.receive.length + ' บรรทัด'
           + (plan.fromOver.length ? ' · ตัดจากยอด over ' + plan.fromOver.length
-                                    + ' บรรทัด (ไม่ได้รับเข้าในใบนี้)' : '')
+                                    + ' บรรทัด (ไม่ได้รับเข้าในใบนี้ · เก็บไว้เทียบที่แท็บ over รอคืน '
+                                    + freshOver.length + ' แถว)' : '')
           // ⚠️ ใช้ wkH.date เสมอ ทั้งเลขล็อตและวันที่ของรายการ ไม่ว่าไฟล์จะมีวันที่มาหรือไม่
           // เพราะเจ้าของเคาะว่าล็อตคือ "วันที่รับเข้า" ไม่ใช่วันที่ที่ Delta ออกเอกสาร (ผู้ตรวจ #98)
           + (parsed.docDate ? '' : ' · ไฟล์ไม่มีวันที่มาให้ ใช้วันที่เอกสารบนหัวจอแทน')
@@ -1822,7 +1836,7 @@ createApp({
     const kitCountByPo = computed(() => {
       const m = new Map();
       for (const k of kits.value) {
-        if (k.src === 'chem') continue;
+        if (isChemKit(k)) continue;
         const key = String(k.po || '');
         if (key) m.set(key, (m.get(key) || 0) + 1);
       }
@@ -2307,7 +2321,7 @@ createApp({
       posVisible.value.filter(p => p.date === homeToday.value));
 
     const homeKitToday = computed(() =>
-      kits.value.some(k => k.src !== 'chem' && k.date === homeToday.value
+      kits.value.some(k => !isChemKit(k) && k.date === homeToday.value
         && poVisibleTo(ownerOfPoNo(k.po), entity.value)));
 
     /** PO ของวันนี้ที่คีย์รับเข้าไปแล้วอย่างน้อยหนึ่งบรรทัด */
