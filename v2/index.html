@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-22.1">
+<meta name="app-version" content="2026-09-22.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1452,8 +1452,6 @@ textarea{font:inherit}
           <div class="row">
             <label class="f" style="width:150px">วันที่เอกสาร
               <input v-model="wkH.date" type="date"></label>
-            <label class="f" style="width:100px">กลุ่ม
-              <input v-model.trim="wkH.group" class="mono" placeholder="H / U"></label>
             <label class="f" style="width:165px">บังคับนิติบุคคลทั้งใบ
               <select v-model="wkH.entity">
                 <option value="">— ดูจากเลข PO รายบรรทัด —</option>
@@ -1466,19 +1464,10 @@ textarea{font:inherit}
           <div class="row" style="margin-top:12px">
             <button class="btn" @click="wkAdd(false)">+ เพิ่มบรรทัด</button>
             <button class="btn" @click="wkAdd(true)" :disabled="!wkLines.length">+ รหัสเดิม อีก PO</button>
-            <div class="grow"></div>
-            <label class="f" style="width:165px" v-if="chemDates.length">ดึงจาก Kit List วันที่
-              <select v-model="wkPickDate">
-                <option value="">ล่าสุด ({{ chemDates[0] }})</option>
-                <option v-for="d in chemDates" :key="d" :value="d">{{ d }}</option>
-              </select></label>
-            <button class="btn" @click="wkFromKit" :disabled="!chemDates.length"
-                    style="align-self:flex-end">
-              {{ chemDates.length ? 'ดึงจาก Kit List กลุ่มจ่ายรวม' : 'ยังไม่มี Kit List กลุ่มจ่ายรวม' }}</button>
           </div>
 
           <!-- นำเข้าไฟล์ตรงนี้เลย ไม่ต้องอ้อมไปหน้า PO / Kit List ก่อน (เจ้าของ 22 ก.ย. 2026) -->
-          <p style="margin:12px 0 0"><b>หรือนำเข้าไฟล์ของรอบนี้ตรงนี้เลย</b>
+          <p style="margin:12px 0 0"><b>นำเข้าไฟล์ของรอบนี้</b>
             <input type="file" accept=".xlsx,.xls" @change="onWkFile" :disabled="wkBusy">
             <span class="hint" v-if="wkBusy">กำลังอ่านไฟล์...</span></p>
           <p class="hint" style="margin:6px 0 0">
@@ -1641,8 +1630,8 @@ textarea{font:inherit}
 
         <div class="card" v-if="!wkLines.length">
           <p class="empty">
-            กด "เพิ่มบรรทัด" เพื่อคีย์จากเอกสาร PDF<br>
-            หรือถ้านำเข้า Kit List กลุ่มจ่ายรวมไว้แล้ว กด "ดึงจาก Kit List" ได้เลย
+            เลือกไฟล์ Kit List กลุ่มจ่ายรวมข้างบน แล้วรายการจะกางขึ้นมาให้ตรวจ<br>
+            ถ้ารอบนี้ได้มาเป็น PDF สแกน กด "เพิ่มบรรทัด" เพื่อคีย์เองได้เหมือนเดิม
           </p>
         </div>
       </template>
@@ -1659,11 +1648,21 @@ textarea{font:inherit}
               </label>
             </p>
             <p class="hint" style="margin:0">
-              รับได้ทั้งสามแบบ — PO รายวัน · Kit List (22-H) · Kit List กลุ่มจ่ายรวม<br>
-              ไม่ต้องบอกว่าเป็นแบบไหน โปรแกรมดูจากเนื้อในให้เอง
+              รับสองแบบ — PO รายวัน · Kit List (22-H)<br>
+              ไม่ต้องบอกว่าเป็นแบบไหน โปรแกรมดูจากเนื้อในให้เอง<br>
+              <b>ไฟล์ Kit List กลุ่มจ่ายรวม (Tube · Chemical · Copper foil · Solder)
+              ไม่ได้นำเข้าที่นี่แล้ว</b> — ไปที่แท็บ "รับเข้ารวมรายรอบ"
             </p>
           </div>
           <p class="hint" v-if="impBusy" style="margin:10px 0 0">กำลังอ่านไฟล์...</p>
+          <!-- รู้จักไฟล์แบบนี้ แต่ไม่รับที่หน้านี้ — ต้องบอกทางไป ไม่ใช่เงียบหรือด่าว่าอ่านไม่ออก -->
+          <div class="msg warn" v-if="impChem && tab==='po'" style="margin:10px 0 0">
+            <b>ไฟล์นี้เป็น Kit List กลุ่มจ่ายรวม</b> — {{ impChem }}<br>
+            <span class="hint">ของกลุ่มนี้นำเข้าที่แท็บ "รับเข้ารวมรายรอบ" ซึ่งกางเป็นรายการรับเข้า
+              ให้ตรวจแล้วกดบันทึกได้เลย และแยกแถวที่ Delta ตัดจากยอด over ออกให้ด้วย</span><br>
+            <button class="btn" style="margin-top:8px" @click="tab='wk';impChem=''">
+              ไปแท็บรับเข้ารวมรายรอบ</button>
+          </div>
         </div>
 
         <!-- พรีวิวก่อนนำเข้า -->

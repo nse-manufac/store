@@ -1457,7 +1457,10 @@ createApp({
     // ⚠️ ไม่มีช่อง "เลขที่เอกสาร" แล้ว (เจ้าของสั่งเอาออก 22 ก.ย. 2026)
     // เลขที่เคยกรอกกันคือรหัส Location ในไฟล์ ซึ่งเป็นรหัสที่เก็บฝั่ง Delta เลขเดียวกันทุกใบ
     // ไม่ได้บอกว่าเป็นของรอบไหน · รอบของใบนี้ดูจากวันที่เอกสารแทน
-    const wkH = reactive({ date: todayLocal(), group: '', person: '', entity: '' });
+    // ⚠️ ไม่มีช่อง "กลุ่ม" (H / U) แล้ว (เจ้าของสั่งเอาออก 22 ก.ย. 2026)
+    // ไม่มีโค้ดไหนอ่านค่านั้นเลย ไม่ได้ลงไปในรายการที่บันทึก และนิติบุคคลดูจากเลขที่ PO รายบรรทัดอยู่แล้ว
+    // เดิมมีปุ่มดึงจาก Kit List เป็นที่เดียวที่เติมค่าให้ พอปุ่มถูกลบก็เหลือเป็นช่องที่กรอกแล้วค่าหายเฉย ๆ
+    const wkH = reactive({ date: todayLocal(), person: '', entity: '' });
     const wkLines = ref([]);
     const wkTotals = ref({});          // รหัส -> ยอดรวมตามแถว Total ในเอกสาร (คีย์เอง)
     let wkSeq = 0;
@@ -1502,36 +1505,12 @@ createApp({
     watch(() => wkH.entity, () => wkLines.value.forEach(wkPo));
 
     /**
-     * ดึงรายการจาก Kit List กลุ่มจ่ายรวมที่นำเข้าไว้แล้ว
-     * เอกสารจริงเป็น PDF สแกนจึงต้องคีย์มือ แต่ถ้าวันไหนได้ไฟล์ Excel มาด้วย
-     * ก็ไม่มีเหตุผลให้คีย์ซ้ำ — ดึงมาแล้วแก้ทับได้เหมือนกัน
+     * ⚠️ เคยมีทางที่สอง — นำเข้าไฟล์กลุ่มจ่ายรวมที่หน้า PO / Kit List แล้วมากดปุ่ม "ดึงจาก Kit List" ที่นี่
+     * เจ้าของสั่งปิดเมื่อ 22 ก.ย. 2026 เพราะสองทางบนจอเดียวกันตอบไม่เหมือนกัน
+     * และทางนั้นตัดแถวที่ Delta ตัดจากยอด over ได้เฉพาะบนเครื่องที่นำเข้าไฟล์เอง
+     * (ธง fromOver ไม่ใช่คอลัมน์ที่ซิงค์) เครื่องอื่นจึงรับของที่อยู่ในคลังแล้วเข้าซ้ำได้
+     * ตอนนี้เหลือทางเดียว — เลือกไฟล์ที่หน้านี้
      */
-    const chemDates = computed(() =>
-      [...new Set(kits.value.filter(k => k.src === 'chem').map(k => k.date))]
-        .filter(Boolean).sort().reverse());
-    const wkPickDate = ref('');
-
-    function wkFromKit() {
-      const d = wkPickDate.value || chemDates.value[0];
-      // ⚠️ ตัดแถวที่ Delta ตัดจากยอด over ออกเหมือนทางนำเข้าไฟล์ (ผู้ตรวจ #98)
-      // สองทางบนจอเดียวกันต้องตอบเหมือนกัน ไม่งั้นของที่อยู่ในคลังแล้วจะถูกรับเข้าซ้ำ
-      // แค่ทางนี้เข้าถึงธงได้เฉพาะเครื่องที่นำเข้าไฟล์เอง เพราะ fromOver ไม่ใช่คอลัมน์ที่ซิงค์
-      const rows = kits.value.filter(k => k.src === 'chem' && !k.fromOver && (!d || k.date === d));
-      if (!rows.length) { flash('ยังไม่มี Kit List กลุ่มจ่ายรวมของวันนั้น', true); return; }
-      wkOver.value = []; wkMsg.value = '';          // การ์ดของไฟล์รอบก่อนต้องไม่ค้างมาปนกับรอบนี้
-      wkLines.value = rows.map(k => {
-        const l = wkBlank(null);
-        l.code = String(k.code); l.po = k.po; l.pn = k.pn || '';
-        l.orderQty = k.orderQty; l.req = k.req; l.s41 = k.issue;
-        l.qty = k.issue;                       // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
-        l.remark = k.remark || '';
-        wkFill(l); wkPo(l);
-        return l;
-      });
-      if (d) wkH.date = d;
-      if (!wkH.group && rows[0].group) wkH.group = rows[0].group;
-      flash(`ดึงจาก Kit List ${rows.length} บรรทัด — แก้ยอดนับจริงแล้วบันทึกได้เลย`);
-    }
 
     /**
      * นำเข้าไฟล์ Kit List กลุ่มจ่ายรวมตรงที่หน้านี้ แล้วกางเป็นรายการรับเข้าให้ตรวจ (เจ้าของ 22 ก.ย. 2026)
@@ -1677,11 +1656,14 @@ createApp({
     }
 
     // ── นำเข้า PO / Kit List ───────────────────────────────────────
-    // ไฟล์จาก Delta สามแบบ อ่านด้วยตัวอ่านคนละตัว แต่เข้าท่อเดียวกัน
+    // ไฟล์จาก Delta สามแบบ อ่านด้วยตัวอ่านคนละตัว
+    // แต่หน้านี้รับเข้าท่อแค่สองแบบ — PO รายวัน กับ Kit List (22-H)
+    // กลุ่มจ่ายรวมยังต้องเดาชนิดให้ออก แต่เด้งไปแท็บรับเข้ารวมรายรอบ (เจ้าของ 22 ก.ย. 2026)
     const pos = ref([]);
     const kits = ref([]);
     const shorts = ref([]);
     const imp = ref(null);          // ผลอ่านไฟล์ที่รอให้ตรวจก่อนกดนำเข้า
+    const impChem = ref('');        // ไฟล์กลุ่มจ่ายรวมที่หลงมาที่หน้านี้ — บอกทางไปแท็บที่ถูก
     const impBusy = ref(false);
     const impDrag = ref(false);
 
@@ -1691,6 +1673,8 @@ createApp({
      * เดาว่าไฟล์ที่ลากมาเป็นแบบไหน จากเนื้อในไม่ใช่จากชื่อไฟล์
      * ชื่อไฟล์ของจริงตั้งไม่เป็นระบบ (22-H.xls · 4020600700-4020241300.xlsx)
      * และเดาผิดแล้วจะได้ข้อมูลเปล่า ๆ โดยไม่มีอะไรฟ้อง จึงลองอ่านจริงทั้งสามแบบแล้วดูว่าอันไหนได้ของ
+     * ⚠️ ยังต้องเดาครบสามแบบแม้จะรับเข้าแค่สองแบบ — ถ้าเลิกเดาชนิดกลุ่มจ่ายรวม
+     * ไฟล์แบบนั้นจะตกไปเข้าตัวอ่าน 22-H แล้วอ่านได้หน้าตาปกติโดยเอาเลขผู้ขายมาเป็นรหัสวัตถุดิบ
      */
     function detectAndParse(wb, XLSX) {
       const aoaOf = name => XLSX.utils.sheet_to_json(wb.Sheets[name],
@@ -1716,13 +1700,23 @@ createApp({
     }
 
     async function readImpFile(file) {
-      impBusy.value = true;
+      impBusy.value = true; impChem.value = '';
       try {
         await loadLib('lib/xlsx.full.min.js', 'XLSX');
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
         const p = detectAndParse(wb, XLSX);
         if (!p.kind) throw new Error('อ่านไม่ออกว่าเป็นไฟล์แบบไหน — ไม่เจอทั้งแถว PO และบรรทัด Kit List');
+
+        // ⚠️ ไฟล์กลุ่มจ่ายรวมไม่รับที่หน้านี้แล้ว (เจ้าของ 22 ก.ย. 2026) — ต้องไปที่แท็บรับเข้ารวมรายรอบ
+        // แต่ห้ามเอาการเดาไฟล์แบบนี้ออกจาก detectAndParse เด็ดขาด ลองกับไฟล์จริงแล้ว
+        // ถ้าไม่เดาให้ มันจะตกไปเข้าตัวอ่าน Kit List (22-H) แล้ว "อ่านได้" หน้าตาปกติ 47 แถว
+        // โดยเอาเลขผู้ขายมาเป็นรหัสวัตถุดิบทุกแถวและยอดหลักหมื่นล้าน — พังเงียบสนิท
+        if (p.kind === 'chem') {
+          impChem.value = file.name + ' · อ่านได้ ' + p.rows.length + ' บรรทัด';
+          imp.value = null;
+          return;
+        }
         const rows = p.kind === 'po' ? p.pos : p.rows;
         const plan = p.kind === 'po'
           ? { total: p.pos.length, fresh: p.pos.filter(x => !pos.value.some(y => y.id === x.id)),
@@ -2328,8 +2322,7 @@ createApp({
         detail: `วันนี้จ่ายออกไป ${homeOut.value} รายการ` },
       { k: 'wk', label: 'รับเข้ารวมรายรอบ', tab: 'wk',
         done: null,
-        detail: chemDates.value.length
-          ? `Kit List กลุ่มจ่ายรวมล่าสุด ${chemDates.value[0]}` : 'ยังไม่มี Kit List กลุ่มจ่ายรวม' }
+        detail: 'เลือกไฟล์ Kit List กลุ่มจ่ายรวมได้ที่แท็บนี้' }
     ]);
 
     /** ชนิดรายการที่โปรแกรมรุ่นนี้ไม่รู้จัก — มีแปลว่าเครื่องอื่นใช้รุ่นใหม่กว่า ยอดในเครื่องนี้คลาด (ledger.js) */
@@ -2851,10 +2844,10 @@ createApp({
              entities, entEdit, entCodes, entInfo, entMissing, entCounts,
              switchEntity, startEnt, saveEnt, addMissingEnt,
              entMoves, entMoveOpen, entMove, entMoveFroms, entMovePv, entClosed, MOVE_LABEL, doMove,
-             wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkFromKit, wkUseIssued,
+             wkH, wkLines, wkTotals, wkAdd, wkFill, wkPo, wkUseIssued,
              onWkFile, wkBusy, wkMsg, wkTone, wkOver, wkNoExp, wkSeen, wkSkip,
-             wkBomOf, wkPctOf, wkCheck, saveWeekly, chemDates, wkPickDate,
-             pos, kits, shorts, imp, impBusy, impDrag, KIND_LABEL, onDropImp, onPickImp,
+             wkBomOf, wkPctOf, wkCheck, saveWeekly,
+             pos, kits, shorts, imp, impBusy, impDrag, impChem, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
