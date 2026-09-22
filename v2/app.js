@@ -1579,17 +1579,26 @@ createApp({
         const overRows = parsed.rows.filter(r => r.fromOver);
         const haveIds = new Set(kits.value.map(k => String(k.id)));
         const freshOver = overRows.filter(r => !haveIds.has(String(r.id)));
+        let keptOver = 0;
         if (freshOver.length) {
-          await db.put('kits', freshOver.map(plain));
-          kits.value.push(...freshOver);
-          db.announce('kits');
+          // ⚠️ ล้อมด้วย try ของตัวเอง — รายการรับเข้ากางบนจอไปแล้วและกดบันทึกได้อยู่
+          // ถ้าปล่อยให้ตกไป catch ข้างนอก จะขึ้นว่า "อ่านไฟล์ไม่สำเร็จ" ทั้งที่อ่านได้ครบ
+          // แล้วคนจะปิดจอทิ้งทั้งที่ของพร้อมบันทึก (ผู้ตรวจ #101)
+          try {
+            await db.put('kits', freshOver.map(plain));
+            kits.value.push(...freshOver);
+            keptOver = freshOver.length;
+          } catch (err) {
+            flash('เก็บใบแจ้งตัดยอด over ไม่สำเร็จ: ' + err.message
+                  + ' — รายการรับเข้าบนจอยังบันทึกได้ตามปกติ', true);
+          }
         }
         // ⚠️ ไม่เติมเลขที่เอกสารให้จากช่อง Location ในไฟล์ — ทุกไฟล์เป็นเลขเดียวกันหมด
         // เป็นรหัสที่เก็บฝั่ง Delta ไม่ใช่เลขของรอบนั้น (เจ้าของทัก 22 ก.ย. 2026)
         wkMsg.value = file.name + ' · รับเข้า ' + plan.receive.length + ' บรรทัด'
           + (plan.fromOver.length ? ' · ตัดจากยอด over ' + plan.fromOver.length
                                     + ' บรรทัด (ไม่ได้รับเข้าในใบนี้ · เก็บไว้เทียบที่แท็บ over รอคืน '
-                                    + freshOver.length + ' แถว)' : '')
+                                    + keptOver + ' แถว)' : '')
           // ⚠️ ใช้ wkH.date เสมอ ทั้งเลขล็อตและวันที่ของรายการ ไม่ว่าไฟล์จะมีวันที่มาหรือไม่
           // เพราะเจ้าของเคาะว่าล็อตคือ "วันที่รับเข้า" ไม่ใช่วันที่ที่ Delta ออกเอกสาร (ผู้ตรวจ #98)
           + (parsed.docDate ? '' : ' · ไฟล์ไม่มีวันที่มาให้ ใช้วันที่เอกสารบนหัวจอแทน')

@@ -1159,5 +1159,21 @@ ok('ไม่มีอะไรเลยก็ไม่พัง',
    overCutMatch([], { entity: 'TUE-H' }).rows.length === 0
    && overCutMatch(null, { entity: 'TUE-H' }).lines === 0);
 
+// ⚠️ PO ที่รูปแบบถูกแต่ตัวอักษรโรงงานไม่มีในทะเบียน เคยหายไปเงียบทั้งแถว (ผู้ตรวจ #101)
+// เครื่องมือที่มีหน้าที่ตอบว่า "ตรงกับที่ Delta แจ้งไหม" ห้ามทิ้งแถวโดยไม่บอก
+const odd = [
+  { po: 'TM9269H001', code: '9000000001', issue: 2, date: '2026-09-22' },
+  { po: 'TM9269G001', code: '9000000001', issue: 5, date: '2026-09-22' },   // G ไม่มีในทะเบียน
+  { po: 'อ่านไม่ออก',   code: '9000000001', issue: 9, date: '2026-09-22' }
+];
+const withReg = overCutMatch(odd, { entity: 'TUE-H', known: ['TUE-H', 'TUE-U'] });
+ok('รหัสที่เดาได้แต่ไม่มีในทะเบียน ถูกนับแยกไว้บอก ไม่ใช่หายเงียบ',
+   withReg.unregistered === 1 && withReg.unreadable === 1 && withReg.rows[0].cut === 2,
+   JSON.stringify({ u: withReg.unregistered, r: withReg.unreadable }));
+ok('ส่งทะเบียนมาแล้ว ยอดของโรงงานที่ไม่มีในทะเบียนต้องไม่ปนเข้ามา',
+   withReg.rows.length === 1 && withReg.lines === 1);
+ok('ไม่ส่งทะเบียนมา = ไม่เช็ก (พฤติกรรมเดิม ไม่พัง)',
+   overCutMatch(odd, { entity: 'TUE-H' }).unregistered === 0);
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

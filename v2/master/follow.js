@@ -648,9 +648,9 @@ export function orphanBuys(entries, entity, follows) {
  * แถวที่อ่านนิติบุคคลจากเลขที่ PO ไม่ได้ ถูกนับแยกไว้ให้หน้าจอบอก ไม่ใช่เททิ้งเงียบ ๆ
  * (pending ต้องถูกกรองนิติบุคคลมาแล้วจากผู้เรียก เพราะแถวพวกนั้นมาจากสมุดโดยตรง)
  */
-export function overCutMatch(cuts = [], { pending = [], follows = [], entity = '', date = '' } = {}) {
+export function overCutMatch(cuts = [], { pending = [], follows = [], entity = '', date = '', known = null } = {}) {
   const ent = String(entity || '').trim().toUpperCase();
-  const empty = { rows: [], lines: 0, unreadable: 0, dates: [], date: '' };
+  const empty = { rows: [], lines: 0, unreadable: 0, unregistered: 0, dates: [], date: '' };
   if (!ent) return empty;
 
   const want = String(date || '').trim();
@@ -663,13 +663,20 @@ export function overCutMatch(cuts = [], { pending = [], follows = [], entity = '
   // (ยอดที่เอาไปเทียบก่อนตัดของจริงออกจากคลัง จะบวกยอดของรอบเก่าที่เก็บไว้เข้ามาด้วย)
   const pick = want || all[0] || '';
 
+  // ⚠️ รหัสนิติบุคคลที่อ่านจากเลข PO ได้ แต่ยังไม่มีในทะเบียน ต้องนับแยกไว้บอก
+  // ไม่ใช่ทิ้งเงียบ ๆ ปนกับ "เป็นของอีกโรงงานจริง ๆ" (ผู้ตรวจ #101)
+  // เครื่องมือนี้มีหน้าที่ตอบว่า "ของเกินที่เรามีตรงกับที่ Delta แจ้งไหม"
+  // แถวที่หายเงียบจะทำให้คำตอบเป็น "ตรง" ทั้งที่ไม่ตรง
+  // ไม่ส่งทะเบียนมา = ไม่เช็ก (พฤติกรรมเดิม) แต่หน้าจอควรส่งมาเสมอ
+  const reg = known ? new Set((known || []).map(x => String(x).trim().toUpperCase())) : null;
   const mine = [];
-  let unreadable = 0;
+  let unreadable = 0, unregistered = 0;
   for (const c of cuts || []) {
     if (!c || !c.code) continue;
     if (pick && String(c.date || '') !== pick) continue;
     const e = entityOfPo(c.po);
     if (!e) { unreadable++; continue; }
+    if (reg && !reg.has(e)) { unregistered++; continue; }
     if (e === ent) mine.push(c);
   }
 
@@ -704,5 +711,5 @@ export function overCutMatch(cuts = [], { pending = [], follows = [], entity = '
   }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)
                  || String(a.code).localeCompare(String(b.code)));
 
-  return { rows, lines: mine.length, unreadable, dates: all, date: pick };
+  return { rows, lines: mine.length, unreadable, unregistered, dates: all, date: pick };
 }
