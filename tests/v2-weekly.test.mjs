@@ -5,7 +5,7 @@
  * หมวด A สำคัญที่สุด — เอกสารใบเดียวมีของสองนิติบุคคลปนกันได้
  * ถ้าตั้งนิติบุคคลทั้งใบ ยอดจะข้ามโรงงานกันโดยไม่มีอะไรเตือน
  */
-import { entityOfPo, bomExpect, pctDiff, summarize, readyLines, checkWeekly, chemPlan }
+import { entityOfPo, bomExpect, pctDiff, summarize, readyLines, checkWeekly, chemPlan, seenBefore }
   from '../v2/master/weekly.js';
 
 let pass = 0, fail = 0;
@@ -148,6 +148,30 @@ ok('บล็อกที่มีแถว over ปน ไม่ถูกเต
    !('9000000004' in mixPlan.totals), JSON.stringify(mixPlan.totals));
 ok('ยอดที่ไม่ได้เติม ต้องขึ้นว่ายังไม่กรอก ไม่ใช่ว่าไม่ตรง',
    summarize(mixPlan.receive, mixPlan.totals)[0].match === null);
+
+console.log('\n=== G. กันนำไฟล์เดิมเข้าซ้ำรอบ (เจ้าของ 22 ก.ย. 2026) ===');
+// ใบเดียวมีได้สามร้อยบรรทัด กดยืนยันซ้ำครั้งเดียว ยอดเข้าคลังสองเท่าทั้งใบ
+const book = [
+  { entity: 'TUE-H', kind: 'receive', doc_ref: 'TM9269H001', material_code: 9000000001, voided: false },
+  { entity: 'TUE-H', kind: 'receive', doc_ref: 'TM9269H002', material_code: 9000000001, voided: true },
+  { entity: 'TUE-H', kind: 'issue',   doc_ref: 'TM9269H003', material_code: 9000000001, voided: false },
+  { entity: 'TUE-U', kind: 'receive', doc_ref: 'TM9269H004', material_code: 9000000001, voided: false }
+];
+const seen = seenBefore([
+  { entity: 'TUE-H', po: 'TM9269H001', code: '9000000001' },   // เคยรับไปแล้วจริง
+  { entity: 'TUE-H', po: 'TM9269H002', code: '9000000001' },   // รายการเดิมถูกยกเลิกไปแล้ว
+  { entity: 'TUE-H', po: 'TM9269H003', code: '9000000001' },   // เคยจ่ายออก ไม่ใช่รับเข้า
+  { entity: 'TUE-H', po: 'TM9269H004', code: '9000000001' },   // คนละนิติบุคคล
+  { entity: 'TUE-H', po: 'TM9269H009', code: '9000000001' }
+], book);
+ok('จับบรรทัดที่ PO+รหัสเดิมเคยรับเข้าไปแล้วได้',
+   seen.length === 1 && seen[0].po === 'TM9269H001', JSON.stringify(seen.map(l => l.po)));
+ok('รายการที่ถูกยกเลิกไปแล้ว ไม่นับว่าเคยรับ', !seen.some(l => l.po === 'TM9269H002'));
+ok('ทิศทางอื่นไม่นับ — จ่ายออกไม่ใช่รับเข้า', !seen.some(l => l.po === 'TM9269H003'));
+ok('คนละนิติบุคคลไม่นับ แม้ PO กับรหัสตรงกัน', !seen.some(l => l.po === 'TM9269H004'));
+ok('รหัสที่เก็บเป็นตัวเลขในสมุด เทียบกับข้อความบนจอได้',
+   seenBefore([{ entity: 'TUE-H', po: 'TM9269H001', code: 9000000001 }], book).length === 1);
+ok('สมุดเปล่าไม่พัง', seenBefore([{ entity: 'A', po: 'B', code: 'C' }]).length === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
