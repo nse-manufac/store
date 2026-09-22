@@ -1139,6 +1139,22 @@ const two = overCutMatch([...cuts, { po: 'TM9269H001', code: '9000000001', issue
                          { pending: [], follows: [], entity: 'TUE-H', date: '2026-09-15' });
 ok('เลือกดูเฉพาะรอบที่ต้องการได้', two.rows.length === 1 && two.rows[0].cut === 4,
    JSON.stringify(two.rows));
+// ⚠️ ในเครื่องมีหลายรอบคือเคสปกติ (เก็บไว้กลับมาดูทีหลังได้)
+// "ไม่ระบุรอบ" ต้องหมายถึงรอบล่าสุด ไม่ใช่รวมทุกรอบมากองเดียวแล้วติดป้ายว่าเป็นรอบล่าสุด
+const rounds = [
+  { po: 'TM9269H001', code: '9000000001', issue: 2, date: '2026-09-22', src: 'chemover' },
+  { po: 'TM9269H001', code: '9000000001', issue: 1, date: '2026-09-15', src: 'chemover' }
+];
+const last = overCutMatch(rounds, { entity: 'TUE-H' });
+ok('ไม่ระบุรอบ = เอาเฉพาะรอบล่าสุด ไม่ใช่รวมทุกรอบมากองเดียว',
+   last.rows.length === 1 && last.rows[0].cut === 2 && last.lines === 1,
+   JSON.stringify(last.rows) + ' / ' + last.lines);
+ok('วันที่ที่คืนต้องเป็นรอบเดียวกับยอดที่คืน', last.date === '2026-09-22', last.date);
+// เลือกรอบเก่าแล้วต้องกลับไปรอบล่าสุดได้ — ช่องเลือกรอบอ่านจาก dates
+const older = overCutMatch(rounds, { entity: 'TUE-H', date: '2026-09-15' });
+ok('เลือกรอบเก่าแล้ว รอบอื่นต้องยังอยู่ในรายการรอบครบ',
+   older.dates.join(',') === '2026-09-22,2026-09-15' && older.rows[0].cut === 1,
+   older.dates.join(',') + ' / ' + JSON.stringify(older.rows));
 ok('ไม่มีอะไรเลยก็ไม่พัง',
    overCutMatch([], { entity: 'TUE-H' }).rows.length === 0
    && overCutMatch(null, { entity: 'TUE-H' }).lines === 0);

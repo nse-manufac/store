@@ -1825,8 +1825,9 @@ createApp({
                                   .map(p => poOwnerOfRow(p).code))].sort());
 
     const ownerOfPoNo = po => poOwnerOf(po, { known: entCodes.value });
-    /** บรรทัด Kit List ของนิติบุคคลที่เลือกอยู่ — ตัวนับบนหัวการ์ดต้องนับชุดเดียวกับที่ตารางแสดง */
-    const kitsVisible = computed(() => kits.value.filter(k => poVisibleTo(ownerOfPoNo(k.po), entity.value)));
+    /** บรรทัด Kit List ของนิติบุคคลที่เลือกอยู่ — ตัวนับบนหัวการ์ดต้องนับชุดเดียวกับที่ตารางแสดง
+     *  ตระกูล chem (รวมแถวที่ตัดจากยอด over) ไม่นับ เพราะ kitCountByPo ในตารางเดียวกันก็ไม่นับ */
+    const kitsVisible = computed(() => kits.value.filter(k => !isChemKit(k) && poVisibleTo(ownerOfPoNo(k.po), entity.value)));
 
     const poRows = computed(() => searchPos(posVisible.value, poQ.value, { limit: Infinity }));
 

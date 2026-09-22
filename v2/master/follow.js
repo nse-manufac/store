@@ -654,15 +654,22 @@ export function overCutMatch(cuts = [], { pending = [], follows = [], entity = '
   if (!ent) return empty;
 
   const want = String(date || '').trim();
+  // รอบทั้งหมดที่มีในเครื่อง — ต้องนับให้ครบ "ก่อน" กรองรอบ
+  // ไม่งั้นพอเลือกรอบเก่า ช่องเลือกรอบจะเหลือรอบเดียว แล้วกลับไปรอบล่าสุดไม่ได้อีก
+  const dates = new Set();
+  for (const c of cuts || []) if (c && c.code && c.date) dates.add(String(c.date));
+  const all = [...dates].sort().reverse();
+  // ไม่ระบุรอบ = รอบล่าสุด ห้ามรวมทุกรอบมากองเดียวแล้วติดป้ายว่าเป็นรอบล่าสุด
+  // (ยอดที่เอาไปเทียบก่อนตัดของจริงออกจากคลัง จะบวกยอดของรอบเก่าที่เก็บไว้เข้ามาด้วย)
+  const pick = want || all[0] || '';
+
   const mine = [];
   let unreadable = 0;
-  const dates = new Set();
   for (const c of cuts || []) {
     if (!c || !c.code) continue;
-    if (want && String(c.date || '') !== want) continue;
+    if (pick && String(c.date || '') !== pick) continue;
     const e = entityOfPo(c.po);
     if (!e) { unreadable++; continue; }
-    if (c.date) dates.add(String(c.date));
     if (e === ent) mine.push(c);
   }
 
@@ -697,6 +704,5 @@ export function overCutMatch(cuts = [], { pending = [], follows = [], entity = '
   }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)
                  || String(a.code).localeCompare(String(b.code)));
 
-  const all = [...dates].sort().reverse();
-  return { rows, lines: mine.length, unreadable, dates: all, date: want || all[0] || '' };
+  return { rows, lines: mine.length, unreadable, dates: all, date: pick };
 }

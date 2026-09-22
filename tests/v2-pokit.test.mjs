@@ -568,6 +568,11 @@ ok('ตัวช่วยกลางรู้จักทั้งสองป�
 ok('ทั้งสองป้ายต้องไม่โผล่ในหน้าคีย์รับเข้าปกติ',
    kitsOfPo([{ po: 'PO-9001', src: 'chem' }, { po: 'PO-9001', src: 'chemover' },
              { po: 'PO-9001', src: '' }], 'PO-9001').length === 1);
+// ⚠️ ตัวนับ "Kit List N บรรทัด" บนหัวการ์ด ต้องนับชุดเดียวกับคอลัมน์ Kit List ในตารางเดียวกัน
+// (kitCountByPo กรอง isChemKit อยู่แล้ว) ไม่งั้นหัวการ์ดเด้งขึ้นตามแถว chemover
+// ทั้งที่ทุกแถวในตารางยังขึ้นว่า "ยังไม่มี" — ตัวเลขสองที่ขัดกันเอง
+ok('ตัวนับ Kit List บนหัวการ์ดไม่นับแถวตระกูล chem',
+   /kits\.value\.filter\(k => !isChemKit\(k\) && poVisibleTo\(ownerOfPoNo\(k\.po\), entity\.value\)\)/.test(appSrc));
 // ⚠️ ไม่มีคอลัมน์ = แยกแถวที่ตัดจากยอด over ไม่ได้เลย ต้องบอก ไม่ใช่เงียบ (ผู้ตรวจ #97)
 ok('บอกชื่อชีตที่ไม่มีคอลัมน์ Material Document No.',
    chem.noDocCol.join(',') === 'H,U', JSON.stringify(chem.noDocCol));
