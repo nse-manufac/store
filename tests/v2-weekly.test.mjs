@@ -5,7 +5,7 @@
  * หมวด A สำคัญที่สุด — เอกสารใบเดียวมีของสองนิติบุคคลปนกันได้
  * ถ้าตั้งนิติบุคคลทั้งใบ ยอดจะข้ามโรงงานกันโดยไม่มีอะไรเตือน
  */
-import { entityOfPo, bomExpect, pctDiff, summarize, readyLines, checkWeekly }
+import { entityOfPo, bomExpect, pctDiff, summarize, readyLines, checkWeekly, chemPlan }
   from '../v2/master/weekly.js';
 
 let pass = 0, fail = 0;
@@ -93,6 +93,61 @@ ok('ทุกอย่างเรียบร้อยก็ไม่มีอ�
                { totals: { A: 1 }, materials: [{ material_code: 'A' }], entity: 'TUE-H' })
      .mismatch.length === 0);
 ok('ใบเปล่าไม่พัง', checkWeekly([]).ready.length === 0);
+
+
+console.log('\n=== F. นำเข้าไฟล์ Kit List กลุ่มจ่ายรวมตรง ๆ (เจ้าของ 22 ก.ย. 2026) ===');
+// เดิมพนักงานต้องคีย์ทั้งใบเอง ทั้งที่ไฟล์มีทุกช่องอยู่แล้ว
+// ⚠️ แถวที่ Delta ตัดจากยอด over ต้องไม่ปนมากับรายการรับเข้า ไม่งั้นของก้อนเดียวเข้าคลังสองรอบ
+const parsed = {
+  location: '0014',
+  rows: [
+    { code: 9000000001, po: 'TM9269H001', pn: 'PN9001', orderQty: 1000, req: 0.5,  issue: 0.5,  desc: 'GLUE', fromOver: false },
+    { code: 9000000001, po: 'TM9269H002', pn: 'PN9002', orderQty: 500,  req: 0.25, issue: 0.25, desc: 'GLUE', fromOver: false },
+    { code: 9000000002, po: 'TM9269H003', pn: 'PN9003', orderQty: 200,  req: 0.1,  issue: 0.1,  desc: 'INK',  fromOver: true }
+  ],
+  blocks: [
+    { sheet: 'H', code: '9000000001', docTotal: 0.5 },
+    { sheet: 'U', code: '9000000001', docTotal: 0.25 },
+    { sheet: 'H', code: '9000000002', docTotal: null },
+    { sheet: 'H', code: '(ปนกัน)',   docTotal: 9 }
+  ]
+};
+const plan = chemPlan(parsed, { date: '2026-09-22' });
+ok('ของที่มาจริงกับของที่ตัดจากยอด over แยกคนละรายการ',
+   plan.receive.length === 2 && plan.fromOver.length === 1,
+   plan.receive.length + ' / ' + plan.fromOver.length);
+ok('ยอดรับจริงตั้งไว้ให้เท่ากับที่ Delta จ่ายมา แก้ทับเป็นยอดนับจริงได้',
+   plan.receive[0].qty === 0.5 && plan.receive[0].s41 === 0.5);
+ok('เลขล็อตตั้งเป็นวันที่รับเข้า เพราะเอกสารไม่มีเลขล็อตมาให้เลย',
+   plan.receive.every(l => l.lot === '2026-09-22'));
+ok('รหัสอ่านเป็นข้อความเสมอ ไม่ใช่ตัวเลข', plan.receive.every(l => typeof l.code === 'string'));
+// ยอดรวมรายรหัสเคยต้องคีย์มือทีละรหัส ทั้งที่เอกสารพิมพ์มาให้แล้ว
+ok('ยอดรวมรายรหัสมาจากแถว Total ในเอกสาร และบวกข้ามชีตให้ด้วย',
+   plan.totals['9000000001'] === 0.75, JSON.stringify(plan.totals));
+ok('รหัสที่เอกสารไม่ได้พิมพ์ยอดรวมมา ต้องไม่ถูกเดาให้', !('9000000002' in plan.totals));
+ok('บล็อกที่รหัสปนกัน ไม่ถูกนับเป็นยอดของรหัสไหน', !('(ปนกัน)' in plan.totals));
+// ⚠️ ห้ามเอารหัส location ไปเติมเป็นเลขที่เอกสาร — ทุกไฟล์เป็นเลขเดียวกันหมด
+ok('ส่งรหัส location ต่อให้หน้าจอ ไม่ใช่ในชื่อเลขที่เอกสาร',
+   plan.location === '0014' && !('docNo' in plan), JSON.stringify(Object.keys(plan)));
+const csum = summarize(plan.receive, plan.totals);
+ok('บวกยอดเองแล้วตรงกับที่เอกสารพิมพ์มา',
+   csum.find(x => x.code === '9000000001').match === true, JSON.stringify(csum));
+ok('ไฟล์เปล่าไม่พัง',
+   chemPlan({}, {}).receive.length === 0 && chemPlan({}).fromOver.length === 0);
+
+// ⚠️ บล็อกที่มีแถว Return ปน ยอด Total ของเอกสารรวมแถวพวกนั้นไว้ด้วย
+// แต่รายการรับเข้าตัดออกแล้ว ถ้าเติมยอดให้จะขึ้นเตือน "ไม่ตรง" ทั้งที่ไม่มีใครผิด (ผู้ตรวจ #97)
+const mixPlan = chemPlan({
+  rows: [
+    { code: '9000000004', po: 'TM9269H005', issue: 1, fromOver: false },
+    { code: '9000000004', po: 'TM9269H006', issue: 2, fromOver: true }
+  ],
+  blocks: [{ sheet: 'H', code: '9000000004', docTotal: 3, overLines: 1 }]
+}, { date: '2026-09-22' });
+ok('บล็อกที่มีแถว over ปน ไม่ถูกเติมยอดรวมให้ — ปล่อยเป็นยังไม่กรอก',
+   !('9000000004' in mixPlan.totals), JSON.stringify(mixPlan.totals));
+ok('ยอดที่ไม่ได้เติม ต้องขึ้นว่ายังไม่กรอก ไม่ใช่ว่าไม่ตรง',
+   summarize(mixPlan.receive, mixPlan.totals)[0].match === null);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

@@ -87,3 +87,43 @@ export function checkWeekly(lines, { totals = {}, materials = [], entity = '' } 
     entities: [...new Set(perLine.filter(Boolean))].sort()
   };
 }
+
+/**
+ * แปลงผลอ่าน Kit List กลุ่มจ่ายรวม เป็นบรรทัดของหน้านี้ — คนคีย์ไม่ต้องพิมพ์ตามเอกสารทีละแถว
+ *
+ * ⚠️ แถวที่เอกสารเขียน Return ในคอลัมน์ Material Document No. ห้ามรวมกับรายการรับเข้า
+ * มันคือยอดที่เกินค้างอยู่ที่เราอยู่แล้ว รอบนี้ Delta ตัดจากยอด over แทนการส่งของมาใหม่
+ * ถ้าปนไปด้วย ยอดจะเข้าคลังสองรอบสำหรับของก้อนเดียว โดยไม่มีอะไรฟ้อง
+ * (ไฟล์จริงรอบ ก.ย. 2026 เป็นแถวแบบนี้ 155 จาก 309 บรรทัด — ไม่ใช่เคสหายาก)
+ *
+ * เลขล็อตตั้งเป็นวันที่รับเข้า (เจ้าของเคาะ 22 ก.ย. 2026) เพราะเอกสารไม่มีเลขล็อตมาให้เลย
+ * ของกลุ่มนี้มาเป็นรอบ วันที่รับจึงเป็นตัวแยกรอบที่ตรงที่สุดเท่าที่มี
+ */
+export function chemPlan(parsed, { date = '' } = {}) {
+  const line = r => ({
+    code: String(r.code), po: r.po, pn: r.pn || '', orderQty: r.orderQty,
+    req: r.req, s41: r.issue, qty: r.issue, lot: date,
+    desc: r.desc || '', remark: r.remark || ''
+  });
+  const rows = parsed.rows || [];
+
+  // ยอดรวมรายรหัสที่เอกสารพิมพ์มาในแถว Total — เดิมคนคีย์ต้องพิมพ์เองทีละรหัส
+  // รหัสเดียวโผล่ได้ทั้งสองชีต (H และ U) จึงต้องบวกกันก่อน ไม่ใช่ทับกัน
+  // ⚠️ บล็อกที่มีแถวตัดจากยอด over ปนอยู่ ห้ามเติมยอดรวมให้ (ผู้ตรวจ #97)
+  // ยอด Total ของบล็อกนั้นรวมแถว Return ไว้ด้วย แต่รายการรับเข้าตัดแถวพวกนั้นออกไปแล้ว
+  // เติมไปจะขึ้นเตือน "ยอดไม่ตรง" ทั้งที่ไม่มีใครทำอะไรผิด แล้วพนักงานหาสาเหตุไม่เจอ
+  // ปล่อยว่างแทน = "ยังไม่กรอก" ซึ่งเป็นความจริง · เอกสารรอบที่เจอจริงไม่พิมพ์ Total
+  // ให้รหัสที่เป็น Return อยู่แล้ว ข้อนี้กันไว้เผื่อไฟล์รอบหน้าเปลี่ยนรูปแบบ
+  const mixed = new Set((parsed.blocks || []).filter(b => b.overLines).map(b => b.code));
+  const totals = {};
+  for (const b of parsed.blocks || []) {
+    if (b.docTotal === null || !b.code || b.code === '(ปนกัน)' || mixed.has(b.code)) continue;
+    totals[b.code] = round5((totals[b.code] || 0) + b.docTotal);
+  }
+
+  return {
+    receive: rows.filter(r => !r.fromOver).map(line),
+    fromOver: rows.filter(r => r.fromOver).map(line),
+    totals, location: parsed.location || '', date
+  };
+}

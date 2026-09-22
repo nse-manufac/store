@@ -181,13 +181,18 @@ export function parseKitList(aoa) {
  *   1. ไฟล์เดียวมีหลายชีต (แยกตามกลุ่มโรงงาน H / U) และมีชีตซ่อนที่ไม่ใช่ข้อมูล
  *   2. ชีตเดียวมีได้หลายรหัส คั่นด้วยแถวรวมยอด — ห้ามเชื่อชื่อชีต ต้องอ่านรายบรรทัด
  *   3. มีคอลัมน์ Order Q'TY และ Model (P/N) มาให้ → เทียบกับ BOM ได้เลย
+ *   4. บางบรรทัดเขียน Return ในคอลัมน์ Material Document No. — ของไม่ได้มาใหม่
+ *      แต่ตัดจากยอด over ที่ค้างอยู่ที่เรา จึงติดธง fromOver ไว้ให้ปลายทางแยกเอง
+ *
+ * ⚠️ ไฟล์จริงเว้นช่องวันที่ไว้ว่างทั้งสองที่ (Documet Issue Date และ Date)
+ * จึงรับ fallbackDate มาใช้แทน ไม่ใช่เดาวันที่เอง — วันที่ผิดแปลว่ารายการไปโผล่ผิดวัน
  *
  * รับ { sheets: [{ name, hidden, aoa }] } ไม่ใช่ workbook ของ SheetJS
  * เพื่อให้เทสได้โดยไม่ต้องมีไฟล์จริง
  */
-export function parseKitChem(book) {
+export function parseKitChem(book, { fallbackDate = '' } = {}) {
   const agg = new Map(), sheets = [], skipped = [], gaps = [], blocks = [];
-  let rawLines = 0, docDate = '';
+  let rawLines = 0, docDate = '', location = '';
 
   for (const sh of book.sheets || []) {
     if (sh.hidden) { skipped.push({ name: sh.name, why: 'ชีตซ่อน' }); continue; }
@@ -206,6 +211,9 @@ export function parseKitChem(book) {
               desc: n.indexOf('DESCRIPTION'),
               req: n.findIndex(x => x.startsWith('REQQTY')),
               s41: n.findIndex(x => x.startsWith('541QTY')),
+              // หัวคอลัมน์เขียนว่า Material Document No. แต่ของจริงใส่คำว่า Return มา
+              // = รอบนี้ Delta ไม่ได้ส่งของ ตัดจากยอด over ที่ค้างอยู่ที่เราแทน
+              doc: n.findIndex(x => x.startsWith('MATERIALDOCUMENT')),
               rem: n.indexOf('REMARK') };
       break;
     }
@@ -233,11 +241,30 @@ export function parseKitChem(book) {
     }
     if (sheetDate && !docDate) docDate = sheetDate;
 
+    // "Location  : 0014" — รหัสที่เก็บฝั่ง Delta (location sub) ไม่ใช่เลขที่เอกสาร
+    // เจ้าของยืนยัน 22 ก.ย. 2026 ว่าทุกไฟล์เป็นเลขเดียวกันหมด ห้ามเอาไปเติมเป็นเลขที่เอกสาร
+    // ของจริงอยู่ในเซลล์เดียวกับคำว่า Location แต่ไล่เซลล์ถัดไปให้ด้วย
+    // เพราะหัวเอกสารเป็นช่อง merge ที่ขยับได้ แบบเดียวกับตัวอ่านวันที่ข้างบน (ผู้ตรวจ #97)
+    for (let i = 0; i < h && !location; i++) {
+      const row = aoa[i] || [];
+      for (let c = 0; c < row.length && !location; c++) {
+        if (typeof row[c] !== 'string' || !/LOCATION/.test(norm(row[c]))) continue;
+        const same = (row[c].split(':')[1] || '').trim();
+        if (same) { location = same; break; }
+        for (let k = c + 1; k < row.length; k++) {
+          const t = String(row[k] == null ? '' : row[k]).replace(/^[\s:]+/, '').trim();
+          if (t) { location = t; break; }
+        }
+      }
+    }
+
     let blk = null, nSheet = 0, prevItem = null, blockStart = false;
     const closeBlock = docTotal => {
       if (!blk || !blk.n) { blk = null; return; }
       blocks.push({ sheet: sh.name, code: blk.code, lines: blk.n, calc: r6(blk.sum),
         docTotal: docTotal === null ? null : r6(docTotal),
+        // กี่บรรทัดในบล็อกนี้เป็นแถวที่ตัดจากยอด over — ปลายทางต้องรู้ว่ายอดรวมนี้ปนมาไหม
+        overLines: blk.over,
         // ยอมให้ต่างได้ไม่เกินครึ่งของหลักทศนิยมสุดท้ายที่เอกสารใช้ (3 ตำแหน่ง)
         match: docTotal === null ? null : Math.abs(docTotal - blk.sum) < 5e-4 });
       blk = null;
@@ -253,7 +280,10 @@ export function parseKitChem(book) {
         continue;
       }
       rawLines++; nSheet++;
-      if (!blk) blk = { code, n: 0, sum: 0 };
+      const over = col.doc >= 0 && /RETURN/i.test(String(row[col.doc] == null ? '' : row[col.doc]));
+      const day = sheetDate || docDate || fallbackDate;
+      if (!blk) blk = { code, n: 0, sum: 0, over: 0 };
+      if (over) blk.over++;
 
       // เลข Item ต้องเดินทีละ 1 ถ้ากระโดดแปลว่าบรรทัดหายตอน export
       // ⚠️ สองชีตในไฟล์เดียวกันนับคนละแบบ — ชีต H รีเซ็ตเป็น 1 เมื่อขึ้นรหัสใหม่
@@ -276,14 +306,14 @@ export function parseKitChem(book) {
 
       // ⚠️ PO เดียวกัน + รหัสเดียวกัน โผล่ได้หลายบรรทัด ต้องรวมยอดก่อนเทียบ BOM
       // ของจริงเจอ 3 คู่ เช่น TM5267H332 0.539 + 0.231 = 0.770
-      const key = po + '|' + code, hit = agg.get(key);
+      const key = po + '|' + code + (over ? '|R' : ''), hit = agg.get(key);
       if (hit) {
         hit.req   = (req === null && hit.req   === null) ? null : r6((hit.req   || 0) + (req || 0));
         hit.issue = (s41 === null && hit.issue === null) ? null : r6((hit.issue || 0) + (s41 || 0));
         hit.n++;
       } else agg.set(key, {
-        id: 'C' + (sheetDate || docDate) + '-' + po + '-' + code,
-        src: 'chem', date: sheetDate || docDate,
+        id: 'C' + day + '-' + po + '-' + code + (over ? '-R' : ''),
+        src: 'chem', date: day, fromOver: over,
         group: String(row[col.group] == null ? '' : row[col.group]).trim().toUpperCase(),
         po, code, pn: codeOf(row[col.pn]), orderQty: numOf(row[col.order]),
         desc: String(row[col.desc] == null ? '' : row[col.desc]).trim(), unit: '',
@@ -293,11 +323,14 @@ export function parseKitChem(book) {
       });
     }
     closeBlock(null);
-    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate });
+    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate, hasDocCol: col.doc >= 0 });
   }
 
   const rows = [...agg.values()];
-  return { rows, docDate, sheets, skipped, gaps, blocks, rawLines,
+  // ชีตที่ไม่มีคอลัมน์ Material Document No. = แยกแถวที่ตัดจากยอด over ไม่ได้เลย
+  // ปล่อยเงียบแล้วทุกแถวจะกลายเป็นของที่มาจริง ซึ่งเป็นโหมดพังที่อันตรายที่สุดของไฟล์นี้ (ผู้ตรวจ #97)
+  const noDocCol = sheets.filter(x => !x.hasDocCol).map(x => x.name);
+  return { rows, docDate, location, sheets, skipped, gaps, blocks, rawLines, noDocCol,
            merged: rows.filter(r => r.n > 1),
            codes: [...new Set(rows.map(r => r.code))],
            pos: [...new Set(rows.map(r => r.po))] };

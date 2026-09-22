@@ -514,5 +514,64 @@ ok('ตัวนับหน้าแรกนับเฉพาะใบขอ�
    /posVisible\.value\.filter\(p => p\.date === homeToday\.value\)/.test(appSrc)
    && /poVisibleTo\(ownerOfPoNo\(k\.po\), entity\.value\)/.test(appSrc));
 
+
+console.log('\n=== L. รอบที่ Delta ตัดจากยอด over แทนการส่งของ (เจ้าของ 22 ก.ย. 2026) ===');
+// คอลัมน์ Material Document No. เขียนว่า Return = ของไม่ได้มาใหม่ ตัดจากยอดเกินที่ค้างอยู่ที่เรา
+// ไฟล์จริงรอบ ก.ย. 2026 เป็นแถวแบบนี้เกินครึ่งใบ อ่านรวมไปกับของที่มาจริงเมื่อไหร่ ยอดเข้าคลังซ้ำทันที
+const headR = ['ITEM', 'PO NO.', 'GROUP', 'MODEL', "ORDER Q'TY", 'MATERIAL',
+               'DESCRIPTION', "REQ Q'TY", '541 QTY', 'MATERIAL DOCUMENT NO.', 'REMARK'];
+const ret = parseKitChem({ sheets: [
+  { name: 'H', hidden: false, aoa: [
+    ['osc', 'Documet Issue Date   :'],          // ของจริงเว้นว่าง ไม่มีวันที่มาให้สักช่อง
+    ['       Date   : ', 'Location  : 0014'],
+    headR,
+    [1, 'TM9269H001', 'H', 'PN9001', 1000, 9000000001, 'GLUE', 0.5, 0.5, '', ''],
+    [2, 'TM9269H002', 'H', 'PN9002', 500, 9000000001, 'GLUE', 0.25, 0.25, '', ''],
+    [null, null, null, null, null, null, null, null, 0.75, null, null],
+    [3, 'TM9269H003', 'H', 'PN9003', 200, 9000000002, 'INK', 0.1, 0.1, 'Return ', '']
+  ] },
+  { name: 'U', hidden: false, aoa: [
+    headR,
+    [1, 'TM9269U001', 'U', 'PN9004', 100, 9000000003, 'TUBE', 1, 1, '', ''],
+    [2, 'TM9269U001', 'U', 'PN9004', 100, 9000000003, 'TUBE', 2, 2, 'Return', '']
+  ] }
+] }, { fallbackDate: '2026-09-22' });
+
+// ช่อง Location เป็นรหัสที่เก็บฝั่ง Delta ทุกไฟล์เลขเดียวกัน — ไม่ใช่เลขที่เอกสาร (เจ้าของ 22 ก.ย. 2026)
+ok('อ่านรหัส location จากหัวเอกสารได้', ret.location === '0014', ret.location);
+ok('ไฟล์ไม่มีวันที่ ใช้วันที่ที่ส่งเข้าไปแทน ไม่ใช่เดาเอง',
+   ret.docDate === '' && ret.rows.every(r => r.date === '2026-09-22'),
+   JSON.stringify(ret.docDate) + ' / ' + ret.rows[0].date);
+ok('แยกแถวที่ตัดจากยอด over ออกจากของที่มาจริง',
+   ret.rows.filter(r => r.fromOver).length === 2 && ret.rows.filter(r => !r.fromOver).length === 3,
+   JSON.stringify(ret.rows.map(r => r.po + ':' + r.fromOver)));
+ok('เว้นวรรคท้ายคำว่า Return ไม่ทำให้หลุด',
+   ret.rows.find(r => r.po === 'TM9269H003').fromOver === true);
+// ⚠️ PO เดียวรหัสเดียวมาได้ทั้งสองแบบในรอบเดียว ถ้าใช้กุญแจเดียวกันยอดจะบวกกันมั่ว
+const both = ret.rows.filter(r => r.po === 'TM9269U001');
+ok('PO+รหัสเดียวกันที่มาทั้งสองแบบ ต้องไม่ถูกรวมเป็นแถวเดียว',
+   both.length === 2 && both.find(r => !r.fromOver).issue === 1
+   && both.find(r => r.fromOver).issue === 2,
+   JSON.stringify(both.map(r => r.issue + ':' + r.fromOver)));
+ok('id ของสองแถวนั้นไม่ชนกัน', both[0].id !== both[1].id, both.map(r => r.id).join(' / '));
+ok('ไฟล์เก่าที่ไม่มีคอลัมน์นั้น ทุกแถวยังเป็นของที่มาจริงเหมือนเดิม',
+   chem.rows.length > 0 && chem.rows.every(r => r.fromOver === false));
+// ⚠️ ไม่มีคอลัมน์ = แยกแถวที่ตัดจากยอด over ไม่ได้เลย ต้องบอก ไม่ใช่เงียบ (ผู้ตรวจ #97)
+ok('บอกชื่อชีตที่ไม่มีคอลัมน์ Material Document No.',
+   chem.noDocCol.join(',') === 'H,U', JSON.stringify(chem.noDocCol));
+ok('ชีตที่มีคอลัมน์ครบ ไม่ถูกฟ้อง', ret.noDocCol.length === 0, JSON.stringify(ret.noDocCol));
+ok('นับจำนวนแถวที่ตัดจากยอด over ไว้รายบล็อก',
+   ret.blocks.some(b => b.overLines > 0), JSON.stringify(ret.blocks.map(b => b.code + ':' + b.overLines)));
+
+// เลขที่เอกสารอาจอยู่เซลล์ถัดไป เพราะหัวเอกสารเป็นช่อง merge ที่ขยับได้
+const locNext = parseKitChem({ sheets: [
+  { name: 'H', hidden: false, aoa: [
+    ['Location  :', '0021'],
+    headR,
+    [1, 'TM9269H001', 'H', 'PN9001', 100, 9000000001, 'GLUE', 1, 1, '', '']
+  ] }
+] });
+ok('รหัส location อยู่เซลล์ถัดไปก็อ่านได้', locNext.location === '0021', locNext.location);
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
