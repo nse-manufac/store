@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-22.3">
+<meta name="app-version" content="2026-09-22.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1810,11 +1810,11 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:26vh">
             <table>
               <thead><tr><th style="width:110px">แจ้งวันที่</th><th style="width:125px">PO</th>
-                <th style="width:125px">รหัส</th><th style="width:105px">จำนวน</th>
+                <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:105px">จำนวน</th>
                 <th>ข้อความเต็ม</th><th style="width:150px"></th></tr></thead>
               <tbody><tr v-for="s in fsNoEntity" :key="s.id">
                 <td class="mono hint">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
-                <td class="mono">{{ s.code }}</td>
+                <td class="mono">{{ s.code }}</td><td class="hint">{{ catOf(s.code) || '—' }}</td>
                 <td class="mono">{{ s.qty || '—' }} {{ s.unit }}</td>
                 <td class="hint">{{ s.note }}</td>
                 <td><button class="btn" style="padding:2px 8px" :disabled="!entity"
@@ -1845,7 +1845,7 @@ textarea{font:inherit}
             <table>
               <thead><tr>
                 <th style="width:105px">แจ้งวันที่</th><th style="width:120px">PO</th>
-                <th style="width:120px">รหัส</th><th style="width:80px">ประเภท</th>
+                <th style="width:120px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:80px">ประเภท</th>
                 <th style="width:100px">ที่แจ้งมา</th><th style="width:100px">ยังค้าง</th>
                 <th style="width:150px">ETA</th><th>ข้อความเต็ม</th>
                 <th style="width:200px"></th></tr></thead>
@@ -1853,7 +1853,7 @@ textarea{font:inherit}
                 <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}">
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.po }}</td>
-                  <td class="mono">{{ r.s.code }}</td>
+                  <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td><span class="tag" :class="r.s.type==='ขาด'?'bad':'warn'">{{ r.s.type }}</span></td>
                   <td class="mono">{{ r.s.qty || '—' }} {{ r.s.unit }}</td>
                   <td class="mono">
@@ -1881,7 +1881,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fsRows.length"><td colspan="9" class="empty">
+                <tr v-if="!fsRows.length"><td colspan="10" class="empty">
                   ไม่มีเรื่องค้าง 🎉<span v-if="fsSearch"> — หรือคำค้นไม่ตรงกับอะไรเลย</span>
                   <span v-else-if="!fsShowDone"> · ที่ปิดแล้วดูได้จากช่องติ๊กด้านบน</span></td></tr>
               </tbody>
@@ -1947,13 +1947,13 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:34vh;margin-top:10px" v-if="fbNew.length">
             <table>
               <thead><tr>
-                <th style="width:105px">วันที่เสีย</th><th style="width:125px">รหัส</th>
+                <th style="width:105px">วันที่เสีย</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:95px">จำนวน</th><th style="width:140px">ล็อต</th>
                 <th style="width:150px">เพราะอะไร</th><th>หมายเหตุ</th>
                 <th style="width:140px"></th></tr></thead>
               <tbody><tr v-for="r in fbNew" :key="r.id">
                 <td class="mono hint">{{ localDate(r.at) }}</td>
-                <td class="mono">{{ r.code }}</td>
+                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono"><b>{{ r.qty }}</b></td>
                 <td class="mono hint">{{ r.lot || '—' }}</td>
                 <td>{{ reasonLabel({ kind: 'scrap', reason_code: r.reason_code }) }}</td>
@@ -1975,11 +1975,11 @@ textarea{font:inherit}
           </div>
           <div class="scroll" style="max-height:26vh">
             <table>
-              <thead><tr><th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th>
+              <thead><tr><th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องซื้อ</th><th>ติดตรงไหน</th></tr></thead>
               <tbody><tr v-for="r in fbOrphans" :key="r.id">
                 <td class="mono hint">{{ r.date }}</td>
-                <td class="mono">{{ r.code }}</td>
+                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono">{{ r.qty }} {{ r.unit }}</td>
                 <td><span class="tag warn">{{ r.why }}</span></td>
               </tr></tbody>
@@ -2002,14 +2002,14 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:44vh;margin-top:10px">
             <table>
               <thead><tr>
-                <th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th>
+                <th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องซื้อ</th><th style="width:100px">ยังค้าง</th>
                 <th style="width:125px">PO ที่สั่ง</th><th>หมายเหตุ</th>
                 <th style="width:185px"></th></tr></thead>
               <tbody>
                 <tr v-for="r in fbRows" :key="r.s.id">
                   <td class="mono hint">{{ r.s.date }}</td>
-                  <td class="mono">{{ r.s.code }}</td>
+                  <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
                   <td class="mono">
                     <b v-if="r.st==='partial'">{{ r.remain }}</b>
@@ -2029,7 +2029,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fbRows.length"><td colspan="7" class="empty">
+                <tr v-if="!fbRows.length"><td colspan="8" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!fbShowDone" class="hint">· ที่รับของแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
@@ -2091,13 +2091,13 @@ textarea{font:inherit}
               <table>
                 <thead><tr>
                   <th style="width:70px">สถานะ</th><th style="width:125px">PO</th>
-                  <th style="width:125px">รหัส</th><th style="width:70px">ชนิด</th>
+                  <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:70px">ชนิด</th>
                   <th style="width:95px">ยอดใหม่</th><th style="width:95px">ยอดเดิม</th>
                   <th style="width:95px">ปิดไปแล้ว</th><th>หมายเหตุจาก Delta</th></tr></thead>
                 <tbody>
                   <tr v-for="c in mf.showCreate" :key="'c' + c.rec.id">
                     <td><span class="tag ok">ใหม่</span></td>
-                    <td class="mono">{{ c.row.po }}</td><td class="mono">{{ c.row.code }}</td>
+                    <td class="mono">{{ c.row.po }}</td><td class="mono">{{ c.row.code }}</td><td class="hint">{{ catOf(c.row.code) || '—' }}</td>
                     <td>{{ c.row.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
                     <td class="mono"><b>{{ c.row.qty }}</b></td>
                     <td class="hint">—</td><td class="hint">—</td>
@@ -2105,7 +2105,7 @@ textarea{font:inherit}
                   </tr>
                   <tr v-for="u in mf.showUpdate" :key="'u' + u.rec.id">
                     <td><span class="tag warn">อัปเดต</span></td>
-                    <td class="mono">{{ u.row.po }}</td><td class="mono">{{ u.row.code }}</td>
+                    <td class="mono">{{ u.row.po }}</td><td class="mono">{{ u.row.code }}</td><td class="hint">{{ catOf(u.row.code) || '—' }}</td>
                     <td>{{ u.row.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
                     <td class="mono"><b>{{ u.rec.qty }}</b></td>
                     <td class="mono hint">{{ u.cur.qty }}</td>
@@ -2123,11 +2123,11 @@ textarea{font:inherit}
                 หรือ Delta ตัดออกเพราะจบแล้ว ดูแล้วปิดเองทีละเรื่องที่แท็บ short รอส่ง</span>
               <div class="scroll" style="max-height:20vh;margin-top:8px">
                 <table>
-                  <thead><tr><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
+                  <thead><tr><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                     <th style="width:70px">ชนิด</th><th style="width:95px">ยังค้าง</th>
                     <th style="width:90px">มาจาก</th></tr></thead>
                   <tbody><tr v-for="g in mf.showGone" :key="g.cur.id">
-                    <td class="mono">{{ g.cur.po }}</td><td class="mono">{{ g.cur.code }}</td>
+                    <td class="mono">{{ g.cur.po }}</td><td class="mono">{{ g.cur.code }}</td><td class="hint">{{ catOf(g.cur.code) || '—' }}</td>
                     <td>{{ g.cur.kind === 'short' ? 'ขาด' : 'เกิน' }}</td>
                     <td class="mono">{{ g.remain }}</td>
                     <td class="hint">{{ g.source === 'delta' ? 'ไฟล์ของ Delta' : g.source }}</td>
@@ -2182,14 +2182,14 @@ textarea{font:inherit}
             <table>
               <thead><tr>
                 <th style="width:125px">PO</th><th style="width:80px">P/N</th>
-                <th style="width:125px">รหัส</th><th style="width:95px">สั่ง</th>
+                <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:95px">สั่ง</th>
                 <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
                 <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
                 <th style="width:130px"></th></tr></thead>
               <tbody><tr v-for="r in foNew" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td>
                 <td class="mono hint">{{ r.pn }}</td>
-                <td class="mono">{{ r.code }}</td>
+                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono hint">{{ r.order }}</td>
                 <td class="mono hint">{{ r.bom_qty }}</td>
                 <td class="mono">{{ r.recv }}</td>
@@ -2221,7 +2221,7 @@ textarea{font:inherit}
             <table>
               <thead><tr>
                 <th style="width:105px">ตั้งวันที่</th><th style="width:125px">PO</th>
-                <th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
+                <th style="width:80px">P/N</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องคืน</th><th style="width:100px">ยังค้าง</th>
                 <th>ยอดที่แช่แข็งไว้ตอนตั้งเรื่อง</th>
                 <th style="width:185px"></th></tr></thead>
@@ -2230,7 +2230,7 @@ textarea{font:inherit}
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.po }}</td>
                   <td class="mono hint">{{ r.s.part_no }}</td>
-                  <td class="mono">{{ r.s.code }}</td>
+                  <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
                   <td class="mono">
                     <b v-if="r.st==='partial'">{{ r.remain }}</b>
@@ -2251,7 +2251,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!foRows.length"><td colspan="8" class="empty">
+                <tr v-if="!foRows.length"><td colspan="9" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!foShowDone" class="hint">· ที่คืนแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
@@ -2275,12 +2275,12 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:30vh">
             <table>
               <thead><tr><th style="width:125px">PO</th><th style="width:80px">P/N</th>
-                <th style="width:125px">รหัส</th><th style="width:110px">รับมาแล้ว</th>
+                <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:110px">รับมาแล้ว</th>
                 <th>ติดตรงไหน</th></tr></thead>
               <tbody><tr v-for="r in foBlocked" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td>
                 <td class="mono hint">{{ r.pn || '—' }}</td>
-                <td class="mono">{{ r.code }}</td>
+                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono">{{ r.recv }}</td>
                 <td><span class="tag warn">{{ r.why }}</span></td>
               </tr></tbody>
