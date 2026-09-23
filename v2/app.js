@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -776,9 +776,11 @@ createApp({
     const bomPnCodes = computed(() => [...new Set(bom.value.map(r => r.pn))].sort());
 
     function blankLine(code = '') {
+      // ⚠️ po / pn / entity อยู่รายบรรทัด เพราะไฟล์ Kit List ใบเดียวมีหลาย PO ปนกัน
+      // ทางคีย์เองยังใช้ค่าบนหัวจอเหมือนเดิม (เติมให้ตอนสร้างบรรทัด)
       return { k: 'L' + (++lineSeq), code, desc: '', unit: '', reqmt: null, issued: null,
                qty: null, lot: '', expiry: '', needExp: false, known: false,
-               recv: 0, recvInfo: '' };
+               recv: 0, recvInfo: '', po: '', pn: '', entity: '', entityFrom: '' };
     }
     function fillLine(l) {
       const m = matOf(l.code);
@@ -948,12 +950,96 @@ createApp({
       expandOut();
     }
 
+    /**
+     * ดึงไฟล์ Kit List (22-H) ทั้งใบลงหน้านี้ — Delta เข้าตรวจแล้วสั่งให้เลิกคีย์มือ
+     * (เจ้าของแจ้ง 23 ก.ย. 2026) · ไฟล์ใบเดียวมีหลาย PO จึงกางลงตารางเดียวพร้อม PO รายบรรทัด
+     *
+     * ⚠️ ยอดรับจริงตั้งให้เท่ากับที่ Delta จ่ายมา แต่ต้องแก้ทับได้เสมอ
+     * ส่วนต่างระหว่างที่นับได้กับที่ Delta แจ้ง คือของที่ระบบของขาด/ของเกินยืนอยู่บนนั้น
+     */
+    const inFile = ref('');          // ชื่อไฟล์ที่กางอยู่ — ว่าง = ทางคีย์เอง
+    const inBusy = ref(false);
+    const inManual = ref(false);     // เปิดทางคีย์เอง (ซ่อนไว้ตามที่ Delta สั่ง)
+    const inFileMsg = ref('');
+    const inFileTone = ref('ok');
+
+    async function onInFile(e) {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      inBusy.value = true; inFileMsg.value = ''; inFileTone.value = 'ok';
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+        const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],
+                                             { header: 1, defval: null, blankrows: true });
+        // ⚠️ ไฟล์กลุ่มจ่ายรวมหน้าตาใกล้กันมาก ต้องเด้งไปแท็บที่ถูก ไม่ใช่อ่านมั่ว
+        const chem = parseKitChem({ sheets: wb.SheetNames.map(n => ({ name: n, hidden: false,
+          aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true }) })) });
+        if (chem.rows.length) {
+          throw new Error('ไฟล์นี้เป็น Kit List กลุ่มจ่ายรวม — นำเข้าที่แท็บ "รับเข้ารวมรายรอบ" แทน');
+        }
+        const kit = parseKitList(aoa);
+        if (!kit.rows.length) throw new Error('ไม่เจอบรรทัด Kit List ในไฟล์นี้');
+
+        const plan = kitReceivePlan(kit.rows, { poList: pos.value });
+        const recvOf = new Map();
+        for (const g of plan.groups) {
+          recvOf.set(g.po, entity.value
+            ? receivedOfDoc(entries.value, entity.value, g.po) : new Map());
+        }
+        inLines.value = plan.lines.map(x => {
+          const l = blankLine(x.code);
+          l.po = x.po; l.pn = x.pn;
+          l.issued = x.issued; l.qty = x.qty;
+          fillLine(l);
+          if (!l.known) { l.desc = x.desc; l.unit = x.unit; }
+          // ยอดตามสูตรคิดจาก P/N กับจำนวนสั่งของ PO บรรทัดนั้น ไม่ใช่ของหัวจอ
+          const h = poHeader(pos.value, x.po);
+          l.reqmt = reqmtOf(activeBomRowsOf(bom.value, x.pn || (h && h.pn) || ''),
+                            l.code, h && h.order);
+          const r = resolveEntity(x.po, { current: entity.value, known: entCodes.value });
+          l.entity = r.code; l.entityFrom = r.from;
+          const rec = recvOf.get(x.po);
+          const hit = rec && rec.get(String(l.code));
+          l.recv = hit ? hit.qty : 0;
+          l.recvInfo = hit ? recvInfoOf(hit) : '';
+          return l;
+        });
+        inFile.value = file.name;
+        inShownPo = '';
+        bomHint.value = '';
+        const dup = inLines.value.filter(l => l.recv).length;
+        inFileMsg.value = file.name + ' · ' + plan.lines.length + ' บรรทัด · '
+          + plan.groups.length + ' PO'
+          + (kit.docDate ? ' · เอกสารวันที่ ' + kit.docDate : ' · ไฟล์ไม่ได้บอกวันที่')
+          + (plan.noPo.length ? ' · ' + plan.noPo.length + ' PO ยังไม่มีในรายการ PO' : '')
+          + (dup ? ' · ⚠️ ' + dup + ' บรรทัดเคยคีย์รับเข้ากับ PO เดิมไปแล้ว' : '');
+        if (dup || plan.noPo.length) inFileTone.value = 'warn';
+        flash('กางจากไฟล์ ' + plan.lines.length + ' บรรทัด — ตรวจยอดแล้วกดบันทึกได้เลย');
+      } catch (err) {
+        inFileMsg.value = err.message; inFileTone.value = 'bad';
+        flash(err.message, true);
+      } finally { inBusy.value = false; }
+    }
+
     const inReady = computed(() => inLines.value.filter(l => l.code && Number(l.qty) > 0));
+    /** PO ที่จะถูกบันทึกในรอบนี้ — ใบเดียวมีได้หลาย PO เมื่อกางจากไฟล์ */
+    const inPos = computed(() => [...new Set(inReady.value.map(l => l.po || inH.po).filter(Boolean))]);
     const inNoLot = computed(() => inReady.value.filter(l => !l.lot));
 
     async function saveIn() {
       if (!inH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
-      if (!inH.po) { flash('ยังไม่ได้ใส่เลข PO', true); return; }
+      // ⚠️ PO อยู่รายบรรทัดเมื่อกางจากไฟล์ · ทางคีย์เองใช้ของหัวจอเหมือนเดิม
+      const noPo = inReady.value.filter(l => !(l.po || inH.po));
+      if (noPo.length) { flash(`มี ${noPo.length} บรรทัดที่ยังไม่รู้ว่าเป็นของ PO ไหน`, true); return; }
+      // นิติบุคคลรายบรรทัด — ไฟล์ใบเดียวมีของสองโรงงานปนกันได้ (A3 เหมือนหน้ารับเข้ารวมรายรอบ)
+      const others = [...new Set(inReady.value.map(l => l.entity).filter(e => e && e !== entity.value))];
+      if (others.length && !confirm(
+        [`ใบนี้มีบรรทัดของ ${others.join(' · ')} ซึ่งไม่ใช่ ${entity.value} ที่เลือกอยู่`,
+         'แต่ละบรรทัดจะถูกบันทึกเข้านิติบุคคลของตัวเอง ยอดไม่ปนกัน',
+         'ผลคือบรรทัดพวกนั้นจะไม่โผล่ในหน้ายอดคงคลังของ ' + entity.value,
+         '', 'บันทึกต่อไหม'].join('\n'))) return;
       const bad = inReady.value.filter(l => l.needExp && !l.expiry);
       if (bad.length) { flash(`ต้องกรอกวันหมดอายุอีก ${bad.length} รายการ`, true); return; }
       const noLot = inNoLot.value.length;
@@ -961,8 +1047,11 @@ createApp({
         + 'ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป\n\nบันทึกต่อไหม')) return;
       try {
         const posted = inReady.value.map(l => makeEntry({
-          entity: entity.value, kind: 'receive', material_code: l.code, qty: Number(l.qty),
-          lot: l.lot || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: inH.po, part_no: inH.pn,
+          // ⚠️ ใช้นิติบุคคลกับ PO ของบรรทัดนั้นก่อนเสมอ ค่อยตกมาที่หัวจอ
+          // ไฟล์ใบเดียวมีหลาย PO และมีสองโรงงานปนกันได้ ถ้าเขียนเป็นตัวเดียวกันหมด
+          // ยอดจะข้ามโรงงานและผูกผิดใบโดยไม่มีอะไรเตือน
+          entity: l.entity || entity.value, kind: 'receive', material_code: l.code, qty: Number(l.qty),
+          lot: l.lot || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: l.po || inH.po, part_no: l.pn || inH.pn,
           at: atFrom(inH.date),
           person: inH.person, device: device.value,
           expiry_date: l.expiry || '', reqmt_qty: l.reqmt, issued_qty: l.issued
@@ -972,9 +1061,19 @@ createApp({
         db.announce('entries');
         // ข้อความเดียวจบ — linkBuy ไม่ flash เอง ไม่งั้นจะทับยืนยันว่าบันทึกไปกี่รายการ
         const extra = await linkBuy(posted);   // ปิดเรื่องซื้อทดแทนที่กด "ไปรับของ" ไว้ (ใบ 7)
-        flash([`บันทึกรับเข้า ${posted.length} รายการ · PO ${inH.po}`, ...extra].join(' · '));
-        inLines.value = []; bomHint.value = ''; inH.po = ''; inH.pn = ''; inH.order = null;
-        inShownPo = '';   // บันทึกแล้วจอว่าง ไม่มีบรรทัดของใบไหนเหลือ — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนใส่ PO ใหม่
+        const where = inPos.value.length > 1 ? `${inPos.value.length} PO` : `PO ${inPos.value[0] || ''}`;
+        flash([`บันทึกรับเข้า ${posted.length} รายการ · ${where}`, ...extra].join(' · '));
+        if (inFile.value) {
+          // ⚠️ กางจากไฟล์ = ของอาจทยอยมา (เจ้าของ 23 ก.ย. 2026 "แล้วแต่รอบ ไม่แน่นอน")
+          // บรรทัดที่ยังไม่ได้รับต้องคาไว้บนจอ ไม่ใช่ล้างทั้งใบแล้วให้ไปอัปโหลดไฟล์ใหม่
+          const done = new Set(inReady.value.map(l => l.k));
+          inLines.value = inLines.value.filter(l => !done.has(l.k));
+          if (!inLines.value.length) { inFile.value = ''; inFileMsg.value = ''; }
+          else inFileMsg.value = 'เหลือบรรทัดที่ยังไม่ได้รับ ' + inLines.value.length + ' บรรทัด';
+        } else {
+          inLines.value = []; bomHint.value = ''; inH.po = ''; inH.pn = ''; inH.order = null;
+          inShownPo = '';   // บันทึกแล้วจอว่าง ไม่มีบรรทัดของใบไหนเหลือ — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนใส่ PO ใหม่
+        }
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2894,7 +2993,10 @@ createApp({
     // เดิมเขียนไว้ในเทมเพลตตรง ๆ ซึ่งแตะตัวแปรที่จำเลข PO ไม่ได้
     // จำนวนสั่งของหน้าจ่ายออกต้องหายไปพร้อมใบด้วย (ผู้ตรวจรอบสองของ #81) — ไม่มีใครเติมค่านี้ให้แล้ว
     // ถ้าค้างไว้ ยอด "ตามสูตร" ของใบถัดไป (หรือของแถวที่กด "ไปเบิก" จากหน้าการ์ด) จะคิดจากจำนวนสั่งของใบเมื่อกี้
-    function clearIn() { inLines.value = []; bomHint.value = ''; inShownPo = ''; }
+    function clearIn() {
+      inLines.value = []; bomHint.value = ''; inShownPo = '';
+      inFile.value = ''; inFileMsg.value = '';
+    }
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
@@ -2914,7 +3016,7 @@ createApp({
              csRows, csFilled, csPlanRows, csSum,
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
-             inH, inLines, bomHint, bomPnCodes, inReady, inNoLot,
+             inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
