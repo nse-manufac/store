@@ -352,6 +352,49 @@ export const kitsOfPo = (kits, po) =>
   kits.filter(k => k.po === String(po || '').trim() && !isChemKit(k));
 
 /**
+ * บรรทัดรับเข้าจากไฟล์ Kit List (22-H) ทั้งใบ — หลาย PO ในตารางเดียว
+ *
+ * ⚠️ Delta เข้าตรวจแล้วสั่งให้เลิกคีย์มือ เปลี่ยนเป็นดึงจากไฟล์ (เจ้าของแจ้ง 23 ก.ย. 2026)
+ * ทางคีย์เองยังอยู่ แต่ต้องกดเปิดก่อน — ไฟล์ยังมาไม่ถึงแต่ของมาแล้วต้องลงสมุดได้
+ * ไม่งั้นพนักงานจะไปจดใส่กระดาษ ซึ่งแย่กว่ายอดที่ต้องมาตามแก้
+ *
+ * ยอด "รับจริง" ตั้งไว้ให้เท่ากับที่ Delta จ่ายมา **แก้ทับได้ถ้านับไม่ตรง** (เจ้าของเคาะ 23 ก.ย. 2026)
+ * ส่วนต่างระหว่างที่นับกับที่ Delta แจ้ง คือของที่ระบบของขาด/ของเกินทั้งหมดยืนอยู่บนนั้น
+ * ถ้าวันไหนเปลี่ยนเป็นใช้เลขในไฟล์ห้ามแก้ ระบบนั้นจะจับอะไรไม่ได้อีกเลย
+ *
+ * ⚠️ ไม่เดาว่าของมาถึงหรือยัง — เจ้าของบอกว่า "แล้วแต่รอบ ไม่แน่นอน" บางรอบมาพร้อมกันทั้งใบ
+ * บางรอบทยอยมาทีละ PO · ที่นี่กางให้ครบทั้งไฟล์ แล้วให้หน้าจอกับคนตัดสินว่าบรรทัดไหนรับจริง
+ */
+export function kitReceivePlan(rows = [], { poList = [] } = {}) {
+  const have = new Set((poList || []).map(p => String(p.po || '').trim()));
+  const byPo = new Map();
+  for (const r of rows || []) {
+    if (!r || !r.po || !r.code) continue;
+    const po = String(r.po).trim();
+    const g = byPo.get(po) || { po, pn: '', lines: [], inList: have.has(po) };
+    if (!g.pn && r.pn) g.pn = String(r.pn);
+    g.lines.push({
+      po, pn: r.pn ? String(r.pn) : '', code: codeOf(r.code),
+      desc: String(r.desc == null ? '' : r.desc).trim(),
+      unit: String(r.unit == null ? '' : r.unit).trim(),
+      issued: numOf(r.issue),
+      qty: numOf(r.issue)            // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
+    });
+    byPo.set(po, g);
+  }
+  const groups = [...byPo.values()];
+  const lines = [];
+  for (const g of groups) lines.push(...g.lines);
+  return {
+    groups, lines,
+    pos: groups.map(g => g.po),
+    // PO ที่ไม่มีในรายการ PO ที่นำเข้าไว้ — บอกไว้ ไม่ใช่ห้ามรับเข้า (A4)
+    noPo: groups.filter(g => !g.inList).map(g => g.po),
+    date: (rows || []).map(r => r && r.date).find(Boolean) || ''
+  };
+}
+
+/**
  * แถวนี้มาจากไฟล์กลุ่มจ่ายรวมไหม — ของที่มาจริง ('chem') หรือของที่ตัดจากยอด over ('chemover')
  *
  * ⚠️ มีตัวกลางตัวเดียวเพราะเดิมโค้ดเทียบ src === 'chem' ตรง ๆ อยู่สี่จุด
