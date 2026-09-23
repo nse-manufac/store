@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -32,6 +32,20 @@ ok('ETA ภาษาอังกฤษ', parseEnDate('ETA 29 July 2026') === '20
 // ฐานของ Excel คือ 30 ธ.ค. 1899 ไม่ใช่ 1 ม.ค. 1900 — พลาดตรงนี้วันที่จะเพี้ยนสองวัน
 ok('วันที่แบบ serial ของ Excel', excelDate(46231) === '2026-07-28', excelDate(46231));
 ok('ค่าที่ไม่ใช่วันที่ไม่ถูกเดามั่ว', excelDate(5) === '' && excelDate('abc') === '');
+// ⚠️ เปิดไฟล์ด้วย cellDates:true เซลล์วันที่จะมาเป็น Date ไม่ใช่เลข serial
+// เคยคืนค่าว่างเงียบ ๆ = วันที่ของทั้งไฟล์หายโดยไม่มีอะไรฟ้อง (เจอตอนลองไฟล์ 22-H จริง)
+ok('เซลล์วันที่ที่มาเป็น Date ก็อ่านได้ ไม่ใช่เงียบ',
+   excelDate(new Date(2026, 6, 22)) === '2026-07-22', excelDate(new Date(2026, 6, 22)));
+ok('Date ที่ไม่ถูกต้องยังตอบว่าง', excelDate(new Date('ไม่ใช่วันที่')) === '');
+// ⚠️ ของจริงไม่ได้มาตรงเที่ยงคืน — เซลล์ที่พิมพ์ว่า 29/7 คืนมาเป็น 28/7 เวลา 23:59:56
+// เทสที่ใช้เที่ยงคืนพอดีจับข้อนี้ไม่ได้ ต้องใส่เศษเวลาถึงจะเห็นว่าทั้งไฟล์เลื่อนไปหนึ่งวัน
+ok('Date ที่มีเศษเวลาไม่ทำให้วันเลื่อน',
+   excelDate(new Date(2026, 6, 28, 23, 59, 56)) === '2026-07-29',
+   excelDate(new Date(2026, 6, 28, 23, 59, 56)));
+// อีกทิศ — เศษเวลาที่เกินเที่ยงคืนมานิดเดียวต้องไม่ถูกปัดขึ้นเป็นวันถัดไป
+ok('Date ที่เกินเที่ยงคืนมาเล็กน้อยยังอยู่วันเดิม',
+   excelDate(new Date(2026, 6, 29, 0, 0, 4)) === '2026-07-29',
+   excelDate(new Date(2026, 6, 29, 0, 0, 4)));
 
 console.log('\n=== B. PO รายวัน ===');
 const poAoa = [
@@ -622,6 +636,42 @@ ok('ข้อความบนหน้านำเข้าบอกว่า�
 // ของเก่าที่เคยนำเข้าไว้ยังต้องไม่โผล่ในหน้าคีย์รับเข้าปกติเหมือนเดิม
 ok('แถวกลุ่มจ่ายรวมที่เก็บไว้แล้ว ยังถูกกันออกจากหน้ารับเข้าปกติ',
    kitsOfPo([{ po: 'PO-9001', src: 'chem' }, { po: 'PO-9001', src: '' }], 'PO-9001').length === 1);
+
+
+console.log('\n=== N. กางไฟล์ Kit List ทั้งใบลงหน้ารับเข้า (Delta สั่ง 23 ก.ย. 2026) ===');
+// Delta เข้าตรวจแล้วสั่งให้เลิกคีย์มือ เปลี่ยนเป็นดึงจากไฟล์ — ไฟล์ใบเดียวมีหลาย PO
+const kitRows = [
+  { po: 'TM9269H001', pn: 'PN1', code: 9000000001, desc: 'GLUE', unit: 'KGM', issue: 1.5, date: '2026-09-23' },
+  { po: 'TM9269H001', pn: 'PN1', code: 9000000002, desc: 'TUBE', unit: 'MTR', issue: 2,   date: '2026-09-23' },
+  { po: 'TM9269H002', pn: 'PN2', code: 9000000001, desc: 'GLUE', unit: 'KGM', issue: 0.5, date: '2026-09-23' },
+  { po: 'TM9269H003', pn: 'PN3', code: 9000000003, desc: 'INK',  unit: 'PCE', issue: null, date: '2026-09-23' }
+];
+const kp = kitReceivePlan(kitRows, { poList: [{ po: 'TM9269H001' }, { po: 'TM9269H002' }] });
+
+ok('จัดกลุ่มตาม PO ให้', kp.groups.length === 3 && kp.groups[0].lines.length === 2,
+   JSON.stringify(kp.groups.map(g => g.po + ':' + g.lines.length)));
+ok('กางครบทุกบรรทัดของไฟล์', kp.lines.length === 4, String(kp.lines.length));
+ok('เรียงตามลำดับที่อยู่ในไฟล์ ไม่สลับให้', kp.pos.join(',') === 'TM9269H001,TM9269H002,TM9269H003');
+ok('เก็บ P/N ของแต่ละ PO ไว้ด้วย', kp.groups[0].pn === 'PN1' && kp.groups[2].pn === 'PN3');
+// ยอดรับจริงตั้งจากไฟล์ แก้ทับได้ (เจ้าของเคาะ 23 ก.ย. 2026 หลัง Delta เข้าตรวจ)
+ok('ตั้งยอดรับจริงให้เท่ากับที่ Delta จ่ายมา',
+   kp.lines[0].qty === 1.5 && kp.lines[0].issued === 1.5);
+ok('บรรทัดที่ไฟล์ไม่ได้บอกยอด ต้องว่าง ไม่ใช่ศูนย์',
+   kp.lines[3].qty === null && kp.lines[3].issued === null);
+// ⚠️ PO ที่ยังไม่มีในรายการ ต้องบอก ไม่ใช่ห้ามรับเข้า (A4)
+ok('บอก PO ที่ยังไม่มีในรายการ PO ที่นำเข้าไว้',
+   kp.noPo.join(',') === 'TM9269H003', JSON.stringify(kp.noPo));
+ok('PO ที่มีในรายการแล้ว ไม่ถูกฟ้อง', kp.groups[0].inList === true && kp.groups[2].inList === false);
+ok('รหัสอ่านเป็นข้อความเสมอ ไม่ใช่ตัวเลข', kp.lines.every(l => typeof l.code === 'string'));
+ok('เอาวันที่ของไฟล์มาด้วย', kp.date === '2026-09-23');
+ok('ไฟล์เปล่าไม่พัง',
+   kitReceivePlan([]).lines.length === 0 && kitReceivePlan(null).groups.length === 0
+   && kitReceivePlan([{ po: '', code: '' }]).lines.length === 0);
+// ต่อท่อจริงจากตัวอ่านไฟล์ 22-H ที่มีอยู่แล้ว ไม่ใช่รูปข้อมูลที่ประกอบเอง
+const fromFile = kitReceivePlan(kit.rows, { poList: [] });
+ok('ต่อจากตัวอ่านไฟล์ 22-H ได้ตรง ๆ',
+   fromFile.lines.length === kit.rows.length && fromFile.groups.length === 2,
+   fromFile.lines.length + ' / ' + fromFile.groups.length);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
