@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-23.2">
+<meta name="app-version" content="2026-09-24.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -940,6 +940,32 @@ textarea{font:inherit}
           <p style="margin:8px 0 0" v-if="buyWaits.length">
             <button class="btn" @click="cancelBuyWaits">ไม่รับของแล้ว — เลิกรอผูกเรื่องซื้อทดแทน</button>
             <span class="hint" style="margin-left:8px">รอผูกอยู่ {{ buyWaits.length }} เรื่อง</span></p>
+        </div>
+
+        <!-- ของมาไม่ครบ — สลับทั้งใบ · โผล่เฉพาะตอนกางจากไฟล์ เพราะทางคีย์เองมีใบเดียวอยู่แล้ว -->
+        <div class="card" v-if="inFile && inPoSum.length > 1">
+          <div class="row">
+            <b>รอบนี้ของมาถึง PO ไหนบ้าง</b>
+            <span class="hint">
+              มาแล้ว {{ inPoSum.filter(g => g.state === 'all').length }} ·
+              บางส่วน {{ inPoSum.filter(g => g.state === 'some').length }} ·
+              ยังไม่มา {{ inPoSum.filter(g => g.state === 'none').length }} จาก {{ inPoSum.length }} PO</span>
+            <div class="grow"></div>
+            <button class="btn" @click="inAllPo(true)">มาครบทุก PO</button>
+            <button class="btn" @click="inAllPo(false)">ยังไม่มาสักใบ</button>
+          </div>
+          <p class="hint" style="margin:6px 0 8px">
+            กดที่เลข PO เพื่อสลับ — <b>ยังไม่มา</b> = ล้างยอดทั้งใบ ไม่ถูกบันทึก ·
+            <b>มาแล้ว</b> = เติมยอดตามไฟล์ทั้งใบ (ทับยอดที่แก้ไว้ในใบนั้น)
+          </p>
+          <div class="row" style="gap:6px;flex-wrap:wrap">
+            <button v-for="g in inPoSum" :key="g.po" class="btn mono"
+                    :class="g.state === 'all' ? 'primary' : ''"
+                    :style="g.state === 'some' ? 'border-color:var(--warn)' : g.state === 'none' ? 'opacity:.55' : ''"
+                    :title="g.state === 'none' ? 'ยังไม่มา — กดเพื่อเติมยอดตามไฟล์' : 'กดเพื่อล้างยอดทั้งใบ (ยังไม่มา)'"
+                    @click="inTogglePo(g)">
+              {{ g.po }} <span class="hint">{{ g.filled }}/{{ g.lines }}</span></button>
+          </div>
         </div>
 
         <div class="card" v-if="inLines.length">

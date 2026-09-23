@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -1032,6 +1032,21 @@ createApp({
     const inReady = computed(() => inLines.value.filter(l => l.code && Number(l.qty) > 0));
     /** PO ที่จะถูกบันทึกในรอบนี้ — ใบเดียวมีได้หลาย PO เมื่อกางจากไฟล์ */
     const inPos = computed(() => [...new Set(inReady.value.map(l => l.po || inH.po).filter(Boolean))]);
+
+    /**
+     * ของมาไม่ครบ — สลับทั้งใบในทีเดียว (เจ้าของ 23 ก.ย. 2026 "แล้วแต่รอบ ไม่แน่นอน")
+     * ไฟล์จริง 238 บรรทัด 33 PO ถ้ารอบนั้นมาแค่สิบใบ ไม่มีปุ่มนี้ต้องไล่ล้างยอดร้อยกว่าช่อง
+     * ซึ่งคือการคีย์มือที่ Delta สั่งให้เลิกในอีกรูปหนึ่ง · กฎอยู่ใน master/po-kit.js
+     */
+    const inPoSum = computed(() => kitPoSummary(inLines.value, { headerPo: inH.po }));
+    function inTogglePo(g) {
+      // มียอดอยู่ (ครบหรือบางส่วน) → ล้าง · ว่างทั้งใบ → เติมตามไฟล์
+      // บางส่วนเลือกล้าง เพราะพลาดแล้วไม่มีอะไรถูกบันทึกเกิน แค่ต้องกดเติมกลับ
+      setPoArrived(inLines.value, g.po, g.state === 'none', { headerPo: inH.po });
+    }
+    function inAllPo(arrived) {
+      for (const g of inPoSum.value) setPoArrived(inLines.value, g.po, arrived, { headerPo: inH.po });
+    }
     const inNoLot = computed(() => inReady.value.filter(l => !l.lot));
 
     async function saveIn() {
@@ -3030,7 +3045,8 @@ createApp({
              csRows, csFilled, csPlanRows, csSum,
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
-             inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos, bomPnCodes, inReady, inNoLot,
+             inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,
+             inPoSum, inTogglePo, inAllPo, bomPnCodes, inReady, inNoLot,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,

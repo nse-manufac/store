@@ -433,6 +433,51 @@ export function kitReceiveByPo(groups = [], entries = [], { current = '', known 
 }
 
 /**
+ * สถานะรายใบของบรรทัดที่กางจากไฟล์ — ใบไหนมาแล้ว (มียอดครบ) ใบไหนยังไม่มา (ว่างทั้งใบ)
+ *
+ * ⚠️ มีเพราะเจ้าของบอกว่าของ "แล้วแต่รอบ ไม่แน่นอน" (23 ก.ย. 2026)
+ * ไฟล์จริงใบหนึ่ง 238 บรรทัด 33 PO ถ้ารอบนั้นมาแค่สิบใบ พนักงานต้องไล่ล้างยอด
+ * ร้อยกว่าบรรทัดทีละช่อง ซึ่งคือการคีย์มือที่ Delta สั่งให้เลิก ในอีกรูปหนึ่ง
+ *
+ * เรียงตามลำดับที่บรรทัดอยู่ ไม่สลับให้ · headerPo = เลข PO บนหัวจอ (ทางคีย์เอง)
+ */
+export function kitPoSummary(lines = [], { headerPo = '' } = {}) {
+  const byPo = new Map();
+  for (const l of lines || []) {
+    if (!l) continue;
+    const po = String(l.po || headerPo || '').trim();
+    if (!po) continue;
+    const g = byPo.get(po) || { po, lines: 0, filled: 0 };
+    g.lines++;
+    if (Number(l.qty) > 0) g.filled++;
+    byPo.set(po, g);
+  }
+  return [...byPo.values()].map(g => ({
+    ...g, state: g.filled === 0 ? 'none' : g.filled === g.lines ? 'all' : 'some'
+  }));
+}
+
+/**
+ * สลับทั้งใบ — มาแล้ว = เติมยอดรับจริงตามที่ไฟล์บอก · ยังไม่มา = ล้างยอดทิ้ง (ไม่ถูกบันทึก)
+ * คืนจำนวนบรรทัดที่เปลี่ยน · แก้บรรทัดเดิมในที่ เพราะหน้าจอผูกกับอ็อบเจกต์ตัวนั้นอยู่
+ *
+ * ⚠️ ล้าง = ค่าว่าง ไม่ใช่ศูนย์ — บรรทัดที่ว่างไม่ถูกบันทึก แต่บรรทัดที่เป็นศูนย์
+ *    จะถูกอ่านว่า "มาแล้วแต่ได้ศูนย์" ซึ่งเป็นคนละเรื่องกันเลย
+ * ⚠️ เติมทับยอดที่พนักงานแก้ไว้ในใบนั้น — สลับทั้งใบคือ "กลับไปตามไฟล์" โดยตั้งใจ
+ *    หน้าจอต้องบอกไว้ให้เห็นก่อนกด
+ */
+export function setPoArrived(lines = [], po, arrived, { headerPo = '' } = {}) {
+  const want = String(po || '').trim();
+  let n = 0;
+  for (const l of lines || []) {
+    if (!l || String(l.po || headerPo || '').trim() !== want) continue;
+    const next = arrived ? (l.issued === undefined ? null : l.issued) : null;
+    if (l.qty !== next) { l.qty = next; n++; }
+  }
+  return n;
+}
+
+/**
  * แถวนี้มาจากไฟล์กลุ่มจ่ายรวมไหม — ของที่มาจริง ('chem') หรือของที่ตัดจากยอด over ('chemover')
  *
  * ⚠️ มีตัวกลางตัวเดียวเพราะเดิมโค้ดเทียบ src === 'chem' ตรง ๆ อยู่สี่จุด
