@@ -964,7 +964,7 @@ textarea{font:inherit}
                     :style="g.state === 'some' ? 'border-color:var(--warn)' : g.state === 'none' ? 'opacity:.55' : ''"
                     :title="g.state === 'none' ? 'ยังไม่มา — กดเพื่อเติมยอดตามไฟล์' : 'กดเพื่อล้างยอดทั้งใบ (ยังไม่มา)'"
                     @click="inTogglePo(g)">
-              {{ g.po }} <span class="hint">{{ g.filled }}/{{ g.lines }}</span></button>
+              {{ g.po }} <span class="hint" :style="g.state === 'all' ? 'color:inherit' : ''">{{ g.filled }}/{{ g.lines }}</span></button>
           </div>
         </div>
 

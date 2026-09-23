@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -1040,9 +1040,7 @@ createApp({
      */
     const inPoSum = computed(() => kitPoSummary(inLines.value, { headerPo: inH.po }));
     function inTogglePo(g) {
-      // มียอดอยู่ (ครบหรือบางส่วน) → ล้าง · ว่างทั้งใบ → เติมตามไฟล์
-      // บางส่วนเลือกล้าง เพราะพลาดแล้วไม่มีอะไรถูกบันทึกเกิน แค่ต้องกดเติมกลับ
-      setPoArrived(inLines.value, g.po, g.state === 'none', { headerPo: inH.po });
+      setPoArrived(inLines.value, g.po, nextArrived(g), { headerPo: inH.po });
     }
     function inAllPo(arrived) {
       for (const g of inPoSum.value) setPoArrived(inLines.value, g.po, arrived, { headerPo: inH.po });

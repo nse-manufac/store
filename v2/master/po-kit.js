@@ -440,11 +440,18 @@ export function kitReceiveByPo(groups = [], entries = [], { current = '', known 
  * ร้อยกว่าบรรทัดทีละช่อง ซึ่งคือการคีย์มือที่ Delta สั่งให้เลิก ในอีกรูปหนึ่ง
  *
  * เรียงตามลำดับที่บรรทัดอยู่ ไม่สลับให้ · headerPo = เลข PO บนหัวจอ (ทางคีย์เอง)
+ *
+ * ⚠️ นับและสลับเฉพาะบรรทัดที่ไฟล์บอกยอดมามากกว่าศูนย์ (fromFile) — รีวิว #105
+ * บรรทัดที่ไม่มียอดจากไฟล์ (ซื้อทดแทนจากปุ่ม "ไปรับของ" · ช่อง issue ว่าง · Delta จ่ายศูนย์)
+ * ถ้านับด้วย ชิปจะขึ้น "บางส่วน" ตั้งแต่ยังไม่มีใครแตะ และปุ่ม "ยังไม่มา" จะล้างยอด
+ * ที่พนักงานคีย์เองทิ้ง โดยกดชิปเอากลับไม่ได้ เพราะไฟล์ไม่มีเลขให้เติมคืน
  */
+const fromFile = l => !!l && Number(l.issued) > 0;
+
 export function kitPoSummary(lines = [], { headerPo = '' } = {}) {
   const byPo = new Map();
   for (const l of lines || []) {
-    if (!l) continue;
+    if (!fromFile(l)) continue;
     const po = String(l.po || headerPo || '').trim();
     if (!po) continue;
     const g = byPo.get(po) || { po, lines: 0, filled: 0 };
@@ -470,12 +477,18 @@ export function setPoArrived(lines = [], po, arrived, { headerPo = '' } = {}) {
   const want = String(po || '').trim();
   let n = 0;
   for (const l of lines || []) {
-    if (!l || String(l.po || headerPo || '').trim() !== want) continue;
-    const next = arrived ? (l.issued === undefined ? null : l.issued) : null;
+    if (!fromFile(l) || String(l.po || headerPo || '').trim() !== want) continue;
+    const next = arrived ? l.issued : null;
     if (l.qty !== next) { l.qty = next; n++; }
   }
   return n;
 }
+
+/**
+ * กดชิปของใบนี้แล้วจะเป็น "มาแล้ว" ไหม — ว่างทั้งใบ → เติม · มียอดอยู่ (ครบหรือบางส่วน) → ล้าง
+ * บางส่วนเลือกล้าง เพราะพลาดแล้วไม่มีอะไรถูกบันทึกเกิน แค่ต้องกดเติมกลับ
+ */
+export const nextArrived = g => !!g && g.state === 'none';
 
 /**
  * แถวนี้มาจากไฟล์กลุ่มจ่ายรวมไหม — ของที่มาจริง ('chem') หรือของที่ตัดจากยอด over ('chemover')

@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -746,6 +746,25 @@ const hdr = [{ po: '', issued: 1, qty: 1 }, { po: '', issued: 2, qty: null }];
 ok('ทางคีย์เองใช้เลข PO บนหัวจอ',
    kitPoSummary(hdr, { headerPo: 'TM9269H009' })[0].po === 'TM9269H009'
    && setPoArrived(hdr, 'TM9269H009', false, { headerPo: 'TM9269H009' }) === 1);
+// รีวิว #105 — บรรทัดที่ไฟล์ไม่บอกยอด ปุ่มไม่แตะ ไม่นับ
+const arrMix = [
+  { po: 'TM9269H004', code: 'A', issued: 2, qty: 2 },
+  { po: 'TM9269H004', code: 'B', issued: null, qty: null },   // ช่อง issue ว่าง
+  { po: 'TM9269H004', code: 'C', issued: 0, qty: null },      // Delta จ่ายศูนย์
+  { po: '', code: 'D', issued: null, qty: 7 }                  // ซื้อทดแทน (ไปรับของ) ใช้ PO หัวจอ
+];
+const arrSum = kitPoSummary(arrMix, { headerPo: 'TM9269H005' });
+ok('บรรทัดที่ไฟล์ไม่บอกยอด ไม่ทำให้ใบขึ้น "บางส่วน" ตั้งแต่ยังไม่แตะ',
+   arrSum.length === 1 && arrSum[0].state === 'all' && arrSum[0].lines === 1, JSON.stringify(arrSum));
+ok('บรรทัดซื้อทดแทนไม่กลายเป็นชิปของตัวเอง', !arrSum.some(g => g.po === 'TM9269H005'));
+setPoArrived(arrMix, 'TM9269H005', false, { headerPo: 'TM9269H005' });
+setPoArrived(arrMix, 'TM9269H004', false, { headerPo: 'TM9269H005' });
+ok('ล้างทั้งใบ ยอดที่คีย์เองในบรรทัดซื้อทดแทนยังอยู่', arrMix[3].qty === 7 && arrMix[0].qty === null);
+ok('ใบที่ Delta จ่ายศูนย์ทั้งใบ ไม่มีชิปให้กดแล้วไม่เกิดอะไร',
+   kitPoSummary([{ po: 'Z', issued: 0, qty: null }]).length === 0);
+ok('กดชิป: ว่างทั้งใบ → เติม · ครบหรือบางส่วน → ล้าง',
+   nextArrived({ state: 'none' }) === true && nextArrived({ state: 'all' }) === false
+   && nextArrived({ state: 'some' }) === false && nextArrived(null) === false);
 ok('ไม่มีอะไรเลยก็ไม่พัง',
    kitPoSummary([]).length === 0 && kitPoSummary(null).length === 0 && setPoArrived(null, 'X', true) === 0);
 
