@@ -22,7 +22,8 @@
  */
 
 import { localDate } from '../core/localtime.js';
-import { poOwnerOf, poVisibleTo } from './entities.js';
+import { receivedOfDoc } from '../core/balance.js';
+import { poOwnerOf, poVisibleTo, resolveEntity } from './entities.js';
 
 const pad = n => String(n).padStart(2, '0');
 const r6 = n => Math.round(n * 1e6) / 1e6;
@@ -375,6 +376,11 @@ export const kitsOfPo = (kits, po) =>
  * ⚠️ ไม่เดาว่าของมาถึงหรือยัง — เจ้าของบอกว่า "แล้วแต่รอบ ไม่แน่นอน" บางรอบมาพร้อมกันทั้งใบ
  * บางรอบทยอยมาทีละ PO · ที่นี่กางให้ครบทั้งไฟล์ แล้วให้หน้าจอกับคนตัดสินว่าบรรทัดไหนรับจริง
  */
+// ปัดเศษทศนิยมลอยของเลขจากไฟล์ แต่ค่าว่างต้องยังว่าง ไม่ใช่กลายเป็นศูนย์
+// (ผู้ตรวจ #104 — 0.1+0.2 เคยขึ้นในช่องรับจริงเป็น 0.30000000000000004 · ยอดที่เก็บไม่เพี้ยน
+//  เพราะ makeEntry ปัดอีกชั้น แต่คนที่เห็นเลขแบบนั้นบนจอจะไม่เชื่อตัวเลขทั้งตาราง)
+const n6 = v => { const n = numOf(v); return n === null ? null : r6(n); };
+
 export function kitReceivePlan(rows = [], { poList = [] } = {}) {
   const have = new Set((poList || []).map(p => String(p.po || '').trim()));
   const byPo = new Map();
@@ -387,8 +393,8 @@ export function kitReceivePlan(rows = [], { poList = [] } = {}) {
       po, pn: r.pn ? String(r.pn) : '', code: codeOf(r.code),
       desc: String(r.desc == null ? '' : r.desc).trim(),
       unit: String(r.unit == null ? '' : r.unit).trim(),
-      issued: numOf(r.issue),
-      qty: numOf(r.issue)            // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
+      issued: n6(r.issue),
+      qty: n6(r.issue)               // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
     });
     byPo.set(po, g);
   }
@@ -402,6 +408,28 @@ export function kitReceivePlan(rows = [], { poList = [] } = {}) {
     noPo: groups.filter(g => !g.inList).map(g => g.po),
     date: (rows || []).map(r => r && r.date).find(Boolean) || ''
   };
+}
+
+/**
+ * แต่ละ PO ในไฟล์เป็นของนิติบุคคลไหน และเคยคีย์รับไปแล้วเท่าไหร่ — Map<po, { entity, from, recv }>
+ *
+ * ⚠️ **ต้องรู้นิติบุคคลของ PO ก่อน แล้วค่อยถามสมุดด้วยตัวนั้น** (INVARIANTS A3)
+ * `receivedOfDoc()` กรองสมุดด้วยนิติบุคคลที่ส่งเข้าไป ถ้าถามด้วยตัวที่เลือกอยู่บนหัวจอตัวเดียว
+ * ทั้งไฟล์ PO ของอีกโรงงานจะไปถามสมุดผิดเล่ม → คอลัมน์ "รับแล้ว" ขึ้น 0 ทั้งที่เคยคีย์ไปแล้ว
+ * แล้วพนักงานคีย์ซ้ำ **ยอดคงคลังบานขึ้นเงียบ ๆ** โดยไม่มีอะไรบนจอเตือน (ผู้ตรวจรอบ 1 ของใบ 8)
+ * ในทางกลับกันยอดของโรงงานที่เลือกอยู่ก็จะไปโผล่บนบรรทัดที่ป้ายเขียนว่าอีกโรงงาน
+ *
+ * นิติบุคคลที่ตัดสินไม่ได้ (ไม่มีทั้งเลข PO ที่อ่านออกและตัวที่เลือกบนจอ) คืน recv ว่าง
+ * ไม่ใช่เดาเอาจากใครสักคน — เดาผิดคือเลขผิดโรงงานบนจอ
+ */
+export function kitReceiveByPo(groups = [], entries = [], { current = '', known = null } = {}) {
+  const out = new Map();
+  for (const g of groups || []) {
+    const r = resolveEntity(g.po, { current, known });
+    out.set(g.po, { entity: r.code, from: r.from,
+      recv: r.code ? receivedOfDoc(entries, r.code, g.po) : new Map() });
+  }
+  return out;
 }
 
 /**

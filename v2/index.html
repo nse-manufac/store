@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-23.1">
+<meta name="app-version" content="2026-09-23.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -897,7 +897,29 @@ textarea{font:inherit}
       <!-- ════════ รับเข้า ════════ -->
       <template v-else-if="tab==='in'">
         <div class="card">
+          <!-- Delta เข้าตรวจแล้วสั่งให้เลิกคีย์มือ เปลี่ยนเป็นดึงจากไฟล์ (เจ้าของ 23 ก.ย. 2026) -->
           <div class="row">
+            <b>ดึงจากไฟล์ Kit List</b>
+            <input type="file" accept=".xls,.xlsx" @change="onInFile" :disabled="inBusy">
+            <span class="hint" v-if="inBusy">กำลังอ่านไฟล์...</span>
+            <div class="grow"></div>
+            <label class="f" style="width:145px">วันที่
+              <input v-model="inH.date" type="date"></label>
+            <label class="f" style="width:170px">ผู้รับ
+              <input v-model.trim="inH.person" placeholder="ชื่อคนคีย์"></label>
+          </div>
+          <p class="hint" style="margin:6px 0 0">
+            กางทุก PO ในไฟล์ลงตารางเดียว พร้อมยอดที่ Delta จ่ายมา — ตรวจแล้วแก้ยอดที่นับได้จริง
+            ก่อนกดบันทึก · ของที่ยังไม่มาให้ล้างช่องรับจริงไว้ บันทึกแล้วบรรทัดพวกนั้นจะคาอยู่ให้คีย์ต่อ
+          </p>
+          <div :class="['msg', inFileTone]" v-if="inFileMsg" style="margin:10px 0 0">{{ inFileMsg }}</div>
+
+          <p style="margin:10px 0 0" v-if="!inManual">
+            <button class="btn" @click="inManual = true">คีย์เอง (ไฟล์ยังไม่มา)</button>
+            <span class="hint" style="margin-left:8px">ใส่เลข PO แล้วกางจาก Kit List ที่นำเข้าไว้ หรือจากสูตร</span>
+          </p>
+
+          <div class="row" style="margin-top:10px" v-if="inManual">
             <label class="f" style="width:186px">เลข PO
               <div class="row" style="gap:3px;flex-wrap:nowrap">
                 <input v-model.trim="inH.po" class="mono grow" style="min-width:0" placeholder="เลขที่เอกสาร"
@@ -911,11 +933,8 @@ textarea{font:inherit}
             <label class="f" style="width:110px">จำนวนสั่ง
               <input v-model.number="inH.order" type="number" step="any" class="mono"
                      @change="expandBom"></label>
-            <label class="f" style="width:145px">วันที่
-              <input v-model="inH.date" type="date"></label>
-            <label class="f grow" style="min-width:130px">ผู้รับ
-              <input v-model.trim="inH.person" placeholder="ชื่อคนคีย์"></label>
             <button class="btn" @click="addInLine">+ เพิ่มบรรทัด</button>
+            <button class="btn" tabindex="-1" @click="inManual = false">ซ่อนทางคีย์เอง</button>
           </div>
           <p class="hint" style="margin:9px 0 0" v-if="bomHint">{{ bomHint }}</p>
           <p style="margin:8px 0 0" v-if="buyWaits.length">
@@ -927,7 +946,9 @@ textarea{font:inherit}
           <div class="scroll">
             <table>
               <thead><tr>
+                <th style="width:130px">PO</th><th style="width:80px">นิติบุคคล</th>
                 <th style="width:130px">รหัส</th><th>ชื่อ</th>
+                <th style="width:100px">หมวดหมู่</th>
                 <th style="width:60px">หน่วย</th><th style="width:95px">ตามสูตร</th>
                 <th style="width:90px">รับแล้ว</th>
                 <th style="width:95px">Delta จ่ายมา</th>
@@ -936,6 +957,15 @@ textarea{font:inherit}
               </tr></thead>
               <tbody>
                 <tr v-for="(l,i) in inLines" :key="l.k">
+                  <td class="mono">{{ l.po || inH.po || '—' }}</td>
+                  <!-- นิติบุคคลรายบรรทัด เพราะไฟล์ใบเดียวมีของสองโรงงานปนกันได้ -->
+                  <!-- ทางคีย์เองไม่ได้ตั้งค่ารายบรรทัด แต่ saveIn บันทึกเข้าตัวที่เลือกอยู่ → โชว์ตัวนั้น ไม่ใช่ขีด -->
+                  <td><span v-if="l.entity || entity" class="tag"
+                            :class="(l.entity || entity) !== entity ? 'warn' : 'ok'"
+                            :title="l.entityFrom === 'unregistered' ? 'อ่านจากเลขที่ PO แต่รหัสนี้ยังไม่มีในทะเบียน'
+                                  : l.entityFrom === 'guess' ? 'อ่านจากเลขที่ PO' : 'ตัวที่เลือกอยู่'">
+                      {{ l.entity || entity }}<span v-if="l.entityFrom === 'unregistered'">⚠</span></span>
+                    <span v-else class="hint">—</span></td>
                   <td>
                     <div class="row" style="gap:3px;flex-wrap:nowrap">
                       <input v-model.trim="l.code" class="mono" style="width:104px" @change="fillInLine(l)">
@@ -949,6 +979,7 @@ textarea{font:inherit}
                       <button class="btn" style="padding:2px 8px" @click="addFromLine(l)">เพิ่มเลย</button>
                     </span>
                   </td>
+                  <td class="hint">{{ catOf(l.code) || '—' }}</td>
                   <td class="mono">{{ l.unit }}</td>
                   <td class="mono hint">{{ l.reqmt === null ? '' : l.reqmt }}</td>
                   <td class="mono hint" :title="l.recvInfo">
@@ -965,7 +996,8 @@ textarea{font:inherit}
             </table>
           </div>
           <div class="row" style="margin-top:11px">
-            <span class="hint">พร้อมบันทึก {{ inReady.length }} บรรทัด</span>
+            <span class="hint">พร้อมบันทึก {{ inReady.length }} บรรทัด<span
+              v-if="inPos.length > 1"> · {{ inPos.length }} PO</span></span>
             <div class="grow"></div>
             <button class="btn" @click="clearIn">ล้าง</button>
             <button class="btn primary" @click="saveIn" :disabled="!inReady.length">บันทึกรับเข้า</button>
@@ -976,9 +1008,8 @@ textarea{font:inherit}
           </div>
         </div>
         <div class="card" v-else><p class="empty">
-          ใส่เลข PO แล้วโปรแกรมจะดึงรายการที่ Delta จ่ายมาให้ (Kit List)<br>
-          ถ้ายังไม่มี Kit List ของ PO นั้น ใส่ P/N แล้วจะกางจากสูตรให้แทน
-          — หรือกด "เพิ่มบรรทัด" เพื่อคีย์เอง</p></div>
+          เลือกไฟล์ Kit List ข้างบน แล้วรายการทุก PO ในไฟล์จะกางขึ้นมาให้ตรวจ<br>
+          ถ้าไฟล์ยังไม่มาแต่ของมาแล้ว กด "คีย์เอง (ไฟล์ยังไม่มา)" เพื่อใส่เลข PO เหมือนเดิม</p></div>
       </template>
 
       <!-- ════════ จ่ายออก ════════ -->

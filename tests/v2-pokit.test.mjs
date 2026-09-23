@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -664,6 +664,12 @@ ok('บอก PO ที่ยังไม่มีในรายการ PO �
 ok('PO ที่มีในรายการแล้ว ไม่ถูกฟ้อง', kp.groups[0].inList === true && kp.groups[2].inList === false);
 ok('รหัสอ่านเป็นข้อความเสมอ ไม่ใช่ตัวเลข', kp.lines.every(l => typeof l.code === 'string'));
 ok('เอาวันที่ของไฟล์มาด้วย', kp.date === '2026-09-23');
+// ทศนิยมลอยจากไฟล์เคยไปโผล่ในช่องรับจริง (ผู้ตรวจ #104)
+const fp = kitReceivePlan([{ po: 'TM9269H001', code: 'A', issue: 0.1 + 0.2 }]);
+ok('เศษทศนิยมลอยจากไฟล์ถูกปัดก่อนขึ้นจอ', fp.lines[0].qty === 0.3 && fp.lines[0].issued === 0.3,
+   String(fp.lines[0].qty));
+ok('ค่าว่างยังว่าง ไม่กลายเป็นศูนย์ตอนปัด',
+   kitReceivePlan([{ po: 'TM9269H001', code: 'A', issue: null }]).lines[0].qty === null);
 ok('ไฟล์เปล่าไม่พัง',
    kitReceivePlan([]).lines.length === 0 && kitReceivePlan(null).groups.length === 0
    && kitReceivePlan([{ po: '', code: '' }]).lines.length === 0);
@@ -672,6 +678,43 @@ const fromFile = kitReceivePlan(kit.rows, { poList: [] });
 ok('ต่อจากตัวอ่านไฟล์ 22-H ได้ตรง ๆ',
    fromFile.lines.length === kit.rows.length && fromFile.groups.length === 2,
    fromFile.lines.length + ' / ' + fromFile.groups.length);
+
+
+console.log('\n=== O. จับคู่นิติบุคคล + ยอดที่เคยรับ ของ PO ในไฟล์ (A3) ===');
+// ⚠️ ไฟล์ใบเดียวมีสองโรงงานปนกัน · ถ้าถามสมุดด้วยตัวที่เลือกบนหัวจอตัวเดียว
+// PO ของอีกโรงงานจะได้ยอด "รับแล้ว" เป็น 0 ทั้งที่เคยคีย์ไปแล้ว → คีย์ซ้ำ ยอดบานเงียบ ๆ
+const mixRows = [
+  { po: 'TM5266H177', pn: 'PN1', code: 9000000001, issue: 5 },
+  { po: 'TM4267U025', pn: 'PN2', code: 9000000001, issue: 5 }
+];
+const mix = kitReceivePlan(mixRows, { poList: [] });
+const book = [
+  { entity: 'TUE-U', kind: 'receive', material_code: '9000000001', qty: 10,
+    doc_ref: 'TM4267U025', at: '2026-09-22T08:00:00' },
+  { entity: 'TUE-H', kind: 'receive', material_code: '9000000001', qty: 3,
+    doc_ref: 'TM5266H177', at: '2026-09-22T09:00:00' },
+  { entity: 'TUE-U', kind: 'receive', material_code: '9000000001', qty: 99, voided: true,
+    doc_ref: 'TM4267U025', at: '2026-09-22T10:00:00' }
+];
+const mixBy = kitReceiveByPo(mix.groups, book, { current: 'TUE-H', known: ['TUE-H', 'TUE-U'] });
+
+ok('อ่านนิติบุคคลจากเลขที่ PO รายใบ ไม่ใช่ของหัวจอ',
+   mixBy.get('TM5266H177').entity === 'TUE-H' && mixBy.get('TM4267U025').entity === 'TUE-U',
+   mixBy.get('TM4267U025').entity);
+// ข้อที่พลาดแล้วยอดบาน — หัวจอเลือก TUE-H แต่ใบนี้เป็นของ TUE-U
+const recvU = mixBy.get('TM4267U025').recv.get('9000000001');
+const recvH = mixBy.get('TM5266H177').recv.get('9000000001');
+ok('ยอดที่เคยรับของ PO อีกโรงงาน ต้องถามสมุดของโรงงานนั้น',
+   !!recvU && recvU.qty === 10, JSON.stringify(recvU || null));
+ok('ยอดของโรงงานที่เลือกอยู่ ต้องไม่ไปโผล่บนใบของอีกโรงงาน',
+   !!recvH && recvH.qty === 3, JSON.stringify(recvH || null));
+ok('รายการที่ยกเลิกแล้วไม่นับ', !!recvU && recvU.times === 1);
+// ตัดสินไม่ได้ = ไม่เดาให้ใครสักคน ไม่งั้นเลขผิดโรงงานขึ้นจอ
+const unk = kitReceiveByPo(kitReceivePlan([{ po: 'XX-1', code: 9000000001, issue: 1 }]).groups,
+                           book, { current: '', known: ['TUE-H'] });
+ok('PO ที่ตัดสินนิติบุคคลไม่ได้ คืนยอดว่าง ไม่พัง',
+   unk.get('XX-1').entity === '' && unk.get('XX-1').recv.size === 0);
+ok('ไม่มีสมุด/ไม่มีกลุ่ม ก็ไม่พัง', kitReceiveByPo().size === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
