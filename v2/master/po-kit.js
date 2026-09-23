@@ -52,6 +52,12 @@ export function parseEnDate(s) {
 
 /** วันที่แบบ serial ของ Excel — ฐานคือ 30 ธ.ค. 1899 ไม่ใช่ 1 ม.ค. 1900 */
 export function excelDate(v) {
+  // ⚠️ ถ้าใครเปิดไฟล์ด้วย cellDates:true เซลล์วันที่จะมาเป็น Date ไม่ใช่เลข serial
+  // ตัวอ่านไฟล์กลุ่มจ่ายรวมเจอของแบบนี้มาแล้ว และตัวนี้เคยคืนค่าว่างเงียบ ๆ
+  // ซึ่งแปลว่าวันที่ของทั้งไฟล์หายไปโดยไม่มีอะไรฟ้อง (เจอตอนลองกับไฟล์ 22-H จริง 23 ก.ย. 2026)
+  if (v instanceof Date && !isNaN(v)) {
+    return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate());
+  }
   if (typeof v !== 'number' || v <= 40000 || v >= 60000) return '';
   const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
   return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
