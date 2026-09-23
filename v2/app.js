@@ -34,7 +34,7 @@ import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/ent
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
-         overAll, overPending, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          pendingScraps, fromScrapRow, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
@@ -1964,6 +1964,38 @@ createApp({
       overPending(foCalc.value.filter(r => !r.why), shorts.value));
     const foBlocked = computed(() => foCalc.value.filter(r => r.why));
 
+    /**
+     * ใบแจ้งตัดยอด over ของ Delta — เทียบกับของเกินที่เรามีอยู่จริง (เจ้าของสั่ง 22 ก.ย. 2026)
+     *
+     * แถวมาจากไฟล์ Kit List กลุ่มจ่ายรวมที่นำเข้าไว้ (ป้ายที่มา chemover) ซึ่งเก็บลงเครื่องแล้ว
+     * กฎการเทียบทั้งหมดอยู่ใน master/follow.js ที่นี่มีแค่การต่อสาย
+     * ⚠️ ส่งทะเบียนนิติบุคคลเข้าไปด้วยเสมอ ไม่งั้นแถวของโรงงานที่ยังไม่มีในทะเบียนจะหายเงียบ
+     */
+    const ocDate = ref('');
+    const ocCuts = computed(() => kits.value.filter(k => k.src === 'chemover'));
+    /**
+     * ของเกินฝั่งเราสำหรับการ์ดนี้โดยเฉพาะ — คิดใหม่โดย "ไม่มีเพดาน" OVER_MIN (min: 0)
+     *
+     * ⚠️ ห้ามเอา foNew มาใช้ตรงนี้ · foNew ทิ้งของเกินที่ต่ำกว่า 1 หน่วยไปตั้งแต่ overAll
+     *    ไฟล์กลุ่มจ่ายรวม (เคมี) ยอดระดับ 0.062 คือค่าปกติ เทียบด้วย foNew จะได้ have = 0
+     *    แล้วขึ้นแถบแดง "เรามีน้อยกว่า" ทั้งที่ยอดตรงกันเป๊ะ (ผู้ตรวจ #102 รอบ 1)
+     *    เพดาน 1 เป็นเกณฑ์ "เกินเท่าไรถึงคุ้มตั้งเรื่องคืน" ไม่ใช่คำประกาศว่าของก้อนนั้นไม่มีอยู่จริง
+     * ⚠️ ห้ามแก้ foCalc/foNew ให้ไม่มีเพดานตาม · การ์ด "ของเกินที่ระบบคำนวณได้" ข้างล่าง
+     *    บอกผู้ใช้ไว้ว่ายอดต่ำกว่า 1 หน่วยไม่นับว่าเกิน
+     */
+    const ocPending = computed(() => {
+      if (!entity.value) return [];
+      try {
+        const all = overAll(entries.value, entity.value,
+                            { headerOf: po => poHeader(pos.value, po),
+                              usageOf: bomUsageOf, min: 0 });
+        return overPending(all.filter(r => !r.why), shorts.value);
+      } catch (err) { console.error(err); return []; }
+    });
+    const ocMatch = computed(() => overCutMatch(ocCuts.value, {
+      pending: ocPending.value, follows: shorts.value, entity: entity.value,
+      date: ocDate.value, known: entCodes.value }));
+
     const foAll = computed(() => listFollow(shorts.value, {
       kind: 'over', entity: entity.value, q: foSearch.value, showDone: foShowDone.value
     }));
@@ -2909,6 +2941,7 @@ createApp({
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
+      ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo,
       buyWaits, cancelBuyWaits,

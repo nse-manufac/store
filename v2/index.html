@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-22.5">
+<meta name="app-version" content="2026-09-23.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2166,6 +2166,65 @@ textarea{font:inherit}
       <!-- ════════ ซิงค์ ════════ -->
       <!-- ════════ over รอคืน (Mat Follow up 6/8) ════════ -->
       <template v-else-if="tab==='fover'">
+
+        <!-- ใบแจ้งตัดยอด over ของ Delta — โผล่เฉพาะเมื่อเคยนำเข้าไฟล์ไว้แล้ว -->
+        <div class="card" v-if="ocMatch.dates.length">
+          <div class="row">
+            <h2 style="margin:0">Delta ตัดจากยอด over — เทียบกับของที่เรามี</h2>
+            <div class="grow"></div>
+            <label class="f" style="width:175px">รอบวันที่
+              <select v-model="ocDate">
+                <option value="">ล่าสุด ({{ ocMatch.dates[0] }})</option>
+                <option v-for="d in ocMatch.dates" :key="d" :value="d">{{ d }}</option>
+              </select></label>
+          </div>
+          <p class="hint" style="margin:6px 0 10px">
+            มาจากแถวที่เอกสารเขียน <span class="mono">Return</span> ในไฟล์ Kit List กลุ่มจ่ายรวม —
+            รอบนั้น Delta ไม่ได้ส่งของ แต่ตัดจากของเกินที่ค้างอยู่ที่เรา<br>
+            <b>จับคู่ด้วยรหัส ไม่ใช่ PO</b> เพราะของเกินเกิดจาก PO ใบเก่า แต่ Delta ตัดตอนจ่ายของให้ PO ใบใหม่ ·
+            "ของเกินที่เรามี" นับทั้งที่ยังไม่ได้ตั้งเรื่องและที่ตั้งแล้วยังคืนไม่หมด
+          </p>
+
+          <div class="scroll" style="max-height:34vh" v-if="ocMatch.rows.length">
+            <table>
+              <thead><tr>
+                <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
+                <th style="width:110px">Delta ตัด</th><th style="width:130px">ของเกินที่เรามี</th>
+                <th style="width:150px">ต่างกัน</th><th style="width:90px">กี่ใบ</th>
+                <th>ตัดจาก PO</th></tr></thead>
+              <tbody><tr v-for="r in ocMatch.rows" :key="r.code" :class="{review: r.diff < 0}">
+                <td class="mono"><b>{{ r.code }}</b></td>
+                <td class="hint">{{ catOf(r.code) || '—' }}</td>
+                <td class="mono">{{ r.cut }}</td>
+                <td class="mono">{{ r.have }}</td>
+                <td>
+                  <span v-if="r.diff === 0" class="tag ok">ตรง</span>
+                  <span v-else-if="r.diff < 0" class="tag bad">เรามีน้อยกว่า {{ -r.diff }}</span>
+                  <span v-else class="tag warn">เรามีมากกว่า {{ r.diff }}</span></td>
+                <td class="mono hint">{{ r.pos.length }}</td>
+                <!-- ของจริงรหัสเดียวตัดจาก PO ได้ยี่สิบกว่าใบ ยัดลงช่องเดียวแล้วตารางบานทั้งหน้า -->
+                <td class="mono hint">{{ r.pos.slice(0, 3).join(' · ') }}<span
+                  v-if="r.pos.length > 3"> · และอีก {{ r.pos.length - 3 }} ใบ</span></td>
+              </tr></tbody>
+            </table>
+          </div>
+          <p class="empty" v-else>
+            รอบ {{ ocMatch.date }} ไม่มีรายการของ {{ entity || '(ยังไม่ได้เลือกนิติบุคคล)' }} —
+            ลองเลือกรอบอื่นที่ช่องด้านบน
+          </p>
+
+          <div class="msg bad" v-if="ocMatch.rows.some(r => r.diff < 0)" style="margin:10px 0 0">
+            <b>มีรหัสที่ Delta ตัดมากกว่าของเกินที่เรามี</b> —
+            <span class="hint">แปลว่ายอด over ในโปรแกรมกับที่ Delta นับไม่ตรงกัน
+              ต้องเทียบกับของจริงในคลังก่อนตัดสินใจเรื่องคืนของ</span>
+          </div>
+          <div class="msg warn" v-if="ocMatch.unreadable || ocMatch.unregistered" style="margin:10px 0 0">
+            <span v-if="ocMatch.unreadable">{{ ocMatch.unreadable }} แถวอ่านนิติบุคคลจากเลขที่ PO ไม่ได้</span>
+            <span v-if="ocMatch.unreadable && ocMatch.unregistered"> · </span>
+            <span v-if="ocMatch.unregistered">{{ ocMatch.unregistered }} แถวเป็นของรหัสนิติบุคคลที่ยังไม่มีในทะเบียน</span>
+            <br><span class="hint">แถวพวกนี้ไม่ได้ถูกนับในตารางข้างบน — ยอดที่เห็นจึงยังไม่ครบทั้งไฟล์</span>
+          </div>
+        </div>
 
         <div class="card">
           <div class="row">
