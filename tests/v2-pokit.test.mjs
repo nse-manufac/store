@@ -664,6 +664,12 @@ ok('บอก PO ที่ยังไม่มีในรายการ PO �
 ok('PO ที่มีในรายการแล้ว ไม่ถูกฟ้อง', kp.groups[0].inList === true && kp.groups[2].inList === false);
 ok('รหัสอ่านเป็นข้อความเสมอ ไม่ใช่ตัวเลข', kp.lines.every(l => typeof l.code === 'string'));
 ok('เอาวันที่ของไฟล์มาด้วย', kp.date === '2026-09-23');
+// ทศนิยมลอยจากไฟล์เคยไปโผล่ในช่องรับจริง (ผู้ตรวจ #104)
+const fp = kitReceivePlan([{ po: 'TM9269H001', code: 'A', issue: 0.1 + 0.2 }]);
+ok('เศษทศนิยมลอยจากไฟล์ถูกปัดก่อนขึ้นจอ', fp.lines[0].qty === 0.3 && fp.lines[0].issued === 0.3,
+   String(fp.lines[0].qty));
+ok('ค่าว่างยังว่าง ไม่กลายเป็นศูนย์ตอนปัด',
+   kitReceivePlan([{ po: 'TM9269H001', code: 'A', issue: null }]).lines[0].qty === null);
 ok('ไฟล์เปล่าไม่พัง',
    kitReceivePlan([]).lines.length === 0 && kitReceivePlan(null).groups.length === 0
    && kitReceivePlan([{ po: '', code: '' }]).lines.length === 0);

@@ -934,7 +934,7 @@ textarea{font:inherit}
               <input v-model.number="inH.order" type="number" step="any" class="mono"
                      @change="expandBom"></label>
             <button class="btn" @click="addInLine">+ เพิ่มบรรทัด</button>
-            <button class="btn" @click="inManual = false">ซ่อนทางคีย์เอง</button>
+            <button class="btn" tabindex="-1" @click="inManual = false">ซ่อนทางคีย์เอง</button>
           </div>
           <p class="hint" style="margin:9px 0 0" v-if="bomHint">{{ bomHint }}</p>
           <p style="margin:8px 0 0" v-if="buyWaits.length">
@@ -959,10 +959,12 @@ textarea{font:inherit}
                 <tr v-for="(l,i) in inLines" :key="l.k">
                   <td class="mono">{{ l.po || inH.po || '—' }}</td>
                   <!-- นิติบุคคลรายบรรทัด เพราะไฟล์ใบเดียวมีของสองโรงงานปนกันได้ -->
-                  <td><span v-if="l.entity" class="tag" :class="l.entity !== entity ? 'warn' : 'ok'"
+                  <!-- ทางคีย์เองไม่ได้ตั้งค่ารายบรรทัด แต่ saveIn บันทึกเข้าตัวที่เลือกอยู่ → โชว์ตัวนั้น ไม่ใช่ขีด -->
+                  <td><span v-if="l.entity || entity" class="tag"
+                            :class="(l.entity || entity) !== entity ? 'warn' : 'ok'"
                             :title="l.entityFrom === 'unregistered' ? 'อ่านจากเลขที่ PO แต่รหัสนี้ยังไม่มีในทะเบียน'
                                   : l.entityFrom === 'guess' ? 'อ่านจากเลขที่ PO' : 'ตัวที่เลือกอยู่'">
-                      {{ l.entity }}<span v-if="l.entityFrom === 'unregistered'">⚠</span></span>
+                      {{ l.entity || entity }}<span v-if="l.entityFrom === 'unregistered'">⚠</span></span>
                     <span v-else class="hint">—</span></td>
                   <td>
                     <div class="row" style="gap:3px;flex-wrap:nowrap">
@@ -1007,7 +1009,7 @@ textarea{font:inherit}
         </div>
         <div class="card" v-else><p class="empty">
           เลือกไฟล์ Kit List ข้างบน แล้วรายการทุก PO ในไฟล์จะกางขึ้นมาให้ตรวจ<br>
-          ถ้าไฟล์ยังไม่มาแต่ของมาแล้ว กด "คีย์เอง" เพื่อใส่เลข PO เหมือนเดิม</p></div>
+          ถ้าไฟล์ยังไม่มาแต่ของมาแล้ว กด "คีย์เอง (ไฟล์ยังไม่มา)" เพื่อใส่เลข PO เหมือนเดิม</p></div>
       </template>
 
       <!-- ════════ จ่ายออก ════════ -->

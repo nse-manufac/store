@@ -376,6 +376,11 @@ export const kitsOfPo = (kits, po) =>
  * ⚠️ ไม่เดาว่าของมาถึงหรือยัง — เจ้าของบอกว่า "แล้วแต่รอบ ไม่แน่นอน" บางรอบมาพร้อมกันทั้งใบ
  * บางรอบทยอยมาทีละ PO · ที่นี่กางให้ครบทั้งไฟล์ แล้วให้หน้าจอกับคนตัดสินว่าบรรทัดไหนรับจริง
  */
+// ปัดเศษทศนิยมลอยของเลขจากไฟล์ แต่ค่าว่างต้องยังว่าง ไม่ใช่กลายเป็นศูนย์
+// (ผู้ตรวจ #104 — 0.1+0.2 เคยขึ้นในช่องรับจริงเป็น 0.30000000000000004 · ยอดที่เก็บไม่เพี้ยน
+//  เพราะ makeEntry ปัดอีกชั้น แต่คนที่เห็นเลขแบบนั้นบนจอจะไม่เชื่อตัวเลขทั้งตาราง)
+const n6 = v => { const n = numOf(v); return n === null ? null : r6(n); };
+
 export function kitReceivePlan(rows = [], { poList = [] } = {}) {
   const have = new Set((poList || []).map(p => String(p.po || '').trim()));
   const byPo = new Map();
@@ -388,8 +393,8 @@ export function kitReceivePlan(rows = [], { poList = [] } = {}) {
       po, pn: r.pn ? String(r.pn) : '', code: codeOf(r.code),
       desc: String(r.desc == null ? '' : r.desc).trim(),
       unit: String(r.unit == null ? '' : r.unit).trim(),
-      issued: numOf(r.issue),
-      qty: numOf(r.issue)            // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
+      issued: n6(r.issue),
+      qty: n6(r.issue)               // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
     });
     byPo.set(po, g);
   }
