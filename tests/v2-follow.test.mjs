@@ -1000,13 +1000,15 @@ function cutWatchTab(src) {
 const hasGo = appBuy.includes('function fbGo(');
 ok('มี fbGo ให้ปุ่ม [ไปรับของ] เรียก', hasGo);
 if (hasGo) {
-  const goFn = new Function('buyWaits', 'inH', 'inLines', 'bomHint', 'tab',
+  const goFn = new Function('buyWaits', 'inH', 'inLines', 'bomHint', 'tab', 'inManual',
                             'normCode', 'remainOf', 'blankLine', 'fillInLine', 'row',
                             cutFn(appBuy, 'fbGo') + '\nreturn fbGo(row);');
   const q = { value: [] };
   const lines = { value: [] };
   const hint = { value: '' };
   const tabRef = { value: 'fbuy' };
+  // ทางคีย์เองถูกซ่อนไว้หลังปุ่มตั้งแต่ใบ 8 — ค่าเริ่มต้นบนจอจริงคือปิด
+  const manual = { value: false };
   const onTab = new Function('buyWaits', 'return (' + cutWatchTab(appBuy) + ')')(q);
   const hop = now => {
     const before = tabRef.value;
@@ -1015,7 +1017,7 @@ if (hasGo) {
   };
   const press = row => {
     const before = tabRef.value;
-    goFn(q, { po: '' }, lines, hint, tabRef, normCode, remainOf,
+    goFn(q, { po: '' }, lines, hint, tabRef, manual, normCode, remainOf,
          code => ({ k: 'L', code, desc: '', unit: '', reqmt: null, qty: null }), () => {}, row);
     if (tabRef.value !== before) onTab(tabRef.value, before);
   };
@@ -1028,6 +1030,10 @@ if (hasGo) {
      JSON.stringify(q.value));
   ok('บรรทัดของทั้งสองเรื่องอยู่ในใบรับเข้าครบ',
      lines.value.length === 2, JSON.stringify(lines.value.map(l => l.code)));
+  // ⚠️ เรื่องซื้อทดแทนไม่มีเลข PO ตอนตั้งเรื่อง ต้องคีย์ต่อที่หน้ารับเข้าเสมอ
+  //    ถ้าไม่เปิดทางคีย์เองให้ จะเด้งไปเจอหน้าที่ไม่มีช่อง PO แล้วไปต่อไม่ได้ (ผู้ตรวจรอบ 1 ของใบ 8)
+  ok('กด [ไปรับของ] ต้องเปิดทางคีย์เองให้ด้วย ไม่งั้นไม่มีช่อง PO ให้คีย์',
+     manual.value === true);
   ok('กดเรื่องเดิมซ้ำหลังเดินกลับไปกลับมา ไม่เข้าคิวสองรอบ',
      (() => { hop('fbuy'); press(buy2); return q.value.length === 2; })(),
      JSON.stringify(q.value));

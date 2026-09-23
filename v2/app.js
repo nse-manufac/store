@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -983,11 +983,9 @@ createApp({
         if (!kit.rows.length) throw new Error('ไม่เจอบรรทัด Kit List ในไฟล์นี้');
 
         const plan = kitReceivePlan(kit.rows, { poList: pos.value });
-        const recvOf = new Map();
-        for (const g of plan.groups) {
-          recvOf.set(g.po, entity.value
-            ? receivedOfDoc(entries.value, entity.value, g.po) : new Map());
-        }
+        // ⚠️ นิติบุคคลของ PO ต้องถูกตัดสินก่อนไปถามยอดที่เคยรับ ไม่งั้นถามสมุดผิดเล่ม (A3)
+        const byPo = kitReceiveByPo(plan.groups, entries.value,
+                                    { current: entity.value, known: entCodes.value });
         inLines.value = plan.lines.map(x => {
           const l = blankLine(x.code);
           l.po = x.po; l.pn = x.pn;
@@ -998,10 +996,9 @@ createApp({
           const h = poHeader(pos.value, x.po);
           l.reqmt = reqmtOf(activeBomRowsOf(bom.value, x.pn || (h && h.pn) || ''),
                             l.code, h && h.order);
-          const r = resolveEntity(x.po, { current: entity.value, known: entCodes.value });
-          l.entity = r.code; l.entityFrom = r.from;
-          const rec = recvOf.get(x.po);
-          const hit = rec && rec.get(String(l.code));
+          const g = byPo.get(x.po);
+          l.entity = g.entity; l.entityFrom = g.from;
+          const hit = g.recv.get(String(l.code));
           l.recv = hit ? hit.qty : 0;
           l.recvInfo = hit ? recvInfoOf(hit) : '';
           return l;
@@ -1032,7 +1029,12 @@ createApp({
       if (!inH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
       // ⚠️ PO อยู่รายบรรทัดเมื่อกางจากไฟล์ · ทางคีย์เองใช้ของหัวจอเหมือนเดิม
       const noPo = inReady.value.filter(l => !(l.po || inH.po));
-      if (noPo.length) { flash(`มี ${noPo.length} บรรทัดที่ยังไม่รู้ว่าเป็นของ PO ไหน`, true); return; }
+      if (noPo.length) {
+        // G3 — บอกทางออกด้วย ช่องเลข PO อยู่หลังปุ่ม "คีย์เอง (ไฟล์ยังไม่มา)"
+        flash(`มี ${noPo.length} บรรทัดที่ยังไม่รู้ว่าเป็นของ PO ไหน`
+          + ' — กด "คีย์เอง (ไฟล์ยังไม่มา)" เพื่อใส่เลข PO', true);
+        return;
+      }
       // นิติบุคคลรายบรรทัด — ไฟล์ใบเดียวมีของสองโรงงานปนกันได้ (A3 เหมือนหน้ารับเข้ารวมรายรอบ)
       const others = [...new Set(inReady.value.map(l => l.entity).filter(e => e && e !== entity.value))];
       if (others.length && !confirm(
@@ -2255,6 +2257,7 @@ createApp({
       l.qty = remainOf(row);
       inLines.value.push(l);
       bomHint.value = `เพิ่ม ${row.code} เข้าหน้ารับเข้าแล้ว — บันทึกเสร็จจะปิดเรื่องซื้อทดแทนให้เอง`;
+      inManual.value = true;   // ทางนี้ต้องคีย์เลข PO ต่อเสมอ ช่อง PO จึงต้องโผล่ (ผู้ตรวจรอบ 1 ข้อ 2)
       tab.value = 'in';
     }
 
