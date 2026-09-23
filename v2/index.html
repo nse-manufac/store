@@ -955,8 +955,9 @@ textarea{font:inherit}
             <button class="btn" @click="inAllPo(false)">ยังไม่มาสักใบ</button>
           </div>
           <p class="hint" style="margin:6px 0 8px">
-            กดที่เลข PO เพื่อสลับ — <b>ยังไม่มา</b> = ล้างยอดทั้งใบ ไม่ถูกบันทึก ·
-            <b>มาแล้ว</b> = เติมยอดตามไฟล์ทั้งใบ (ทับยอดที่แก้ไว้ในใบนั้น)
+            กดที่เลข PO เพื่อสลับ — <b>ยังไม่มา</b> = ล้างยอดที่เติมจากไฟล์ ไม่ถูกบันทึก ·
+            <b>มาแล้ว</b> = เติมยอดตามไฟล์ทั้งใบ (ทับยอดที่แก้ไว้ในใบนั้น) ·
+            บรรทัดที่ไฟล์ไม่บอกยอด (คีย์เอง · ซื้อทดแทน) ปุ่มไม่แตะ
           </p>
           <div class="row" style="gap:6px;flex-wrap:wrap">
             <button v-for="g in inPoSum" :key="g.po" class="btn mono"
