@@ -55,8 +55,12 @@ export function excelDate(v) {
   // ⚠️ ถ้าใครเปิดไฟล์ด้วย cellDates:true เซลล์วันที่จะมาเป็น Date ไม่ใช่เลข serial
   // ตัวอ่านไฟล์กลุ่มจ่ายรวมเจอของแบบนี้มาแล้ว และตัวนี้เคยคืนค่าว่างเงียบ ๆ
   // ซึ่งแปลว่าวันที่ของทั้งไฟล์หายไปโดยไม่มีอะไรฟ้อง (เจอตอนลองกับไฟล์ 22-H จริง 23 ก.ย. 2026)
+  // ⚠️ ค่าที่ xlsx คืนมาไม่ได้ตรงเที่ยงคืน · เซลล์ที่แสดง 29/7 ได้ Date เป็น
+  // 28/7 เวลา 23:59:56 (เศษจากการแปลง serial) — อ่านตรง ๆ ได้วันที่ 28 คือทั้งไฟล์เลื่อนหนึ่งวัน
+  // จึงปัดเป็นนาทีที่ใกล้ที่สุดก่อนค่อยอ่านวัน แบบเดียวกับ matDate ใน matfollow.js
   if (v instanceof Date && !isNaN(v)) {
-    return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate());
+    const t = new Date(Math.round(v.getTime() / 60000) * 60000);
+    return t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
   }
   if (typeof v !== 'number' || v <= 40000 || v >= 60000) return '';
   const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
