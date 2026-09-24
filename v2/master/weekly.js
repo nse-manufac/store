@@ -102,7 +102,8 @@ export function checkWeekly(lines, { totals = {}, materials = [], entity = '' } 
 export function chemPlan(parsed, { date = '' } = {}) {
   const line = r => ({
     code: String(r.code), po: r.po, pn: r.pn || '', orderQty: r.orderQty,
-    req: r.req, s41: r.issue, qty: r.issue, lot: date,
+    // Packing ไม่มียอด 541 — เจ้าของเคาะ 24 ก.ย. 2026 ให้เติมรับจริงจาก Req Qty ตามไฟล์เป๊ะ (มีทศนิยม) แก้ได้ถ้านับไม่ตรง
+    req: r.req, s41: r.issue, qty: r.packing ? r.req : r.issue, lot: date,
     desc: r.desc || '', remark: r.remark || ''
   });
   const rows = parsed.rows || [];

@@ -173,5 +173,14 @@ ok('รหัสที่เก็บเป็นตัวเลขในสม�
    seenBefore([{ entity: 'TUE-H', po: 'TM9269H001', code: 9000000001 }], book).length === 1);
 ok('สมุดเปล่าไม่พัง', seenBefore([{ entity: 'A', po: 'B', code: 'C' }]).length === 0);
 
+console.log('\n=== ไฟล์ Packing — รับจริงเติมจาก Req Qty (เจ้าของเคาะ 24 ก.ย. 2026) ===');
+const pp = chemPlan({ rows: [
+  { po: 'TM9269H001', code: '3220130200', req: 2.35, issue: null, packing: true, fromOver: false },
+  { po: 'TM9269H001', code: '3220130201', req: 4, issue: 3, packing: false, fromOver: false }
+], blocks: [] }, { date: '2026-09-24' });
+ok('Packing — รับจริง = Req Qty ตามไฟล์เป๊ะ (มีทศนิยม)', pp.receive[0].qty === 2.35 && pp.receive[0].s41 === null);
+ok('Chem — รับจริงยังเป็นยอด 541 เหมือนเดิม', pp.receive[1].qty === 3);
+ok('ล็อตยังเป็นวันที่รับเข้า', pp.receive.every(l => l.lot === '2026-09-24'));
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

@@ -900,7 +900,8 @@ textarea{font:inherit}
           <!-- Delta เข้าตรวจแล้วสั่งให้เลิกคีย์มือ เปลี่ยนเป็นดึงจากไฟล์ (เจ้าของ 23 ก.ย. 2026) -->
           <div class="row">
             <b>ดึงจากไฟล์ Kit List</b>
-            <input type="file" accept=".xls,.xlsx" @change="onInFile" :disabled="inBusy">
+            <input type="file" accept=".xls,.xlsx" @change="onInFile" :disabled="inBusy"
+                   title="ชื่อไฟล์ต้องเป็น Mat เดือน-วัน นิติบุคคล เช่น Mat Sep-23 H">
             <span class="hint" v-if="inBusy">กำลังอ่านไฟล์...</span>
             <div class="grow"></div>
             <label class="f" style="width:145px">วันที่
@@ -1500,7 +1501,7 @@ textarea{font:inherit}
       <template v-else-if="tab==='wk'">
         <div class="card">
           <div class="row">
-            <h2 style="margin:0">รับเข้ารวมรายรอบ — Tube · Chemical · Copper foil · Solder</h2>
+            <h2 style="margin:0">รับเข้ารวมรายรอบ — Tube · Chemical · Copper foil · Solder · Packing</h2>
           </div>
           <p class="hint" style="margin:6px 0 12px">
             ของกลุ่มนี้ Delta จ่ายรวมเป็นรอบ ไม่ผูกกับ PO ทีละใบ เอกสารเป็น PDF สแกนจึงต้องคีย์มือ<br>
@@ -1533,6 +1534,10 @@ textarea{font:inherit}
             กางรายการทั้งใบพร้อมยอดที่ Delta จ่ายมา · ตั้งเลขล็อตเป็นวันที่รับเข้า ·
             เอายอดรวมรายรหัสจากแถว Total มาเทียบให้เอง
             — เหลือใส่ชื่อผู้รับ ตรวจแล้วกดบันทึก
+          </p>
+          <p class="hint" style="margin:4px 0 0">
+            รับไฟล์ตามชื่อที่ Delta ตั้งมา — <b>Chemical เดือน-วัน</b> · <b>Packing เดือน-วัน</b>
+            · ไฟล์ Packing ไม่มียอดที่จ่าย ช่องรับจริงเติมจาก Req Qty ให้ แก้ได้ถ้านับไม่ตรง
           </p>
           <div :class="['msg', wkTone]" v-if="wkMsg" style="margin-top:10px">{{ wkMsg }}</div>
         </div>

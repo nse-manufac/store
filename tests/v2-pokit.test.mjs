@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitNameInfo, kitContentKind, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -804,6 +804,88 @@ ok('หน้ารับเข้ากับหน้า PO เลือกช
    (() => { const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
             return (src.match(/parseKitList\(\(pickKitSheet\(/g) || []).length === 2
                 && !/parseKitList\((aoa|first)\)/.test(src); })());
+
+console.log('\n=== R. แบบไฟล์จากชื่อ + เช็กข้างในซ้ำ (เจ้าของเคาะ 24 ก.ย. 2026) ===');
+const T = { today: '2026-09-24' };
+const nm = f => { const x = kitNameInfo(f, T); return x.kind + '|' + x.date + '|' + x.entity; };
+ok('ชื่อที่ Delta ตั้งมา — Chem', nm('Chemical- Sep-9.xlsx') === 'chem|2026-09-09|', nm('Chemical- Sep-9.xlsx'));
+ok('ชื่อที่ Delta ตั้งมา — Packing', nm('Packing_Sep-23.xlsx') === 'packing|2026-09-23|', nm('Packing_Sep-23.xlsx'));
+ok('Mat + นิติบุคคลท้ายชื่อ', nm('Mat Sep-23 H.xls') === 'mat|2026-09-23|H', nm('Mat Sep-23 H.xls'));
+ok('ตัวพิมพ์เล็กใหญ่ / ตัวคั่นแบบอื่น / เดือนเต็ม', nm('mat_september-5-u.xlsx') === 'mat|2026-09-05|U'
+   && nm('CHEM Sept 30.xlsx') === 'chem|2026-09-30|' && nm('packing-oct-1.xlsx') === 'packing|2026-10-01|',
+   [nm('mat_september-5-u.xlsx'), nm('CHEM Sept 30.xlsx'), nm('packing-oct-1.xlsx')].join(' '));
+ok('ไม่มีปีในชื่อ — ไฟล์ Dec ที่เปิดเดือน Jan เป็นปีก่อน',
+   kitNameInfo('Mat Dec-30 H', { today: '2027-01-03' }).date === '2026-12-30');
+ok('Mat ที่ไม่มีนิติบุคคลท้ายชื่อ ไม่ผ่าน', kitNameInfo('Mat Sep-23.xls', T).kind === '');
+ok('ชื่อเดิมของ Delta (23-H) ไม่ผ่าน ต้องเปลี่ยนชื่อ', kitNameInfo('23-H.xlsx', T).kind === '');
+// ⚠️ ใบแจ้งยอดขาด/เกินของ Delta ขึ้นต้นด้วย mat เหมือนกัน
+ok("\"mat'l short\" ไม่ถูกมองเป็นไฟล์ Mat", kitNameInfo("mat'l short.xlsx", T).kind === '');
+ok('เดือนที่ไม่มีจริง / วันที่ไม่มีจริง ไม่ผ่าน',
+   kitNameInfo('Chem Sepxx-9', T).kind === '' && kitNameInfo('Packing Feb-30', T).kind === ''
+   && kitNameInfo('Chem Sep-123', T).kind === '');
+
+// หน้าตาข้างใน — ของปลอมจำลองโครงไฟล์ ไม่ใช่ค่าจริง
+const chemSheet = [[null, 'Documet Issue Date   :'], [], [null, 'Work Order Material Kit List ( Tube, Chemical, Copper foil, Solder )'],
+  ['Item', 'PO No.', 'V/N', 'Model', "Order Q'TY", 'Material', 'Description', 'Req Qty', '541 Qty', 'Material Document No.', 'Remark'],
+  [1, 'TM9269H001', 'H', 2870627900, 100, 3220130200, 'GLUE', 1.5, 1.5, 'X1', '']];
+const packSheet = [[null, null, null, null, '       Date   : ', 46288],
+  ['Item', null, 'PO No.', 'V/N', 'Model', "Order Q'TY", 'Material', 'Description', 'Req Qty'],
+  [1, null, 'TM9269H001', 7000, 2870627900, 100, 3220130200, 'CARTON', 2.35],
+  [2, null, 'TM9269U002', 7000, 2870627900, 50, 3220130201, 'TRAY', 4]];
+const one = (aoa, hidden = false) => [{ name: 'S', hidden, aoa }];
+ok('ข้างใน — ชื่อเอกสาร Chem', kitContentKind(one(chemSheet)) === 'chem');
+ok('ข้างใน — ชื่อเอกสาร Mat', kitContentKind(one(realSub)) === 'mat');
+ok('ข้างใน — มี Material แต่ไม่มี 541 = Packing', kitContentKind(one(packSheet)) === 'packing');
+ok('ข้างใน — ชีตซ่อนไม่นับ (โครง 23-H)', kitContentKind(book23) === 'mat');
+ok('ข้างใน — ไม่ใช่ Kit List เลย', kitContentKind(one([['a', 'b']])) === '');
+
+const chk = (f, s, want) => kitFileCheck(f, s, { ...T, want });
+ok('ชื่อกับข้างในตรงกัน ผ่าน', chk('Mat Sep-23 H.xlsx', book23, ['mat']).ok === true);
+ok('ชื่อไม่ตรงรูปแบบ — ปฏิเสธ พร้อมตัวอย่างชื่อที่ถูกทั้งสามแบบ',
+   (() => { const r = chk('23-H.xlsx', book23, ['mat']); return !r.ok && /เปลี่ยนชื่อ/.test(r.error)
+            && r.error.includes('Mat Sep-23 H') && r.error.includes('Packing Sep-23'); })());
+ok('ชื่อบอก Mat แต่ข้างในเป็น Packing — ปฏิเสธ บอกให้ตรวจชื่อ',
+   (() => { const r = chk('Mat Sep-23 H.xlsx', one(packSheet), ['mat']); return !r.ok && /ข้างในเป็นแบบ Packing/.test(r.error); })());
+ok('ไฟล์ถูกแต่ผิดหน้า — บอกว่าต้องไปที่ไหน',
+   (() => { const r = chk('Packing_Sep-23.xlsx', one(packSheet), ['mat']); return !r.ok && r.error.includes('แท็บรับเข้ารวมรายรอบ'); })());
+ok('แท็บรับเข้ารวมรับทั้ง Chem และ Packing',
+   chk('Chemical- Sep-9.xlsx', one(chemSheet), ['chem', 'packing']).ok && chk('Packing_Sep-23.xlsx', one(packSheet), ['chem', 'packing']).ok);
+
+ok('นิติบุคคลในไฟล์ไม่ตรงกับท้ายชื่อ — นับบรรทัดให้เตือน',
+   kitEntityMismatch([{ entity: 'TUE-H', entityFrom: 'guess' }, { entity: 'TUE-U', entityFrom: 'guess' },
+                      { entity: 'TUE-S', entityFrom: 'unregistered' }, { entity: '' }], 'h').length === 2
+   && kitEntityMismatch([{ entity: 'TUE-U', entityFrom: 'guess' }], '').length === 0);
+// ผู้ตรวจ #109 ข้อ ค — PO ที่เดาไม่ออกได้นิติบุคคลบนหัวจอ ไม่ใช่ของ PO ห้ามนับว่า "ไม่ตรงตามเลข PO"
+ok('บรรทัดที่นิติบุคคลมาจากหัวจอ (เดาจาก PO ไม่ออก) ไม่ถูกนับ',
+   kitEntityMismatch([{ entity: 'TUE-U', entityFrom: 'current' }, { entity: 'TUE-U', entityFrom: 'forced' }], 'H').length === 0);
+
+// Packing ผ่านตัวอ่านกลุ่มจ่ายรวม — แบบของไฟล์มาจาก kitFileCheck
+const pk = parseKitChem({ sheets: one(packSheet) }, { fallbackDate: '2026-09-23', packing: true });
+ok('Packing อ่านได้ทุกบรรทัด ติดป้าย packing · ยอดจ่ายว่าง (ไม่มีคอลัมน์ 541)',
+   pk.rows.length === 2 && pk.rows.every(r => r.packing && r.issue === null) && pk.packing.join() === 'S');
+ok('Packing ไม่ขึ้นเตือน "ไม่มีคอลัมน์ Material Document No." ทุกครั้ง', pk.noDocCol.length === 0);
+ok('ไฟล์ Chem ไม่ติดป้าย packing',
+   parseKitChem({ sheets: one(chemSheet) }).rows.every(r => r.packing === false));
+// ผู้ตรวจ #109 ข้อ ก — ไฟล์ Chem ที่ชีตหนึ่งหลุดคอลัมน์ 541 ต้องเหมือนเดิม: ยอดว่าง (บันทึกไม่ได้) + เตือน
+const chemNo541 = [chemSheet[0], chemSheet[1], chemSheet[2],
+  ['Item', 'PO No.', 'V/N', 'Model', "Order Q'TY", 'Material', 'Description', 'Req Qty'],
+  [1, 'TM9269U002', 'U', 2870627900, 50, 3220130201, 'GLUE', 9.9]];
+const cn = parseKitChem({ sheets: [{ name: 'H', hidden: false, aoa: chemSheet },
+                                    { name: 'U', hidden: false, aoa: chemNo541 }] });
+ok('ไฟล์ Chem ที่ชีตหนึ่งไม่มีคอลัมน์ 541 — ไม่ติดป้าย packing · ยอดจ่ายว่าง · ขึ้นเตือนชีตนั้น',
+   cn.rows.every(r => r.packing === false) && cn.rows.some(r => r.issue === null)
+   && cn.packing.length === 0 && cn.noDocCol.includes('U'), JSON.stringify({ p: cn.packing, n: cn.noDocCol }));
+ok('แท็บรับเข้ารวมบอกตัวอ่านว่าเป็น Packing จากผลของ kitFileCheck เท่านั้น',
+   fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes("packing: chk.kind === 'packing'"));
+
+// ผู้ตรวจ #107 ข้อ ข — บรรทัดที่อ่านรหัสไม่ได้ต้องนับให้เห็น
+const skip = parseKitList([...realSub, [1, 'TM9269H003', 2870627900, 'R-1234567', 'X', 'PCE', 1]]);
+ok('บรรทัดที่อ่านรหัสไม่ได้ถูกนับ ไม่หายเงียบ', skip.skipped === 1 && skip.rows.length === 1, String(skip.skipped));
+ok('หัวตาราง / แถว Total / แถวว่าง ไม่ถูกนับเป็นบรรทัดที่ข้าม', parseKitList(realSub).skipped === 0);
+ok('หน้ารับเข้ากับแท็บรับเข้ารวม ผ่านด่าน kitFileCheck ทั้งคู่',
+   (() => { const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+            return /kitFileCheck\(file\.name, sheets, \{[^}]*want: \['mat'\]/.test(src)
+                && /kitFileCheck\(file\.name, sheets, \{[^}]*want: \['chem', 'packing'\]/.test(src); })());
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
