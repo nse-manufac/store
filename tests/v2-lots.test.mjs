@@ -6,7 +6,7 @@
  * ถ้าปล่อยให้ล็อตที่เดามาดูเหมือนของที่บันทึกไว้ เราจะพูดกับลูกค้าเกินกว่าที่รู้จริง
  */
 import fs from 'node:fs';
-import { lotsOf, suggestLots, traceLot, receiveLot } from '../v2/core/lots.js';
+import { lotsOf, suggestLots, traceLot, receiveLot, relot } from '../v2/core/lots.js';
 import { makeEntry } from '../v2/core/ledger.js';
 
 let pass = 0, fail = 0;
@@ -104,9 +104,24 @@ ok('เว้นว่าง ใช้วันที่รับเข้า', 
 ok('ช่องว่างล้วนนับว่าเว้นว่าง', receiveLot('   ', '2026-09-24') === '2026-09-24');
 ok('null / undefined ก็ใช้วันที่', receiveLot(null, '2026-09-24') === '2026-09-24' && receiveLot(undefined, '2026-09-24') === '2026-09-24');
 ok('ไม่มีทั้งคู่ ได้ค่าว่าง (ให้คนเรียกตัดสินเอง)', receiveLot('', '') === '');
-ok('หน้ารับเข้าปกติเรียก receiveLot กับวันที่บนหัวจอ และไม่บล็อกเพราะไม่มีวันหมดอายุแล้ว',
-   (() => { const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-            return src.includes('receiveLot(l.lot, inH.date)') && !src.includes('ต้องกรอกวันหมดอายุอีก'); })());
+console.log('\n=== สองหน้ารับเข้าใช้กติกาล็อต/วันหมดอายุเดียวกัน (เจ้าของเคาะ 24 ก.ย. 2026) ===');
+const rl = [{ lot: '2026-09-24' }, { lot: 'LOT-7' }, { lot: '' }, { lot: '2026-09-24' }];
+ok('แก้วันที่หลังกางไฟล์ — ล็อตที่ระบบเติมให้ตามวันที่ใหม่', relot(rl, '2026-09-24', '2026-09-25') === 2
+   && rl[0].lot === '2026-09-25' && rl[3].lot === '2026-09-25');
+ok('ล็อตที่คนพิมพ์เอง / ช่องว่าง ไม่ถูกแตะ', rl[1].lot === 'LOT-7' && rl[2].lot === '');
+ok('ล้างวันที่จนว่าง — ล็อตกลับเป็นว่าง (ตอนบันทึกได้วันนี้แทน)',
+   (() => { const x = [{ lot: '2026-09-25' }]; relot(x, '2026-09-25', ''); return x[0].lot === ''; })());
+ok('ไม่มีวันที่เดิม / ไม่มีอะไรเลย ไม่พัง', relot(rl, '', 'x') === 0 && relot(null, 'a', 'b') === 0);
+{
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('ทั้งสองหน้าตัดสินล็อตด้วย receiveLot และวันที่ว่างใช้วันนี้ (ผู้ตรวจ #108 ข้อ 1)',
+     src.includes('receiveLot(l.lot, inH.date || todayLocal())')
+     && src.includes('receiveLot(l.lot, wkH.date || todayLocal())'));
+  ok('แท็บรับเข้ารวม — ล็อตตามวันที่เมื่อแก้วันที่หลังกางไฟล์', /watch\(\(\) => wkH\.date,[^\n]*relot\(/.test(src));
+  ok('ไม่บล็อก / ไม่ถามยืนยัน เพราะไม่มีวันหมดอายุ หรือไม่มีล็อต ทั้งสองหน้า',
+     !src.includes('ต้องกรอกวันหมดอายุอีก') && !/confirm\([^;]*ยังไม่มีวันหมดอายุ/.test(src)
+     && !/confirm\([^;]*ยังไม่ใส่เลขล็อต/.test(src));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

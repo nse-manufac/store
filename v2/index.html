@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-24.4">
+<meta name="app-version" content="2026-09-24.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1015,7 +1015,7 @@ textarea{font:inherit}
                   </td>
                   <td class="mono">{{ l.issued === null || l.issued === undefined ? '' : l.issued }}</td>
                   <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:84px"></td>
-                  <td><input v-model.trim="l.lot" class="mono" style="width:98px" :placeholder="inH.date"
+                  <td><input v-model.trim="l.lot" class="mono" style="width:98px" :placeholder="inH.date || 'วันนี้'"
                              title="เว้นว่าง = ใช้วันที่รับเข้าเป็นเลขล็อต"></td>
                   <td><input v-if="l.needExp" v-model="l.expiry" type="date" style="width:122px">
                       <span v-else class="hint">—</span></td>
@@ -1584,7 +1584,8 @@ textarea{font:inherit}
                   <td class="mono" :style="Math.abs(wkPctOf(l)) > 20 ? 'color:var(--bad)' : ''">
                     {{ wkPctOf(l) === null ? '' : wkPctOf(l) + '%' }}</td>
                   <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:80px"></td>
-                  <td><input v-model.trim="l.lot" class="mono" style="width:90px"></td>
+                  <td><input v-model.trim="l.lot" class="mono" style="width:90px" :placeholder="wkH.date || 'วันนี้'"
+                             title="เว้นว่าง = ใช้วันที่รับเข้าเป็นเลขล็อต"></td>
                   <td><input v-if="l.needExp" v-model="l.expiry" type="date" style="width:118px">
                       <span v-else class="hint">—</span></td>
                   <td><button class="btn" style="padding:2px 7px" @click="wkLines.splice(i,1)">✕</button></td>
@@ -1684,12 +1685,8 @@ textarea{font:inherit}
             {{ wkSeen.length }} บรรทัดที่ PO กับรหัสเดิมเคยคีย์รับเข้าไปแล้ว —
             <span class="hint">ถ้านี่คือการนำไฟล์เดิมเข้าซ้ำ ยอดจะเข้าคลังสองรอบ</span>
           </div>
-          <div class="msg warn" v-if="wkCheck.noLot">
-            {{ wkCheck.noLot }} บรรทัดยังไม่ใส่เลขล็อต —
-            <span class="hint">ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป</span>
-          </div>
           <p class="hint" v-if="!wkCheck.otherEntities.length && !wkCheck.mismatch.length
-                                && !wkCheck.unknown.length && !wkCheck.noLot
+                                && !wkCheck.unknown.length
                                 && !wkNoExp.length && !wkSeen.length && !wkSkip.length"
              style="margin:0">ตรวจแล้วไม่มีอะไรค้าง</p>
         </div>
