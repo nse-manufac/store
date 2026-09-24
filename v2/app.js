@@ -2749,7 +2749,7 @@ createApp({
           // ── แล้วค่อยดึงลง ──
           sync.msg = `กำลังดึง ${TABLES[t].label}...`;
           const d = await api('pullTable', { table: TABLES[t].sheet, since: sync.since[t] || '' });
-          const m = mergeIncoming(list.value, d.rows || [], key);
+          const m = mergeIncoming(list.value, d.rows || [], key, { stickyVoid: t === 'entries' });
           if (m.added.length) {
             await db.put(t, m.added.map(plain), { synced: true });
             list.value.push(...m.added);
