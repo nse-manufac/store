@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -715,6 +715,58 @@ const unk = kitReceiveByPo(kitReceivePlan([{ po: 'XX-1', code: 9000000001, issue
 ok('PO ที่ตัดสินนิติบุคคลไม่ได้ คืนยอดว่าง ไม่พัง',
    unk.get('XX-1').entity === '' && unk.get('XX-1').recv.size === 0);
 ok('ไม่มีสมุด/ไม่มีกลุ่ม ก็ไม่พัง', kitReceiveByPo().size === 0);
+
+
+console.log('\n=== P. ของมาไม่ครบ — สลับทั้งใบ (เจ้าของ 23 ก.ย. 2026 "แล้วแต่รอบ ไม่แน่นอน") ===');
+// ไฟล์จริง 238 บรรทัด 33 PO ถ้ารอบนั้นมาแค่สิบใบ ต้องไล่ล้างยอดร้อยกว่าช่อง = คีย์มือในอีกรูปหนึ่ง
+const pl = [
+  { po: 'TM9269H001', code: 'A', issued: 2, qty: 2 },
+  { po: 'TM9269H001', code: 'B', issued: 3, qty: 3 },
+  { po: 'TM9269H002', code: 'A', issued: 1, qty: null },
+  { po: 'TM9269H003', code: 'C', issued: 5, qty: 5 },
+  { po: 'TM9269H003', code: 'D', issued: 4, qty: null }
+];
+const sum0 = kitPoSummary(pl);
+ok('สรุปรายใบ เรียงตามลำดับที่อยู่', sum0.map(g => g.po).join(',') === 'TM9269H001,TM9269H002,TM9269H003');
+ok('บอกได้ว่าใบไหนมาครบ ใบไหนยังว่าง ใบไหนบางส่วน',
+   sum0.map(g => g.state).join(',') === 'all,none,some', JSON.stringify(sum0.map(g => g.state)));
+ok('นับบรรทัดที่มียอดกับทั้งหมดของแต่ละใบ', sum0[2].filled === 1 && sum0[2].lines === 2);
+
+ok('ใบที่ยังไม่มา — ล้างยอดทั้งใบ', setPoArrived(pl, 'TM9269H001', false) === 2
+   && pl[0].qty === null && pl[1].qty === null);
+// ⚠️ ล้าง = ค่าว่าง ไม่ใช่ศูนย์ — ศูนย์คือ "มาแล้วแต่ได้ศูนย์" ซึ่งเป็นคนละเรื่อง
+ok('ล้างแล้วเป็นค่าว่าง ไม่ใช่ศูนย์', pl[0].qty === null && pl[0].qty !== 0);
+ok('ใบอื่นไม่ถูกแตะ', pl[3].qty === 5 && pl[2].qty === null);
+ok('ใบที่มาแล้ว — เติมยอดตามไฟล์ทั้งใบ', setPoArrived(pl, 'TM9269H003', true) === 1 && pl[4].qty === 4);
+ok('ยอดที่ไม่เปลี่ยนไม่นับว่าเปลี่ยน', setPoArrived(pl, 'TM9269H003', true) === 0);
+ok('บรรทัดที่ไฟล์ไม่บอกยอด เติมแล้วยังว่าง ไม่กลายเป็นศูนย์',
+   (() => { const x = [{ po: 'P', issued: null, qty: null }]; setPoArrived(x, 'P', true); return x[0].qty === null; })());
+// ทางคีย์เอง — บรรทัดไม่มี PO ของตัวเอง ใช้ของหัวจอ
+const hdr = [{ po: '', issued: 1, qty: 1 }, { po: '', issued: 2, qty: null }];
+ok('ทางคีย์เองใช้เลข PO บนหัวจอ',
+   kitPoSummary(hdr, { headerPo: 'TM9269H009' })[0].po === 'TM9269H009'
+   && setPoArrived(hdr, 'TM9269H009', false, { headerPo: 'TM9269H009' }) === 1);
+// รีวิว #105 — บรรทัดที่ไฟล์ไม่บอกยอด ปุ่มไม่แตะ ไม่นับ
+const arrMix = [
+  { po: 'TM9269H004', code: 'A', issued: 2, qty: 2 },
+  { po: 'TM9269H004', code: 'B', issued: null, qty: null },   // ช่อง issue ว่าง
+  { po: 'TM9269H004', code: 'C', issued: 0, qty: null },      // Delta จ่ายศูนย์
+  { po: '', code: 'D', issued: null, qty: 7 }                  // ซื้อทดแทน (ไปรับของ) ใช้ PO หัวจอ
+];
+const arrSum = kitPoSummary(arrMix, { headerPo: 'TM9269H005' });
+ok('บรรทัดที่ไฟล์ไม่บอกยอด ไม่ทำให้ใบขึ้น "บางส่วน" ตั้งแต่ยังไม่แตะ',
+   arrSum.length === 1 && arrSum[0].state === 'all' && arrSum[0].lines === 1, JSON.stringify(arrSum));
+ok('บรรทัดซื้อทดแทนไม่กลายเป็นชิปของตัวเอง', !arrSum.some(g => g.po === 'TM9269H005'));
+setPoArrived(arrMix, 'TM9269H005', false, { headerPo: 'TM9269H005' });
+setPoArrived(arrMix, 'TM9269H004', false, { headerPo: 'TM9269H005' });
+ok('ล้างทั้งใบ ยอดที่คีย์เองในบรรทัดซื้อทดแทนยังอยู่', arrMix[3].qty === 7 && arrMix[0].qty === null);
+ok('ใบที่ Delta จ่ายศูนย์ทั้งใบ ไม่มีชิปให้กดแล้วไม่เกิดอะไร',
+   kitPoSummary([{ po: 'Z', issued: 0, qty: null }]).length === 0);
+ok('กดชิป: ว่างทั้งใบ → เติม · ครบหรือบางส่วน → ล้าง',
+   nextArrived({ state: 'none' }) === true && nextArrived({ state: 'all' }) === false
+   && nextArrived({ state: 'some' }) === false && nextArrived(null) === false);
+ok('ไม่มีอะไรเลยก็ไม่พัง',
+   kitPoSummary([]).length === 0 && kitPoSummary(null).length === 0 && setPoArrived(null, 'X', true) === 0);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
