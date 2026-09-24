@@ -192,6 +192,41 @@ export function voidEntry(e, { by, reason }) {
            void_at: new Date().toISOString(), updated_at: new Date().toISOString() };
 }
 
+/**
+ * เติมวันหมดอายุทีหลัง — ทางเดียวที่แก้รายการที่บันทึกแล้วได้ (เจ้าของเคาะ 24 ก.ย. 2026)
+ *
+ * มีเพราะไฟล์ Kit List ของ Delta ไม่มีช่องวันหมดอายุ เจ้าของจึงให้บันทึกไปก่อนแล้วมาเติมทีหลัง
+ * แก้ได้แค่ช่องนี้ช่องเดียว และเฉพาะตอนที่ยังว่าง — ไม่ใช่ทางเปิดให้แก้รายการทั่วไป
+ * ใครเติมเมื่อไหร่ต่อท้ายไว้ในหมายเหตุ เพราะแถวในสมุดไม่มีช่องเก็บประวัติการแก้
+ *
+ * ⚠️ แก้แถวเดิม = ซิงค์แบบ "ใครแก้ทีหลังชนะทั้งแถว" · ถ้าอีกเครื่องยกเลิกรายการนี้ไปก่อน
+ *    แถวที่เติมแล้วจะทับการยกเลิก → ตัวรวมข้อมูลต้องเปิด stickyVoid ให้ตาราง entries เสมอ (core/sync.js)
+ */
+export function setExpiry(e, { date, by, today } = {}) {
+  if (!e) throw new Error('ไม่เจอรายการ');
+  if (e.voided) throw new Error('รายการนี้ถูกยกเลิกแล้ว เติมวันหมดอายุไม่ได้');
+  if (e.kind !== 'receive') throw new Error('เติมวันหมดอายุได้เฉพาะรายการรับเข้า');
+  if (e.expiry_date) throw new Error('รายการนี้มีวันหมดอายุอยู่แล้ว');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('วันหมดอายุต้องเป็นวันที่');
+  if (!by) throw new Error('ต้องบอกว่าใครเติม');
+  if (!today) throw new Error('ต้องบอกวันที่เติม');
+  const stamp = `เติมวันหมดอายุ ${today} โดย ${by}`;
+  return { ...e, expiry_date: String(date), note: e.note ? e.note + ' · ' + stamp : stamp,
+           updated_at: new Date().toISOString() };
+}
+
+/**
+ * รายการรับเข้าที่ยังขาดวันหมดอายุ ของรหัสที่ทะเบียนบอกว่าต้องมี — ที่พนักงานต้องกลับมาเติม
+ * needsExpiry = code => boolean (จากทะเบียน) · เรียงเก่าก่อน
+ */
+export function missingExpiry(entries, entity, needsExpiry) {
+  if (!entity) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  return (entries || [])
+    .filter(e => e && e.entity === entity && !e.voided && e.kind === 'receive'
+              && !e.expiry_date && needsExpiry(String(e.material_code)))
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+}
+
 let seq = 0;
 function newId() {
   // ต้องไม่ชนกันข้ามเครื่องที่คีย์พร้อมกันโดยไม่มีเน็ต จึงผสมเวลา ตัวนับ และตัวสุ่ม

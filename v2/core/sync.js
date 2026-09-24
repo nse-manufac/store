@@ -147,14 +147,26 @@ export const normKeysAll = list => Array.isArray(list) ? list.map(normKeys) : li
 /** แถวที่ยังไม่ได้ส่งขึ้น */
 export const dirtyRows = list => list.filter(r => r && r.dirty === true);
 
+const VOID_COLS = ['voided', 'void_reason', 'void_by', 'void_at'];
+const voidOf = r => Object.fromEntries(VOID_COLS.map(c => [c, r[c]]));
+
 /**
  * รวมแถวที่ดึงมาเข้ากับของในเครื่อง — ใครแก้ทีหลังชนะ
  *
  * ⚠️ ยกเว้นแถวที่เครื่องเรายังส่งไม่สำเร็จ ห้ามทับเด็ดขาด
  * ถ้าทับ งานที่พนักงานเพิ่งคีย์จะหายไปเงียบ ๆ ตอนเน็ตกลับมา
  * ซึ่งเป็นความเสียหายที่มองไม่เห็นจนกว่าจะมีคนทักว่ายอดไม่ตรง
+ *
+ * stickyVoid — ยกเลิกแล้วไม่ย้อน (เปิดให้ตาราง entries · เจ้าของเคาะ 24 ก.ย. 2026)
+ * ตั้งแต่เติมวันหมดอายุทีหลังได้ (setExpiry) แถวในสมุดถูกแก้ได้จากสองเครื่อง
+ * เครื่องที่ยังไม่รู้ว่ารายการถูกยกเลิก ส่งแถวที่เติมแล้วขึ้นไปทับ → รายการฟื้นกลับมานับยอดเงียบ ๆ
+ * v2 ไม่มีทางยกเลิกการยกเลิก (INVARIANTS B1) ถ้าฝั่งไหนยกเลิกแล้ว ผลต้องเป็นยกเลิก:
+ * เครื่องเรายกเลิกไว้ แถวที่ดึงมาไม่ได้ยกเลิก → รับช่องอื่นมา คงการยกเลิก แล้วติด dirty
+ * ให้ส่งกลับขึ้นไปซ่อมเซิร์ฟเวอร์ (เซิร์ฟเวอร์ใครส่งทีหลังชนะ แก้ฝั่งนั้นต้อง redeploy)
+ * เครื่องไหนเคยเห็นการยกเลิกก็ซ่อมให้ได้ ทุกเครื่องจึงกลับมาเป็นยกเลิกเมื่อซิงค์ครบ
+ * ⚠️ แถวที่เรายังส่งไม่ออกยังห้ามแตะตาม D3 แม้ฝั่งโน้นจะยกเลิกแล้ว — ส่งขึ้นไปแล้วเครื่องอื่นซ่อมให้
  */
-export function mergeIncoming(local, incoming, key = 'id') {
+export function mergeIncoming(local, incoming, key = 'id', { stickyVoid = false } = {}) {
   const byKey = new Map(local.map(r => [asText(r[key]), r]));
   const added = [], updated = [];
   let heldBack = 0;
@@ -166,7 +178,8 @@ export function mergeIncoming(local, incoming, key = 'id') {
     if (!cur) { added.push({ ...raw, dirty: false }); continue; }
     if (cur.dirty === true) { heldBack++; continue; }
     if (asText(raw.updated_at) > asText(cur.updated_at)) {
-      updated.push({ ...cur, ...raw, dirty: false });
+      const back = stickyVoid && asBool(cur.voided) && !asBool(raw.voided);
+      updated.push(back ? { ...cur, ...raw, ...voidOf(cur), dirty: true } : { ...cur, ...raw, dirty: false });
     }
   }
   return { added, updated, heldBack, changed: added.length + updated.length };

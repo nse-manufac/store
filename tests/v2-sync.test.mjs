@@ -5,6 +5,7 @@
  * หมวด B สำคัญที่สุด — ถ้ารวมข้อมูลผิด งานที่พนักงานเพิ่งคีย์จะหายเงียบ ๆ ตอนเน็ตกลับมา
  * ซึ่งเป็นความเสียหายที่ไม่มีใครเห็นจนกว่าจะมีคนทักว่ายอดไม่ตรง
  */
+import fs from 'node:fs';
 import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced,
          chunk, toWire, syncPlan, looksLikeOldScript, normKeys, normKeysAll,
          KEY_COLS, missingTables, normalizeScriptUrl } from '../v2/core/sync.js';
@@ -168,6 +169,35 @@ ok('ส่ง null มาก็ไม่ระเบิด', nu(null).url === ''
 ok('เรียกซ้ำได้ผลเหมือนเดิมทุกครั้ง',
    nu(GOOD + '​').url === nu(GOOD + '​').url &&
    nu(GOOD + '​').problems.length === nu(GOOD + '​').problems.length);
+
+console.log('\n=== ยกเลิกแล้วไม่ย้อน (stickyVoid · เติมวันหมดอายุทีหลัง 24 ก.ย. 2026) ===');
+// เครื่อง A ยกเลิก · เครื่อง B ยังไม่รู้ เติมวันหมดอายุแล้วส่งขึ้นทีหลัง → เซิร์ฟเวอร์ได้แถวที่ไม่ยกเลิก
+const vA = { id: 'V', qty: 5, expiry_date: '', voided: true, void_reason: 'คีย์ผิด', void_by: 'ก', void_at: 't1',
+             updated_at: '2026-09-24T01:00:00.000Z', dirty: false };
+const fromB = { id: 'V', qty: 5, expiry_date: '2027-01-31', voided: 'FALSE', void_reason: '', void_by: '', void_at: '',
+                updated_at: '2026-09-24T02:00:00.000Z' };
+const sv1 = mergeIncoming([vA], [fromB], 'id', { stickyVoid: true }).updated[0];
+ok('เครื่องที่ยกเลิกไว้ ไม่ฟื้นรายการตามแถวที่ดึงมา', sv1.voided === true && sv1.void_reason === 'คีย์ผิด');
+ok('แต่รับช่องอื่นที่อีกเครื่องแก้มาด้วย', sv1.expiry_date === '2027-01-31');
+ok('แล้วติดธงรอส่ง เพื่อไปซ่อมเซิร์ฟเวอร์กลับเป็นยกเลิก', sv1.dirty === true);
+ok('ตารางอื่นยังเป็นใครแก้ทีหลังชนะเหมือนเดิม',
+   mergeIncoming([{ ...vA }], [fromB]).updated[0].voided === 'FALSE');
+// แถวของเครื่องเรายังส่งไม่ออก แต่เซิร์ฟเวอร์ยกเลิกไปแล้ว — D3 ยังชนะ ห้ามแตะ
+const vB = { id: 'V', qty: 5, expiry_date: '2027-01-31', voided: false, void_reason: '', updated_at: 'a', dirty: true };
+const sv2 = mergeIncoming([vB], [{ ...vA, voided: 'TRUE', updated_at: 'b' }], 'id', { stickyVoid: true });
+ok('แถวที่ยังส่งไม่ออก ยังห้ามแตะ (D3) แม้ฝั่งโน้นยกเลิกแล้ว',
+   sv2.heldBack === 1 && sv2.updated.length === 0 && vB.voided === false);
+// ไล่ทั้งวง: เซิร์ฟเวอร์ถูกทับเป็นไม่ยกเลิก → A ซ่อมส่งขึ้น → B ดึงแล้วได้ยกเลิก
+const aFix = { ...sv1, updated_at: '2026-09-24T03:00:00.000Z', dirty: false };
+const bNow = { ...fromB, voided: false, dirty: false };
+const bAfter = mergeIncoming([bNow], [aFix], 'id', { stickyVoid: true }).updated[0];
+ok('เครื่องที่ส่งแถวไม่ยกเลิกขึ้นไป ได้การยกเลิกกลับมาเมื่อซิงค์รอบถัดไป',
+   bAfter.voided === true && bAfter.expiry_date === '2027-01-31' && bAfter.dirty === false);
+ok('ยกเลิกทั้งสองฝั่ง รวมตามปกติ ไม่ติดธงรอส่ง',
+   mergeIncoming([{ ...vA }], [{ ...vA, voided: 'TRUE', updated_at: 'z' }], 'id', { stickyVoid: true })
+     .updated[0].dirty === false);
+ok('แอปเปิด stickyVoid ให้ตาราง entries ตอนซิงค์',
+   /mergeIncoming\([^)]*stickyVoid: t === 'entries'/.test(fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
 
 console.log('\n=== ตารางที่ประกาศไว้ ต้องต่อสายครบทุกตัว ===');
 // บั๊กจริง 24 ส.ค. 2026 — เพิ่ม entities เข้า TABLES แล้วลืมต่อสายฝั่งแอป

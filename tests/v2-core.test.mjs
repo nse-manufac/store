@@ -6,7 +6,7 @@
  * ในโปรแกรมคลัง เพราะกว่าจะรู้ก็ผ่านไปหลายเดือนแล้ว
  */
 import fs from 'node:fs';
-import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds } from '../v2/core/ledger.js';
+import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry } from '../v2/core/ledger.js';
 import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
@@ -216,6 +216,37 @@ ok('receivedOfDoc ให้ผลเท่ากับ movedOfDoc ชนิด�
 ok('การ์ดรายตัวขึ้นชื่อ "ส่งคืน Delta" เป็นยอดติดลบ',
    cardRows(sbk, E, C).some(r => r.kindLabel === 'ส่งคืน Delta' && r.moved === -0.2));
 ok('ส่งคืนไม่ถูกฟ้องว่าเป็นชนิดที่ไม่รู้จัก', unknownKinds(sbk).length === 0);
+
+console.log('\n=== เติมวันหมดอายุทีหลัง (เจ้าของ 24 ก.ย. 2026) ===');
+const rx = mk({ kind: 'receive', qty: 5, lot: '2026-09-24', doc_ref: 'PO1', note: 'รับรวมรายรอบ' });
+const fx = setExpiry(rx, { date: '2027-03-31', by: 'สมชาย', today: '2026-09-25' });
+ok('เติมแล้วได้วันหมดอายุ', fx.expiry_date === '2027-03-31');
+ok('ใครเติมเมื่อไหร่ต่อท้ายหมายเหตุเดิม', fx.note === 'รับรวมรายรอบ · เติมวันหมดอายุ 2026-09-25 โดย สมชาย', fx.note);
+ok('id กับ created_at ไม่เปลี่ยน (B3) · ยอดไม่เปลี่ยน',
+   fx.id === rx.id && fx.created_at === rx.created_at && fx.qty === rx.qty && fx.lot === rx.lot);
+ok('updated_at ขยับ ให้ซิงค์รู้ว่ามีการแก้', fx.updated_at >= rx.updated_at);
+ok('ไม่แก้ตัวเดิมในที่', rx.expiry_date === '');
+throws('รายการที่ยกเลิกแล้วเติมไม่ได้',
+   () => setExpiry(voidEntry(rx, { by: 'x', reason: 'y' }), { date: '2027-03-31', by: 'a', today: 't' }), 'ยกเลิก');
+throws('เติมได้เฉพาะรับเข้า',
+   () => setExpiry(mk({ kind: 'issue', qty: 1 }), { date: '2027-03-31', by: 'a', today: 't' }), 'รับเข้า');
+throws('มีวันหมดอายุอยู่แล้ว เติมทับไม่ได้', () => setExpiry(fx, { date: '2027-04-01', by: 'a', today: 't' }), 'อยู่แล้ว');
+throws('วันที่ต้องเป็นวันที่', () => setExpiry(rx, { date: '31/03/2027', by: 'a', today: 't' }), 'วันที่');
+throws('ต้องบอกว่าใครเติม', () => setExpiry(rx, { date: '2027-03-31', today: 't' }), 'ใคร');
+const needs = c => c === 'CHEM';
+const mx = [
+  mk({ kind: 'receive', material_code: 'CHEM', qty: 1, lot: 'L', doc_ref: 'P', at: '2026-09-22T01:00:00.000Z' }),
+  mk({ kind: 'receive', material_code: 'CHEM', qty: 1, lot: 'L', doc_ref: 'P', at: '2026-09-20T01:00:00.000Z' }),
+  mk({ kind: 'receive', material_code: 'CHEM', qty: 1, lot: 'L', doc_ref: 'P', expiry_date: '2027-01-01' }),
+  mk({ kind: 'receive', material_code: 'TAPE', qty: 1, lot: 'L', doc_ref: 'P' }),
+  mk({ kind: 'receive', material_code: 'CHEM', qty: 1, lot: 'L', doc_ref: 'P', entity: 'อื่น' }),
+  voidEntry(mk({ kind: 'receive', material_code: 'CHEM', qty: 1, lot: 'L', doc_ref: 'P' }), { by: 'x', reason: 'y' }),
+  mk({ kind: 'issue', material_code: 'CHEM', qty: 1 })
+];
+const miss = missingExpiry(mx, base.entity, needs);
+ok('หาเฉพาะรับเข้าที่ยังว่าง ของรหัสที่ต้องมี นิติบุคคลนี้ ไม่ยกเลิก', miss.length === 2, String(miss.length));
+ok('เรียงเก่าก่อน', miss[0].at < miss[1].at);
+throws('ไม่บอกนิติบุคคล = โยน (A3)', () => missingExpiry(mx, '', needs), 'A3');
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
