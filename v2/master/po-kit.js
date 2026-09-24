@@ -239,9 +239,14 @@ export function kitFileCheck(fileName, sheets, { today = '', want = [] } = {}) {
   return { ok: true, kind: name.kind, date: name.date, entity: name.entity, error: '' };
 }
 
-/** บรรทัดที่นิติบุคคล (จากเลข PO) ไม่ตรงกับตัวย่อท้ายชื่อไฟล์ Mat — เตือน ไม่ปฏิเสธ (ไฟล์เดียวมี H/U ปนได้) */
+/**
+ * บรรทัดที่นิติบุคคล (จากเลข PO) ไม่ตรงกับตัวย่อท้ายชื่อไฟล์ Mat — เตือน ไม่ปฏิเสธ (ไฟล์เดียวมี H/U ปนได้)
+ * ⚠️ นับเฉพาะบรรทัดที่นิติบุคคลมาจากเลข PO จริง (guess · unregistered) — PO ที่เดาไม่ออกตกไปใช้ตัวบนหัวจอ
+ *    ถ้านับด้วย ข้อความ "ลงนิติบุคคลตามเลข PO" จะไม่จริงสำหรับบรรทัดพวกนั้น (ผู้ตรวจ #109 ข้อ ค)
+ */
+const FROM_PO = new Set(['guess', 'unregistered']);
 export const kitEntityMismatch = (lines = [], letter = '') =>
-  !letter ? [] : (lines || []).filter(l => l && l.entity
+  !letter ? [] : (lines || []).filter(l => l && l.entity && FROM_PO.has(l.entityFrom)
     && !String(l.entity).toUpperCase().endsWith('-' + String(letter).toUpperCase()));
 
 /**
@@ -332,7 +337,7 @@ export function parseKitList(aoa) {
  * รับ { sheets: [{ name, hidden, aoa }] } ไม่ใช่ workbook ของ SheetJS
  * เพื่อให้เทสได้โดยไม่ต้องมีไฟล์จริง
  */
-export function parseKitChem(book, { fallbackDate = '' } = {}) {
+export function parseKitChem(book, { fallbackDate = '', packing = false } = {}) {
   const agg = new Map(), sheets = [], skipped = [], gaps = [], blocks = [];
   let rawLines = 0, docDate = '', location = '';
 
@@ -461,13 +466,16 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
         desc: String(row[col.desc] == null ? '' : row[col.desc]).trim(), unit: '',
         req, issue: s41,
         // ไฟล์ Packing ไม่มีคอลัมน์ 541 (ยอดที่ Delta จ่าย) มีแต่ Req Qty — ปลายทางต้องรู้ (chemPlan)
-        packing: col.s41 < 0,
+        // ⚠️ ตัดสินจากแบบของไฟล์ทั้งไฟล์ (คนเรียกผ่าน kitFileCheck มาแล้ว) ไม่ใช่จาก "ชีตนี้ไม่มี 541"
+        //    ไฟล์ Chem ที่ชีตไหนหลุดคอลัมน์ 541 มา ต้องบันทึกไม่ได้และขึ้นเตือนเหมือนเดิม
+        //    ไม่ใช่ได้ยอด Req ไปเงียบ ๆ (ผู้ตรวจ #109 ข้อ ก)
+        packing: !!packing,
         remark: col.rem >= 0 ? String(row[col.rem] == null ? '' : row[col.rem]).trim() : '',
         n: 1
       });
     }
     closeBlock(null);
-    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate, hasDocCol: col.doc >= 0, packing: col.s41 < 0 });
+    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate, hasDocCol: col.doc >= 0, packing: !!packing });
   }
 
   const rows = [...agg.values()];

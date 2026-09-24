@@ -852,16 +852,31 @@ ok('แท็บรับเข้ารวมรับทั้ง Chem แล�
    chk('Chemical- Sep-9.xlsx', one(chemSheet), ['chem', 'packing']).ok && chk('Packing_Sep-23.xlsx', one(packSheet), ['chem', 'packing']).ok);
 
 ok('นิติบุคคลในไฟล์ไม่ตรงกับท้ายชื่อ — นับบรรทัดให้เตือน',
-   kitEntityMismatch([{ entity: 'TUE-H' }, { entity: 'TUE-U' }, { entity: '' }], 'h').length === 1
-   && kitEntityMismatch([{ entity: 'TUE-U' }], '').length === 0);
+   kitEntityMismatch([{ entity: 'TUE-H', entityFrom: 'guess' }, { entity: 'TUE-U', entityFrom: 'guess' },
+                      { entity: 'TUE-S', entityFrom: 'unregistered' }, { entity: '' }], 'h').length === 2
+   && kitEntityMismatch([{ entity: 'TUE-U', entityFrom: 'guess' }], '').length === 0);
+// ผู้ตรวจ #109 ข้อ ค — PO ที่เดาไม่ออกได้นิติบุคคลบนหัวจอ ไม่ใช่ของ PO ห้ามนับว่า "ไม่ตรงตามเลข PO"
+ok('บรรทัดที่นิติบุคคลมาจากหัวจอ (เดาจาก PO ไม่ออก) ไม่ถูกนับ',
+   kitEntityMismatch([{ entity: 'TUE-U', entityFrom: 'current' }, { entity: 'TUE-U', entityFrom: 'forced' }], 'H').length === 0);
 
-// Packing ผ่านตัวอ่านกลุ่มจ่ายรวม
-const pk = parseKitChem({ sheets: one(packSheet) }, { fallbackDate: '2026-09-23' });
+// Packing ผ่านตัวอ่านกลุ่มจ่ายรวม — แบบของไฟล์มาจาก kitFileCheck
+const pk = parseKitChem({ sheets: one(packSheet) }, { fallbackDate: '2026-09-23', packing: true });
 ok('Packing อ่านได้ทุกบรรทัด ติดป้าย packing · ยอดจ่ายว่าง (ไม่มีคอลัมน์ 541)',
    pk.rows.length === 2 && pk.rows.every(r => r.packing && r.issue === null) && pk.packing.join() === 'S');
 ok('Packing ไม่ขึ้นเตือน "ไม่มีคอลัมน์ Material Document No." ทุกครั้ง', pk.noDocCol.length === 0);
 ok('ไฟล์ Chem ไม่ติดป้าย packing',
    parseKitChem({ sheets: one(chemSheet) }).rows.every(r => r.packing === false));
+// ผู้ตรวจ #109 ข้อ ก — ไฟล์ Chem ที่ชีตหนึ่งหลุดคอลัมน์ 541 ต้องเหมือนเดิม: ยอดว่าง (บันทึกไม่ได้) + เตือน
+const chemNo541 = [chemSheet[0], chemSheet[1], chemSheet[2],
+  ['Item', 'PO No.', 'V/N', 'Model', "Order Q'TY", 'Material', 'Description', 'Req Qty'],
+  [1, 'TM9269U002', 'U', 2870627900, 50, 3220130201, 'GLUE', 9.9]];
+const cn = parseKitChem({ sheets: [{ name: 'H', hidden: false, aoa: chemSheet },
+                                    { name: 'U', hidden: false, aoa: chemNo541 }] });
+ok('ไฟล์ Chem ที่ชีตหนึ่งไม่มีคอลัมน์ 541 — ไม่ติดป้าย packing · ยอดจ่ายว่าง · ขึ้นเตือนชีตนั้น',
+   cn.rows.every(r => r.packing === false) && cn.rows.some(r => r.issue === null)
+   && cn.packing.length === 0 && cn.noDocCol.includes('U'), JSON.stringify({ p: cn.packing, n: cn.noDocCol }));
+ok('แท็บรับเข้ารวมบอกตัวอ่านว่าเป็น Packing จากผลของ kitFileCheck เท่านั้น',
+   fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes("packing: chk.kind === 'packing'"));
 
 // ผู้ตรวจ #107 ข้อ ข — บรรทัดที่อ่านรหัสไม่ได้ต้องนับให้เห็น
 const skip = parseKitList([...realSub, [1, 'TM9269H003', 2870627900, 'R-1234567', 'X', 'PCE', 1]]);

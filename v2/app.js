@@ -1688,7 +1688,8 @@ createApp({
         if (!chk.ok) throw new Error(chk.error);
         // วันที่ในชื่อไฟล์ใช้แทนเมื่อเอกสารไม่มีวันที่ (ไฟล์ Chem ช่องวันที่ว่างมาตลอด)
         // ⚠️ ใช้กับวันที่ของเอกสารเท่านั้น — เลขล็อตกับวันที่ของรายการยังเป็น wkH.date (วันที่รับเข้า)
-        const parsed = parseKitChem({ sheets }, { fallbackDate: chk.date || wkH.date });
+        const parsed = parseKitChem({ sheets }, { fallbackDate: chk.date || wkH.date,
+                                                  packing: chk.kind === 'packing' });
         if (!parsed.rows.length) throw new Error('ไม่เจอบรรทัด Kit List ในไฟล์นี้ — ใช่ไฟล์กลุ่มจ่ายรวมไหม');
 
         const plan = chemPlan(parsed, { date: wkH.date });
