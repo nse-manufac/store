@@ -7,7 +7,7 @@
  * ซึ่งแย่กว่าไม่มีปุ่มเลย เพราะเขาจะเชื่อว่าอัปเดตแล้ว
  */
 import fs from 'node:fs';
-import { versionFromHtml, isStale, filesToBust } from '../v2/core/version.js';
+import { versionFromHtml, isStale, filesToBust, NOTICE_ID, noticeDue, noticeCanClose, atScrollEnd } from '../v2/core/version.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -96,6 +96,27 @@ const modules = fs.readdirSync(new URL('../v2/core/', import.meta.url))
 ok('โมดูลทุกตัวใน core/ ถูกล้างโดยไม่ต้องเขียนชื่อไว้ล่วงหน้า',
    modules.every(m => filesToBust(modules, BASE).includes(m)),
    String(modules.length) + ' ไฟล์');
+
+console.log('\n=== หน้าต่าง "มีอะไรใหม่" (เจ้าของสั่ง 24 ก.ย. 2026) ===');
+ok('เครื่องที่ยังไม่เคยเห็น ต้องขึ้น', noticeDue('') === true && noticeDue(null) === true && noticeDue(undefined) === true);
+ok('อ่านฉบับนี้แล้ว ไม่ขึ้นซ้ำ', noticeDue(NOTICE_ID) === false);
+ok('เคยอ่านฉบับเก่า ขึ้นฉบับใหม่', noticeDue('2026-01-01') === true);
+ok('ไม่มีประกาศ (id ว่าง) ไม่ขึ้น', noticeDue('', '') === false);
+ok('ปิดได้เมื่อเลื่อนถึงล่างสุด และติ๊กแล้ว เท่านั้น',
+   noticeCanClose({ atEnd: true, ack: true }) === true && noticeCanClose({ atEnd: true, ack: false }) === false
+   && noticeCanClose({ atEnd: false, ack: true }) === false && noticeCanClose(null) === false);
+ok('ถึงล่างสุด — เผื่อพิกเซลจากการซูมจอ', atScrollEnd(492, 300, 800) === true && atScrollEnd(400, 300, 800) === false);
+ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต้องเลื่อน) นับว่าถึงล่างสุด', atScrollEnd(0, 500, 400) === true);
+{
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const box = html.slice(html.indexOf('v-if="notice.open"'), html.indexOf('v-if="regDraft"'));
+  ok('หน้าต่างไม่ปิดด้วยการคลิกนอกกล่อง', box.length > 0 && !box.includes('@click.self'));
+  ok('ปุ่มปิดผูกกับ noticeCanClose และช่องติ๊กเปิดได้เมื่อเลื่อนถึงล่างสุด',
+     box.includes(':disabled="!noticeCanClose(notice)"') && box.includes(':disabled="!notice.atEnd"'));
+  ok('ลิงก์คู่มือชี้ไปไฟล์ PDF ที่มีอยู่จริงใน repo',
+     box.includes('href="docs/update-2026-09-24.pdf"')
+     && fs.existsSync(new URL('../v2/docs/update-2026-09-24.pdf', import.meta.url)));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

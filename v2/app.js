@@ -22,7 +22,7 @@ import { writeBinCard, toCardLines, sheetNameFor, safeFileName } from './export/
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
-import { versionFromHtml, isStale, filesToBust } from './core/version.js';
+import { versionFromHtml, isStale, filesToBust, NOTICE_ID, noticeDue, noticeCanClose, atScrollEnd } from './core/version.js';
 import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
@@ -187,6 +187,8 @@ createApp({
         // แล้วช่อง "ใครปิดเรื่อง" จะว่างเป็นส่วนใหญ่ (ผู้ตรวจ #67 ทักไว้)
         fsBy.value = await db.getMeta('followBy', '') || '';
         ready.value = true;
+        // ประกาศ "มีอะไรใหม่" — ขึ้นครั้งแรกต่อเครื่อง (core/version.js)
+        if (noticeDue(await db.getMeta('notice', ''))) openNotice();
       } catch (err) {
         // เปิดฐานข้อมูลไม่ได้ = ทำอะไรไม่ได้เลย ต้องบอกให้ชัดว่าเกิดอะไรและทำยังไงต่อ
         // ห้ามปล่อยหน้าขาวเงียบ ๆ เพราะพนักงานจะไม่รู้ว่าต้องรอหรือต้องเรียกใคร
@@ -692,6 +694,26 @@ createApp({
     // เดิมมี ref ในเทมเพลตแต่ไม่มีใครเรียก .focus() ต้องคลิกช่องอีกทีก่อนพิมพ์
     const pickInput = ref(null);
     const focusSoon = el => nextTick(() => { if (el.value) el.value.focus(); });
+
+    // ── หน้าต่าง "มีอะไรใหม่" (เจ้าของสั่ง 24 ก.ย. 2026 ให้บังคับอ่านก่อนปิด) ──
+    // ไม่ปิดด้วย Esc หรือคลิกนอกกล่อง · คีย์บอร์ดล้วนได้ (G2): ลูกศร/Page Down เลื่อน · Tab ไปช่องติ๊ก · Enter ปิด
+    const notice = reactive({ open: false, atEnd: false, ack: false });
+    const noticeBox = ref(null);
+    function noticeScroll() {
+      const el = noticeBox.value;
+      if (el && atScrollEnd(el.scrollTop, el.clientHeight, el.scrollHeight)) notice.atEnd = true;
+    }
+    function openNotice() {
+      notice.open = true; notice.atEnd = false; notice.ack = false;
+      // จอใหญ่ที่เห็นครบโดยไม่ต้องเลื่อน นับว่าถึงล่างสุดแล้ว
+      nextTick(() => { noticeScroll(); if (noticeBox.value) noticeBox.value.focus(); });
+    }
+    async function closeNotice() {
+      if (!noticeCanClose(notice)) return;
+      notice.open = false;
+      // เก็บไม่สำเร็จ = ขึ้นอีกครั้งตอนเปิดใหม่ ซึ่งยอมได้ ดีกว่าขวางคนทำงาน
+      try { await db.setMeta('notice', NOTICE_ID); } catch (err) { console.error(err); }
+    }
     function openPick(target) {
       pick.value = target; pickQ.value = target.code || '';
       focusSoon(pickInput);
@@ -3049,6 +3071,7 @@ createApp({
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,
+             notice, noticeBox, noticeScroll, openNotice, closeNotice, noticeCanClose,
              inPoSum, inTogglePo, inAllPo, bomPnCodes, inReady, inNoExp,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
