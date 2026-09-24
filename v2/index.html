@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-24.5">
+<meta name="app-version" content="2026-09-24.7">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -95,6 +95,8 @@ textarea{font:inherit}
 .modal-box{background:var(--panel);border-radius:10px;padding:16px;width:min(760px,100%);
   box-shadow:0 12px 40px rgba(0,0,0,.3)}
 .modal-box tbody tr:hover{background:var(--soft)}
+.notice-body{max-height:55vh;overflow:auto;padding:4px 12px 8px 2px;line-height:1.6}
+.notice-body h3{margin:14px 0 4px;font-size:15px} .notice-body p{margin:2px 0 6px}
 
 /* ── ใบนับตอนพิมพ์ ──
    ช่อง "นับได้" ต้องเป็นกรอบว่างให้เขียนด้วยมือ ไม่ใช่ช่องกรอกบนจอที่พิมพ์ออกมาว่าง ๆ
@@ -178,6 +180,7 @@ textarea{font:inherit}
           <div class="row">
             <h2 style="margin:0">งานวันนี้ · {{ homeToday }}</h2>
             <div class="grow"></div>
+            <button class="btn" style="margin-right:10px" @click="openNotice">มีอะไรใหม่</button>
             <span class="hint">นิติบุคคล {{ entity }}</span>
           </div>
           <p class="hint" style="margin:6px 0 12px">
@@ -2650,6 +2653,42 @@ textarea{font:inherit}
       <datalist id="pnlist"><option v-for="p in bomPnCodes" :key="p" :value="p"></option></datalist>
 
       <!-- ════════ ตั้งทะเบียนจาก BOM ════════ -->
+      <!-- มีอะไรใหม่ — บังคับเลื่อนอ่านจนจบ + ติ๊กก่อนปิด · ไม่มี @click.self โดยตั้งใจ (เจ้าของสั่ง 24 ก.ย. 2026) -->
+      <div class="modal" v-if="notice.open" style="z-index:60">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="noticeTitle">
+          <!-- ห้ามพิมพ์เลขรุ่นซ้ำตรงนี้ (INVARIANTS F4 — เลขรุ่นอยู่ที่ <meta app-version> ที่เดียว) -->
+          <h2 id="noticeTitle" style="margin:0 0 8px">🆕 มีอะไรใหม่ — สรุปการอัปเดต 22–24 ก.ย. 2026</h2>
+          <div class="notice-body" ref="noticeBox" tabindex="0" @scroll="noticeScroll">
+            <h3>⚠️ ต้องเปลี่ยนชื่อไฟล์ Kit List ก่อนนำเข้าหน้ารับเข้า</h3>
+            <p>ไฟล์ <span class="mono">23-H</span> → เปลี่ยนเป็น <b class="mono">Mat Sep-23 H</b> (Mat เดือน-วัน นิติบุคคล)</p>
+            <p>ไฟล์ Chemical และ Packing ใช้ชื่อที่ Delta ตั้งมาได้เลย · นำเข้าที่ <b>รับเข้ารวมรายรอบ</b></p>
+            <p>ชื่อไม่ตรงรูปแบบ โปรแกรมจะไม่รับ</p>
+            <h3>รับเข้าปกติ — ดึงไฟล์แทนคีย์มือ</h3>
+            <p>เลือกไฟล์ → รายการทุก PO กางขึ้นมา → ใส่ชื่อผู้รับ → บันทึก</p>
+            <p>ของมาไม่ครบ ใช้การ์ด “รอบนี้ของมาถึง PO ไหนบ้าง” กดเลข PO สลับมาแล้ว/ยังไม่มา</p>
+            <p>ไฟล์ยังไม่มา กด “คีย์เอง (ไฟล์ยังไม่มา)”</p>
+            <h3>เลขล็อต · วันหมดอายุ</h3>
+            <p><b>เลขล็อต = วันที่รับเข้า ให้อัตโนมัติ</b> · <b>วันหมดอายุไม่บังคับแล้ว</b> (เติมทีหลังได้)</p>
+            <h3>ไฟล์ Packing รับที่รับเข้ารวมรายรอบ</h3>
+            <p>ยอดรับจริงเติมจาก Req Qty — นับแล้วแก้ถ้าไม่ตรง</p>
+            <h3>Mat Follow up</h3>
+            <p>มีคอลัมน์หมวดหมู่ · แท็บ over รอคืนมีการ์ดเทียบยอดที่ Delta ตัด</p>
+            <p style="margin-top:12px"><a href="docs/update-2026-09-24.pdf" target="_blank" rel="noopener">
+              📄 เปิดคู่มือฉบับเต็ม (PDF)</a></p>
+          </div>
+          <div class="row" style="margin-top:12px;gap:12px">
+            <label :class="notice.atEnd ? '' : 'hint'">
+              <input type="checkbox" v-model="notice.ack" :disabled="!notice.atEnd"> อ่านและเข้าใจแล้ว</label>
+            <div class="grow"></div>
+            <button class="btn primary" :disabled="!noticeCanClose(notice)" @click="closeNotice">
+              อ่านแล้ว ปิดหน้าต่างนี้</button>
+          </div>
+          <p class="hint" style="margin:6px 0 0" v-if="!noticeCanClose(notice)">
+            {{ notice.atEnd ? 'ติ๊ก “อ่านและเข้าใจแล้ว” ก่อนปิด'
+                            : 'เลื่อนอ่านให้ถึงล่างสุดก่อน (ลูกศรลง หรือ Page Down ได้)' }}</p>
+        </div>
+      </div>
+
       <div class="modal" v-if="regDraft" @click.self="regDraft=null">
         <div class="modal-box" style="width:min(1100px,100%)">
           <div class="row">
