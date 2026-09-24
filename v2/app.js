@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -984,11 +984,9 @@ createApp({
         const sheets = wb.SheetNames.map(n => ({ name: n,
           hidden: ((wb.Workbook && wb.Workbook.Sheets) || []).some(s => s.name === n && s.Hidden),
           aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true }) }));
-        // ⚠️ ไฟล์กลุ่มจ่ายรวมหน้าตาใกล้กันมาก ต้องเด้งไปแท็บที่ถูก ไม่ใช่อ่านมั่ว
-        const chem = parseKitChem({ sheets });
-        if (chem.rows.length) {
-          throw new Error('ไฟล์นี้เป็น Kit List กลุ่มจ่ายรวม — นำเข้าที่แท็บ "รับเข้ารวมรายรอบ" แทน');
-        }
+        // ชื่อไฟล์บอกแบบ แล้วเช็กข้างในซ้ำ — Chem / Packing เด้งไปแท็บที่ถูก ไม่ใช่อ่านมั่ว (master/po-kit.js)
+        const chk = kitFileCheck(file.name, sheets, { today: todayLocal(), want: ['mat'] });
+        if (!chk.ok) throw new Error(chk.error);
         const kit = parseKitList((pickKitSheet(sheets) || { aoa: [] }).aoa);
         if (!kit.rows.length) throw new Error('ไม่เจอบรรทัด Kit List ในไฟล์นี้');
 
@@ -1017,12 +1015,16 @@ createApp({
         inShownPo = '';
         bomHint.value = '';
         const dup = inLines.value.filter(l => l.recv).length;
+        const odd = kitEntityMismatch(inLines.value, chk.entity);
         inFileMsg.value = file.name + ' · ' + plan.lines.length + ' บรรทัด · '
           + plan.groups.length + ' PO'
           + (kit.docDate ? ' · เอกสารวันที่ ' + kit.docDate : ' · ไฟล์ไม่ได้บอกวันที่')
           + (plan.noPo.length ? ' · ' + plan.noPo.length + ' PO ยังไม่มีในรายการ PO' : '')
-          + (dup ? ' · ⚠️ ' + dup + ' บรรทัดเคยคีย์รับเข้ากับ PO เดิมไปแล้ว' : '');
-        if (dup || plan.noPo.length) inFileTone.value = 'warn';
+          + (dup ? ' · ⚠️ ' + dup + ' บรรทัดเคยคีย์รับเข้ากับ PO เดิมไปแล้ว' : '')
+          + (kit.skipped ? ' · ⚠️ ข้าม ' + kit.skipped + ' บรรทัดที่อ่านรหัสวัตถุดิบไม่ได้ — เทียบกับไฟล์ก่อนบันทึก' : '')
+          + (odd.length ? ' · ⚠️ ชื่อไฟล์บอก ' + chk.entity + ' แต่มี ' + odd.length + ' บรรทัดเป็นของ '
+              + [...new Set(odd.map(l => l.entity))].join(' · ') + ' (แต่ละบรรทัดลงนิติบุคคลตามเลข PO)' : '');
+        if (dup || plan.noPo.length || kit.skipped || odd.length) inFileTone.value = 'warn';
         flash('กางจากไฟล์ ' + plan.lines.length + ' บรรทัด — ตรวจยอดแล้วกดบันทึกได้เลย');
       } catch (err) {
         inFileMsg.value = err.message; inFileTone.value = 'bad';
@@ -1682,10 +1684,15 @@ createApp({
         await loadLib('lib/xlsx.full.min.js', 'XLSX');
         const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
         const marks = (wb.Workbook && wb.Workbook.Sheets) || [];
-        const parsed = parseKitChem({ sheets: wb.SheetNames.map(n => ({
+        const sheets = wb.SheetNames.map(n => ({
           name: n, hidden: marks.some(x => x.name === n && x.Hidden),
           aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true })
-        })) }, { fallbackDate: wkH.date });
+        }));
+        const chk = kitFileCheck(file.name, sheets, { today: todayLocal(), want: ['chem', 'packing'] });
+        if (!chk.ok) throw new Error(chk.error);
+        // วันที่ในชื่อไฟล์ใช้แทนเมื่อเอกสารไม่มีวันที่ (ไฟล์ Chem ช่องวันที่ว่างมาตลอด)
+        // ⚠️ ใช้กับวันที่ของเอกสารเท่านั้น — เลขล็อตกับวันที่ของรายการยังเป็น wkH.date (วันที่รับเข้า)
+        const parsed = parseKitChem({ sheets }, { fallbackDate: chk.date || wkH.date });
         if (!parsed.rows.length) throw new Error('ไม่เจอบรรทัด Kit List ในไฟล์นี้ — ใช่ไฟล์กลุ่มจ่ายรวมไหม');
 
         const plan = chemPlan(parsed, { date: wkH.date });
@@ -1718,13 +1725,16 @@ createApp({
         }
         // ⚠️ ไม่เติมเลขที่เอกสารให้จากช่อง Location ในไฟล์ — ทุกไฟล์เป็นเลขเดียวกันหมด
         // เป็นรหัสที่เก็บฝั่ง Delta ไม่ใช่เลขของรอบนั้น (เจ้าของทัก 22 ก.ย. 2026)
-        wkMsg.value = file.name + ' · รับเข้า ' + plan.receive.length + ' บรรทัด'
+        wkMsg.value = file.name + ' · ' + (chk.kind === 'packing' ? 'Packing' : 'Chem')
+          + ' · รับเข้า ' + plan.receive.length + ' บรรทัด'
+          + (parsed.packing.length ? ' · ยอดรับจริงเติมจาก Req Qty ตามไฟล์ (ไฟล์ Packing ไม่มียอด 541)' : '')
           + (plan.fromOver.length ? ' · ตัดจากยอด over ' + plan.fromOver.length
                                     + ' บรรทัด (ไม่ได้รับเข้าในใบนี้ · เก็บไว้เทียบที่แท็บ over รอคืน '
                                     + keptOver + ' แถว)' : '')
           // ⚠️ ใช้ wkH.date เสมอ ทั้งเลขล็อตและวันที่ของรายการ ไม่ว่าไฟล์จะมีวันที่มาหรือไม่
           // เพราะเจ้าของเคาะว่าล็อตคือ "วันที่รับเข้า" ไม่ใช่วันที่ที่ Delta ออกเอกสาร (ผู้ตรวจ #98)
-          + (parsed.docDate ? '' : ' · ไฟล์ไม่มีวันที่มาให้ ใช้วันที่เอกสารบนหัวจอแทน')
+          + (parsed.docDate ? '' : ' · ไฟล์ไม่มีวันที่มาให้ ใช้วันที่ ' + (chk.date || wkH.date)
+                                   + (chk.date ? ' จากชื่อไฟล์' : ' บนหัวจอ') + 'แทน')
           + (plan.location ? ' · Location ' + plan.location : '');
         // ⚠️ ไม่มีคอลัมน์ Material Document No. = แยกแถวที่ Delta ตัดจากยอด over ไม่ได้เลย
         // ทุกแถวจะถูกนับเป็นของที่มาจริง ต้องบอกให้เห็น ไม่ใช่ปล่อยให้กดบันทึกไปเงียบ ๆ
