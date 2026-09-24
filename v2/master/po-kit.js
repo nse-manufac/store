@@ -145,6 +145,111 @@ export function parsePoFile(aoa) {
 }
 
 /**
+ * แบบของไฟล์ Kit List สามแบบ — ตัดสินจากชื่อไฟล์ แล้วเช็กข้างในซ้ำ (เจ้าของเคาะ 24 ก.ย. 2026)
+ *
+ *   Chem     `Chem…`/`Chemical…` + เดือน-วัน    Delta ตั้งมา เช่น "Chemical- Sep-9"   → แท็บรับเข้ารวมรายรอบ
+ *   Packing  `Packing` + เดือน-วัน              Delta ตั้งมา เช่น "Packing_Sep-23"    → แท็บรับเข้ารวมรายรอบ
+ *   Mat      `Mat` + เดือน-วัน + นิติบุคคล       พนักงานเปลี่ยนชื่อเอง เช่น "Mat Sep-23 H" → หน้ารับเข้า
+ *
+ * ⚠️ ชื่อไม่ตรงรูปแบบ = ปฏิเสธ ให้เปลี่ยนชื่อ (เจ้าของเลือกเอง ไม่ใช่เดาจากข้างในแทน)
+ * ⚠️ ห้ามเชื่อชื่ออย่างเดียว — ชื่อเป็นของที่คนพิมพ์ ตั้งผิดแล้วตัวอ่านผิดแบบจะ "อ่านได้"
+ *    ด้วยเลขผิดทั้งใบโดยไม่ฟ้อง (ชีตซ่อนของ 23-H เคยให้จำนวนสั่งมาเป็นรหัสวัตถุดิบ) จึงต้องเทียบกับข้างในเสมอ
+ * ⚠️ Mat ต้องมีตัวคั่นก่อนเดือน — ใบแจ้งยอดขาด/เกินของ Delta ชื่อ "mat'l short…" ขึ้นต้นด้วย mat เหมือนกัน
+ */
+export const KIT_KINDS = {
+  mat:     { label: 'Mat (รับเข้าปกติ)',   where: 'หน้ารับเข้า',          example: 'Mat Sep-23 H' },
+  chem:    { label: 'Chem (กลุ่มจ่ายรวม)', where: 'แท็บรับเข้ารวมรายรอบ', example: 'Chemical Sep-9' },
+  packing: { label: 'Packing',            where: 'แท็บรับเข้ารวมรายรอบ', example: 'Packing Sep-23' }
+};
+const MONTHS = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST',
+                'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+const NAME_RX = {
+  chem:    /^chem(?:ical)?[\s_-]*([a-z]{3,9})[\s_-]*(\d{1,2})(?!\d)/i,
+  packing: /^packing[\s_-]*([a-z]{3,9})[\s_-]*(\d{1,2})(?!\d)/i,
+  mat:     /^mat[\s_-]+([a-z]{3,9})[\s_-]*(\d{1,2})[\s_-]+([a-z])(?![a-z])/i
+};
+
+/**
+ * อ่านชื่อไฟล์ → { kind, date, entity } · ไม่ตรงรูปแบบ = kind ว่าง
+ * ชื่อไม่มีปี — ใช้ปีของ today แต่ถ้าได้วันที่เลย today ไปเกินสองเดือน ถือว่าเป็นปีก่อน
+ * (ไฟล์ Dec ที่เปิดเดือน Jan) · วันที่ไม่มีจริง เช่น Feb-30 = ไม่ตรงรูปแบบ
+ */
+export function kitNameInfo(fileName, { today = '' } = {}) {
+  const base = String(fileName || '').replace(/\.[a-z0-9]+$/i, '').trim();
+  for (const kind of ['chem', 'packing', 'mat']) {
+    const m = NAME_RX[kind].exec(base);
+    if (!m) continue;
+    // เดือนต้องเป็นต้นคำของชื่อเดือนจริง (Sep · Sept · September) — "Sepxx" ไม่ผ่าน
+    const w = m[1].toUpperCase(), mon = MONTHS.findIndex(x => x.startsWith(w)), day = +m[2];
+    if (mon < 0) continue;
+    const t = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today);
+    let y = t ? +t[1] : new Date().getFullYear();
+    const at = yy => new Date(Date.UTC(yy, mon, day));
+    if (at(y).getUTCDate() !== day) continue;
+    if (t && at(y) - Date.UTC(+t[1], +t[2] - 1, +t[3]) > 62 * 864e5) y--;
+    const date = y + '-' + pad(mon + 1) + '-' + pad(day);
+    return { kind, date, entity: kind === 'mat' ? m[3].toUpperCase() : '' };
+  }
+  return { kind: '', date: '', entity: '' };
+}
+
+/**
+ * ข้างในไฟล์หน้าตาเป็นแบบไหน — ดูเฉพาะชีตที่ไม่ซ่อน (ชีตซ่อนของ 23-H หน้าตาเหมือน Chem)
+ * ชื่อเอกสารที่หัวไฟล์ก่อน แล้วค่อยหัวตาราง:
+ *   "Work Order Material Kit List" = Chem · "MATERIAL ISSUE PO SUBCONTRACT" = Mat
+ *   หัวตารางมี PO No. + Material แต่ไม่มี 541 Qty = Packing (ไฟล์ Packing ไม่มีชื่อเอกสาร)
+ */
+export function kitContentKind(sheets = []) {
+  for (const sh of (sheets || []).filter(s => s && !s.hidden)) {
+    const aoa = sh.aoa || [];
+    for (let i = 0; i < Math.min(aoa.length, 40); i++) {
+      const row = aoa[i] || [], n = row.map(norm);
+      if (n.some(x => x.includes('WORKORDERMATERIALKITLIST'))) return 'chem';
+      if (n.some(x => x.startsWith('MATERIALISSUEPOSUBCONTRACT'))) return 'mat';
+      if (n.includes('PONO.') && n.includes('MATERIAL')) {
+        return n.some(x => x.startsWith('541QTY')) ? 'chem' : 'packing';
+      }
+      if (typeof row[3] === 'string' && n[3].startsWith('CODE')) return 'mat';
+    }
+  }
+  return '';
+}
+
+/**
+ * ด่านเดียวของทุกหน้าที่รับไฟล์ Kit List — want = แบบที่หน้านั้นรับ
+ * คืน { ok, kind, date, entity, error } · error เขียนทางออกไว้ให้เสมอ (G3)
+ */
+export function kitFileCheck(fileName, sheets, { today = '', want = [] } = {}) {
+  const name = kitNameInfo(fileName, { today });
+  const lab = k => KIT_KINDS[k].label;
+  const fail = error => ({ ok: false, kind: name.kind, date: name.date, entity: name.entity, error });
+  if (!name.kind) {
+    return fail('ชื่อไฟล์ไม่ตรงรูปแบบ — เปลี่ยนชื่อไฟล์แล้วเลือกใหม่ · '
+      + Object.values(KIT_KINDS).map(k => k.label + ' เช่น "' + k.example + '"').join(' · '));
+  }
+  const inside = kitContentKind(sheets);
+  if (!inside) return fail('ข้างในไฟล์ไม่ใช่ Kit List ของ Delta แบบที่รู้จัก — ตรวจว่าเลือกไฟล์ถูกไหม');
+  if (inside !== name.kind) {
+    return fail('ชื่อไฟล์บอกว่าเป็น ' + lab(name.kind) + ' แต่ข้างในเป็นแบบ ' + lab(inside)
+      + ' — ตรวจชื่อไฟล์ก่อน ถ้าตั้งชื่อผิดให้เปลี่ยนแล้วเลือกใหม่');
+  }
+  if (want.length && !want.includes(name.kind)) {
+    return fail('ไฟล์ ' + lab(name.kind) + ' ต้องนำเข้าที่' + KIT_KINDS[name.kind].where);
+  }
+  return { ok: true, kind: name.kind, date: name.date, entity: name.entity, error: '' };
+}
+
+/**
+ * บรรทัดที่นิติบุคคล (จากเลข PO) ไม่ตรงกับตัวย่อท้ายชื่อไฟล์ Mat — เตือน ไม่ปฏิเสธ (ไฟล์เดียวมี H/U ปนได้)
+ * ⚠️ นับเฉพาะบรรทัดที่นิติบุคคลมาจากเลข PO จริง (guess · unregistered) — PO ที่เดาไม่ออกตกไปใช้ตัวบนหัวจอ
+ *    ถ้านับด้วย ข้อความ "ลงนิติบุคคลตามเลข PO" จะไม่จริงสำหรับบรรทัดพวกนั้น (ผู้ตรวจ #109 ข้อ ค)
+ */
+const FROM_PO = new Set(['guess', 'unregistered']);
+export const kitEntityMismatch = (lines = [], letter = '') =>
+  !letter ? [] : (lines || []).filter(l => l && l.entity && FROM_PO.has(l.entityFrom)
+    && !String(l.entity).toUpperCase().endsWith('-' + String(letter).toUpperCase()));
+
+/**
  * เลือกชีต Kit List ของจริงในไฟล์ — ชีตแรกที่ไม่ซ่อนและมีหัวตาราง CODE ที่คอลัมน์ที่สี่
  * (กฎเดียวกับที่ parseKitList ใช้จับหัวตาราง) · ไม่เจอ = ชีตแรกที่ไม่ซ่อน
  *
@@ -177,7 +282,7 @@ export function parseKitList(aoa) {
   }
 
   const agg = new Map();
-  let headers = 0, subtotals = 0, rawLines = 0;
+  let headers = 0, subtotals = 0, rawLines = 0, skipped = 0;
   for (const row of aoa) {
     if (!row) continue;
     const c3 = row[3];
@@ -189,7 +294,11 @@ export function parseKitList(aoa) {
     // ⚠️ ข้อความต้องขึ้นต้นด้วยเลขอย่างน้อยหกหลัก — ไฟล์ PO มีเลข PO อยู่คอลัมน์นี้ (ขึ้นต้นด้วยตัวอักษร)
     //    ถ้ารับข้อความทุกแบบ ไฟล์ PO จะถูกอ่านเป็น Kit List
     const textCode = typeof c3 === 'string' && /^\d{6,}[A-Z0-9]*$/i.test(c3.trim());
-    if ((typeof c3 !== 'number' && !textCode) || !row[1]) continue;
+    if ((typeof c3 !== 'number' && !textCode) || !row[1]) {
+      // มี PO มี "อะไรสักอย่าง" ที่ช่องรหัส แต่อ่านเป็นรหัสไม่ได้ = บรรทัดที่หายไป ต้องนับให้เห็น (ผู้ตรวจ #107)
+      if (row[1] && c3 !== null && c3 !== undefined && String(c3).trim() !== '') skipped++;
+      continue;
+    }
     rawLines++;
     const code = textCode ? c3.trim().toUpperCase() : String(Math.round(c3));
     const po = String(row[1]).trim();
@@ -204,7 +313,7 @@ export function parseKitList(aoa) {
       issue, orderQty: null, req: null, remark: '', n: 1 });
   }
   const rows = [...agg.values()];
-  return { rows, docDate, group, headers, subtotals, rawLines,
+  return { rows, docDate, group, headers, subtotals, rawLines, skipped,
            merged: rows.filter(r => r.n > 1),
            pos: [...new Set(rows.map(r => r.po))],
            codes: [...new Set(rows.map(r => r.code))] };
@@ -228,7 +337,7 @@ export function parseKitList(aoa) {
  * รับ { sheets: [{ name, hidden, aoa }] } ไม่ใช่ workbook ของ SheetJS
  * เพื่อให้เทสได้โดยไม่ต้องมีไฟล์จริง
  */
-export function parseKitChem(book, { fallbackDate = '' } = {}) {
+export function parseKitChem(book, { fallbackDate = '', packing = false } = {}) {
   const agg = new Map(), sheets = [], skipped = [], gaps = [], blocks = [];
   let rawLines = 0, docDate = '', location = '';
 
@@ -338,7 +447,7 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
       }
       blockStart = false;
 
-      const req = numOf(row[col.req]), s41 = numOf(row[col.s41]);
+      const req = numOf(row[col.req]), s41 = col.s41 >= 0 ? numOf(row[col.s41]) : null;
       blk.n++; blk.sum += s41 || 0;
       if (blk.code !== code) blk.code = '(ปนกัน)';
 
@@ -356,19 +465,26 @@ export function parseKitChem(book, { fallbackDate = '' } = {}) {
         po, code, pn: codeOf(row[col.pn]), orderQty: numOf(row[col.order]),
         desc: String(row[col.desc] == null ? '' : row[col.desc]).trim(), unit: '',
         req, issue: s41,
+        // ไฟล์ Packing ไม่มีคอลัมน์ 541 (ยอดที่ Delta จ่าย) มีแต่ Req Qty — ปลายทางต้องรู้ (chemPlan)
+        // ⚠️ ตัดสินจากแบบของไฟล์ทั้งไฟล์ (คนเรียกผ่าน kitFileCheck มาแล้ว) ไม่ใช่จาก "ชีตนี้ไม่มี 541"
+        //    ไฟล์ Chem ที่ชีตไหนหลุดคอลัมน์ 541 มา ต้องบันทึกไม่ได้และขึ้นเตือนเหมือนเดิม
+        //    ไม่ใช่ได้ยอด Req ไปเงียบ ๆ (ผู้ตรวจ #109 ข้อ ก)
+        packing: !!packing,
         remark: col.rem >= 0 ? String(row[col.rem] == null ? '' : row[col.rem]).trim() : '',
         n: 1
       });
     }
     closeBlock(null);
-    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate, hasDocCol: col.doc >= 0 });
+    sheets.push({ name: sh.name, rows: nSheet, date: sheetDate, hasDocCol: col.doc >= 0, packing: !!packing });
   }
 
   const rows = [...agg.values()];
   // ชีตที่ไม่มีคอลัมน์ Material Document No. = แยกแถวที่ตัดจากยอด over ไม่ได้เลย
   // ปล่อยเงียบแล้วทุกแถวจะกลายเป็นของที่มาจริง ซึ่งเป็นโหมดพังที่อันตรายที่สุดของไฟล์นี้ (ผู้ตรวจ #97)
-  const noDocCol = sheets.filter(x => !x.hasDocCol).map(x => x.name);
+  // ⚠️ ชีต Packing ไม่นับ — ไฟล์แบบนั้นไม่มีคอลัมน์นี้ทุกไฟล์ เตือนทุกครั้งจะกลายเป็นป้ายที่คนกดผ่านโดยไม่อ่าน
+  const noDocCol = sheets.filter(x => !x.hasDocCol && !x.packing).map(x => x.name);
   return { rows, docDate, location, sheets, skipped, gaps, blocks, rawLines, noDocCol,
+           packing: sheets.filter(x => x.packing).map(x => x.name),
            merged: rows.filter(r => r.n > 1),
            codes: [...new Set(rows.map(r => r.code))],
            pos: [...new Set(rows.map(r => r.po))] };
