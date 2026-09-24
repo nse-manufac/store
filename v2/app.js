@@ -23,7 +23,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -980,15 +980,16 @@ createApp({
       try {
         await loadLib('lib/xlsx.full.min.js', 'XLSX');
         const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
-        const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],
-                                             { header: 1, defval: null, blankrows: true });
+        // ชีตซ่อนต้องติดธงซ่อนจริง — ไฟล์ 23-H มีชีตซ่อนที่หน้าตาเหมือนกลุ่มจ่ายรวมวางอยู่หน้าสุด
+        const sheets = wb.SheetNames.map(n => ({ name: n,
+          hidden: ((wb.Workbook && wb.Workbook.Sheets) || []).some(s => s.name === n && s.Hidden),
+          aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true }) }));
         // ⚠️ ไฟล์กลุ่มจ่ายรวมหน้าตาใกล้กันมาก ต้องเด้งไปแท็บที่ถูก ไม่ใช่อ่านมั่ว
-        const chem = parseKitChem({ sheets: wb.SheetNames.map(n => ({ name: n, hidden: false,
-          aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true }) })) });
+        const chem = parseKitChem({ sheets });
         if (chem.rows.length) {
           throw new Error('ไฟล์นี้เป็น Kit List กลุ่มจ่ายรวม — นำเข้าที่แท็บ "รับเข้ารวมรายรอบ" แทน');
         }
-        const kit = parseKitList(aoa);
+        const kit = parseKitList((pickKitSheet(sheets) || { aoa: [] }).aoa);
         if (!kit.rows.length) throw new Error('ไม่เจอบรรทัด Kit List ในไฟล์นี้');
 
         const plan = kitReceivePlan(kit.rows, { poList: pos.value });
@@ -1869,7 +1870,7 @@ createApp({
       const chem = parseKitChem(chemBook);
       if (chem.rows.length) return { kind: 'chem', ...chem };
 
-      const kit = parseKitList(first);
+      const kit = parseKitList((pickKitSheet(chemBook.sheets) || { aoa: [] }).aoa);
       if (kit.rows.length) return { kind: 'kit', ...kit };
 
       const po = parsePoFile(first);
