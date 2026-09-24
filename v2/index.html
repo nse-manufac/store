@@ -1015,7 +1015,8 @@ textarea{font:inherit}
                   </td>
                   <td class="mono">{{ l.issued === null || l.issued === undefined ? '' : l.issued }}</td>
                   <td><input v-model.number="l.qty" type="number" step="any" class="mono" style="width:84px"></td>
-                  <td><input v-model.trim="l.lot" class="mono" style="width:98px" placeholder="เลขล็อต"></td>
+                  <td><input v-model.trim="l.lot" class="mono" style="width:98px" :placeholder="inH.date"
+                             title="เว้นว่าง = ใช้วันที่รับเข้าเป็นเลขล็อต"></td>
                   <td><input v-if="l.needExp" v-model="l.expiry" type="date" style="width:122px">
                       <span v-else class="hint">—</span></td>
                   <td><button class="btn" style="padding:2px 7px" @click="inLines.splice(i,1)">✕</button></td>
@@ -1030,9 +1031,9 @@ textarea{font:inherit}
             <button class="btn" @click="clearIn">ล้าง</button>
             <button class="btn primary" @click="saveIn" :disabled="!inReady.length">บันทึกรับเข้า</button>
           </div>
-          <div class="msg warn" v-if="inNoLot.length" style="margin:10px 0 0">
-            ยังไม่ได้ใส่เลขล็อต {{ inNoLot.length }} บรรทัด —
-            <span class="hint">ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป</span>
+          <div class="msg warn" v-if="inNoExp.length" style="margin:10px 0 0">
+            {{ inNoExp.length }} บรรทัดยังไม่มีวันหมดอายุ —
+            <span class="hint">บันทึกไปก่อนได้ แล้วกลับมาเติมทีหลัง · เลขล็อตที่เว้นว่างจะใช้วันที่รับเข้า</span>
           </div>
         </div>
         <div class="card" v-else><p class="empty">
