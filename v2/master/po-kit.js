@@ -145,6 +145,24 @@ export function parsePoFile(aoa) {
 }
 
 /**
+ * เลือกชีต Kit List ของจริงในไฟล์ — ชีตแรกที่ไม่ซ่อนและมีหัวตาราง CODE ที่คอลัมน์ที่สี่
+ * (กฎเดียวกับที่ parseKitList ใช้จับหัวตาราง) · ไม่เจอ = ชีตแรกที่ไม่ซ่อน
+ *
+ * ⚠️ ห้ามกลับไปอ่านชีตแรกเฉย ๆ — ไฟล์ 23-H (เจ้าของเจอ 24 ก.ย. 2026) มีชีตซ่อนของ Delta
+ * วางอยู่หน้าชีตข้อมูลจริง หัวตารางมีทั้ง PO No. กับ Material
+ *   - ที่หน้ารับเข้า ตัวดักไฟล์กลุ่มจ่ายรวมจับชีตซ่อนนั้น แล้วไล่ไฟล์ทั้งไฟล์ไปผิดแท็บ
+ *   - ที่หน้า PO / Kit List อ่านชีตซ่อนเป็น Kit List ได้หน้าตาปกติ เพราะคอลัมน์ที่สี่ของชีตนั้น
+ *     เป็นตัวเลข (จำนวนสั่ง) — ได้รหัสวัตถุดิบมั่วทั้งใบโดยไม่มีอะไรฟ้อง
+ * sheets = [{ name, hidden, aoa }] แบบเดียวกับที่ parseKitChem รับ
+ */
+export function pickKitSheet(sheets = []) {
+  const shown = (sheets || []).filter(s => s && !s.hidden);
+  const isKit = s => (s.aoa || []).slice(0, 40)
+    .some(r => r && typeof r[3] === 'string' && r[3].trim().toUpperCase().startsWith('CODE'));
+  return shown.find(isKit) || shown[0] || null;
+}
+
+/**
  * Kit List รายวัน (22-H) — Delta จ่ายอะไรมาบ้างต่อ PO
  * ใช้เติมช่อง "Issue" ตอนคีย์รับเข้า เหลือให้พนักงานคีย์แค่ยอดนับจริง
  */
@@ -166,9 +184,14 @@ export function parseKitList(aoa) {
     // หัวตารางพิมพ์ซ้ำทุกหน้า และมีแถวรวมย่อยของแต่ละรหัส — ทั้งคู่ไม่ใช่ข้อมูล
     if (typeof c3 === 'string' && c3.trim().toUpperCase().startsWith('CODE')) { headers++; continue; }
     if (typeof c3 === 'string' && /total/i.test(c3)) { subtotals++; continue; }
-    if (typeof c3 !== 'number' || !row[1]) continue;
+    // รหัสส่วนใหญ่เป็นตัวเลข แต่มีรหัสที่มีตัวอักษรปน (เลขล้วนตามด้วย R และเลข) ซึ่ง Excel เก็บเป็นข้อความ
+    // เดิมรับแต่ตัวเลข บรรทัดพวกนั้นหายเงียบจากไฟล์ 23-H (24 ก.ย. 2026)
+    // ⚠️ ข้อความต้องขึ้นต้นด้วยเลขอย่างน้อยหกหลัก — ไฟล์ PO มีเลข PO อยู่คอลัมน์นี้ (ขึ้นต้นด้วยตัวอักษร)
+    //    ถ้ารับข้อความทุกแบบ ไฟล์ PO จะถูกอ่านเป็น Kit List
+    const textCode = typeof c3 === 'string' && /^\d{6,}[A-Z0-9]*$/i.test(c3.trim());
+    if ((typeof c3 !== 'number' && !textCode) || !row[1]) continue;
     rawLines++;
-    const code = String(Math.round(c3));
+    const code = textCode ? c3.trim().toUpperCase() : String(Math.round(c3));
     const po = String(row[1]).trim();
     const id = 'K' + docDate + '-' + po + '-' + code;
     const issue = typeof row[6] === 'number' ? row[6] : null;

@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
          parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -767,6 +767,43 @@ ok('กดชิป: ว่างทั้งใบ → เติม · คร�
    && nextArrived({ state: 'some' }) === false && nextArrived(null) === false);
 ok('ไม่มีอะไรเลยก็ไม่พัง',
    kitPoSummary([]).length === 0 && kitPoSummary(null).length === 0 && setPoArrived(null, 'X', true) === 0);
+
+console.log('\n=== Q. ไฟล์ Kit List ที่มีชีตซ่อนอยู่หน้าชีตจริง (23-H · เจ้าของเจอ 24 ก.ย. 2026) ===');
+// ชีตซ่อนของ Delta: หัวตารางมี PO No. + Material และคอลัมน์ที่สี่เป็นตัวเลข (จำนวนสั่ง)
+const hiddenMat = [
+  [null, null, null, null, null, null],
+  ['G', 'PO No.', 'SB Part', 'PO Qty', 'PO Date', 'Material', 'Description', 'UOM', 'Req. Qty'],
+  [1, 'TM9269H001', 2870627900, 1000, 46000, 3220130200, 'TAPE', 'PCE', 5]
+];
+const realSub = [
+  ['MATERIAL  ISSUE PO SUBCONTRACT DATE', null, null, null, 46290, null, 'SUB-H'],
+  ['Group', 'P / O NO. ', 'PART NO.', "CODE MAT'L ", 'DESCRIPTION', 'UNIT', 'ISSUE'],
+  [1, 'TM9269H001', 2870627900, 3220130200, 'TAPE', 'PCE', 5],
+  [null, null, null, '3220130200 Total', null, null, 5]
+];
+const book23 = [{ name: "Mat'l", hidden: true, aoa: hiddenMat }, { name: 'SUB-H', hidden: false, aoa: realSub }];
+ok('เลือกชีตข้อมูลจริง ไม่ใช่ชีตแรก', pickKitSheet(book23).name === 'SUB-H');
+ok('อ่านชีตที่เลือกได้รหัสวัตถุดิบจริง ไม่ใช่จำนวนสั่ง',
+   (() => { const k = parseKitList(pickKitSheet(book23).aoa); return k.rows.length === 1 && k.rows[0].code === '3220130200'; })());
+// ข้อนี้คือเหตุที่ต้องมีตัวเลือก — อ่านชีตแรกเฉย ๆ ได้ของหน้าตาปกติแต่ผิดทั้งใบ
+ok('(เหตุผล) อ่านชีตแรกเฉย ๆ ได้รหัสมั่วจากคอลัมน์จำนวนสั่ง', parseKitList(hiddenMat).rows[0].code === '1000');
+ok('ชีตซ่อนที่ติดธงถูก ไม่ทำให้ไฟล์ถูกมองเป็นกลุ่มจ่ายรวม', parseKitChem({ sheets: book23 }).rows.length === 0);
+const withR = parseKitList([...realSub,
+  [1, 'TM9269H002', 2870627900, ' 32201302r1 ', 'TAPE R', 'PCE', 3],
+  [null, null, null, '32201302R1 Total', null, null, 3]]);
+ok('รหัสที่มีตัวอักษรปน (เก็บเป็นข้อความ) ไม่หายเงียบ',
+   withR.rows.length === 2 && withR.rows[1].code === '32201302R1' && withR.rows[1].issue === 3, JSON.stringify(withR.rows.map(r => r.code)));
+ok('แต่ข้อความที่ไม่ได้ขึ้นต้นด้วยเลข (เลข PO ของไฟล์ PO) ไม่ถูกอ่านเป็นรหัส',
+   parseKitList([[1, 'NSE', 2870627900, 'PO-9001', null, 1000], [2, 'NSE', 2870627900, 'TM9269H001', null, 5]]).rows.length === 0);
+ok('ชีตเดียวแบบ 22-H ยังได้ชีตนั้น',
+   pickKitSheet([{ name: 'SUB', hidden: false, aoa: realSub }]).name === 'SUB');
+ok('ไม่มีหัวตาราง CODE เลย = ชีตแรกที่ไม่ซ่อน (ให้ตัวอ่าน PO ลองต่อ)',
+   pickKitSheet([{ name: 'X', hidden: true, aoa: [] }, { name: 'Y', hidden: false, aoa: [['a']] }]).name === 'Y');
+ok('ไม่มีอะไรเลยก็ไม่พัง', pickKitSheet([]) === null && pickKitSheet(null) === null);
+ok('หน้ารับเข้ากับหน้า PO เลือกชีตด้วยตัวเดียวกัน ไม่อ่านชีตแรกเฉย ๆ',
+   (() => { const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+            return (src.match(/parseKitList\(\(pickKitSheet\(/g) || []).length === 2
+                && !/parseKitList\((aoa|first)\)/.test(src); })());
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
