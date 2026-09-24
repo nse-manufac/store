@@ -113,6 +113,8 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
   ok('หน้าต่างไม่ปิดด้วยการคลิกนอกกล่อง', box.length > 0 && !box.includes('@click.self'));
   ok('ปุ่มปิดผูกกับ noticeCanClose และช่องติ๊กเปิดได้เมื่อเลื่อนถึงล่างสุด',
      box.includes(':disabled="!noticeCanClose(notice)"') && box.includes(':disabled="!notice.atEnd"'));
+  ok('ในกล่องประกาศต้องไม่มีเลขรุ่นตายตัว (F4 — เลขรุ่นอยู่ที่ <meta app-version> ที่เดียว)',
+     box.length > 0 && !/\d{4}-\d{2}-\d{2}\.\d+/.test(box));
   ok('ลิงก์คู่มือชี้ไปไฟล์ PDF ที่มีอยู่จริงใน repo',
      box.includes('href="docs/update-2026-09-24.pdf"')
      && fs.existsSync(new URL('../v2/docs/update-2026-09-24.pdf', import.meta.url)));

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-24.6">
+<meta name="app-version" content="2026-09-24.7">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2656,7 +2656,8 @@ textarea{font:inherit}
       <!-- มีอะไรใหม่ — บังคับเลื่อนอ่านจนจบ + ติ๊กก่อนปิด · ไม่มี @click.self โดยตั้งใจ (เจ้าของสั่ง 24 ก.ย. 2026) -->
       <div class="modal" v-if="notice.open" style="z-index:60">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="noticeTitle">
-          <h2 id="noticeTitle" style="margin:0 0 8px">🆕 มีอะไรใหม่ — รุ่น 2026-09-24.5</h2>
+          <!-- ห้ามพิมพ์เลขรุ่นซ้ำตรงนี้ (INVARIANTS F4 — เลขรุ่นอยู่ที่ <meta app-version> ที่เดียว) -->
+          <h2 id="noticeTitle" style="margin:0 0 8px">🆕 มีอะไรใหม่ — สรุปการอัปเดต 22–24 ก.ย. 2026</h2>
           <div class="notice-body" ref="noticeBox" tabindex="0" @scroll="noticeScroll">
             <h3>⚠️ ต้องเปลี่ยนชื่อไฟล์ Kit List ก่อนนำเข้าหน้ารับเข้า</h3>
             <p>ไฟล์ <span class="mono">23-H</span> → เปลี่ยนเป็น <b class="mono">Mat Sep-23 H</b> (Mat เดือน-วัน นิติบุคคล)</p>
