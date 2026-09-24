@@ -705,12 +705,16 @@ createApp({
     }
     function openNotice() {
       notice.open = true; notice.atEnd = false; notice.ack = false;
+      // ขยายจอ/ซูมออกจนเนื้อหาพอดีกล่องแล้ว เบราว์เซอร์ไม่ยิง scroll ให้ (ไม่มีอะไรขยับ)
+      // ถ้าไม่ประเมินใหม่ตอนจอเปลี่ยนขนาด จะไม่เหลืออะไรให้เลื่อน แล้วปิดหน้าต่างไม่ได้เลย ต้อง refresh
+      window.addEventListener('resize', noticeScroll);
       // จอใหญ่ที่เห็นครบโดยไม่ต้องเลื่อน นับว่าถึงล่างสุดแล้ว
       nextTick(() => { noticeScroll(); if (noticeBox.value) noticeBox.value.focus(); });
     }
     async function closeNotice() {
       if (!noticeCanClose(notice)) return;
       notice.open = false;
+      window.removeEventListener('resize', noticeScroll);
       // เก็บไม่สำเร็จ = ขึ้นอีกครั้งตอนเปิดใหม่ ซึ่งยอมได้ ดีกว่าขวางคนทำงาน
       try { await db.setMeta('notice', NOTICE_ID); } catch (err) { console.error(err); }
     }

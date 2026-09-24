@@ -119,6 +119,17 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
      box.includes('href="docs/update-2026-09-24.pdf"')
      && fs.existsSync(new URL('../v2/docs/update-2026-09-24.pdf', import.meta.url)));
 }
+{
+  // ขยายจอหรือซูมออกจนเนื้อหาพอดีกล่อง เบราว์เซอร์ไม่ยิง scroll ให้ (ไม่มีอะไรขยับ)
+  // ถ้าไม่ประเมิน atEnd ใหม่ จะไม่เหลืออะไรให้เลื่อน ช่องติ๊กค้าง disabled → ปิดหน้าต่างไม่ได้ ต้อง refresh
+  const js = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const open = js.slice(js.indexOf('function openNotice()'), js.indexOf('async function closeNotice()'));
+  const close = js.slice(js.indexOf('async function closeNotice()'), js.indexOf('function openPick('));
+  ok('จอเปลี่ยนขนาดแล้วประเมินใหม่ว่าถึงล่างสุดหรือยัง',
+     open.length > 0 && /addEventListener\(\s*'resize'\s*,\s*noticeScroll\s*\)/.test(open));
+  ok('ปิดหน้าต่างแล้วถอดตัวดักขนาดจอออก',
+     close.length > 0 && /removeEventListener\(\s*'resize'\s*,\s*noticeScroll\s*\)/.test(close));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
