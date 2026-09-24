@@ -13,7 +13,7 @@ import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf,
          bomId, activeBomRowsOf, reqmtOf } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
-import { lotsOf, suggestLots, traceLot, receiveLot } from './core/lots.js';
+import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5 } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
@@ -1074,7 +1074,8 @@ createApp({
           // ไฟล์ใบเดียวมีหลาย PO และมีสองโรงงานปนกันได้ ถ้าเขียนเป็นตัวเดียวกันหมด
           // ยอดจะข้ามโรงงานและผูกผิดใบโดยไม่มีอะไรเตือน
           entity: l.entity || entity.value, kind: 'receive', material_code: l.code, qty: Number(l.qty),
-          lot: receiveLot(l.lot, inH.date) || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: l.po || inH.po, part_no: l.pn || inH.pn,
+          // ช่องวันที่ล้างจนว่างได้ — ล็อตต้องไม่หลุดเป็น (ไม่ระบุ) เงียบ ๆ ใช้วันนี้แทน (ผู้ตรวจ #108)
+          lot: receiveLot(l.lot, inH.date || todayLocal()) || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: l.po || inH.po, part_no: l.pn || inH.pn,
           at: atFrom(inH.date),
           person: inH.person, device: device.value,
           expiry_date: l.expiry || '', reqmt_qty: l.reqmt, issued_qty: l.issued
@@ -1647,6 +1648,8 @@ createApp({
 
     // บังคับทั้งใบแล้วต้องมีผลกับทุกบรรทัดทันที ไม่ใช่รอให้ไปแก้ช่อง PO ทีละบรรทัด
     watch(() => wkH.entity, () => wkLines.value.forEach(wkPo));
+    // ล็อต = วันที่รับเข้า — แก้วันที่หลังกางไฟล์ ล็อตที่ระบบเติมให้ต้องตามไปด้วย (เหมือนหน้ารับเข้าปกติ)
+    watch(() => wkH.date, (now, before) => relot(wkLines.value, before, now));
 
     /**
      * ⚠️ เคยมีทางที่สอง — นำเข้าไฟล์กลุ่มจ่ายรวมที่หน้า PO / Kit List แล้วมากดปุ่ม "ดึงจาก Kit List" ที่นี่
@@ -1795,17 +1798,10 @@ createApp({
       // ⚠️ เคยห้ามบันทึกถ้ายังไม่มีวันหมดอายุ — เจ้าของปลดล็อกเมื่อ 22 ก.ย. 2026
       // ไฟล์ของ Delta ไม่มีช่องวันหมดอายุมาให้เลย ถ้ายังห้ามอยู่ ทั้งใบจะบันทึกไม่ได้สักบรรทัด
       // แล้วพนักงานจะกลับไปจดใส่กระดาษ ซึ่งแย่กว่าของที่ต้องตามมาเติมทีหลัง (A4)
-      if (wkNoExp.value.length && !confirm(
-        [`มี ${wkNoExp.value.length} บรรทัดที่ยังไม่มีวันหมดอายุ`,
-         'บันทึกไปก่อนได้ แล้วค่อยกลับมาเติมทีหลัง',
-         '', 'บันทึกต่อไหม'].join('\n'))) return;
+      // 24 ก.ย. 2026 เลิกถามยืนยันด้วย เหลือกล่องเตือนบนจอ — ให้เหมือนหน้ารับเข้าปกติ (เจ้าของเคาะ)
       if (wkSeen.value.length && !confirm(
         [`มี ${wkSeen.value.length} บรรทัดที่ PO กับรหัสเดิมเคยคีย์รับเข้าไปแล้ว`,
          'ถ้านี่คือการนำไฟล์เดิมเข้าซ้ำ ยอดจะเข้าคลังสองรอบ',
-         '', 'บันทึกต่อไหม'].join('\n'))) return;
-      if (c.noLot && !confirm(
-        [`มี ${c.noLot} บรรทัดที่ยังไม่ใส่เลขล็อต`,
-         'ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป',
          '', 'บันทึกต่อไหม'].join('\n'))) return;
 
       try {
@@ -1815,7 +1811,8 @@ createApp({
           // ยอดจะข้ามโรงงานกันโดยไม่มีอะไรเตือน และตามแก้ทีหลังแทบไม่ได้
           entity: l.entity || entity.value, kind: 'receive',
           material_code: l.code, qty: Number(l.qty),
-          lot: l.lot || '(ไม่ระบุ)',
+          // เว้นว่าง = วันที่รับเข้า (วันที่ว่าง = วันนี้) — กติกาเดียวกับหน้ารับเข้าปกติ (core/lots.js)
+          lot: receiveLot(l.lot, wkH.date || todayLocal()) || '(ไม่ระบุ)',
           doc_kind: 'po', doc_ref: l.po, part_no: l.pn || '',
           at: atFrom(wkH.date), person: wkH.person, device: device.value,
           expiry_date: l.expiry || '',
