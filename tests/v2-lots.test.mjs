@@ -5,7 +5,8 @@
  * หมวด D สำคัญที่สุด — ระบบต้องบอกได้ว่าคำตอบไหนเป็นการเดา
  * ถ้าปล่อยให้ล็อตที่เดามาดูเหมือนของที่บันทึกไว้ เราจะพูดกับลูกค้าเกินกว่าที่รู้จริง
  */
-import { lotsOf, suggestLots, traceLot } from '../v2/core/lots.js';
+import fs from 'node:fs';
+import { lotsOf, suggestLots, traceLot, receiveLot } from '../v2/core/lots.js';
 import { makeEntry } from '../v2/core/ledger.js';
 
 let pass = 0, fail = 0;
@@ -96,6 +97,16 @@ ok('ล็อตของบริษัทอื่นไม่ปนมา',
 let threw = false;
 try { lotsOf(mixed, '', CODE); } catch { threw = true; }
 ok('ลืมส่ง entity แล้วดัง', threw);
+
+console.log('\n=== เลขล็อตตอนรับเข้า — ไม่ใส่ = วันที่รับเข้า (เจ้าของ 24 ก.ย. 2026) ===');
+ok('ใส่เลขล็อตมา ใช้ตามที่ใส่', receiveLot('LOT-7', '2026-09-24') === 'LOT-7');
+ok('เว้นว่าง ใช้วันที่รับเข้า', receiveLot('', '2026-09-24') === '2026-09-24');
+ok('ช่องว่างล้วนนับว่าเว้นว่าง', receiveLot('   ', '2026-09-24') === '2026-09-24');
+ok('null / undefined ก็ใช้วันที่', receiveLot(null, '2026-09-24') === '2026-09-24' && receiveLot(undefined, '2026-09-24') === '2026-09-24');
+ok('ไม่มีทั้งคู่ ได้ค่าว่าง (ให้คนเรียกตัดสินเอง)', receiveLot('', '') === '');
+ok('หน้ารับเข้าปกติเรียก receiveLot กับวันที่บนหัวจอ และไม่บล็อกเพราะไม่มีวันหมดอายุแล้ว',
+   (() => { const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+            return src.includes('receiveLot(l.lot, inH.date)') && !src.includes('ต้องกรอกวันหมดอายุอีก'); })());
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

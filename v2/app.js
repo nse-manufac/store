@@ -13,7 +13,7 @@ import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf,
          bomId, activeBomRowsOf, reqmtOf } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
-import { lotsOf, suggestLots, traceLot } from './core/lots.js';
+import { lotsOf, suggestLots, traceLot, receiveLot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5 } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
@@ -1046,7 +1046,8 @@ createApp({
     function inAllPo(arrived) {
       for (const g of inPoSum.value) setPoArrived(inLines.value, g.po, arrived, { headerPo: inH.po });
     }
-    const inNoLot = computed(() => inReady.value.filter(l => !l.lot));
+    // วันหมดอายุไม่บังคับแล้ว — เตือนไว้ให้มาเติมทีหลัง เหมือนรับเข้ารวม (เจ้าของเคาะ 24 ก.ย. 2026)
+    const inNoExp = computed(() => inReady.value.filter(l => l.needExp && !l.expiry));
 
     async function saveIn() {
       if (!inH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
@@ -1067,18 +1068,13 @@ createApp({
          'แต่ละบรรทัดจะถูกบันทึกเข้านิติบุคคลของตัวเอง ยอดไม่ปนกัน',
          'ผลคือบรรทัดพวกนั้นจะไม่โผล่ในหน้ายอดคงคลังของ ' + entity.value,
          '', 'บันทึกต่อไหม'].join('\n'))) return;
-      const bad = inReady.value.filter(l => l.needExp && !l.expiry);
-      if (bad.length) { flash(`ต้องกรอกวันหมดอายุอีก ${bad.length} รายการ`, true); return; }
-      const noLot = inNoLot.value.length;
-      if (noLot && !confirm(`มี ${noLot} บรรทัดที่ยังไม่ใส่เลขล็อต\n`
-        + 'ล็อตเก็บได้แค่ตอนรับเข้า ถ้าไม่ใส่ตอนนี้จะตามรอยย้อนกลับไม่ได้ตลอดไป\n\nบันทึกต่อไหม')) return;
       try {
         const posted = inReady.value.map(l => makeEntry({
           // ⚠️ ใช้นิติบุคคลกับ PO ของบรรทัดนั้นก่อนเสมอ ค่อยตกมาที่หัวจอ
           // ไฟล์ใบเดียวมีหลาย PO และมีสองโรงงานปนกันได้ ถ้าเขียนเป็นตัวเดียวกันหมด
           // ยอดจะข้ามโรงงานและผูกผิดใบโดยไม่มีอะไรเตือน
           entity: l.entity || entity.value, kind: 'receive', material_code: l.code, qty: Number(l.qty),
-          lot: l.lot || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: l.po || inH.po, part_no: l.pn || inH.pn,
+          lot: receiveLot(l.lot, inH.date) || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: l.po || inH.po, part_no: l.pn || inH.pn,
           at: atFrom(inH.date),
           person: inH.person, device: device.value,
           expiry_date: l.expiry || '', reqmt_qty: l.reqmt, issued_qty: l.issued
@@ -3045,7 +3041,7 @@ createApp({
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,
-             inPoSum, inTogglePo, inAllPo, bomPnCodes, inReady, inNoLot,
+             inPoSum, inTogglePo, inAllPo, bomPnCodes, inReady, inNoExp,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
