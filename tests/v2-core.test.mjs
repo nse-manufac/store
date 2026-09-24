@@ -233,6 +233,15 @@ throws('เติมได้เฉพาะรับเข้า',
 throws('มีวันหมดอายุอยู่แล้ว เติมทับไม่ได้', () => setExpiry(fx, { date: '2027-04-01', by: 'a', today: 't' }), 'อยู่แล้ว');
 throws('วันที่ต้องเป็นวันที่', () => setExpiry(rx, { date: '31/03/2027', by: 'a', today: 't' }), 'วันที่');
 throws('ต้องบอกว่าใครเติม', () => setExpiry(rx, { date: '2027-03-31', today: 't' }), 'ใคร');
+// ผู้ตรวจ #106 — รูปแบบถูกแต่ไม่มีวันนั้นจริง ต้องไม่ผ่าน
+throws('เดือน 13 ไม่ผ่าน', () => setExpiry(rx, { date: '2027-13-01', by: 'a', today: 't' }), 'มีอยู่จริง');
+throws('31 เม.ย. ไม่ผ่าน', () => setExpiry(rx, { date: '2027-04-31', by: 'a', today: 't' }), 'มีอยู่จริง');
+throws('0000-00-00 ไม่ผ่าน', () => setExpiry(rx, { date: '0000-00-00', by: 'a', today: 't' }), 'มีอยู่จริง');
+ok('29 ก.พ. ปีอธิกสุรทินผ่าน', setExpiry(rx, { date: '2028-02-29', by: 'a', today: 't' }).expiry_date === '2028-02-29');
+throws('29 ก.พ. ปีปกติไม่ผ่าน', () => setExpiry(rx, { date: '2027-02-29', by: 'a', today: 't' }), 'มีอยู่จริง');
+throws('ชื่อที่เป็นช่องว่างล้วนไม่นับว่าบอกแล้ว', () => setExpiry(rx, { date: '2027-03-31', by: '   ', today: 't' }), 'ใคร');
+ok('ชื่อคนเติมถูกตัดช่องว่างก่อนลงหมายเหตุ',
+   setExpiry(rx, { date: '2027-03-31', by: '  สมชาย ', today: '2026-09-25' }).note.endsWith('โดย สมชาย'));
 const needs = c => c === 'CHEM';
 const mx = [
   mk({ kind: 'receive', material_code: 'CHEM', qty: 1, lot: 'L', doc_ref: 'P', at: '2026-09-22T01:00:00.000Z' }),

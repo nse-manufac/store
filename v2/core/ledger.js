@@ -207,10 +207,17 @@ export function setExpiry(e, { date, by, today } = {}) {
   if (e.voided) throw new Error('รายการนี้ถูกยกเลิกแล้ว เติมวันหมดอายุไม่ได้');
   if (e.kind !== 'receive') throw new Error('เติมวันหมดอายุได้เฉพาะรายการรับเข้า');
   if (e.expiry_date) throw new Error('รายการนี้มีวันหมดอายุอยู่แล้ว');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('วันหมดอายุต้องเป็นวันที่');
-  if (!by) throw new Error('ต้องบอกว่าใครเติม');
+  // ตัวนี้คือด่าน — ช่องบนจอเป็น type="date" ก็จริง แต่ถ้าวันหนึ่งรับค่าจากช่องข้อความหรือการวาง
+  // รูปแบบถูกอย่างเดียวไม่พอ '2027-13-45' ต้องไม่ผ่าน (ผู้ตรวจ #106) · เทียบแบบ UTC ไม่มีเรื่องเขตเวลา
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ''));
+  const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (!m || +m[1] < 2000 || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) {
+    throw new Error('วันหมดอายุต้องเป็นวันที่ที่มีอยู่จริง');
+  }
+  const who = String(by || '').trim();
+  if (!who) throw new Error('ต้องบอกว่าใครเติม');
   if (!today) throw new Error('ต้องบอกวันที่เติม');
-  const stamp = `เติมวันหมดอายุ ${today} โดย ${by}`;
+  const stamp = `เติมวันหมดอายุ ${today} โดย ${who}`;
   return { ...e, expiry_date: String(date), note: e.note ? e.note + ' · ' + stamp : stamp,
            updated_at: new Date().toISOString() };
 }
