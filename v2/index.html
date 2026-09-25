@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-25.1">
+<meta name="app-version" content="2026-09-25.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2410,6 +2410,53 @@ textarea{font:inherit}
             </table>
           </div>
         </div>
+      </template>
+
+      <!-- ════════ Log รับเข้า / จ่ายออก (เจ้าของสั่ง 24–25 ก.ย. 2026) ════════ -->
+      <template v-else-if="tab==='lgin' || tab==='lgout'">
+        <div class="card">
+          <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <label class="f" style="width:145px">ตั้งแต่ <input v-model="lg.from" type="date"></label>
+            <label class="f" style="width:145px">ถึง <input v-model="lg.to" type="date"></label>
+            <button class="btn" @click="lgToday">วันนี้</button>
+            <label class="f grow" style="min-width:230px">ค้นหา
+              <input v-model.trim="lg.q" placeholder="PO · รหัส · ชื่อ · P/N · คนคีย์ · ล็อต"></label>
+            <label style="padding-bottom:6px"><input type="checkbox" v-model="lg.voided"> แสดงรายการที่ยกเลิก</label>
+            <button class="btn" @click="lgExport" :disabled="!lgRows.length">ส่งออก Excel</button>
+          </div>
+          <p class="hint" style="margin:8px 0 0">
+            นิติบุคคล {{ entity }} · {{ lgRows.length }} รายการ
+            · {{ tab === 'lgout' ? 'จ่ายออก · ของเสีย · ส่งคืน Delta' : 'รับเข้า · คืนของ · ยกยอดมา' }}
+            <span v-if="lgRows.length > LG_MAX"> · แสดง {{ LG_MAX }} รายการล่าสุด — แคบช่วงวันที่ลง หรือส่งออก Excel เพื่อดูครบ</span>
+            <span v-if="!lg.from && !lg.to"> · ทุกวันที่</span></p>
+        </div>
+        <div class="card" v-if="lgShown.length">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th>วันที่</th><th>เวลา</th><th>ชนิด</th><th>PO</th><th>P/N</th><th>รหัส</th><th>ชื่อ</th>
+                <th>หมวดหมู่</th><th style="text-align:right">จำนวน</th><th>หน่วย</th><th>ล็อต</th>
+                <th>หมดอายุ</th><th>ผู้บันทึก</th><th>หมายเหตุ</th>
+              </tr></thead>
+              <tbody><tr v-for="r in lgShown" :key="r.id" :style="r.voided ? 'opacity:.55' : ''"
+                         :title="r.voided ? 'ยกเลิกแล้ว — ' + (r.void_reason || '') + (r.void_by ? ' โดย ' + r.void_by : '') : ''">
+                <td class="mono" style="white-space:nowrap">{{ r.day }}</td><td class="mono">{{ r.time }}</td>
+                <td>{{ r.kindLabel }}<span v-if="r.voided" class="tag bad" style="margin-left:4px">ยกเลิก</span></td>
+                <td class="mono" :style="r.voided ? 'text-decoration:line-through' : ''">{{ r.doc_ref }}</td>
+                <td class="mono">{{ r.part_no }}</td>
+                <td class="mono" :style="r.voided ? 'text-decoration:line-through' : ''">{{ r.material_code }}</td>
+                <td>{{ r.desc || '—' }}</td><td>{{ r.category || '—' }}</td>
+                <td class="mono" style="text-align:right" :style="r.voided ? 'text-decoration:line-through' : ''">{{ r.qty }}</td>
+                <td class="mono">{{ r.unit }}</td><td class="mono" style="white-space:nowrap">{{ r.lot }}</td>
+                <td class="mono" style="white-space:nowrap">{{ r.expiry_date || '' }}</td><td>{{ r.person }}</td>
+                <td class="hint">{{ r.memo }}<span v-if="r.voided"> · ยกเลิก: {{ r.void_reason }}</span></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" v-else><p class="empty">
+          ไม่มีรายการในช่วงนี้ — ลองขยายช่วงวันที่ หรือลบคำค้น<br>
+          ดูเฉพาะนิติบุคคล {{ entity }} · สลับนิติบุคคลได้ที่หัวจอ</p></div>
       </template>
 
       <template v-else-if="tab==='sync'">
