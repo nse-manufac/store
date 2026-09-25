@@ -675,6 +675,21 @@ ok('ไฟล์เปล่าไม่พัง',
    && kitReceivePlan([{ po: '', code: '' }]).lines.length === 0);
 // ต่อท่อจริงจากตัวอ่านไฟล์ 22-H ที่มีอยู่แล้ว ไม่ใช่รูปข้อมูลที่ประกอบเอง
 const fromFile = kitReceivePlan(kit.rows, { poList: [] });
+// พนักงานแจ้ง 25 ก.ย. 2026 — ไฟล์ของ Delta เรียงตามรหัส โปรแกรมเคยจัดกลุ่มตาม PO เลยไล่เทียบกับไฟล์ไม่ได้
+const byCode = kitReceivePlan([
+  { po: 'TM9269H002', code: 9000000001, issue: 1 },
+  { po: 'TM9269H001', code: 9000000001, issue: 2 },
+  { po: 'TM9269H002', code: 9000000002, issue: 3 },
+  { po: 'TM9269H001', code: 9000000003, issue: 4 }
+]);
+ok('ตารางเรียงตามลำดับในไฟล์ (ตามรหัส) ไม่จัดกลุ่มตาม PO',
+   byCode.lines.map(l => l.code.slice(-1) + '/' + l.po.slice(-1)).join(',') === '1/2,1/1,2/2,3/1',
+   byCode.lines.map(l => l.code.slice(-1) + '/' + l.po.slice(-1)).join(','));
+ok('รายใบยังจัดกลุ่มตาม PO ครบ และเป็นบรรทัดตัวเดียวกับในตาราง (แก้ที่เดียวเห็นทั้งสองที่)',
+   byCode.groups.length === 2 && byCode.groups[0].lines.length === 2
+   && byCode.groups[0].lines[0] === byCode.lines[0] && byCode.groups[0].lines[1] === byCode.lines[2]);
+ok('ชิปรายใบเรียงตามเลข PO ไม่ใช่ตามลำดับที่เจอก่อน',
+   kitPoSummary(byCode.lines).map(g => g.po).join(',') === 'TM9269H001,TM9269H002');
 ok('ต่อจากตัวอ่านไฟล์ 22-H ได้ตรง ๆ',
    fromFile.lines.length === kit.rows.length && fromFile.groups.length === 2,
    fromFile.lines.length + ' / ' + fromFile.groups.length);

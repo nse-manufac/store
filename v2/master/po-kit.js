@@ -514,6 +514,10 @@ export const kitsOfPo = (kits, po) =>
  *
  * ⚠️ ไม่เดาว่าของมาถึงหรือยัง — เจ้าของบอกว่า "แล้วแต่รอบ ไม่แน่นอน" บางรอบมาพร้อมกันทั้งใบ
  * บางรอบทยอยมาทีละ PO · ที่นี่กางให้ครบทั้งไฟล์ แล้วให้หน้าจอกับคนตัดสินว่าบรรทัดไหนรับจริง
+ *
+ * ⚠️ lines เรียงตามลำดับในไฟล์ (Delta เรียงตามรหัสวัตถุดิบ) ห้ามจัดกลุ่มตาม PO
+ * พนักงานตรวจโดยวางไฟล์กระดาษไว้ข้างจอแล้วไล่ทีละบรรทัด — เดิมจัดกลุ่มตาม PO ทำให้ไล่เทียบไม่ได้
+ * (พนักงานแจ้ง 25 ก.ย. 2026) · groups ยังจัดตาม PO ไว้ให้ชิปรายใบกับยอด "รับแล้ว" รายใบ
  */
 // ปัดเศษทศนิยมลอยของเลขจากไฟล์ แต่ค่าว่างต้องยังว่าง ไม่ใช่กลายเป็นศูนย์
 // (ผู้ตรวจ #104 — 0.1+0.2 เคยขึ้นในช่องรับจริงเป็น 0.30000000000000004 · ยอดที่เก็บไม่เพี้ยน
@@ -522,24 +526,24 @@ const n6 = v => { const n = numOf(v); return n === null ? null : r6(n); };
 
 export function kitReceivePlan(rows = [], { poList = [] } = {}) {
   const have = new Set((poList || []).map(p => String(p.po || '').trim()));
-  const byPo = new Map();
+  const byPo = new Map(), lines = [];
   for (const r of rows || []) {
     if (!r || !r.po || !r.code) continue;
     const po = String(r.po).trim();
     const g = byPo.get(po) || { po, pn: '', lines: [], inList: have.has(po) };
     if (!g.pn && r.pn) g.pn = String(r.pn);
-    g.lines.push({
+    const line = {
       po, pn: r.pn ? String(r.pn) : '', code: codeOf(r.code),
       desc: String(r.desc == null ? '' : r.desc).trim(),
       unit: String(r.unit == null ? '' : r.unit).trim(),
       issued: n6(r.issue),
       qty: n6(r.issue)               // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริงได้
-    });
+    };
+    g.lines.push(line);
+    lines.push(line);                // ลำดับตามไฟล์ — ตัวเดียวกับใน g.lines ไม่ใช่สำเนา
     byPo.set(po, g);
   }
   const groups = [...byPo.values()];
-  const lines = [];
-  for (const g of groups) lines.push(...g.lines);
   return {
     groups, lines,
     pos: groups.map(g => g.po),
@@ -578,7 +582,8 @@ export function kitReceiveByPo(groups = [], entries = [], { current = '', known 
  * ไฟล์จริงใบหนึ่ง 238 บรรทัด 33 PO ถ้ารอบนั้นมาแค่สิบใบ พนักงานต้องไล่ล้างยอด
  * ร้อยกว่าบรรทัดทีละช่อง ซึ่งคือการคีย์มือที่ Delta สั่งให้เลิก ในอีกรูปหนึ่ง
  *
- * เรียงตามลำดับที่บรรทัดอยู่ ไม่สลับให้ · headerPo = เลข PO บนหัวจอ (ทางคีย์เอง)
+ * เรียงตามเลข PO — ตารางเรียงตามรหัสตามไฟล์ของ Delta แล้ว (25 ก.ย. 2026) ชิปที่เรียงตามลำดับที่เจอก่อน
+ * จะกระจัดกระจาย หาใบที่ต้องการยาก · headerPo = เลข PO บนหัวจอ (ทางคีย์เอง)
  *
  * ⚠️ นับและสลับเฉพาะบรรทัดที่ไฟล์บอกยอดมามากกว่าศูนย์ (fromFile) — รีวิว #105
  * บรรทัดที่ไม่มียอดจากไฟล์ (ซื้อทดแทนจากปุ่ม "ไปรับของ" · ช่อง issue ว่าง · Delta จ่ายศูนย์)
@@ -598,7 +603,7 @@ export function kitPoSummary(lines = [], { headerPo = '' } = {}) {
     if (Number(l.qty) > 0) g.filled++;
     byPo.set(po, g);
   }
-  return [...byPo.values()].map(g => ({
+  return [...byPo.values()].sort((a, b) => a.po.localeCompare(b.po)).map(g => ({
     ...g, state: g.filled === 0 ? 'none' : g.filled === g.lines ? 'all' : 'some'
   }));
 }
