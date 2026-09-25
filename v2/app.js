@@ -15,7 +15,7 @@ import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
-import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5 } from './core/ledger.js';
+import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
@@ -69,6 +69,11 @@ const GROUPS = [
     { k: 'fover',  label: 'over รอคืน' },
     { k: 'fbuy',   label: 'ซื้อแมททดแทน' },
     { k: 'fmat',   label: 'นำเข้าใบแจ้งของ Delta' }
+  ] },
+  // Log รับเข้า / จ่ายออก ทุกรหัสในหน้าเดียว (เจ้าของสั่ง 24–25 ก.ย. 2026) · ตรรกะอยู่ที่ core/ledger.js logRows
+  { k: 'log', label: 'Log', tabs: [
+    { k: 'lgin',  label: 'รับเข้า' },
+    { k: 'lgout', label: 'จ่ายออก' }
   ] },
   { k: 'sys',  label: 'ระบบ', tabs: [
     { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
@@ -778,6 +783,25 @@ createApp({
       const m = matIndex.value.get(normCode(code));
       return m && m.category ? m.category : '';
     };
+
+    // ── Log รับเข้า / จ่ายออก ── เปิดมาเห็นของวันนี้ · ตรรกะอยู่ที่ core/ledger.js
+    const lg = reactive({ from: todayLocal(), to: todayLocal(), q: '', voided: false });
+    const LG_MAX = 500;   // บนจอแสดงไม่เกินนี้ ตารางยาวกว่านี้เรนเดอร์ช้า · ส่งออก Excel ได้ครบทุกแถว
+    const lgSide = computed(() => tab.value === 'lgout' ? 'out' : 'in');
+    const lgRows = computed(() => (tab.value !== 'lgin' && tab.value !== 'lgout') || !entity.value ? []
+      : logRows(entries.value, { entity: entity.value, side: lgSide.value, from: lg.from, to: lg.to,
+                                 q: lg.q, voided: lg.voided, matOf: c => matIndex.value.get(normCode(c)) }));
+    const lgShown = computed(() => lgRows.value.slice(0, LG_MAX));
+    function lgToday() { lg.from = todayLocal(); lg.to = todayLocal(); }
+    async function lgExport() {
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const name = lgSide.value === 'out' ? 'จ่ายออก' : 'รับเข้า';
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(logSheet(lgRows.value)), name);
+        XLSX.writeFile(wb, `Log ${name} ${entity.value} ${lg.from || 'ต้น'}_${lg.to || 'ล่าสุด'}.xlsx`);
+      } catch (err) { flash('ส่งออก Excel ไม่สำเร็จ: ' + err.message + ' — ลองกดใหม่อีกครั้ง', true); }
+    }
 
     /** เหตุผลเก็บเป็นรหัสในสมุด แต่บนจอต้องอ่านรู้เรื่อง */
     const reasonLabel = e => {
@@ -3076,6 +3100,7 @@ createApp({
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,
              notice, noticeBox, noticeScroll, openNotice, closeNotice, noticeCanClose,
+             lg, lgRows, lgShown, lgToday, lgExport, LG_MAX,
              inPoSum, inTogglePo, inAllPo, bomPnCodes, inReady, inNoExp,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,

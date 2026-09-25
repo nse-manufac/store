@@ -6,7 +6,8 @@
  * ในโปรแกรมคลัง เพราะกว่าจะรู้ก็ผ่านไปหลายเดือนแล้ว
  */
 import fs from 'node:fs';
-import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry } from '../v2/core/ledger.js';
+import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
+         LOG_KINDS, logRows, logSheet, LOG_HEAD } from '../v2/core/ledger.js';
 import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
@@ -256,6 +257,48 @@ const miss = missingExpiry(mx, base.entity, needs);
 ok('หาเฉพาะรับเข้าที่ยังว่าง ของรหัสที่ต้องมี นิติบุคคลนี้ ไม่ยกเลิก', miss.length === 2, String(miss.length));
 ok('เรียงเก่าก่อน', miss[0].at < miss[1].at);
 throws('ไม่บอกนิติบุคคล = โยน (A3)', () => missingExpiry(mx, '', needs), 'A3');
+
+console.log('\n=== Log รับเข้า / จ่ายออก (เจ้าของสั่ง 24–25 ก.ย. 2026) ===');
+// เวลาเที่ยงวัน — วันที่ตามเวลาเครื่องไม่เลื่อนไม่ว่าเครื่องอยู่เขตเวลาไหน
+const at = d => new Date(d + 'T12:00:00').toISOString();
+const lgE = [
+  mk({ kind: 'receive', qty: 5, lot: 'L1', doc_ref: 'TM9269H001', at: at('2026-09-24'), material_code: 'M1' }),
+  mk({ kind: 'return', qty: 1, reason_code: REASONS.return[0].code, at: at('2026-09-25'), material_code: 'M2' }),
+  mk({ kind: 'open', qty: 9, at: at('2026-09-01'), material_code: 'M1' }),
+  mk({ kind: 'issue', qty: 2, doc_ref: 'TM9269H001', person: 'สมหญิง', at: at('2026-09-25'), material_code: 'M1' }),
+  mk({ kind: 'scrap', qty: 1, reason_code: REASONS.scrap[0].code, at: at('2026-09-25'), material_code: 'M2' }),
+  mk({ kind: 'sendback', qty: 1, doc_ref: 'TM9269H001', reason_code: REASONS.sendback[0].code, at: at('2026-09-25'), material_code: 'M1' }),
+  mk({ kind: 'adjust', counted_qty: 3, book_qty: 4, reason_code: REASONS.adjust[0].code, at: at('2026-09-25'), material_code: 'M1' }),
+  mk({ kind: 'receive', qty: 7, lot: 'L2', doc_ref: 'TM9269H002', at: at('2026-09-25'), material_code: 'M2', entity: 'อื่น' }),
+  voidEntry(mk({ kind: 'receive', qty: 3, lot: 'L3', doc_ref: 'TM9269H003', at: at('2026-09-25'), material_code: 'M1' }),
+            { by: 'หัวหน้า', reason: 'คีย์ซ้ำ' })
+];
+const mats = { M1: { description: 'GLUE A', unit: 'KGM', category: 'CHEMICAL' }, M2: { description: 'TAPE', unit: 'MTR', category: 'TAPE' } };
+const lg = o => logRows(lgE, { entity: base.entity, matOf: c => mats[c], ...o });
+ok('รับเข้า = ยกยอดมา · รับเข้า · คืนของ', lg({ side: 'in' }).map(r => r.kind).sort().join() === 'open,receive,return');
+ok('จ่ายออก = จ่ายออก · ของเสีย · ส่งคืน Delta', lg({ side: 'out' }).map(r => r.kind).sort().join() === 'issue,scrap,sendback');
+ok('ปรับยอดไม่อยู่ทั้งสองฝั่ง', !lg({ side: 'in' }).concat(lg({ side: 'out' })).some(r => r.kind === 'adjust'));
+ok('นิติบุคคลอื่นไม่โผล่ (A3)', !lg({ side: 'in' }).some(r => r.entity === 'อื่น'));
+throws('ไม่บอกนิติบุคคล = โยน (A3)', () => logRows(lgE, { side: 'in' }), 'A3');
+ok('ช่วงวันที่ — วันเดียว', lg({ side: 'in', from: '2026-09-25', to: '2026-09-25' }).map(r => r.kind).join() === 'return');
+ok('ใหม่สุดขึ้นก่อน', lg({ side: 'in' }).map(r => r.day).join() === '2026-09-25,2026-09-24,2026-09-01');
+ok('รายการที่ยกเลิกซ่อนไว้ก่อน ติ๊กแล้วเห็น (ไม่เคยถูกลบ — B1)',
+   !lg({ side: 'in' }).some(r => r.voided) && lg({ side: 'in', voided: true }).filter(r => r.voided).length === 1);
+ok('ค้นด้วยชื่อวัตถุดิบ (จากทะเบียน)', lg({ side: 'out', q: 'glue' }).length === 2);
+ok('ค้นหลายคำต้องเจอครบทุกคำ', lg({ side: 'out', q: 'TM9269H001 สมหญิง' }).map(r => r.kind).join() === 'issue');
+ok('แถวมีชื่อ · หน่วย · หมวด · ชนิดภาษาไทย · เหตุผลอ่านรู้เรื่อง',
+   (() => { const r = lg({ side: 'out' }).find(x => x.kind === 'scrap');
+            return r.desc === 'TAPE' && r.unit === 'MTR' && r.category === 'TAPE' && r.kindLabel === 'ของเสีย'
+                && r.memo.includes(REASONS.scrap[0].label); })());
+ok('รหัสที่ไม่มีในทะเบียนไม่พัง', logRows([mk({ kind: 'issue', qty: 1, material_code: 'ZZ' })],
+   { entity: base.entity, side: 'out' })[0].desc === '');
+{
+  const sh = logSheet(lg({ side: 'in', voided: true }));
+  ok('Excel — หัวคอลัมน์ครบ และจำนวนแถวตามที่กรอง', sh[0] === LOG_HEAD && sh.length === 1 + 4);
+  ok('Excel — แถวที่ยกเลิกบอกสถานะพร้อมเหตุผลและคน',
+     sh.some(r => r[15] === 'ยกเลิก — คีย์ซ้ำ โดย หัวหน้า'), JSON.stringify(sh.map(r => r[15])));
+}
+ok('ไม่มีอะไรเลยก็ไม่พัง', logRows(null, { entity: 'X' }).length === 0 && logSheet([]).length === 1);
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

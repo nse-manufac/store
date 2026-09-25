@@ -13,6 +13,8 @@
 
 /** ปัดที่ 5 ตำแหน่ง — INVARIANTS A2
  *  ทุกผลลัพธ์ที่เป็นยอดต้องผ่านตัวนี้ ไม่งั้นการบวกลบ float สะสมจะได้ 0.30000000000000004 */
+import { localDate, localTime } from './localtime.js';
+
 export const round5 = n => Math.round(n * 1e5) / 1e5;
 
 /**
@@ -241,3 +243,56 @@ function newId() {
   return 'E' + Date.now().toString(36) + seq.toString(36).padStart(2, '0')
        + Math.random().toString(36).slice(2, 6);
 }
+
+/**
+ * หน้า Log รับเข้า / จ่ายออก — ทุกรหัสในหน้าเดียว (เจ้าของสั่ง 24–25 ก.ย. 2026)
+ * เดิมดูรายการเคลื่อนไหวได้ทีละรหัสจากการ์ดเท่านั้น
+ *
+ *   in  = ทุกอย่างที่เข้าคลัง   ยกยอดมา · รับเข้า · คืนของ
+ *   out = ทุกอย่างที่ออกจากคลัง  จ่ายออก · ของเสีย · ส่งคืน Delta
+ * ปรับยอด/โอนย้ายไม่อยู่ในทั้งสองฝั่ง — ทิศทางขึ้นกับส่วนต่าง ดูที่การ์ดหรือหน้านับของ
+ *
+ * กรองนิติบุคคลเสมอ (A3) · ช่วงวันที่เทียบวันตามเวลาเครื่อง ไม่ใช่ UTC
+ * รายการที่ยกเลิกซ่อนไว้ก่อน (voided=false) แต่ไม่เคยถูกลบ — ติ๊กแล้วเห็นพร้อมเหตุผล (B1)
+ * q = คำค้นหลายคำคั่นเว้นวรรค ต้องเจอครบทุกคำ · ใหม่สุดขึ้นก่อน
+ */
+export const LOG_KINDS = { in: ['open', 'receive', 'return'], out: ['issue', 'scrap', 'sendback'] };
+
+const reasonOf = e => {
+  const r = (REASONS[e.kind] || []).find(x => x.code === e.reason_code);
+  return r ? r.label : String(e.reason_code || '');
+};
+
+export function logRows(entries, { entity, side = 'in', from = '', to = '', q = '', voided = false,
+                                   matOf = () => null } = {}) {
+  if (!entity) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const kinds = new Set(LOG_KINDS[side] || []);
+  const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const out = [];
+  for (const e of entries || []) {
+    if (!e || e.entity !== entity || !kinds.has(e.kind) || (e.voided && !voided)) continue;
+    const day = localDate(e.at);
+    if ((from && day < from) || (to && day > to)) continue;
+    const m = matOf(e.material_code) || {};
+    const row = { ...e, day, time: localTime(e.at), kindLabel: KINDS[e.kind].label,
+                  desc: String(m.description || ''), unit: String(m.unit || ''),
+                  category: String(m.category || ''),
+                  memo: [reasonOf(e), e.note].filter(Boolean).join(' · ') };
+    if (words.length) {
+      const hay = [e.doc_ref, e.material_code, e.part_no, e.person, e.lot, row.desc, row.memo]
+        .join(' ').toLowerCase();
+      if (!words.every(w => hay.includes(w))) continue;
+    }
+    out.push(row);
+  }
+  return out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+/** แถวสำหรับส่งออก Excel — ตามที่กรองอยู่บนจอ รวมรายการที่ยกเลิก (ถ้าติ๊กแสดง) พร้อมสถานะ */
+export const LOG_HEAD = ['วันที่', 'เวลา', 'ชนิด', 'นิติบุคคล', 'PO', 'P/N', 'รหัส', 'ชื่อ', 'หมวดหมู่',
+                         'จำนวน', 'หน่วย', 'ล็อต', 'วันหมดอายุ', 'ผู้บันทึก', 'หมายเหตุ', 'สถานะ'];
+export const logSheet = rows => [LOG_HEAD, ...(rows || []).map(r => [
+  r.day, r.time, r.kindLabel, r.entity, r.doc_ref, r.part_no, r.material_code, r.desc, r.category,
+  r.qty, r.unit, r.lot, r.expiry_date, r.person, r.memo,
+  r.voided ? 'ยกเลิก' + (r.void_reason ? ' — ' + r.void_reason : '') + (r.void_by ? ' โดย ' + r.void_by : '') : ''
+])];
