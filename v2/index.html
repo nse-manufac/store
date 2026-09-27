@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-28.2">
+<meta name="app-version" content="2026-09-28.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1951,9 +1951,12 @@ textarea{font:inherit}
                   <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td><span class="tag" :class="r.s.type==='ขาด'?'bad':'warn'">{{ r.s.type }}</span></td>
                   <td class="mono">{{ r.s.qty || '—' }} {{ r.s.unit }}</td>
-                  <td class="mono" :title="fsCheck(r.s).why">
+                  <td class="mono" :title="fsCheck(r.s).why ||
+                       (fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ' : '')">
                     <template v-if="fsCheck(r.s).calc !== null">{{ fsCheck(r.s).calc }}
-                      <span class="tag" :class="fsCheck(r.s).same ? 'ok' : 'warn'">{{ fsCheck(r.s).same ? 'ตรง' : 'ต่าง' }}</span></template>
+                      <span v-if="fsCheck(r.s).same !== null" class="tag"
+                            :class="fsCheck(r.s).same ? 'ok' : 'warn'">{{ fsCheck(r.s).same ? 'ตรง' : 'ต่าง' }}</span>
+                      <span v-else class="hint">ไม่มียอดเทียบ</span></template>
                     <span v-else class="hint">—</span></td>
                   <td class="mono">
                     <b v-if="r.st==='partial'">{{ r.remain }}</b>

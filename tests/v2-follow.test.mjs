@@ -1261,6 +1261,15 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
   ok('เทียบกับยอดที่ Delta แจ้ง — ตรง', JSON.stringify(shortCheckOf(tickets[0], all0)) === JSON.stringify({ calc: 8, why: '', same: true }));
   ok('เทียบ — ต่าง', shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).same === false
      && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).calc === 5);
+  /* เรื่องประเภท "รอส่ง" ที่แกะจากไฟล์ PO มี qty = 0 โดยการออกแบบ (Delta บอกแค่ว่ายังไม่ส่ง ไม่บอกจำนวน)
+     ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — จึงไม่มียอดให้เทียบ ห้ามตีเป็น "ต่าง" */
+  ok('เรื่องที่ไม่ได้แจ้งจำนวนมา (รอส่ง qty 0) ไม่ได้ป้าย "ต่าง" — same เป็น null',
+     shortCheckOf({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H001', code: 'A', qty: 0, done: false }, all0).same === null
+     && shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0).calc === 8,
+     JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
+  ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
+     /same !== null/.test(htmlSrc.split('ระบบคิดได้')[1].slice(0, 1200)));
+
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
      /ยังไม่มีการรับเข้า/.test(shortCheckOf({ po: 'TM9269H002', code: 'A', qty: 1 }, all0).why)
      && /ไม่มีรหัสนี้ในสูตร/.test(shortCheckOf({ po: 'TM9269H001', code: 'Z', qty: 1 }, all0).why)

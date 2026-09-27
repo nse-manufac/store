@@ -573,6 +573,7 @@ export function shortPending(rows, follows) {
  * calcRows = shortAll(..., { min: 0 }) · คืน { calc, why, same }
  *   calc = ยอดขาดที่คิดได้ตอนนี้ (0 = รับครบตามสูตรแล้ว) · null = คิดไม่ได้ ดู why
  *   same = ยอดที่เรื่องแจ้งไว้ตรงกับที่คิดได้ (ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม)
+ *          null = เรื่องนี้ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ — คนละเรื่องกับ "แจ้งมาแล้วไม่ตรง"
  */
 export function shortCheckOf(follow, calcRows) {
   const po = txt(follow && follow.po);
@@ -585,7 +586,11 @@ export function shortCheckOf(follow, calcRows) {
     seen = true;
     if (pairKey(r.po, r.code) === k) {
       const q = Number(follow.qty) || 0;
-      return { calc: r.short, why: '', same: q > 0 && Math.abs(q - r.short) < 5e-4 };
+      /* ⚠️ เรื่องประเภท "รอส่ง" (และแถวที่แกะจากไฟล์ PO แล้วอ่านจำนวนไม่ออก) มี qty = 0 โดยการออกแบบ —
+       *    ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — อยู่แล้ว ไม่มียอดให้เทียบ จึงห้ามตอบ same: false
+       *    เพราะจอจะขึ้นป้าย "ต่าง" ทั้งที่ไม่มีอะไรให้ทำต่อ แล้วคนจะเลิกเชื่อป้ายนี้ทั้งคอลัมน์ (G3) */
+      if (!(q > 0)) return { calc: r.short, why: '', same: null };
+      return { calc: r.short, why: '', same: Math.abs(q - r.short) < 5e-4 };
     }
   }
   return { calc: null, why: seen ? 'ไม่มีรหัสนี้ในสูตรของใบนี้' : 'ยังไม่มีการรับเข้าของใบนี้ในระบบ', same: false };
