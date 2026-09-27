@@ -236,6 +236,20 @@ export function missingExpiry(entries, entity, needsExpiry) {
     .sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
 
+/**
+ * จำนวนรายการที่ยังขาดวันหมดอายุ แยกตามนิติบุคคล — [{ entity, n }] เรียงตามชื่อ
+ * ใช้บอกว่านิติบุคคลอื่นยังมีค้าง (หน้ารอเติมแสดงเฉพาะตัวที่เลือกอยู่ตาม A3 จึงต้องบอกทางไปอีกตัว)
+ */
+export function missingExpiryCounts(entries, needsExpiry) {
+  const n = new Map();
+  for (const e of entries || []) {
+    if (!e || !e.entity || e.voided || e.kind !== 'receive' || e.expiry_date) continue;
+    if (!needsExpiry(String(e.material_code))) continue;
+    n.set(e.entity, (n.get(e.entity) || 0) + 1);
+  }
+  return [...n].map(([entity, c]) => ({ entity, n: c })).sort((a, b) => a.entity.localeCompare(b.entity));
+}
+
 let seq = 0;
 function newId() {
   // ต้องไม่ชนกันข้ามเครื่องที่คีย์พร้อมกันโดยไม่มีเน็ต จึงผสมเวลา ตัวนับ และตัวสุ่ม
