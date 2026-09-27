@@ -35,6 +35,7 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         shortAll, shortPending, shortCheckOf, fromShortRow, OVER_MIN,
          pendingScraps, fromScrapRow, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
@@ -2132,6 +2133,30 @@ createApp({
       return hit ? Number(hit.usage) || 0 : null;
     };
 
+    /* ── ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ── ตรรกะอยู่ที่ master/follow.js shortAll
+     * คิดครั้งเดียวแบบ min: 0 (ทุกรหัสในสูตรของ PO ที่รับแล้ว) แล้วแบ่งใช้สองทาง:
+     *   การ์ด "ยังรับไม่ครบตาม BOM" = ขาดตั้งแต่ OVER_MIN ที่ยังไม่มีเรื่องเปิดอยู่
+     *   คอลัมน์ "ระบบคิดได้" ในตารางเรื่อง = เทียบยอดที่แจ้งไว้ (เช่นจาก Delta) กับที่คิดได้ตอนนี้ */
+    const fsCalc = computed(() => {
+      if (!entity.value) return [];
+      try {
+        return shortAll(entries.value, entity.value, { headerOf: po => poHeader(pos.value, po),
+                        bomRowsOf: pn => activeBomRowsOf(bom.value, pn), min: 0 });
+      } catch (err) { console.error(err); return []; }
+    });
+    const fsNew = computed(() =>
+      shortPending(fsCalc.value.filter(r => !r.why && r.short >= OVER_MIN), shorts.value));
+    const fsBlocked = computed(() => fsCalc.value.filter(r => r.why));
+    const fsCheck = s => shortCheckOf(s, fsCalc.value);
+    async function fsStart(row) {
+      try {
+        const rec = fromShortRow(row, { entity: entity.value, person: fsBy.value,
+                                        unit: unitOf(row.code), date: todayLocal() });
+        await fsPut(rec);
+        flash(`ตั้งเรื่องขาด ${rec.po} · ${rec.code} จำนวน ${rec.qty} แล้ว`);
+      } catch (err) { flash(err.message, true); }
+    }
+
     const foCalc = computed(() => {
       if (!entity.value) return [];
       try {
@@ -3125,6 +3150,7 @@ createApp({
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
+      fsNew, fsBlocked, fsCheck, fsStart, OVER_MIN,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
