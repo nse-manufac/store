@@ -145,6 +145,9 @@ export function toCardLines(rows, unit = '') {
       expiry_date: r.expiry_date || '',
       remark: extra.join(' · '),
       unit,
+      // Short / Over สะสมราย PO (master/follow.js cardShortOver) — ไม่มี = "-"
+      short: r.short == null ? null : r.short,
+      over: r.over == null ? null : r.over,
       unknownKind: !known
     };
   });
@@ -164,6 +167,7 @@ export const UNKNOWN_KIND_NOTE = 'การ์ดนี้ออกจากโ�
  */
 export function writeBinCard(ws, info, lines) {
   writeCard(ws, info, lines);
+  addShortOverCols(ws, lines);
   const n = lines.filter(l => l.unknownKind).length;
   if (!n) return 0;
   const R = Math.max(lines.length, BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1);
@@ -181,3 +185,53 @@ export const sheetNameFor = code => String(code).replace(/[\/:*?[\]]/g, '-').sli
 
 /** ชื่อโฟลเดอร์/ไฟล์ในซิป — หมวดที่มีอักขระต้องห้ามจะทำให้ซิปเปิดไม่ออกบางเครื่อง */
 export const safeFileName = s => String(s || 'OTHER').replace(/[\/:*?"<>|]/g, '-');
+
+/**
+ * คอลัมน์ Short / Over ถัดจาก Balance (เจ้าของสั่ง 28 ก.ย. 2026 — ยอมให้ฟอร์มต่างจากฟอร์มเดิมของโรงงาน)
+ *
+ * ⚠️ ทำเป็นขั้นหลัง writeCard ไม่ใช่แก้ข้างใน — writeCard / applyTpl ต้องเหมือน v1 ทุกบรรทัด (v2-export หมวด C)
+ *    จึงเลื่อนคอลัมน์ ผู้เบิก/ผู้รับ · วันหมดอายุ · Remark (N · O · P) ไปเป็น P · Q · R แล้วใส่ Short · Over ที่ N · O
+ *    แบบคอลัมน์ Balance (M) · หัวตารางที่ merge แถว 9–10 ของ N · O · P อยู่ตำแหน่งเดิมพอดี จึงเพิ่มแค่ Q · R
+ * ⚠️ แถว 10 ของ N · O · P เป็นช่องลูกของ merge — ห้ามเขียนค่าใส่ (ExcelJS จะเขียนทับช่องแม่) ย้ายแค่สไตล์
+ * ใช้แค่ getCell / getColumn / mergeCells / pageSetup ให้ชีตปลอมในเทสทำงานได้เหมือน ExcelJS
+ */
+export const SO_HEAD = { N: 'Short', O: 'Over' };
+const STYLE_KEYS = ['font', 'border', 'alignment', 'fill'];
+const cloneStyle = (from, to) => {
+  for (const k of STYLE_KEYS) {
+    if (from[k] !== undefined) to[k] = JSON.parse(JSON.stringify(from[k]));
+  }
+};
+export function addShortOverCols(ws, lines) {
+  const T = BINCARD_TPL;
+  const R = Math.max(lines.length, T.lastRow - T.firstRow + 1);
+  const totalRow = T.firstRow + R;
+  const last = totalRow + 3;                       // ถึงขอบพื้นที่พิมพ์ที่ applyTpl ตั้งไว้
+  for (let r = 1; r <= last; r++) {
+    for (const [from, to] of [['P', 'R'], ['O', 'Q'], ['N', 'P']]) {
+      const a = ws.getCell(from + r), b = ws.getCell(to + r);
+      cloneStyle(a, b);
+      if (r !== 10) { b.value = a.value === undefined ? null : a.value; }
+    }
+    for (const col of ['N', 'O']) {
+      const c = ws.getCell(col + r), m = ws.getCell('M' + r);
+      for (const k of STYLE_KEYS) c[k] = m[k] === undefined ? undefined : JSON.parse(JSON.stringify(m[k]));
+      if (r !== 10) c.value = null;
+    }
+  }
+  // เลขลำดับคอลัมน์แถว 8 — ต้นฉบับ M8 = 11 แล้วนับต่อ
+  ['N', 'O', 'P', 'Q', 'R'].forEach((col, i) => { ws.getCell(col + '8').value = 12 + i; });
+  for (const [col, label] of Object.entries(SO_HEAD)) ws.getCell(col + '9').value = label;
+  lines.forEach((x, i) => {
+    const r = T.firstRow + i;
+    ws.getCell('N' + r).value = x.short == null ? '-' : x.short;
+    ws.getCell('O' + r).value = x.over == null ? '-' : x.over;
+  });
+  ws.mergeCells('Q9:Q10');
+  ws.mergeCells('R9:R10');
+  const W = T.widths;
+  ws.getColumn('N').width = W.M; ws.getColumn('O').width = W.M;
+  ws.getColumn('P').width = W.N; ws.getColumn('Q').width = W.O;
+  ws.getColumn('R').width = W.P; ws.getColumn('S').width = W.Q;
+  ws.pageSetup = { ...(ws.pageSetup || {}), printArea: `A1:S${last}` };
+}

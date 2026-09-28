@@ -13,7 +13,8 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys,
-         shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN }
+         shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
+         cardShortOver, codeShortOver }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1294,6 +1295,43 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      rec.kind === 'short' && rec.type === 'ขาด' && rec.source === 'auto' && rec.qty === 5
      && rec.order_qty === 10 && rec.bom_qty === 5 && rec.recv_qty === 0 && rec.part_no === 'PN1' && rec.date === '2026-09-28');
   throws('แถวที่คิดไม่ได้ ตั้งเรื่องไม่ได้', () => fromShortRow(f(sa, 'TM9269H009', ''), { entity: E }), 'คำนวณ');
+}
+
+console.log('\n=== S. Short / Over บน Bin Card (เจ้าของสั่ง 28 ก.ย. 2026) ===');
+{
+  const heads = { PA: { pn: 'PN1', order: 10 }, PB: { pn: 'PN1', order: 8 }, PX: { pn: '', order: 1 } };
+  const use = (pn, code) => (pn === 'PN1' && code === 'M' ? 1 : null);
+  const opt = { headerOf: po => heads[po], usageOf: use };
+  // ตัวอย่างเดียวกับที่ถามเจ้าของ: PO A ตามสูตร 10 · PO B ตามสูตร 8
+  const rows = [
+    { kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 6 },
+    { kind: 'receive', doc_ref: 'PB', material_code: 'M', qty: 8 },
+    { kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 5 },
+    { kind: 'issue', doc_ref: 'PA', material_code: 'M', qty: 3 },
+    { kind: 'sendback', doc_ref: 'PA', material_code: 'M', qty: 1 },
+    { kind: 'receive', doc_ref: 'PX', material_code: 'M', qty: 2 },
+    { kind: 'receive', doc_ref: '', material_code: 'M', qty: 2 }
+  ];
+  const so = cardShortOver(rows, opt).map(x => (x.short ?? '-') + '/' + (x.over ?? '-'));
+  ok('สะสมราย PO: A6→ขาด4 · B8→ครบ · A+5→เกิน1 · จ่ายออก→- · ส่งคืน A1→ครบ',
+     so.slice(0, 5).join(' ') === '4/- -/- -/1 -/- -/-', so.join(' '));
+  ok('PO ที่คิดไม่ได้ / ไม่มีเลข PO → "-"', so[5] === '-/-' && so[6] === '-/-');
+  ok('ยาวเท่าแถวการ์ด', cardShortOver(rows, opt).length === rows.length);
+  throws('ไม่ส่งตัวช่วยมา = โยน', () => cardShortOver(rows), 'headerOf');
+
+  const E = 'TUE-H';
+  const calc = shortAll([
+    { entity: E, kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 12, voided: false },
+    { entity: E, kind: 'receive', doc_ref: 'PB', material_code: 'M', qty: 3, voided: false },
+    { entity: E, kind: 'receive', doc_ref: 'PC', material_code: 'Q', qty: 1, voided: false }
+  ], E, { headerOf: po => ({ PA: { pn: 'PN1', order: 10 }, PB: { pn: 'PN1', order: 8 }, PC: { pn: 'PN2', order: 1 } })[po],
+          bomRowsOf: pn => (pn === 'PN1' ? [{ code: 'M', usage: 1 }] : [{ code: 'Q', usage: 1 }]), all: true });
+  const tk = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'PB', code: 'M', qty: 5 });
+  const sum = codeShortOver(calc, 'm', [tk]);
+  ok('สรุปราย PO ของรหัสเดียว — ทุก PO ที่มีรหัสในสูตรและเริ่มรับ (PC ไม่มีรหัสนี้ในสูตร ไม่ขึ้น)',
+     sum.map(r => r.po + ':' + r.short + '/' + r.over).join() === 'PA:0/2,PB:5/0', JSON.stringify(sum));
+  ok('แนบเรื่องที่เปิดอยู่ของคู่นั้น', sum[1].follow && sum[1].follow.id === tk.id && sum[0].follow === null);
+  ok('ไม่มีรหัส = ว่าง', codeShortOver(calc, '').length === 0);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
