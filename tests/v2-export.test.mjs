@@ -250,6 +250,23 @@ console.log('\n=== F. ขยายคอลัมน์ให้พอดีข�
   ok('สระบน/ล่าง/วรรณยุกต์ไทยไม่นับความกว้าง', textWidth('ที่นี่') === textWidth('ทน'), textWidth('ที่นี่') + ' vs ' + textWidth('ทน'));
   ok('ช่องว่าง/ไม่มีค่า = 0 · ตัวเลขนับตามที่แสดง', textWidth('') === 0 && textWidth(null) === 0 && textWidth(0.1 + 0.2) === textWidth('0.3'));
   ok('ฟอนต์เล็กกินที่น้อยกว่า', textWidth('ABC', 8) < textWidth('ABC', 11));
+  // ความกว้างจริงของ Tahoma 11pt @96dpi ต่อ 20 ตัว (ผู้ตรวจ #118 ข้อ 1) — ประมาณได้ต้องไม่ต่ำกว่านี้
+  const pxOf = s => textWidth(s) * 7 - 8;
+  const real = { m: 244.3, W: 232.9, ' ': 130.2, '0': 163.1 };
+  ok('ตัวละตินกว้าง (m · W · เว้นวรรค · ตัวเลข) ประมาณไม่ต่ำกว่าความกว้างจริง',
+     Object.entries(real).every(([ch, px]) => pxOf(ch.repeat(20)) >= px),
+     Object.entries(real).map(([ch, px]) => JSON.stringify(ch) + ' ' + pxOf(ch.repeat(20)).toFixed(1) + '/' + px).join(' · '));
+  {
+    // ฟอร์มที่ตั้งคอลัมน์กว้างเกินเพดานไว้เอง — ขยายได้ แต่ห้ามหดลงมาเหลือ FIT_MAX
+    const keep = BINCARD_TPL.widths.P;
+    BINCARD_TPL.widths.P = FIT_MAX + 10;              // P ของฟอร์ม = คอลัมน์ R (Remark) หลังเลื่อน
+    try {
+      const wsW = fakeWs();
+      writeBinCard(wsW, { code: 'C1', unit: 'PCS', entity: 'NSE' }, longLines);
+      ok('คอลัมน์ที่ฟอร์มกว้างเกินเพดานไม่ถูกหด แม้ข้อมูลยาวกว่า', widthOf(wsW, 'R') === FIT_MAX + 10,
+         String(widthOf(wsW, 'R')));
+    } finally { BINCARD_TPL.widths.P = keep; }
+  }
 
   const ws3 = fakeWs();
   writeBinCard(ws3, { code: 'C1', unit: 'PCS', entity: 'NSE' }, withUnknown);

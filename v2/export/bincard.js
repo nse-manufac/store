@@ -255,15 +255,20 @@ export function soWidths() {
 /**
  * ความกว้างที่ข้อความหนึ่งช่องต้องใช้ (หน่วยความกว้างคอลัมน์ของ Excel) — ประมาณจากฟอนต์ Tahoma
  * สระบน/ล่างและวรรณยุกต์ไทยซ้อนอยู่บนตัวอักษร ไม่กินที่ในแนวนอน จึงไม่นับ
- * ประมาณเผื่อไว้นิดหน่อย — กว้างเกินมีแค่ช่องว่างเหลือ แคบเกินข้อความถูกตัดหรือขึ้น #####
+ * ประมาณเผื่อไว้ (ไม่ต่ำกว่าของจริง) — กว้างเกินมีแค่ช่องว่างเหลือ แคบเกินข้อความถูกตัดหรือขึ้น #####
+ * ค่า px ต่อตัวเทียบกับ Tahoma 11pt @96dpi (ผู้ตรวจ #118 วัดจาก advance width จริง)
+ *   m/M/W ~12.2 · w ~9.9 · ตัวใหญ่อื่น ≤10.3 · ตัวเลข 8.15 · เว้นวรรค 6.5 · ไทย ~7.2
+ * ⚠️ รุ่นแรกคิดตัวละตินทุกตัว 8–9px — ต่ำกว่าจริงมากกับ m · W · เว้นวรรค หมายเหตุภาษาอังกฤษจึงยังล้นช่อง
  */
 const THAI_MARK = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g;
-const NARROW = new Set([...' .,:;-/()\'|']);
+const CHAR_PX = { m: 12.5, M: 12.5, W: 12.5, w: 10.5, ' ': 6.6,
+  '.': 4.5, ',': 4.5, ':': 4.5, ';': 4.5, "'": 4.5, '|': 4.5, '-': 5.5, '/': 5.5, '(': 5.5, ')': 5.5 };
+const charPx = ch => CHAR_PX[ch] ?? (/[A-Z]/.test(ch) ? 10.5 : /[a-z0-9]/.test(ch) ? 8.2 : 8);
 export function textWidth(v, size = 11) {
   if (v == null || v === '') return 0;
   const s = typeof v === 'number' ? String(Math.round(v * 1e5) / 1e5) : String(v);
   let px = 0;
-  for (const ch of s.replace(THAI_MARK, '')) px += NARROW.has(ch) ? 4.5 : /[A-Z]/.test(ch) ? 9 : 8;
+  for (const ch of s.replace(THAI_MARK, '')) px += charPx(ch);
   return (px * (Number(size) || 11) / 11 + 8) / 7;
 }
 
@@ -290,7 +295,8 @@ export function fitColWidths(ws, lines) {
     }
     const base = W[col] === undefined ? XL_DEFAULT_W : W[col];
     if (need > base) {
-      W[col] = Math.min(FIT_MAX, Math.max(base, Math.ceil(need * 100) / 100));
+      // เพดานใช้กับส่วนที่ขยายเท่านั้น — ฟอร์มที่ตั้งกว้างเกิน FIT_MAX ไว้เองต้องไม่ถูกหด (ผู้ตรวจ #118 ข้อ 2)
+      W[col] = Math.max(base, Math.min(FIT_MAX, Math.ceil(need * 100) / 100));
       ws.getColumn(col).width = W[col];
     }
   }
