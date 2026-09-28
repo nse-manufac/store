@@ -36,7 +36,7 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         shortAll, shortPending, shortCheckOf, fromShortRow, OVER_MIN,
+         shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          pendingScraps, fromScrapRow, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
@@ -2170,20 +2170,28 @@ createApp({
     };
 
     /* ── ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ── ตรรกะอยู่ที่ master/follow.js shortAll
-     * คิดครั้งเดียวแบบ min: 0 (ทุกรหัสในสูตรของ PO ที่รับแล้ว) แล้วแบ่งใช้สองทาง:
-     *   การ์ด "ยังรับไม่ครบตาม BOM" = ขาดตั้งแต่ OVER_MIN ที่ยังไม่มีเรื่องเปิดอยู่
+     * คิดครั้งเดียวแบบ all: true (ทุกรหัสในสูตรของ PO ที่รับแล้ว) แล้วแบ่งใช้สองทาง:
+     *   การ์ด "ยังรับไม่ครบตาม BOM" = ขาดมากกว่า SHORT_MIN (ทุกยอดที่ขาด) ที่ยังไม่มีเรื่องเปิดอยู่
      *   คอลัมน์ "ระบบคิดได้" ในตารางเรื่อง = เทียบยอดที่แจ้งไว้ (เช่นจาก Delta) กับที่คิดได้ตอนนี้ */
     const fsCalc = computed(() => {
       if (!entity.value) return [];
       try {
         return shortAll(entries.value, entity.value, { headerOf: po => poHeader(pos.value, po),
-                        bomRowsOf: pn => activeBomRowsOf(bom.value, pn), min: 0 });
+                        bomRowsOf: pn => activeBomRowsOf(bom.value, pn), all: true });
       } catch (err) { console.error(err); return []; }
     });
     const fsNew = computed(() =>
-      shortPending(fsCalc.value.filter(r => !r.why && r.short >= OVER_MIN), shorts.value));
+      shortPending(fsCalc.value.filter(r => !r.why && r.short > SHORT_MIN), shorts.value));
     const fsBlocked = computed(() => fsCalc.value.filter(r => r.why));
-    const fsCheck = s => shortCheckOf(s, fsCalc.value);
+    // ⚠️ คิดครั้งเดียวต่อแถวที่แสดง แล้วให้เทมเพลตหยิบจาก Map — เทมเพลตเรียกหลายครั้งต่อแถวทุกครั้งที่จอรีเฟรช
+    //    เรียก shortCheckOf ตรง ๆ ในเทมเพลตทำตารางช้าลงสามเท่า (ผู้ตรวจ #115 ข้อ 1)
+    const fsCheckById = computed(() => {
+      const check = shortChecker(fsCalc.value), m = new Map();
+      for (const r of fsRows.value) m.set(r.s.id, check(r.s));
+      return m;
+    });
+    const NO_CHECK = { calc: null, why: '', same: null };
+    const fsCheck = s => fsCheckById.value.get(s.id) || NO_CHECK;
     async function fsStart(row) {
       try {
         const rec = fromShortRow(row, { entity: entity.value, person: fsBy.value,
@@ -3188,7 +3196,7 @@ createApp({
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
-      fsNew, fsBlocked, fsCheck, fsStart, OVER_MIN,
+      fsNew, fsBlocked, fsCheck, fsStart,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,

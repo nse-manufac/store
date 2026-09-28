@@ -13,7 +13,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys,
-         shortAll, shortPending, shortCheckOf, fromShortRow }
+         shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1241,10 +1241,15 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
   ok('PO ที่ยังไม่มีการรับเข้าเลย ไม่คิด', !sa.some(r => r.po === 'TM9269H002'));
   ok('PO ที่คิดไม่ได้ ขึ้นแถวเดียวพร้อมเหตุผล ไม่หายเงียบ',
      sa.filter(r => r.po === 'TM9269H009').length === 1 && /P\/N/.test(f(sa, 'TM9269H009', '').why));
-  ok('min ตั้งต้น — ขาดต่ำกว่า 1 หน่วยไม่คืนออกมา',
-     !shortAll([en('receive', 'TM9269H001', 'A', 19.5), en('receive', 'TM9269H001', 'B', 10), en('receive', 'TM9269H001', 'C', 5)], E, opt)
+  // เจ้าของเคาะ 28 ก.ย. 2026 หลังรีวิว #115 — short นับทุกยอดที่ขาด (เคมียอดตามสูตรต่ำกว่า 1 หน่วยเป็นปกติ)
+  ok('ค่าตั้งต้น — นับทุกยอดที่ขาดมากกว่าศูนย์ แม้ไม่ถึง 1 หน่วย', SHORT_MIN === 0
+     && shortAll([en('receive', 'TM9269H001', 'A', 19.5), en('receive', 'TM9269H001', 'B', 10), en('receive', 'TM9269H001', 'C', 5)], E, opt)
+          .map(r => r.code + ':' + r.short).join() === 'A:0.5');
+  ok('รหัสที่รับครบพอดี ไม่คืนออกมา (ขาด 0 ไม่นับ)',
+     !shortAll([en('receive', 'TM9269H001', 'A', 20), en('receive', 'TM9269H001', 'B', 10), en('receive', 'TM9269H001', 'C', 5)], E, opt)
        .some(r => !r.why));
-  ok('min: 0 คืนทุกรหัสในสูตร รวมที่ไม่ขาด', shortAll([en('receive', 'TM9269H001', 'C', 5)], E, { ...opt, min: 0 })
+  ok('ส่ง min มาเองได้', shortAll([en('receive', 'TM9269H001', 'A', 19.5)], E, { ...opt, min: 1 }).map(r => r.code).join() === 'B,C');
+  ok('all: true คืนทุกรหัสในสูตร รวมที่ไม่ขาด', shortAll([en('receive', 'TM9269H001', 'C', 5)], E, { ...opt, all: true })
        .map(r => r.code + r.short).join() === 'A20,B10,C0');
   throws('ไม่บอกนิติบุคคล = โยน (A3)', () => shortAll(led, '', opt), 'A3');
   // ต้องได้ผลเดียวกับ shortOfPo ที่ใช้อยู่ในกล่องคืนของ (เงื่อนไขการนับต้องตรงกันเป๊ะ)
@@ -1257,7 +1262,7 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
   ok('คู่ที่มีเรื่องเปิดอยู่ (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ · เรื่องที่ปิดแล้วไม่กัน',
      !pend.some(r => r.code === 'A') && pend.some(r => r.code === 'B') && pend.some(r => r.code === 'C'));
 
-  const all0 = shortAll(led, E, { ...opt, min: 0 });
+  const all0 = shortAll(led, E, { ...opt, all: true });
   ok('เทียบกับยอดที่ Delta แจ้ง — ตรง', JSON.stringify(shortCheckOf(tickets[0], all0)) === JSON.stringify({ calc: 8, why: '', same: true }));
   ok('เทียบ — ต่าง', shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).same === false
      && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).calc === 5);
@@ -1275,6 +1280,15 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      && /ไม่มีรหัสนี้ในสูตร/.test(shortCheckOf({ po: 'TM9269H001', code: 'Z', qty: 1 }, all0).why)
      && /P\/N/.test(shortCheckOf({ po: 'TM9269H009', code: 'A', qty: 1 }, all0).why));
 
+  // ผู้ตรวจ #115 ข้อ 3 — ทุกกิ่งที่ไม่มียอดให้เทียบต้องเป็น same: null ไม่ใช่ false ("แจ้งมาแล้วไม่ตรง")
+  ok('คิดไม่ได้ / ไม่มีในสูตร / ยังไม่มีรับเข้า / ไม่มี PO → same เป็น null ทุกกิ่ง',
+     [{ po: 'TM9269H009', code: 'A', qty: 1 }, { po: 'TM9269H001', code: 'Z', qty: 1 },
+      { po: 'TM9269H002', code: 'A', qty: 1 }, { po: '', code: 'A', qty: 1 }]
+       .every(x => shortCheckOf(x, all0).same === null && shortCheckOf(x, all0).calc === null));
+  ok('ตัวเทียบแบบทำดัชนีครั้งเดียว ให้ผลเท่ากับเรียกทีละครั้ง',
+     (() => { const c = shortChecker(all0);
+              return [tickets[0], { po: 'TM9269H001', code: 'C', qty: 3 }, { po: 'TM9269H002', code: 'A', qty: 1 }]
+                .every(x => JSON.stringify(c(x)) === JSON.stringify(shortCheckOf(x, all0))); })());
   const rec = fromShortRow(f(sa, 'TM9269H001', 'C'), { entity: E, person: 'สมชาย', unit: 'KGM', date: '2026-09-28' });
   ok('ตั้งเรื่องขาด — ประเภทขาด · ที่มา auto · แช่แข็งยอดสั่ง/ตามสูตร/รับแล้ว',
      rec.kind === 'short' && rec.type === 'ขาด' && rec.source === 'auto' && rec.qty === 5
