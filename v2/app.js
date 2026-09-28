@@ -36,7 +36,7 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
+         shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
@@ -1520,8 +1520,15 @@ createApp({
     const cardMat = computed(() => (cardCode.value ? matOf(cardCode.value) : null));
     const cardBal = computed(() =>
       cardCode.value ? (bookBalances.value.get(normCode(cardCode.value)) || 0) : 0);
+    // Short / Over สะสมราย PO ถัดจากคงเหลือ (เจ้าของสั่ง 28 ก.ย. 2026) · ตรรกะอยู่ที่ master/follow.js
+    // คิดบนแถวที่เรียงเก่าไปใหม่ก่อน แล้วค่อยกลับด้านไว้ดูบนจอ — กลับก่อนคิด ยอดสะสมจะนับถอยหลัง
+    const withSO = rows => {
+      const so = cardShortOver(rows, { headerOf: po => poHeader(pos.value, po), usageOf: bomUsageOf });
+      return rows.map((r, i) => ({ ...r, short: so[i].short, over: so[i].over }));
+    };
     const card = computed(() => (cardCode.value && entity.value)
-      ? cardRows(entries.value, entity.value, normCode(cardCode.value)).reverse() : []);
+      ? withSO(cardRows(entries.value, entity.value, normCode(cardCode.value))).reverse() : []);
+    const cardPoSO = computed(() => cardCode.value ? codeShortOver(fsCalc.value, normCode(cardCode.value), shorts.value) : []);
     const cardLots = computed(() => (cardCode.value && entity.value)
       ? lotsOf(entries.value, entity.value, normCode(cardCode.value)) : []);
     const trace = computed(() => (traceOf.value !== '' && cardCode.value && entity.value)
@@ -3104,7 +3111,7 @@ createApp({
           wb.creator = 'ระบบ Bin Card';
           for (const code of codes) {
             const info = cardInfo(code);
-            const rows = toCardLines(cardRows(entries.value, entity.value, code), info.unit);
+            const rows = toCardLines(withSO(cardRows(entries.value, entity.value, code)), info.unit);
             const nm = sheetNameFor(code);
             wb.addWorksheet(nm);
             bad += writeBinCard(wb.getWorksheet(nm), info, rows);
@@ -3196,7 +3203,7 @@ createApp({
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
-      fsNew, fsBlocked, fsCheck, fsStart,
+      fsNew, fsBlocked, fsCheck, fsStart, cardPoSO,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,

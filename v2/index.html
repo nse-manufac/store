@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-09-28.4">
+<meta name="app-version" content="2026-09-28.6">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1317,6 +1317,25 @@ textarea{font:inherit}
               </tr></tbody></table>
           </div>
 
+          <!-- Short / Over ราย PO ของรหัสนี้ (เจ้าของสั่ง 28 ก.ย. 2026) — ทุก PO ที่มีรหัสนี้ในสูตรและเริ่มรับแล้ว -->
+          <div class="card" v-if="cardPoSO.length">
+            <h2>Short / Over ราย PO</h2>
+            <p class="hint" style="margin:0 0 8px">ตามสูตร = ต่อชิ้น × จำนวนสั่ง · รับแล้ว = รับเข้า − ส่งคืน ·
+              ตั้งเรื่องได้ที่ Mat Follow up</p>
+            <div class="scroll" style="max-height:30vh">
+              <table><thead><tr><th style="width:125px">PO</th><th style="width:95px">P/N</th><th style="width:80px">สั่ง</th>
+                <th style="width:100px">ตามสูตร</th><th style="width:100px">รับแล้ว</th><th style="width:85px">Short</th>
+                <th style="width:85px">Over</th><th>เรื่องที่เปิดอยู่</th></tr></thead>
+                <tbody><tr v-for="p in cardPoSO" :key="p.po">
+                  <td class="mono">{{ p.po }}</td><td class="mono hint">{{ p.pn }}</td><td class="mono hint">{{ p.order }}</td>
+                  <td class="mono hint">{{ p.need }}</td><td class="mono">{{ p.have }}</td>
+                  <td class="mono" :style="p.short ? 'color:var(--bad)' : ''">{{ p.short || '-' }}</td>
+                  <td class="mono" :style="p.over ? 'color:var(--warn)' : ''">{{ p.over || '-' }}</td>
+                  <td class="hint"><span v-if="p.follow" class="tag" :class="p.follow.kind === 'short' ? 'bad' : 'warn'">
+                    {{ p.follow.kind === 'short' ? 'short' : 'over' }} {{ p.follow.qty }}</span><span v-else>—</span></td>
+                </tr></tbody></table>
+            </div>
+          </div>
           <!-- ตามรอยย้อนกลับ — คำถามที่ลูกค้าถามตอนของมีปัญหา -->
           <div class="card" v-if="trace">
             <div class="row">
@@ -1359,6 +1378,8 @@ textarea{font:inherit}
               <table>
                 <thead><tr><th style="width:100px">วันที่</th><th style="width:85px">ประเภท</th>
                   <th style="width:90px">เข้า/ออก</th><th style="width:95px">คงเหลือ</th>
+                  <th style="width:80px" title="PO ของแถวนี้ยังขาดตามสูตรสะสม">Short</th>
+                  <th style="width:80px" title="PO ของแถวนี้เกินสูตรสะสม">Over</th>
                   <th style="width:120px">ล็อต</th><th style="width:110px">P/N</th>
                   <th style="width:110px">เอกสาร</th><th style="width:100px">ผู้ทำ</th>
                   <th>หมายเหตุ</th><th style="width:70px" class="noprint"></th></tr></thead>
@@ -1368,6 +1389,8 @@ textarea{font:inherit}
                   <td class="mono"><b :style="r.moved<0?'color:var(--bad)':'color:var(--ok)'">
                     {{ r.moved > 0 ? '+' + r.moved : r.moved }}</b></td>
                   <td class="mono"><b>{{ r.balance }}</b></td>
+                  <td class="mono" :style="r.short != null ? 'color:var(--bad)' : ''">{{ r.short != null ? r.short : '-' }}</td>
+                  <td class="mono" :style="r.over != null ? 'color:var(--warn)' : ''">{{ r.over != null ? r.over : '-' }}</td>
                   <!-- ล็อตที่ใช้หมดแล้วจะไม่อยู่ในตารางข้างบน แต่เป็นล็อตที่ลูกค้าถามถึงบ่อยที่สุด
                        จึงต้องกดตามรอยจากประวัติได้ด้วย -->
                   <td class="mono"><a v-if="r.lot" href="#" @click.prevent="traceOf = r.lot"

@@ -626,6 +626,71 @@ export function fromShortRow(row, { entity, person = '', at = '', unit = '', dat
   });
 }
 
+/* ══════════ Short / Over บน Bin Card (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */
+
+/**
+ * Short / Over สะสมราย PO ทีละบรรทัดของการ์ด — ใส่ถัดจากคอลัมน์ Balance ทั้งบนจอและใน Excel
+ *
+ * เจ้าของเคาะ: **สะสมราย PO** — แถวรับเข้า (และส่งคืน Delta) บอกว่า PO ของแถวนั้น
+ * หลังรายการนี้ยังขาดหรือเกินตามสูตรเท่าไร · แถวอื่น (จ่ายออก · ของเสีย · ปรับยอด ฯลฯ) ได้ค่าว่าง = "-"
+ *
+ *   รับแล้วสะสม = รับเข้าตาม PO นี้ − ส่งคืนตาม PO นี้ (ถึงบรรทัดนี้)
+ *   ขาด = ตามสูตร − รับแล้วสะสม (ถ้ามากกว่าศูนย์) · เกิน = รับแล้วสะสม − ตามสูตร (ถ้ามากกว่าศูนย์)
+ *
+ * rows = cardRows() ของรหัสเดียว **เรียงเก่าไปใหม่** (ไม่รวมรายการที่ยกเลิก) · คืนอาร์เรย์ยาวเท่า rows
+ * ⚠️ ใช้สูตรกับจำนวนสั่ง "ของวันนี้" ทั้งการ์ด — ถ้าสูตรหรือจำนวนสั่งของ PO เปลี่ยนทีหลัง แถวเก่าก็เปลี่ยนตาม
+ * ⚠️ PO ที่คิดไม่ได้ (ไม่รู้ P/N · จำนวนสั่ง · ไม่มีรหัสนี้ในสูตร) ได้ "-" เหมือนแถวที่ไม่เกี่ยว — ไม่เดา
+ *    ไม่ใช้เกณฑ์ขั้นต่ำ (SHORT_MIN / OVER_MIN) เพราะคอลัมน์นี้คือยอดสะสมตามจริง ไม่ใช่การ์ดเตือน
+ */
+export function cardShortOver(rows, { headerOf, usageOf } = {}) {
+  if (typeof headerOf !== 'function' || typeof usageOf !== 'function') {
+    throw new Error('ต้องส่ง headerOf และ usageOf เข้ามา');
+  }
+  const NONE = { short: null, over: null };
+  const got = new Map();
+  return (rows || []).map(r => {
+    if (!r || r.voided || (r.kind !== 'receive' && r.kind !== 'sendback')) return NONE;
+    const po = txt(r.doc_ref);
+    if (!po) return NONE;
+    const have = round5((got.get(po) || 0) + (r.kind === 'receive' ? 1 : -1) * (Number(r.qty) || 0));
+    got.set(po, have);
+    const head = headerOf(po);
+    const order = head ? Number(head.order) || 0 : 0;
+    if (!head || !txt(head.pn) || !order) return NONE;
+    const usage = usageOf(txt(head.pn), r.material_code);
+    if (usage == null || !isFinite(Number(usage))) return NONE;
+    /* ⚠️ ตัดไม่ให้ติดลบตอนเทียบ แบบเดียวกับ shortAll:490 (ยอดสะสมใน got ยังเก็บตามจริง)
+     * ยอดคืนที่มากกว่ายอดรับเกิดได้ถ้าใบรับเข้าถูกยกเลิกทีหลัง — ปล่อยติดลบแล้วการ์ด
+     * จะขึ้น "ขาด 14" ทั้งที่ทั้งใบสั่งมาแค่ 10 และไม่ตรงกับหน้า Mat Follow up (ผู้ตรวจ #117 รอบ 1 ข้อ 2) */
+    const d = round5(Math.max(0, have) - round5(Number(usage) * order));
+    return { short: d < 0 ? round5(-d) : null, over: d > 0 ? d : null };
+  });
+}
+
+/**
+ * สรุป Short / Over ราย PO ของรหัสเดียว — ส่วนสรุปบนหน้าการ์ด
+ * calcAll = shortAll(..., { all: true }) · เจ้าของเคาะ: ทุก PO ที่มีรหัสนี้ในสูตรและเริ่มรับแล้ว (รวมที่ครบพอดี)
+ * follows = เรื่องตามงาน — แนบเรื่องขาด/เกินที่ยังเปิดอยู่ของคู่นั้นไว้ให้เห็น
+ */
+export function codeShortOver(calcAll, code, follows = []) {
+  const c = txt(code).toUpperCase();
+  if (!c) return [];
+  const open = new Map();
+  for (const f of follows || []) {
+    if (!f || (f.kind !== 'short' && f.kind !== 'over')) continue;
+    const st = statusOf(f);
+    if (st === 'open' || st === 'partial') open.set(pairKey(f.po, f.code) + '|' + f.kind, f);
+  }
+  return (calcAll || [])
+    .filter(r => !r.why && r.code === c)
+    .map(r => {
+      const over = round5(Math.max(0, r.have - r.need));
+      return { po: r.po, pn: r.pn, order: r.order, need: r.need, have: r.have,
+               short: r.short > 0 ? r.short : 0, over,
+               follow: open.get(pairKey(r.po, c) + '|short') || open.get(pairKey(r.po, c) + '|over') || null };
+    });
+}
+
 /**
  * ตั้งเรื่องคืนจากแถวที่ระบบคำนวณได้
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้

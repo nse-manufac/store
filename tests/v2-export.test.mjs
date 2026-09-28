@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { localDate, localTime, atFrom, todayLocal } from '../v2/core/localtime.js';
 import { BINCARD_TPL, toCardLines, sheetNameFor, safeFileName,
-         writeBinCard, UNKNOWN_KIND_NOTE } from '../v2/export/bincard.js';
+         writeBinCard, UNKNOWN_KIND_NOTE, SO_HEAD, SO_SCALE } from '../v2/export/bincard.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -160,6 +160,48 @@ const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')
 ok('app.js ออกการ์ดผ่าน writeBinCard ทุกทาง — เรียก writeCard ตรง ๆ = การ์ดหลุดออกไปโดยไม่มีคำเตือน',
    !/\bwriteCard\(/.test(appSrc) && (appSrc.match(/\bwriteBinCard\(/g) || []).length === 2,
    'writeBinCard ' + (appSrc.match(/\bwriteBinCard\(/g) || []).length + ' ที่');
+
+console.log('\n=== E. คอลัมน์ Short / Over ถัดจาก Balance (เจ้าของสั่ง 28 ก.ย. 2026) ===');
+{
+  const so = toCardLines([
+    { kind: 'receive', at, moved: 6, balance: 6, person: 'สมชาย', doc_ref: 'PA', short: 4, over: null, expiry_date: '2027-01-01' },
+    { kind: 'receive', at, moved: 5, balance: 11, person: 'สมชาย', doc_ref: 'PA', short: null, over: 1 },
+    { kind: 'issue', at, moved: -3, balance: 8, person: 'สมหญิง', doc_ref: 'PA' }
+  ], 'PCS');
+  ok('toCardLines ส่ง short/over ต่อ · ไม่มี = null', so[0].short === 4 && so[1].over === 1 && so[2].short === null && so[2].over === null);
+  const ws = fakeWs();
+  writeBinCard(ws, { code: 'C1', unit: 'PCS', entity: 'NSE' }, so);
+  const v = a => ws.getCell(a).value;
+  ok('หัวตาราง Short · Over อยู่ถัดจาก Balance', v('M9') === 'Balance' && v('N9') === SO_HEAD.N && v('O9') === SO_HEAD.O);
+  ok('คอลัมน์เดิมเลื่อนไปขวาสองช่อง ครบทั้งหัวตาราง', v('P9') === 'ผู้เบิก/ผู้รับ' && v('Q9') === 'วันหมดอายุ Raw Material' && v('R9') === 'Remark');
+  ok('ค่าในแถวข้อมูล — มียอดใส่ยอด ไม่มีใส่ "-"',
+     v('N11') === 4 && v('O11') === '-' && v('N12') === '-' && v('O12') === 1 && v('N13') === '-' && v('O13') === '-');
+  ok('ข้อมูลคอลัมน์เดิมเลื่อนตาม (ผู้รับ · วันหมดอายุ) และยอด Balance ไม่ขยับ',
+     v('P11') === 'สมชาย' && v('Q11') === '2027-01-01' && v('M12') === 11);
+  ok('เลขลำดับคอลัมน์แถว 8 นับต่อถึง 16', v('M8') === 11 && v('N8') === 12 && v('R8') === 16);
+  ok('ป้าย No. Doc มุมขวาบนเลื่อนตาม', String(v('R2') || '').startsWith('No. Doc'));
+  ok('พื้นที่พิมพ์ขยายถึงคอลัมน์ S', /^A1:S\d+$/.test(ws.pageSetup.printArea), ws.pageSetup.printArea);
+  /* ⚠️ ขยายพื้นที่พิมพ์แล้วต้องคุมความกว้างหน้าด้วย ไม่งั้น Remark ยกไปหน้าสองทั้งคอลัมน์
+   * (ผู้ตรวจ #117 รอบ 1 ข้อ 1) — ฟอร์มเดิม scale 71 พอดีแค่ A–Q เท่านั้น */
+  const ps = ws.pageSetup;
+  ok('ให้ Excel ย่อให้พอดีกว้างหนึ่งหน้า · ยาวได้หลายหน้า',
+     ps.fitToPage === true && ps.fitToWidth === 1 && ps.fitToHeight === 0, JSON.stringify(ps));
+  // ทางถอยถ้าตัวอ่านไฟล์ไม่สน fitToPage — เลขคณิตความกว้าง A–S ที่ scale นั้นต้องไม่เกินหน้า A4 นอน
+  const w19 = { ...BINCARD_TPL.widths };
+  w19.N = w19.O = BINCARD_TPL.widths.M; w19.P = BINCARD_TPL.widths.N;
+  w19.Q = BINCARD_TPL.widths.O; w19.R = BINCARD_TPL.widths.P; w19.S = BINCARD_TPL.widths.Q;
+  const cols = 'ABCDEFGHIJKLMNOPQRS'.split('');
+  const inch = cols.reduce((s, c) => s + ((w19[c] === undefined ? 8.43 : w19[c]) * 7 + 5), 0) / 96;
+  const [mL, mR] = BINCARD_TPL.page.margins;                 // A4 นอน = 11.69 นิ้ว
+  const room = 11.69 - mL - mR;
+  ok(`scale ที่ใช้ย่อ A–S (${inch.toFixed(2)}") ให้ไม่เกินหน้า (${room.toFixed(2)}")`,
+     ps.scale === SO_SCALE && inch * SO_SCALE / 100 <= room,
+     `scale ${ps.scale} → ${(inch * (ps.scale || 100) / 100).toFixed(2)}"`);
+  ok('ไม่ได้แก้ scale ในฟอร์มพื้นฐาน — override ที่ addShortOverCols เท่านั้น',
+     BINCARD_TPL.page.scale === 71 && SO_SCALE < 71, String(BINCARD_TPL.page.scale));
+  ok('ฟอร์มพื้นฐาน (BINCARD_TPL · applyTpl · writeCard) ยังเหมือน v1 — ขั้นเพิ่มคอลัมน์อยู่นอกสามตัวนั้น',
+     /addShortOverCols\(ws, lines\)/.test(fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8')));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
