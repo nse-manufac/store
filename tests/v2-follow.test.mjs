@@ -1332,6 +1332,26 @@ console.log('\n=== S. Short / Over บน Bin Card (เจ้าของสั�
      sum.map(r => r.po + ':' + r.short + '/' + r.over).join() === 'PA:0/2,PB:5/0', JSON.stringify(sum));
   ok('แนบเรื่องที่เปิดอยู่ของคู่นั้น', sum[1].follow && sum[1].follow.id === tk.id && sum[0].follow === null);
   ok('ไม่มีรหัส = ว่าง', codeShortOver(calc, '').length === 0);
+
+  /* ⚠️ ส่งคืนมากกว่ารับ (ใบรับเข้าถูกยกเลิกทีหลัง) ต้องไม่ทำให้ขาดเกินยอดทั้งใบ
+   * และต้องตรงกับหน้า Mat Follow up ของข้อมูลชุดเดียวกัน (ผู้ตรวจ #117 รอบ 1 ข้อ 2) */
+  const negOpt = { headerOf: po => ({ PA: { pn: 'PN1', order: 10 } })[po], usageOf: (pn, c) => (pn === 'PN1' && c === 'M' ? 1 : null) };
+  const negRows = [
+    { kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 1 },
+    { kind: 'sendback', doc_ref: 'PA', material_code: 'M', qty: 5 }
+  ];
+  const neg = cardShortOver(negRows, negOpt);
+  const negCalc = shortAll([{ entity: E, kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 1, voided: false },
+                            { entity: E, kind: 'sendback', doc_ref: 'PA', material_code: 'M', qty: 5, voided: false }], E,
+                           { headerOf: negOpt.headerOf, bomRowsOf: () => [{ code: 'M', usage: 1 }] });
+  ok('ส่งคืนมากกว่ารับ → ขาดไม่เกินยอดตามสูตร และแถวสุดท้ายตรงกับ shortAll ชุดเดียวกัน',
+     neg[1].short === 10 && neg[1].over === null && negCalc[0].short === 10,
+     JSON.stringify(neg) + ' vs ' + JSON.stringify(negCalc));
+  // ใบรับเข้าถูกยกเลิกไปแล้ว — cardRows กรองออก เหลือแต่แถวส่งคืน
+  ok('เหลือแต่แถวส่งคืน (ใบรับเข้าถูกยกเลิก) → ขาดเท่ายอดตามสูตร ไม่ใช่ 15',
+     cardShortOver([negRows[1]], negOpt)[0].short === 10, JSON.stringify(cardShortOver([negRows[1]], negOpt)));
+  ok('ยอดสะสมยังเก็บตามจริง — รับเพิ่ม 6 หลังติดลบ 4 ได้ขาด 8 ไม่ใช่ 4',
+     cardShortOver([...negRows, { kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 6 }], negOpt)[2].short === 8);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { localDate, localTime, atFrom, todayLocal } from '../v2/core/localtime.js';
 import { BINCARD_TPL, toCardLines, sheetNameFor, safeFileName,
-         writeBinCard, UNKNOWN_KIND_NOTE, SO_HEAD } from '../v2/export/bincard.js';
+         writeBinCard, UNKNOWN_KIND_NOTE, SO_HEAD, SO_SCALE } from '../v2/export/bincard.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -181,6 +181,24 @@ console.log('\n=== E. คอลัมน์ Short / Over ถัดจาก Bala
   ok('เลขลำดับคอลัมน์แถว 8 นับต่อถึง 16', v('M8') === 11 && v('N8') === 12 && v('R8') === 16);
   ok('ป้าย No. Doc มุมขวาบนเลื่อนตาม', String(v('R2') || '').startsWith('No. Doc'));
   ok('พื้นที่พิมพ์ขยายถึงคอลัมน์ S', /^A1:S\d+$/.test(ws.pageSetup.printArea), ws.pageSetup.printArea);
+  /* ⚠️ ขยายพื้นที่พิมพ์แล้วต้องคุมความกว้างหน้าด้วย ไม่งั้น Remark ยกไปหน้าสองทั้งคอลัมน์
+   * (ผู้ตรวจ #117 รอบ 1 ข้อ 1) — ฟอร์มเดิม scale 71 พอดีแค่ A–Q เท่านั้น */
+  const ps = ws.pageSetup;
+  ok('ให้ Excel ย่อให้พอดีกว้างหนึ่งหน้า · ยาวได้หลายหน้า',
+     ps.fitToPage === true && ps.fitToWidth === 1 && ps.fitToHeight === 0, JSON.stringify(ps));
+  // ทางถอยถ้าตัวอ่านไฟล์ไม่สน fitToPage — เลขคณิตความกว้าง A–S ที่ scale นั้นต้องไม่เกินหน้า A4 นอน
+  const w19 = { ...BINCARD_TPL.widths };
+  w19.N = w19.O = BINCARD_TPL.widths.M; w19.P = BINCARD_TPL.widths.N;
+  w19.Q = BINCARD_TPL.widths.O; w19.R = BINCARD_TPL.widths.P; w19.S = BINCARD_TPL.widths.Q;
+  const cols = 'ABCDEFGHIJKLMNOPQRS'.split('');
+  const inch = cols.reduce((s, c) => s + ((w19[c] === undefined ? 8.43 : w19[c]) * 7 + 5), 0) / 96;
+  const [mL, mR] = BINCARD_TPL.page.margins;                 // A4 นอน = 11.69 นิ้ว
+  const room = 11.69 - mL - mR;
+  ok(`scale ที่ใช้ย่อ A–S (${inch.toFixed(2)}") ให้ไม่เกินหน้า (${room.toFixed(2)}")`,
+     ps.scale === SO_SCALE && inch * SO_SCALE / 100 <= room,
+     `scale ${ps.scale} → ${(inch * (ps.scale || 100) / 100).toFixed(2)}"`);
+  ok('ไม่ได้แก้ scale ในฟอร์มพื้นฐาน — override ที่ addShortOverCols เท่านั้น',
+     BINCARD_TPL.page.scale === 71 && SO_SCALE < 71, String(BINCARD_TPL.page.scale));
   ok('ฟอร์มพื้นฐาน (BINCARD_TPL · applyTpl · writeCard) ยังเหมือน v1 — ขั้นเพิ่มคอลัมน์อยู่นอกสามตัวนั้น',
      /addShortOverCols\(ws, lines\)/.test(fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8')));
 }

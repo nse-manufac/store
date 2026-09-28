@@ -196,6 +196,8 @@ export const safeFileName = s => String(s || 'OTHER').replace(/[\/:*?"<>|]/g, '-
  * ใช้แค่ getCell / getColumn / mergeCells / pageSetup ให้ชีตปลอมในเทสทำงานได้เหมือน ExcelJS
  */
 export const SO_HEAD = { N: 'Short', O: 'Over' };
+/** ย่อเท่าไรถึงพอดีกว้างหนึ่งหน้าหลังเพิ่มสองคอลัมน์ — ใช้เป็นทางถอยของ fitToWidth (ดูคอมเมนต์ท้าย addShortOverCols) */
+export const SO_SCALE = 67;
 const STYLE_KEYS = ['font', 'border', 'alignment', 'fill'];
 const cloneStyle = (from, to) => {
   for (const k of STYLE_KEYS) {
@@ -233,5 +235,14 @@ export function addShortOverCols(ws, lines) {
   ws.getColumn('N').width = W.M; ws.getColumn('O').width = W.M;
   ws.getColumn('P').width = W.N; ws.getColumn('Q').width = W.O;
   ws.getColumn('R').width = W.P; ws.getColumn('S').width = W.Q;
-  ws.pageSetup = { ...(ws.pageSetup || {}), printArea: `A1:S${last}` };
+  /* ⚠️ ต้องคุมความกว้างหน้าด้วย ไม่ใช่แค่ขยายพื้นที่พิมพ์ (ผู้ตรวจ #117 รอบ 1 ข้อ 1)
+   * ฟอร์มเดิมตั้ง scale 71 ไว้ตายตัวและพอดี A4 นอนแบบเหลือที่ไม่มาก — เพิ่มสองคอลัมน์แล้ว
+   * A–S กว้างรวม 16.50 นิ้วที่ 100% → 11.71 นิ้วที่ 71% เกินพื้นที่พิมพ์ 11.19 นิ้ว
+   * ผลคือคอลัมน์ Remark ยกไปหน้าสองทั้งคอลัมน์ คนที่รับการ์ดต่อจะไม่เห็นในหน้าที่มีตาราง
+   * fitToWidth 1 = ให้ Excel ย่อให้พอดีกว้างหนึ่งหน้าเอง (ไม่ต้องเดาความกว้างฟอนต์ปริยายของแต่ละเครื่อง)
+   * fitToHeight 0 = ยาวได้หลายหน้า เพราะการ์ด v2 ยาวเกิน 18 บรรทัดเป็นเรื่องปกติ
+   * ⚠️ ห้ามแก้ BINCARD_TPL.page.scale — v2-export หมวด C บังคับให้ตรงกับ v1 ทุกตัว จึง override ที่นี่
+   * scale ลดจาก 71 เหลือ 67 (11.19 / 16.50 = 67.8%) เป็นทางถอย ถ้าตัวอ่านไฟล์ไหนไม่สน fitToPage */
+  ws.pageSetup = { ...(ws.pageSetup || {}), printArea: `A1:S${last}`,
+                   fitToPage: true, fitToWidth: 1, fitToHeight: 0, scale: SO_SCALE };
 }

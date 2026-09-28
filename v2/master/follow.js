@@ -659,7 +659,10 @@ export function cardShortOver(rows, { headerOf, usageOf } = {}) {
     if (!head || !txt(head.pn) || !order) return NONE;
     const usage = usageOf(txt(head.pn), r.material_code);
     if (usage == null || !isFinite(Number(usage))) return NONE;
-    const d = round5(have - round5(Number(usage) * order));
+    /* ⚠️ ตัดไม่ให้ติดลบตอนเทียบ แบบเดียวกับ shortAll:490 (ยอดสะสมใน got ยังเก็บตามจริง)
+     * ยอดคืนที่มากกว่ายอดรับเกิดได้ถ้าใบรับเข้าถูกยกเลิกทีหลัง — ปล่อยติดลบแล้วการ์ด
+     * จะขึ้น "ขาด 14" ทั้งที่ทั้งใบสั่งมาแค่ 10 และไม่ตรงกับหน้า Mat Follow up (ผู้ตรวจ #117 รอบ 1 ข้อ 2) */
+    const d = round5(Math.max(0, have) - round5(Number(usage) * order));
     return { short: d < 0 ? round5(-d) : null, over: d > 0 ? d : null };
   });
 }
