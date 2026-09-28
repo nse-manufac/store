@@ -494,6 +494,125 @@ export function shortOfPo(entries, entity, po, { headerOf, bomRowsOf } = {}) {
   return out;
 }
 
+/* ══════════ ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */
+
+/**
+ * ของขาดของนิติบุคคลนี้ — คิดสดจากสมุด แบบเดียวกับ overAll แต่กลับด้าน
+ *
+ *   ขาด = (ต่อชิ้น × จำนวนสั่งของใบนี้) − (รับเข้าตามใบนี้ − ส่งคืน Delta ตามใบนี้)
+ *
+ * เจ้าของเคาะ 28 ก.ย. 2026:
+ *   - **คิดเฉพาะ PO ที่มีการรับเข้าในระบบแล้ว** — PO เก่าก่อนเริ่มใช้ระบบจะไม่กลายเป็นขาดทั้งใบ
+ *     แต่รหัสใน BOM ที่ยังไม่ได้รับเลยของ PO นั้น นับว่าขาดด้วย
+ *   - **ไม่ตั้งเรื่องเอง** — ของมาเป็นรอบ รับรอบแรกแล้วยอดต่ำกว่า BOM เป็นเรื่องปกติ
+ *     ระบบแค่ขึ้นการ์ดให้ดู คนกดตั้งเรื่องเองเมื่อแน่ใจว่าใบนั้นไม่มีของมาเพิ่ม (fromShortRow)
+ *
+ * ⚠️ ยอดรับหักยอดที่ส่งคืนแล้ว และตัดไม่ให้ติดลบ — เงื่อนไขเดียวกับ shortOfPo (มีเทสยืนยัน)
+ * ⚠️ PO ที่คิดไม่ได้คืนแถวเดียวพร้อม why (ไม่มี code) ไม่ใช่หายเงียบ — แบบเดียวกับ overAll
+ * min = ขาดตั้งแต่เท่าไหร่ถึงคืนออกมา · ค่าตั้งต้นใช้ OVER_MIN ตัวเดียวกับของเกิน (เกณฑ์ที่เดียว)
+ *       min: 0 = คืนทุกรหัสในสูตรรวมที่ไม่ขาด (short 0) ใช้เทียบกับยอดที่ Delta แจ้ง
+ *
+ * คืน [{ po, pn, code, order, need, have, short, why }] เรียงตาม PO แล้วรหัส
+ */
+export function shortAll(entries, entity, { headerOf, bomRowsOf, min = OVER_MIN } = {}) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  if (typeof headerOf !== 'function' || typeof bomRowsOf !== 'function') {
+    throw new Error('ต้องส่ง headerOf และ bomRowsOf เข้ามา');
+  }
+  // เดินสมุดรอบเดียว — ห้ามเรียก shortOfPo ทีละใบ (เดินทั้งเล่มซ้ำทุก PO ทุกครั้งที่จอรีเฟรช)
+  const got = new Map(), pos = new Set();
+  for (const e of entries || []) {
+    if (!e || e.entity !== entity || e.voided) continue;
+    if (e.kind !== 'receive' && e.kind !== 'sendback') continue;
+    const po = txt(e.doc_ref);
+    if (!po) continue;
+    if (e.kind === 'receive') pos.add(po);
+    const k = pairKey(po, e.material_code);
+    got.set(k, round5((got.get(k) || 0) + (e.kind === 'receive' ? 1 : -1) * (Number(e.qty) || 0)));
+  }
+
+  const out = [];
+  for (const po of [...pos].sort()) {
+    const why = shortWhyOf(po, { headerOf, bomRowsOf });
+    if (why) {
+      out.push({ po, pn: '', code: '', order: 0, need: null, have: null, short: null, why });
+      continue;
+    }
+    const head = headerOf(po);
+    const order = Number(head.order) || 0;
+    for (const b of bomRowsOf(head.pn) || []) {
+      const need = round5((Number(b && b.usage) || 0) * order);
+      if (need <= 0) continue;
+      const code = txt(b.code).toUpperCase();
+      const have = round5(Math.max(0, got.get(pairKey(po, code)) || 0));
+      const short = round5(Math.max(0, need - have));
+      if (short < min || (min > 0 && short <= 0)) continue;
+      out.push({ po, pn: txt(head.pn), code, order, need, have, short, why: '' });
+    }
+  }
+  out.sort((a, b) => String(a.po).localeCompare(String(b.po)) || String(a.code).localeCompare(String(b.code)));
+  return out;
+}
+
+/**
+ * ตัดคู่ PO+รหัสที่มีเรื่องขาดเปิดอยู่แล้วออก — ทุกที่มา (Delta แจ้ง · ไฟล์ PO · ตั้งเอง)
+ * เจ้าของเคาะ 28 ก.ย. 2026: เรื่องที่ Delta แจ้งมาแล้วไม่ขึ้นซ้ำในการ์ดคำนวณ
+ */
+export function shortPending(rows, follows) {
+  const busy = new Set();
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'short') continue;
+    const st = statusOf(f);
+    if (st === 'open' || st === 'partial') busy.add(pairKey(f.po, f.code));
+  }
+  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)));
+}
+
+/**
+ * ยอดขาดที่ระบบคิดได้ของเรื่องนี้ — เทียบกับที่เรื่องแจ้งไว้ (เช่นยอดจากใบ MAT'L FOLLOWING ของ Delta)
+ * calcRows = shortAll(..., { min: 0 }) · คืน { calc, why, same }
+ *   calc = ยอดขาดที่คิดได้ตอนนี้ (0 = รับครบตามสูตรแล้ว) · null = คิดไม่ได้ ดู why
+ *   same = ยอดที่เรื่องแจ้งไว้ตรงกับที่คิดได้ (ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม)
+ *          null = เรื่องนี้ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ — คนละเรื่องกับ "แจ้งมาแล้วไม่ตรง"
+ */
+export function shortCheckOf(follow, calcRows) {
+  const po = txt(follow && follow.po);
+  if (!po) return { calc: null, why: 'เรื่องนี้ไม่มีเลข PO', same: false };
+  const k = pairKey(po, follow.code);
+  let seen = false;
+  for (const r of calcRows || []) {
+    if (r.po !== po) continue;
+    if (r.why) return { calc: null, why: r.why, same: false };
+    seen = true;
+    if (pairKey(r.po, r.code) === k) {
+      const q = Number(follow.qty) || 0;
+      /* ⚠️ เรื่องประเภท "รอส่ง" (และแถวที่แกะจากไฟล์ PO แล้วอ่านจำนวนไม่ออก) มี qty = 0 โดยการออกแบบ —
+       *    ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — อยู่แล้ว ไม่มียอดให้เทียบ จึงห้ามตอบ same: false
+       *    เพราะจอจะขึ้นป้าย "ต่าง" ทั้งที่ไม่มีอะไรให้ทำต่อ แล้วคนจะเลิกเชื่อป้ายนี้ทั้งคอลัมน์ (G3) */
+      if (!(q > 0)) return { calc: r.short, why: '', same: null };
+      return { calc: r.short, why: '', same: Math.abs(q - r.short) < 5e-4 };
+    }
+  }
+  return { calc: null, why: seen ? 'ไม่มีรหัสนี้ในสูตรของใบนี้' : 'ยังไม่มีการรับเข้าของใบนี้ในระบบ', same: false };
+}
+
+/**
+ * ตั้งเรื่องขาดจากแถวที่ระบบคำนวณได้ — ประเภท "ขาด" · ที่มา auto
+ * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ แช่แข็งลงในเรื่องตรงนี้ เหมือน fromOverRow
+ */
+export function fromShortRow(row, { entity, person = '', at = '', unit = '', date = '' } = {}) {
+  if (!row) throw new Error('ไม่มีแถวให้ตั้งเรื่อง');
+  if (row.why) throw new Error('แถวนี้คำนวณยอดขาดไม่ได้: ' + row.why);
+  return makeFollow({
+    kind: 'short', type: 'ขาด', entity, source: 'auto',
+    code: row.code, po: row.po, part_no: row.pn, unit,
+    qty: row.short,
+    order_qty: row.order, bom_qty: row.need, recv_qty: row.have,
+    note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)',
+    by: person, now: at, date
+  });
+}
+
 /**
  * ตั้งเรื่องคืนจากแถวที่ระบบคำนวณได้
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้

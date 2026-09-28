@@ -12,7 +12,8 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys }
+         buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys,
+         shortAll, shortPending, shortCheckOf, fromShortRow }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1213,6 +1214,73 @@ ok('ของเกิน 0.062 ที่ยังไม่ได้ตั้ง
 ok('คิดด้วยเพดาน OVER_MIN แล้วของก้อนนี้หายทั้งก้อน — เหตุผลที่การ์ดต้องใช้ min: 0',
    chainOf(OVER_MIN).have === 0 && chainOf(OVER_MIN).diff === -0.062,
    JSON.stringify(chainOf(OVER_MIN)));
+
+console.log('\n=== R. ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ===');
+{
+  const E = 'TUE-H';
+  const heads = { TM9269H001: { pn: 'PN1', order: 10 }, TM9269H002: { pn: 'PN1', order: 5 }, TM9269H009: { pn: '', order: 3 } };
+  const boms = { PN1: [{ code: 'A', usage: 2 }, { code: 'B', usage: 1 }, { code: 'C', usage: 0.5 }] };
+  const opt = { headerOf: po => heads[po], bomRowsOf: pn => boms[pn] || [] };
+  const en = (kind, po, code, qty, x = {}) => ({ id: po + code + kind + qty, entity: E, kind, doc_ref: po,
+                                                  material_code: code, qty, voided: false, ...x });
+  const led = [
+    en('receive', 'TM9269H001', 'A', 12),                // A ต้องการ 20 ได้ 12 → ขาด 8
+    en('receive', 'TM9269H001', 'B', 10),                // B ครบ
+    en('receive', 'TM9269H001', 'B', 3),                 // B เกิน — ไม่ขาด
+    en('sendback', 'TM9269H001', 'B', 5),                // คืน 5 → เหลือ 8 → ขาด 2
+    en('receive', 'TM9269H001', 'A', 50, { voided: true }),   // ยกเลิกแล้ว ไม่นับ
+    en('receive', 'TM9269H001', 'A', 50, { entity: 'TUE-U' }), // คนละนิติบุคคล ไม่นับ (A3)
+    en('receive', 'TM9269H009', 'A', 1)                  // ไม่รู้ P/N
+    // TM9269H002 ไม่มีรับเข้าเลย → ไม่คิด (เจ้าของเคาะ)
+  ];
+  const sa = shortAll(led, E, opt);
+  const f = (rows, po, c) => rows.find(r => r.po === po && r.code === c);
+  ok('ขาด = ตามสูตร − รับแล้ว', f(sa, 'TM9269H001', 'A') && f(sa, 'TM9269H001', 'A').short === 8);
+  ok('หักยอดที่ส่งคืนแล้ว', f(sa, 'TM9269H001', 'B') && f(sa, 'TM9269H001', 'B').short === 2);
+  ok('รหัสในสูตรที่ยังไม่ได้รับเลย นับว่าขาดทั้งหมด', f(sa, 'TM9269H001', 'C') && f(sa, 'TM9269H001', 'C').short === 5);
+  ok('PO ที่ยังไม่มีการรับเข้าเลย ไม่คิด', !sa.some(r => r.po === 'TM9269H002'));
+  ok('PO ที่คิดไม่ได้ ขึ้นแถวเดียวพร้อมเหตุผล ไม่หายเงียบ',
+     sa.filter(r => r.po === 'TM9269H009').length === 1 && /P\/N/.test(f(sa, 'TM9269H009', '').why));
+  ok('min ตั้งต้น — ขาดต่ำกว่า 1 หน่วยไม่คืนออกมา',
+     !shortAll([en('receive', 'TM9269H001', 'A', 19.5), en('receive', 'TM9269H001', 'B', 10), en('receive', 'TM9269H001', 'C', 5)], E, opt)
+       .some(r => !r.why));
+  ok('min: 0 คืนทุกรหัสในสูตร รวมที่ไม่ขาด', shortAll([en('receive', 'TM9269H001', 'C', 5)], E, { ...opt, min: 0 })
+       .map(r => r.code + r.short).join() === 'A20,B10,C0');
+  throws('ไม่บอกนิติบุคคล = โยน (A3)', () => shortAll(led, '', opt), 'A3');
+  // ต้องได้ผลเดียวกับ shortOfPo ที่ใช้อยู่ในกล่องคืนของ (เงื่อนไขการนับต้องตรงกันเป๊ะ)
+  ok('ตรงกับ shortOfPo ทุกรหัส', shortOfPo(led, E, 'TM9269H001', opt)
+       .every(m => f(sa, 'TM9269H001', m.code) && f(sa, 'TM9269H001', m.code).short === m.miss));
+
+  const tickets = [makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'A', qty: 8, source: 'delta' }),
+                   { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'B', qty: 2 }), done: true }];
+  const pend = shortPending(sa.filter(r => !r.why), tickets);
+  ok('คู่ที่มีเรื่องเปิดอยู่ (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ · เรื่องที่ปิดแล้วไม่กัน',
+     !pend.some(r => r.code === 'A') && pend.some(r => r.code === 'B') && pend.some(r => r.code === 'C'));
+
+  const all0 = shortAll(led, E, { ...opt, min: 0 });
+  ok('เทียบกับยอดที่ Delta แจ้ง — ตรง', JSON.stringify(shortCheckOf(tickets[0], all0)) === JSON.stringify({ calc: 8, why: '', same: true }));
+  ok('เทียบ — ต่าง', shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).same === false
+     && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).calc === 5);
+  /* เรื่องประเภท "รอส่ง" ที่แกะจากไฟล์ PO มี qty = 0 โดยการออกแบบ (Delta บอกแค่ว่ายังไม่ส่ง ไม่บอกจำนวน)
+     ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — จึงไม่มียอดให้เทียบ ห้ามตีเป็น "ต่าง" */
+  ok('เรื่องที่ไม่ได้แจ้งจำนวนมา (รอส่ง qty 0) ไม่ได้ป้าย "ต่าง" — same เป็น null',
+     shortCheckOf({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H001', code: 'A', qty: 0, done: false }, all0).same === null
+     && shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0).calc === 8,
+     JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
+  ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
+     /same !== null/.test(htmlSrc.split('ระบบคิดได้')[1].slice(0, 1200)));
+
+  ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
+     /ยังไม่มีการรับเข้า/.test(shortCheckOf({ po: 'TM9269H002', code: 'A', qty: 1 }, all0).why)
+     && /ไม่มีรหัสนี้ในสูตร/.test(shortCheckOf({ po: 'TM9269H001', code: 'Z', qty: 1 }, all0).why)
+     && /P\/N/.test(shortCheckOf({ po: 'TM9269H009', code: 'A', qty: 1 }, all0).why));
+
+  const rec = fromShortRow(f(sa, 'TM9269H001', 'C'), { entity: E, person: 'สมชาย', unit: 'KGM', date: '2026-09-28' });
+  ok('ตั้งเรื่องขาด — ประเภทขาด · ที่มา auto · แช่แข็งยอดสั่ง/ตามสูตร/รับแล้ว',
+     rec.kind === 'short' && rec.type === 'ขาด' && rec.source === 'auto' && rec.qty === 5
+     && rec.order_qty === 10 && rec.bom_qty === 5 && rec.recv_qty === 0 && rec.part_no === 'PN1' && rec.date === '2026-09-28');
+  throws('แถวที่คิดไม่ได้ ตั้งเรื่องไม่ได้', () => fromShortRow(f(sa, 'TM9269H009', ''), { entity: E }), 'คำนวณ');
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
