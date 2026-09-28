@@ -15,7 +15,8 @@ import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
-import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet } from './core/ledger.js';
+import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
+         setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
@@ -74,7 +75,9 @@ const GROUPS = [
   // Log รับเข้า / จ่ายออก ทุกรหัสในหน้าเดียว (เจ้าของสั่ง 24–25 ก.ย. 2026) · ตรรกะอยู่ที่ core/ledger.js logRows
   { k: 'log', label: 'Log', tabs: [
     { k: 'lgin',  label: 'รับเข้า' },
-    { k: 'lgout', label: 'จ่ายออก' }
+    { k: 'lgout', label: 'จ่ายออก' },
+    // เติมวันหมดอายุทีหลัง (ใบสองของ #106 · เจ้าของเคาะที่วาง 28 ก.ย. 2026)
+    { k: 'lgexp', label: 'รอเติมวันหมดอายุ' }
   ] },
   { k: 'sys',  label: 'ระบบ', tabs: [
     { k: 'sync',  label: 'ตั้งค่า · ซิงค์' }
@@ -802,6 +805,39 @@ createApp({
         XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(logSheet(lgRows.value)), name);
         XLSX.writeFile(wb, `Log ${name} ${entity.value} ${lg.from || 'ต้น'}_${lg.to || 'ล่าสุด'}.xlsx`);
       } catch (err) { flash('ส่งออก Excel ไม่สำเร็จ: ' + err.message + ' — ลองกดใหม่อีกครั้ง', true); }
+    }
+
+    // ── รอเติมวันหมดอายุ ── รับเข้าที่บันทึกไปก่อนโดยยังไม่มีวันหมดอายุ (ไฟล์ของ Delta ไม่มีช่องนี้)
+    // ตรรกะอยู่ที่ core/ledger.js (setExpiry · missingExpiry) · เติมได้ครั้งเดียวต่อรายการ
+    // ⚠️ แก้แถวเดิมในสมุด — ซิงค์ปลอดภัยเพราะ stickyVoid (#106) ทุกเครื่องได้ไปตั้งแต่รุ่น 2026-09-24.2
+    const needsExp = c => { const m = matIndex.value.get(normCode(c)); return !!(m && m.requires_expiry === true); };
+    const fxRows = computed(() => !entity.value ? []
+      : missingExpiry(entries.value, entity.value, needsExp)
+          .map(e => ({ e, m: matIndex.value.get(normCode(e.material_code)) || {} })));
+    const fxOther = computed(() => missingExpiryCounts(entries.value, needsExp).filter(x => x.entity !== entity.value));
+    const fxDraft = reactive({});          // id รายการ → วันหมดอายุที่พิมพ์ไว้ ยังไม่บันทึก
+    const fx = reactive({ by: '' });
+    const fxReady = computed(() => fxRows.value.filter(r => fxDraft[r.e.id]));
+    async function saveExpiry() {
+      if (!fx.by.trim()) { flash('ยังไม่ได้ใส่ชื่อคนเติม — ใส่ที่ช่อง "ผู้เติม" ก่อนบันทึก', true); return; }
+      const done = [], bad = [];
+      for (const { e } of fxReady.value) {
+        try { done.push([e, setExpiry(e, { date: fxDraft[e.id], by: fx.by, today: todayLocal() })]); }
+        catch (err) { bad.push(e.material_code + ' — ' + err.message); }
+      }
+      try {
+        if (done.length) {
+          await db.put('entries', done.map(([, v]) => v));
+          for (const [src, v] of done) {
+            const i = entries.value.indexOf(src);
+            if (i >= 0) entries.value.splice(i, 1, v);
+            delete fxDraft[src.id];
+          }
+          db.announce('entries');
+        }
+        flash(`เติมวันหมดอายุแล้ว ${done.length} รายการ`
+          + (bad.length ? ` · ไม่สำเร็จ ${bad.length} รายการ: ${bad[0]} — แก้วันที่แล้วกดบันทึกอีกครั้ง` : ''), bad.length > 0);
+      } catch (err) { flash('บันทึกไม่สำเร็จ: ' + err.message + ' — ลองกดบันทึกอีกครั้ง', true); }
     }
 
     /** เหตุผลเก็บเป็นรหัสในสมุด แต่บนจอต้องอ่านรู้เรื่อง */
@@ -2629,6 +2665,7 @@ createApp({
       { n: needReview.value, label: 'รหัสรอตรวจในทะเบียน', tab: 'mat', bad: false },
       { n: bomUnknownCodes.value.length, label: 'รหัสใน BOM ที่ยังไม่มีในทะเบียน', tab: 'bom', bad: false },
       { n: entClosed.value ? 1 : 0, label: `นิติบุคคล ${entity.value} ถูกปิดใช้งานแล้ว — เลือกตัวใหม่ที่หัวจอ`, tab: 'sync', bad: true },
+      { n: fxRows.value.length, label: 'รับเข้าที่ยังไม่มีวันหมดอายุ', tab: 'lgexp', bad: false },
       { n: pending.value.total, label: 'รายการที่ยังไม่ได้ซิงค์', tab: 'sync', bad: false }
     ].filter(x => x.n > 0));
 
@@ -3126,6 +3163,7 @@ createApp({
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,
              notice, noticeBox, noticeScroll, openNotice, closeNotice, noticeCanClose,
              lg, lgRows, lgShown, lgToday, lgExport, LG_MAX,
+             fx, fxRows, fxOther, fxDraft, fxReady, saveExpiry,
              inPoSum, inTogglePo, inAllPo, bomPnCodes, inReady, inNoExp,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,

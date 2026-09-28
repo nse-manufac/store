@@ -2497,6 +2497,46 @@ textarea{font:inherit}
           ดูเฉพาะนิติบุคคล {{ entity }} · สลับนิติบุคคลได้ที่หัวจอ</p></div>
       </template>
 
+      <!-- ════════ รอเติมวันหมดอายุ (ใบสองของ #106 · เจ้าของเคาะ 28 ก.ย. 2026) ════════ -->
+      <template v-else-if="tab==='lgexp'">
+        <div class="card">
+          <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <div><b>รับเข้าที่ยังไม่มีวันหมดอายุ</b>
+              <div class="hint">นิติบุคคล {{ entity }} · {{ fxRows.length }} รายการ · เฉพาะรหัสที่ทะเบียนตั้งว่าต้องมีวันหมดอายุ</div></div>
+            <div class="grow"></div>
+            <label class="f" style="width:170px">ผู้เติม <input v-model.trim="fx.by" placeholder="ชื่อคนเติม"></label>
+            <button class="btn primary" @click="saveExpiry" :disabled="!fxReady.length">
+              บันทึกวันหมดอายุ ({{ fxReady.length }})</button>
+          </div>
+          <p class="hint" style="margin:8px 0 0">
+            ใส่วันหมดอายุตามฉลาก แล้วกดบันทึกทีเดียว · ช่องที่เว้นว่างไว้ยังค้างอยู่ในรายการ ·
+            <b>เติมได้ครั้งเดียวต่อรายการ</b> — ใส่ผิดต้องยกเลิกรายการที่การ์ดแล้วคีย์รับใหม่
+            <span v-if="fxOther.length"> · นิติบุคคลอื่นยังค้าง:
+              {{ fxOther.map(x => x.entity + ' ' + x.n + ' รายการ').join(' · ') }} (สลับนิติบุคคลที่หัวจอ)</span></p>
+        </div>
+        <div class="card" v-if="fxRows.length">
+          <div class="scroll">
+            <table>
+              <thead><tr>
+                <th>วันที่รับ</th><th>PO</th><th>รหัส</th><th>ชื่อ</th><th>ล็อต</th>
+                <th style="text-align:right">จำนวน</th><th>หน่วย</th><th>ผู้รับ</th><th style="width:150px">วันหมดอายุ</th>
+              </tr></thead>
+              <tbody><tr v-for="r in fxRows" :key="r.e.id">
+                <td class="mono" style="white-space:nowrap">{{ localDate(r.e.at) }}</td>
+                <td class="mono">{{ r.e.doc_ref }}</td><td class="mono">{{ r.e.material_code }}</td>
+                <td>{{ r.m.description || '—' }}</td><td class="mono" style="white-space:nowrap">{{ r.e.lot }}</td>
+                <td class="mono" style="text-align:right">{{ r.e.qty }}</td><td class="mono">{{ r.m.unit }}</td>
+                <td>{{ r.e.person }}</td>
+                <td><input type="date" v-model="fxDraft[r.e.id]" style="width:140px"></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" v-else><p class="empty">
+          ไม่มีรายการรอเติมวันหมดอายุของนิติบุคคล {{ entity }}<br>
+          รับเข้าที่บันทึกโดยยังไม่มีวันหมดอายุ จะมารออยู่ที่นี่</p></div>
+      </template>
+
       <template v-else-if="tab==='sync'">
         <div class="card">
           <div class="row">

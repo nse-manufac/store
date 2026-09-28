@@ -7,7 +7,7 @@
  */
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
-         LOG_KINDS, logRows, logSheet, LOG_HEAD } from '../v2/core/ledger.js';
+         LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
 import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
@@ -299,6 +299,20 @@ ok('รหัสที่ไม่มีในทะเบียนไม่พ�
      sh.some(r => r[15] === 'ยกเลิก — คีย์ซ้ำ โดย หัวหน้า'), JSON.stringify(sh.map(r => r[15])));
 }
 ok('ไม่มีอะไรเลยก็ไม่พัง', logRows(null, { entity: 'X' }).length === 0 && logSheet([]).length === 1);
+
+console.log('\n=== หน้ารอเติมวันหมดอายุ (แท็บย่อยใน Log · เจ้าของเคาะ 28 ก.ย. 2026) ===');
+ok('นับรายการที่ขาดแยกตามนิติบุคคล — ไม่นับที่ยกเลิก/มีแล้ว/ไม่ต้องมี/ไม่ใช่รับเข้า',
+   JSON.stringify(missingExpiryCounts(mx, needs)) === JSON.stringify([{ entity: base.entity, n: 2 }, { entity: 'อื่น', n: 1 }].sort((a, b) => a.entity.localeCompare(b.entity))),
+   JSON.stringify(missingExpiryCounts(mx, needs)));
+ok('ไม่มีอะไรเลยก็ไม่พัง', missingExpiryCounts(null, needs).length === 0);
+{
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('แท็บย่อย "รอเติมวันหมดอายุ" อยู่ในกลุ่ม Log', /k: 'log'[\s\S]*?k: 'lgexp'[\s\S]*?\] \}/.test(src));
+  ok('หน้าเติมใช้ setExpiry (ด่านเดียว) และกรองนิติบุคคลด้วย missingExpiry',
+     src.includes('setExpiry(e, { date: fxDraft[e.id], by: fx.by, today: todayLocal() })')
+     && src.includes('missingExpiry(entries.value, entity.value, needsExp)'));
+  ok('หน้าแรกมีตัวนับที่พาไปแท็บนี้', src.includes("label: 'รับเข้าที่ยังไม่มีวันหมดอายุ', tab: 'lgexp'"));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
