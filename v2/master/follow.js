@@ -497,6 +497,13 @@ export function shortOfPo(entries, entity, po, { headerOf, bomRowsOf } = {}) {
 /* ══════════ ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */
 
 /**
+ * ขาดตั้งแต่เท่าไหร่ถึงนับ — **นับทุกยอดที่ขาดมากกว่าศูนย์** (เจ้าของเคาะ 28 ก.ย. 2026 หลังรีวิว #115)
+ * ⚠️ ต่างจาก OVER_MIN โดยตั้งใจ: ของขาดแม้นิดเดียวก็อาจทำให้ผลิตไม่ได้ (เคมียอดตามสูตรระดับ 0.06 กก. เป็นปกติ
+ *    ใช้เกณฑ์ 1 หน่วยแล้วรหัสเคมีที่ยังไม่ได้รับเลยจะไม่ขึ้นการ์ด) · ส่วนของเกินนิดเดียวไม่คุ้มตั้งเรื่องคืน
+ */
+export const SHORT_MIN = 0;
+
+/**
  * ของขาดของนิติบุคคลนี้ — คิดสดจากสมุด แบบเดียวกับ overAll แต่กลับด้าน
  *
  *   ขาด = (ต่อชิ้น × จำนวนสั่งของใบนี้) − (รับเข้าตามใบนี้ − ส่งคืน Delta ตามใบนี้)
@@ -509,12 +516,12 @@ export function shortOfPo(entries, entity, po, { headerOf, bomRowsOf } = {}) {
  *
  * ⚠️ ยอดรับหักยอดที่ส่งคืนแล้ว และตัดไม่ให้ติดลบ — เงื่อนไขเดียวกับ shortOfPo (มีเทสยืนยัน)
  * ⚠️ PO ที่คิดไม่ได้คืนแถวเดียวพร้อม why (ไม่มี code) ไม่ใช่หายเงียบ — แบบเดียวกับ overAll
- * min = ขาดตั้งแต่เท่าไหร่ถึงคืนออกมา · ค่าตั้งต้นใช้ OVER_MIN ตัวเดียวกับของเกิน (เกณฑ์ที่เดียว)
- *       min: 0 = คืนทุกรหัสในสูตรรวมที่ไม่ขาด (short 0) ใช้เทียบกับยอดที่ Delta แจ้ง
+ * min = ขาดตั้งแต่เท่าไหร่ถึงคืนออกมา · ค่าตั้งต้น SHORT_MIN = นับทุกยอดที่ขาดมากกว่าศูนย์
+ * all: true = คืนทุกรหัสในสูตรรวมที่ไม่ขาด (short 0) ใช้เทียบกับยอดที่ Delta แจ้ง
  *
  * คืน [{ po, pn, code, order, need, have, short, why }] เรียงตาม PO แล้วรหัส
  */
-export function shortAll(entries, entity, { headerOf, bomRowsOf, min = OVER_MIN } = {}) {
+export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN, all = false } = {}) {
   if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
   if (typeof headerOf !== 'function' || typeof bomRowsOf !== 'function') {
     throw new Error('ต้องส่ง headerOf และ bomRowsOf เข้ามา');
@@ -546,7 +553,7 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = OVER_MIN 
       const code = txt(b.code).toUpperCase();
       const have = round5(Math.max(0, got.get(pairKey(po, code)) || 0));
       const short = round5(Math.max(0, need - have));
-      if (short < min || (min > 0 && short <= 0)) continue;
+      if (!all && !(short > 0 && short >= min)) continue;
       out.push({ po, pn: txt(head.pn), code, order, need, have, short, why: '' });
     }
   }
@@ -570,31 +577,37 @@ export function shortPending(rows, follows) {
 
 /**
  * ยอดขาดที่ระบบคิดได้ของเรื่องนี้ — เทียบกับที่เรื่องแจ้งไว้ (เช่นยอดจากใบ MAT'L FOLLOWING ของ Delta)
- * calcRows = shortAll(..., { min: 0 }) · คืน { calc, why, same }
+ * calcRows = shortAll(..., { all: true }) · คืน { calc, why, same }
  *   calc = ยอดขาดที่คิดได้ตอนนี้ (0 = รับครบตามสูตรแล้ว) · null = คิดไม่ได้ ดู why
  *   same = ยอดที่เรื่องแจ้งไว้ตรงกับที่คิดได้ (ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม)
  *          null = เรื่องนี้ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ — คนละเรื่องกับ "แจ้งมาแล้วไม่ตรง"
  */
-export function shortCheckOf(follow, calcRows) {
-  const po = txt(follow && follow.po);
-  if (!po) return { calc: null, why: 'เรื่องนี้ไม่มีเลข PO', same: false };
-  const k = pairKey(po, follow.code);
-  let seen = false;
+export function shortChecker(calcRows) {
+  // ทำดัชนีครั้งเดียว — ตารางเรื่องเรียกทุกแถว ไล่ calcRows ทั้งก้อนทุกครั้งช้าสามเท่า (ผู้ตรวจ #115 ข้อ 1)
+  const pair = new Map(), whyOf = new Map(), pos = new Set();
   for (const r of calcRows || []) {
-    if (r.po !== po) continue;
-    if (r.why) return { calc: null, why: r.why, same: false };
-    seen = true;
-    if (pairKey(r.po, r.code) === k) {
-      const q = Number(follow.qty) || 0;
-      /* ⚠️ เรื่องประเภท "รอส่ง" (และแถวที่แกะจากไฟล์ PO แล้วอ่านจำนวนไม่ออก) มี qty = 0 โดยการออกแบบ —
-       *    ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — อยู่แล้ว ไม่มียอดให้เทียบ จึงห้ามตอบ same: false
-       *    เพราะจอจะขึ้นป้าย "ต่าง" ทั้งที่ไม่มีอะไรให้ทำต่อ แล้วคนจะเลิกเชื่อป้ายนี้ทั้งคอลัมน์ (G3) */
-      if (!(q > 0)) return { calc: r.short, why: '', same: null };
-      return { calc: r.short, why: '', same: Math.abs(q - r.short) < 5e-4 };
-    }
+    if (r.why) { whyOf.set(r.po, r.why); continue; }
+    pos.add(r.po);
+    pair.set(pairKey(r.po, r.code), r.short);
   }
-  return { calc: null, why: seen ? 'ไม่มีรหัสนี้ในสูตรของใบนี้' : 'ยังไม่มีการรับเข้าของใบนี้ในระบบ', same: false };
+  // ⚠️ same: null ทุกกิ่งที่ไม่มียอดให้เทียบ — ไม่ใช่ false ซึ่งแปลว่า "แจ้งมาแล้วไม่ตรง" (ผู้ตรวจ #115 ข้อ 3)
+  return follow => {
+    const po = txt(follow && follow.po);
+    if (!po) return { calc: null, why: 'เรื่องนี้ไม่มีเลข PO', same: null };
+    if (whyOf.has(po)) return { calc: null, why: whyOf.get(po), same: null };
+    const k = pairKey(po, follow.code);
+    if (!pair.has(k)) {
+      return { calc: null, why: pos.has(po) ? 'ไม่มีรหัสนี้ในสูตรของใบนี้' : 'ยังไม่มีการรับเข้าของใบนี้ในระบบ', same: null };
+    }
+    const calc = pair.get(k), q = Number(follow.qty) || 0;
+    /* ⚠️ เรื่องประเภท "รอส่ง" (และแถวที่แกะจากไฟล์ PO แล้วอ่านจำนวนไม่ออก) มี qty = 0 โดยการออกแบบ —
+     *    ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — อยู่แล้ว ไม่มียอดให้เทียบ จึงห้ามตอบ same: false
+     *    เพราะจอจะขึ้นป้าย "ต่าง" ทั้งที่ไม่มีอะไรให้ทำต่อ แล้วคนจะเลิกเชื่อป้ายนี้ทั้งคอลัมน์ (G3) */
+    if (!(q > 0)) return { calc, why: '', same: null };
+    return { calc, why: '', same: Math.abs(q - calc) < 5e-4 };
+  };
 }
+export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow);
 
 /**
  * ตั้งเรื่องขาดจากแถวที่ระบบคำนวณได้ — ประเภท "ขาด" · ที่มา auto
