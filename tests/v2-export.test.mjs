@@ -8,7 +8,8 @@
 import fs from 'node:fs';
 import { localDate, localTime, atFrom, todayLocal } from '../v2/core/localtime.js';
 import { BINCARD_TPL, toCardLines, sheetNameFor, safeFileName,
-         writeBinCard, UNKNOWN_KIND_NOTE, SO_HEAD, SO_SCALE } from '../v2/export/bincard.js';
+         writeBinCard, UNKNOWN_KIND_NOTE, SO_HEAD, SO_SCALE,
+         soWidths, textWidth, fitScale, FIT_MAX } from '../v2/export/bincard.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -132,7 +133,9 @@ console.log('\n=== D. การ์ดที่มีรายการชนิ�
 const fakeWs = () => {
   const cells = new Map();
   const getCell = a => { if (!cells.has(a)) cells.set(a, {}); return cells.get(a); };
-  return { cells, getCell, getColumn: () => ({}), getRow: () => ({}), mergeCells() {} };
+  const cols = new Map();
+  const getColumn = k => { if (!cols.has(k)) cols.set(k, {}); return cols.get(k); };
+  return { cells, cols, getCell, getColumn, getRow: () => ({}), mergeCells() {} };
 };
 const warnedAt = ws => [...ws.cells.entries()]
   .filter(([, c]) => String(c.value || '').includes(UNKNOWN_KIND_NOTE)).map(([a]) => a);
@@ -194,13 +197,82 @@ console.log('\n=== E. คอลัมน์ Short / Over ถัดจาก Bala
   const inch = cols.reduce((s, c) => s + ((w19[c] === undefined ? 8.43 : w19[c]) * 7 + 5), 0) / 96;
   const [mL, mR] = BINCARD_TPL.page.margins;                 // A4 นอน = 11.69 นิ้ว
   const room = 11.69 - mL - mR;
+  // ≤ SO_SCALE ไม่ใช่เท่ากับ — คอลัมน์ที่ข้อมูลยาวเกินถูกขยาย (หมวด F) แล้ว scale ลดตาม
   ok(`scale ที่ใช้ย่อ A–S (${inch.toFixed(2)}") ให้ไม่เกินหน้า (${room.toFixed(2)}")`,
-     ps.scale === SO_SCALE && inch * SO_SCALE / 100 <= room,
+     ps.scale <= SO_SCALE && inch * SO_SCALE / 100 <= room,
      `scale ${ps.scale} → ${(inch * (ps.scale || 100) / 100).toFixed(2)}"`);
   ok('ไม่ได้แก้ scale ในฟอร์มพื้นฐาน — override ที่ addShortOverCols เท่านั้น',
      BINCARD_TPL.page.scale === 71 && SO_SCALE < 71, String(BINCARD_TPL.page.scale));
   ok('ฟอร์มพื้นฐาน (BINCARD_TPL · applyTpl · writeCard) ยังเหมือน v1 — ขั้นเพิ่มคอลัมน์อยู่นอกสามตัวนั้น',
      /addShortOverCols\(ws, lines\)/.test(fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8')));
+}
+
+console.log('\n=== F. ขยายคอลัมน์ให้พอดีข้อมูล — ขยายอย่างเดียว ไม่หด (เจ้าของสั่ง 29 ก.ย. 2026) ===');
+{
+  const base = soWidths();
+  const widthOf = (ws, c) => ws.cols.has(c) && ws.cols.get(c).width !== undefined ? ws.cols.get(c).width : base[c];
+  const shortLines = toCardLines([
+    { kind: 'receive', at, moved: 6, balance: 6, person: 'สมชาย', doc_ref: 'PA', expiry_date: '2027-01-01' },
+    { kind: 'issue', at, moved: -3, balance: 3, person: 'สมหญิง', doc_ref: 'PA' }
+  ], 'PCS');
+  const ws = fakeWs();
+  writeBinCard(ws, { code: 'C1', unit: 'PCS', entity: 'NSE' }, shortLines);
+  // วันที่ YYYY-MM-DD ด้วย Tahoma 11 กว้างเกินช่อง Date ของฟอร์มเดิม (9.12) — ฟอร์มเดิมตัดวันที่อยู่แล้ว จึงขยายทุกใบ
+  const dateW = textWidth(localDate(at));
+  ok('ช่องวันที่รับ/จ่าย (E · I) ขยายพอดีวันที่', widthOf(ws, 'E') >= dateW && widthOf(ws, 'I') >= dateW
+     && widthOf(ws, 'E') > base.E, `E=${widthOf(ws, 'E')} I=${widthOf(ws, 'I')} ต้องการ ${dateW.toFixed(2)}`);
+  ok('ข้อมูลสั้น — คอลัมน์อื่นกว้างเท่าฟอร์มเดิมทุกคอลัมน์',
+     [...'BCDFGHJKLMNOPQR'].every(c => widthOf(ws, c) === base[c]),
+     [...'BCDFGHJKLMNOPQR'].map(c => c + '=' + widthOf(ws, c)).join(' '));
+
+  const longPo = 'PO-TEST-0000000000000000000';
+  const longNote = 'หมายเหตุยาวมาก '.repeat(12);
+  const longLines = toCardLines([
+    { kind: 'receive', at, moved: 6, balance: 6, person: 'สมชาย', doc_ref: longPo, note: longNote },
+    { kind: 'issue', at, moved: -3, balance: 3, person: 'สมหญิง', doc_ref: 'PA' }
+  ], 'PCS');
+  const ws2 = fakeWs();
+  writeBinCard(ws2, { code: 'C1', unit: 'PCS', entity: 'NSE' }, longLines);
+  ok('เลข PO ยาวเกินช่อง — คอลัมน์ Ref Doc (C) ขยายพอดีข้อความ',
+     widthOf(ws2, 'C') > base.C && widthOf(ws2, 'C') >= textWidth(longPo), String(widthOf(ws2, 'C')));
+  ok('Remark ยาวผิดปกติ — ขยายไม่เกินเพดาน', widthOf(ws2, 'R') === FIT_MAX, String(widthOf(ws2, 'R')));
+  ok('ไม่มีคอลัมน์ไหนแคบกว่าฟอร์มเดิม', [...'BCDEFGHIJKLMNOPQR'].every(c => (widthOf(ws2, c) ?? 8.43) >= (base[c] ?? 8.43)));
+  ok('คอลัมน์ที่ข้อมูลไม่ยาวไม่ถูกแตะ (P/N · Balance)', widthOf(ws2, 'D') === base.D && widthOf(ws2, 'M') === base.M);
+  const W2 = {}; for (const c of 'ABCDEFGHIJKLMNOPQRS') W2[c] = widthOf(ws2, c);
+  const inch = [...'ABCDEFGHIJKLMNOPQRS'].reduce((s, c) => s + ((W2[c] === undefined ? 8.43 : W2[c]) * 7 + 5), 0) / 96;
+  const room = 11.69 - BINCARD_TPL.page.margins[0] - BINCARD_TPL.page.margins[1];
+  ok(`คอลัมน์กว้างขึ้นแล้ว scale ทางถอยลดตาม — A–S ยังไม่เกินหน้า A4 นอน`,
+     ws2.pageSetup.scale < SO_SCALE && inch * ws2.pageSetup.scale / 100 <= room
+     && ws2.pageSetup.fitToWidth === 1 && ws2.pageSetup.fitToHeight === 0,
+     `scale ${ws2.pageSetup.scale} → ${(inch * ws2.pageSetup.scale / 100).toFixed(2)}" / ${room.toFixed(2)}"`);
+  ok('ฟอร์มเดิมไม่ขยาย → fitScale ได้ไม่ต่ำกว่า SO_SCALE', fitScale(base) >= SO_SCALE, String(fitScale(base)));
+
+  ok('สระบน/ล่าง/วรรณยุกต์ไทยไม่นับความกว้าง', textWidth('ที่นี่') === textWidth('ทน'), textWidth('ที่นี่') + ' vs ' + textWidth('ทน'));
+  ok('ช่องว่าง/ไม่มีค่า = 0 · ตัวเลขนับตามที่แสดง', textWidth('') === 0 && textWidth(null) === 0 && textWidth(0.1 + 0.2) === textWidth('0.3'));
+  ok('ฟอนต์เล็กกินที่น้อยกว่า', textWidth('ABC', 8) < textWidth('ABC', 11));
+  // ความกว้างจริงของ Tahoma 11pt @96dpi ต่อ 20 ตัว (ผู้ตรวจ #118 ข้อ 1) — ประมาณได้ต้องไม่ต่ำกว่านี้
+  const pxOf = s => textWidth(s) * 7 - 8;
+  const real = { m: 244.3, W: 232.9, ' ': 130.2, '0': 163.1 };
+  ok('ตัวละตินกว้าง (m · W · เว้นวรรค · ตัวเลข) ประมาณไม่ต่ำกว่าความกว้างจริง',
+     Object.entries(real).every(([ch, px]) => pxOf(ch.repeat(20)) >= px),
+     Object.entries(real).map(([ch, px]) => JSON.stringify(ch) + ' ' + pxOf(ch.repeat(20)).toFixed(1) + '/' + px).join(' · '));
+  {
+    // ฟอร์มที่ตั้งคอลัมน์กว้างเกินเพดานไว้เอง — ขยายได้ แต่ห้ามหดลงมาเหลือ FIT_MAX
+    const keep = BINCARD_TPL.widths.P;
+    BINCARD_TPL.widths.P = FIT_MAX + 10;              // P ของฟอร์ม = คอลัมน์ R (Remark) หลังเลื่อน
+    try {
+      const wsW = fakeWs();
+      writeBinCard(wsW, { code: 'C1', unit: 'PCS', entity: 'NSE' }, longLines);
+      ok('คอลัมน์ที่ฟอร์มกว้างเกินเพดานไม่ถูกหด แม้ข้อมูลยาวกว่า', widthOf(wsW, 'R') === FIT_MAX + 10,
+         String(widthOf(wsW, 'R')));
+    } finally { BINCARD_TPL.widths.P = keep; }
+  }
+
+  const ws3 = fakeWs();
+  writeBinCard(ws3, { code: 'C1', unit: 'PCS', entity: 'NSE' }, withUnknown);
+  ok('คำเตือนยาวใต้แถวรวมไม่ทำให้คอลัมน์ No (B) ขยาย', widthOf(ws3, 'B') === base.B, String(widthOf(ws3, 'B')));
+  ok('fitColWidths อยู่นอก applyTpl / writeCard (หมวด C) และทำหลัง addShortOverCols',
+     /addShortOverCols\(ws, lines\);\s*fitColWidths\(ws, lines\);/.test(fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8')));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

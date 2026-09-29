@@ -168,6 +168,7 @@ export const UNKNOWN_KIND_NOTE = 'การ์ดนี้ออกจากโ�
 export function writeBinCard(ws, info, lines) {
   writeCard(ws, info, lines);
   addShortOverCols(ws, lines);
+  fitColWidths(ws, lines);
   const n = lines.filter(l => l.unknownKind).length;
   if (!n) return 0;
   const R = Math.max(lines.length, BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1);
@@ -231,10 +232,8 @@ export function addShortOverCols(ws, lines) {
   });
   ws.mergeCells('Q9:Q10');
   ws.mergeCells('R9:R10');
-  const W = T.widths;
-  ws.getColumn('N').width = W.M; ws.getColumn('O').width = W.M;
-  ws.getColumn('P').width = W.N; ws.getColumn('Q').width = W.O;
-  ws.getColumn('R').width = W.P; ws.getColumn('S').width = W.Q;
+  const W = soWidths();
+  for (const col of ['N', 'O', 'P', 'Q', 'R', 'S']) ws.getColumn(col).width = W[col];
   /* ⚠️ ต้องคุมความกว้างหน้าด้วย ไม่ใช่แค่ขยายพื้นที่พิมพ์ (ผู้ตรวจ #117 รอบ 1 ข้อ 1)
    * ฟอร์มเดิมตั้ง scale 71 ไว้ตายตัวและพอดี A4 นอนแบบเหลือที่ไม่มาก — เพิ่มสองคอลัมน์แล้ว
    * A–S กว้างรวม 16.50 นิ้วที่ 100% → 11.71 นิ้วที่ 71% เกินพื้นที่พิมพ์ 11.19 นิ้ว
@@ -245,4 +244,72 @@ export function addShortOverCols(ws, lines) {
    * scale ลดจาก 71 เหลือ 67 (11.19 / 16.50 = 67.8%) เป็นทางถอย ถ้าตัวอ่านไฟล์ไหนไม่สน fitToPage */
   ws.pageSetup = { ...(ws.pageSetup || {}), printArea: `A1:S${last}`,
                    fitToPage: true, fitToWidth: 1, fitToHeight: 0, scale: SO_SCALE };
+}
+
+/** ความกว้างคอลัมน์ A–S ของฟอร์มหลังเพิ่ม Short · Over — คอลัมน์ที่ฟอร์มไม่ได้ตั้ง = undefined (Excel ใช้ค่าปริยาย) */
+export function soWidths() {
+  const W = BINCARD_TPL.widths;
+  return { ...W, N: W.M, O: W.M, P: W.N, Q: W.O, R: W.P, S: W.Q };
+}
+
+/**
+ * ความกว้างที่ข้อความหนึ่งช่องต้องใช้ (หน่วยความกว้างคอลัมน์ของ Excel) — ประมาณจากฟอนต์ Tahoma
+ * สระบน/ล่างและวรรณยุกต์ไทยซ้อนอยู่บนตัวอักษร ไม่กินที่ในแนวนอน จึงไม่นับ
+ * ประมาณเผื่อไว้ (ไม่ต่ำกว่าของจริง) — กว้างเกินมีแค่ช่องว่างเหลือ แคบเกินข้อความถูกตัดหรือขึ้น #####
+ * ค่า px ต่อตัวเทียบกับ Tahoma 11pt @96dpi (ผู้ตรวจ #118 วัดจาก advance width จริง)
+ *   m/M/W ~12.2 · w ~9.9 · ตัวใหญ่อื่น ≤10.3 · ตัวเลข 8.15 · เว้นวรรค 6.5 · ไทย ~7.2
+ * ⚠️ รุ่นแรกคิดตัวละตินทุกตัว 8–9px — ต่ำกว่าจริงมากกับ m · W · เว้นวรรค หมายเหตุภาษาอังกฤษจึงยังล้นช่อง
+ */
+const THAI_MARK = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g;
+const CHAR_PX = { m: 12.5, M: 12.5, W: 12.5, w: 10.5, ' ': 6.6,
+  '.': 4.5, ',': 4.5, ':': 4.5, ';': 4.5, "'": 4.5, '|': 4.5, '-': 5.5, '/': 5.5, '(': 5.5, ')': 5.5 };
+const charPx = ch => CHAR_PX[ch] ?? (/[A-Z]/.test(ch) ? 10.5 : /[a-z0-9]/.test(ch) ? 8.2 : 8);
+export function textWidth(v, size = 11) {
+  if (v == null || v === '') return 0;
+  const s = typeof v === 'number' ? String(Math.round(v * 1e5) / 1e5) : String(v);
+  let px = 0;
+  for (const ch of s.replace(THAI_MARK, '')) px += charPx(ch);
+  return (px * (Number(size) || 11) / 11 + 8) / 7;
+}
+
+/**
+ * ขยายคอลัมน์ให้พอดีข้อมูล (เจ้าของสั่ง 29 ก.ย. 2026 — "ขยายอย่างเดียว")
+ *
+ * ความกว้างของฟอร์มเป็นขั้นต่ำ — คอลัมน์ไหนข้อมูลยาวเกินจึงขยาย ไม่หดคอลัมน์ไหนเลย
+ * ช่อง Remark ที่ว่างยังต้องกว้างพอให้เขียนมือบนกระดาษที่พิมพ์ออกไป
+ * วัดเฉพาะแถวข้อมูลถึงแถวรวม — หัวตารางคงเดิม · คำเตือนใต้แถวรวมเป็นข้อความยาวที่ตั้งใจให้ล้นช่อง
+ * เพดาน FIT_MAX กันข้อความยาวผิดปกติช่องเดียวทำให้ทั้งหน้าถูกย่อจนอ่านไม่ออก
+ * ⚠️ ทำหลัง addShortOverCols เสมอ (อ่านค่าจากตำแหน่งคอลัมน์ที่เลื่อนแล้ว) · ห้ามแตะ applyTpl / writeCard (หมวด C)
+ */
+export const FIT_MAX = 60;
+const XL_DEFAULT_W = 8.43;
+export function fitColWidths(ws, lines) {
+  const T = BINCARD_TPL;
+  const totalRow = T.firstRow + Math.max(lines.length, T.lastRow - T.firstRow + 1);
+  const W = soWidths();
+  for (const col of 'BCDEFGHIJKLMNOPQR') {
+    let need = 0;
+    for (let r = T.firstRow; r <= totalRow; r++) {
+      const c = ws.getCell(col + r);
+      need = Math.max(need, textWidth(c.value, c.font && c.font.size));
+    }
+    const base = W[col] === undefined ? XL_DEFAULT_W : W[col];
+    if (need > base) {
+      // เพดานใช้กับส่วนที่ขยายเท่านั้น — ฟอร์มที่ตั้งกว้างเกิน FIT_MAX ไว้เองต้องไม่ถูกหด (ผู้ตรวจ #118 ข้อ 2)
+      W[col] = Math.max(base, Math.min(FIT_MAX, Math.ceil(need * 100) / 100));
+      ws.getColumn(col).width = W[col];
+    }
+  }
+  // ทางถอยถ้าตัวอ่านไฟล์ไม่สน fitToWidth — คิด scale จากความกว้างจริงแทนค่าตายตัว ให้ A–S ยังพอดี A4 นอน
+  ws.pageSetup = { ...(ws.pageSetup || {}), scale: Math.min(SO_SCALE, fitScale(W)) };
+  return W;
+}
+
+/** scale สูงสุดที่คอลัมน์ A–S กว้างไม่เกินหน้า A4 นอน (11.69 นิ้ว ลบขอบซ้ายขวา) */
+export function fitScale(W) {
+  const [mL, mR] = BINCARD_TPL.page.margins;
+  const room = (11.69 - mL - mR) * 96;
+  const px = [...'ABCDEFGHIJKLMNOPQRS']
+    .reduce((s, c) => s + (W[c] === undefined ? XL_DEFAULT_W : W[c]) * 7 + 5, 0);
+  return Math.max(10, Math.floor(room / px * 100));
 }
