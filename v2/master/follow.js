@@ -107,6 +107,8 @@ export function makeFollow(input = {}) {
     return_entry_id: '', receive_entry_id: '',
     scrap_entry_id: txt(input.scrap_entry_id),
     next_po: txt(input.next_po),
+    // ใบสั่งซื้อทดแทน (FM-PU-02) ที่เรื่องนี้ถูกใส่ไปแล้ว — ว่าง = ยังไม่ได้ออกใบ (เจ้าของเคาะ 2 ต.ค. 2026)
+    pr_no: txt(input.pr_no), pr_date: txt(input.pr_date),
     note: txt(input.note),
     created_at: now, created_by: txt(input.by),
     done_at: '', done_by: '',
@@ -786,6 +788,75 @@ export function fromScrapRow(row, { entity, person = '', unit = '', date = '',
     po: txt(row.po), part_no: txt(row.part_no),
     note: txt(row.note), by: person, now: at, date
   });
+}
+
+/* ── ใบสั่งซื้อทดแทน FM-PU-02 "ISSUE MATERIAL LOSS FOR SUBCONTRACT" (เจ้าของเคาะ 2 ต.ค. 2026) ──
+ * ไฟล์ Excel เดิมตั้งชื่อชีตเป็น "วัน.เดือน.ปี นิติบุคคล" เช่น 22.9.26 H — เลขใบใช้แบบเดียวกัน
+ * วันเดียวกันออกหลายใบ ต่อท้าย -2 -3 · ใบจัดกลุ่มเป็น Item = Part NO. + Old Po. เหมือนฟอร์มเดิม */
+
+/** ตัวย่อนิติบุคคลบนเลขใบ — TUE-H → H · ไม่มีขีดใช้ทั้งรหัส */
+export const entityTag = e => {
+  const s = txt(e).toUpperCase();
+  const i = s.lastIndexOf('-');
+  return i >= 0 ? s.slice(i + 1) : s;
+};
+
+/** เลขใบสั่งซื้อ — taken = เลขที่ใช้ไปแล้วของนิติบุคคลนี้ */
+export function buyDocNo(date, entity, taken = []) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(txt(date));
+  if (!m) throw new Error('วันที่ใบสั่งซื้อไม่ถูกต้อง — เลือกวันที่ใหม่');
+  const base = `${+m[3]}.${+m[2]}.${m[1].slice(2)} ${entityTag(entity)}`;
+  const used = new Set((taken || []).map(txt));
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n++) if (!used.has(base + '-' + n)) return base + '-' + n;
+}
+
+/** เลขใบที่ออกไปแล้วของนิติบุคคลนี้ (นับทั้งที่ยกเลิกเรื่องไปแล้ว — เลขที่เคยใช้ห้ามใช้ซ้ำ) */
+export const buyDocNos = (follows, entity) => [...new Set((follows || [])
+  .filter(f => f && f.kind === 'buy' && f.entity === entity && txt(f.pr_no)).map(f => txt(f.pr_no)))];
+
+/**
+ * เรื่องที่ใส่ในใบได้ — คืน { rows, skipped: [{ id, why }] }
+ * ⚠️ เรื่องที่ออกใบไปแล้วห้ามใส่ซ้ำ = สั่งของสองรอบ
+ */
+export function buyDocPick(follows, entity, ids) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const want = new Set((ids || []).map(txt));
+  const rows = [], skipped = [];
+  for (const f of follows || []) {
+    if (!f || !want.has(txt(f.id))) continue;
+    const why = f.kind !== 'buy' ? 'ไม่ใช่เรื่องซื้อทดแทน'
+      : f.entity !== entity ? 'เป็นของนิติบุคคลอื่น'
+      : f.voided ? 'ยกเลิกเรื่องไปแล้ว'
+      : statusOf(f) === 'done' ? 'รับของครบแล้ว'
+      : txt(f.pr_no) ? 'ออกใบไปแล้ว (' + txt(f.pr_no) + ')' : '';
+    if (why) skipped.push({ id: txt(f.id), code: f.code, why });
+    else rows.push(f);
+  }
+  return { rows, skipped };
+}
+
+/** จัดกลุ่มเป็น Item ของฟอร์ม — Part NO. + Old Po. · เรียงตาม P/N แล้ว PO · บรรทัดในกลุ่มเรียงตามรหัส */
+export function buyDocGroups(rows) {
+  const by = new Map();
+  for (const f of rows || []) {
+    const key = txt(f.part_no) + '|' + txt(f.po);
+    if (!by.has(key)) by.set(key, { part_no: txt(f.part_no), po: txt(f.po), lines: [] });
+    by.get(key).lines.push({ id: txt(f.id), code: txt(f.code), qty: remainOf(f), unit: txt(f.unit), note: txt(f.note) });
+  }
+  const groups = [...by.values()].sort((a, b) =>
+    a.part_no.localeCompare(b.part_no) || a.po.localeCompare(b.po));
+  for (const g of groups) g.lines.sort((a, b) => a.code.localeCompare(b.code));
+  return groups;
+}
+
+/** ติดเลขใบไว้ที่เรื่อง — ติดแล้วติดซ้ำไม่ได้ · id / created_at ไม่ขยับ (B3) */
+export function stampBuyDoc(row, { no, date, now = '' } = {}) {
+  if (!row || row.kind !== 'buy') throw new Error('ติดเลขใบสั่งซื้อได้เฉพาะเรื่องซื้อทดแทน');
+  if (txt(row.pr_no)) throw new Error('เรื่องนี้ออกใบไปแล้ว (' + txt(row.pr_no) + ') — ห้ามสั่งซ้ำ');
+  if (!txt(no) || !txt(date)) throw new Error('ต้องมีเลขใบและวันที่');
+  return { ...row, pr_no: txt(no), pr_date: txt(date), updated_at: txt(now) || new Date().toISOString() };
 }
 
 /**

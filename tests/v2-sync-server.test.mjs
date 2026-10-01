@@ -282,6 +282,16 @@ ok('ping นับจำนวนแถวรายตารางได้', ca
    JSON.stringify(call('ping').counts));
 void book;
 
+console.log('\n=== H0. ใบสั่งซื้อทดแทน — เลขใบ/วันที่ใบเดินทางผ่านชีตเป็นข้อความ (ต.ค. 2026) ===');
+{
+  const s = loadScript();
+  s.call('pushTable', { table: 'Shorts', rows: [{ id: 'PR1', entity: 'TUE-H', kind: 'buy', code: '4010600100',
+    qty: 3, pr_no: '2.10.26 H', pr_date: '2026-10-02', updated_at: '' }] });
+  const got = s.call('pullTable', { table: 'Shorts', since: '' }).rows[0];
+  ok('pr_no ยังเป็นข้อความ ไม่ถูกชีตแปลงเป็นวันที่', got && got.pr_no === '2.10.26 H', JSON.stringify((got || {}).pr_no));
+  ok('pr_date ยังเป็นข้อความ YYYY-MM-DD', got && got.pr_date === '2026-10-02', JSON.stringify((got || {}).pr_date));
+}
+
 console.log('\n=== H. ตารางตามงานวัตถุดิบ (ชีต Shorts) ===');
 /* ชีตนี้เดิมเก็บแค่ของขาด ตอนนี้เก็บงานตามสามแบบ จึงต่อคอลัมน์เพิ่ม
  * เรื่องที่ต้องพิสูจน์คือ "ชีตที่พนักงานใช้อยู่แล้ว" ต้องรอดจากการต่อคอลัมน์

@@ -88,11 +88,15 @@ var TABLES = {
            'entity','kind','source','part_no','order_qty','bom_qty','recv_qty',
            'done_qty','done_at','done_by','created_by','created_at',
            'return_entry_id','receive_entry_id','scrap_entry_id','next_po',
-           'voided','void_reason','void_by','void_at'],
+           'voided','void_reason','void_by','void_at',
+           // ใบสั่งซื้อทดแทน FM-PU-02 (ต.ค. 2026) — ต่อท้ายเสมอ ชีตเดิมจะได้คอลัมน์เพิ่มเองตอนซิงค์
+           'pr_no','pr_date'],
     bools: ['done','voided'],
     texts: ['id','date','po','code','eta','updated_at',
             'part_no','created_at','done_at','void_at','next_po',
-            'return_entry_id','receive_entry_id','scrap_entry_id']
+            'return_entry_id','receive_entry_id','scrap_entry_id',
+            // เลขใบ "2.10.26 H" กับวันที่ห้ามให้ชีตแปลงเป็นวันที่/ตัวเลข
+            'pr_no','pr_date']
   },
   // ทะเบียนนิติบุคคล — ยอดคงคลังของแต่ละโรงงานแยกกันด้วยรหัสนี้
   // store_location ขึ้นหัว Bin Card ทุกใบ จึงต้องผูกกับนิติบุคคล ไม่ใช่ตั้งรวมทั้งโปรแกรม

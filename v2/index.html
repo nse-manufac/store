@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-02.1">
+<meta name="app-version" content="2026-10-02.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2131,6 +2131,7 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:44vh;margin-top:10px">
             <table>
               <thead><tr>
+                <th style="width:34px" title="ติ๊กเพื่อใส่ในใบสั่งซื้อ">✓</th>
                 <th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องซื้อ</th><th style="width:100px">ยังค้าง</th>
                 <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th>
@@ -2138,6 +2139,7 @@ textarea{font:inherit}
                 <th style="width:185px"></th></tr></thead>
               <tbody>
                 <tr v-for="r in fbRows" :key="r.s.id">
+                  <td><input v-if="fbCanPick(r.s)" type="checkbox" v-model="fbPick[r.s.id]"></td>
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
@@ -2148,7 +2150,9 @@ textarea{font:inherit}
                   <td class="mono">{{ r.s.po || '—' }}</td><td class="mono hint">{{ r.s.part_no || '—' }}</td>
                   <td class="mono hint">{{ r.s.next_po || 'ยังไม่รู้' }}</td>
                   <td class="hint">{{ r.s.note || '—' }}
-                    <span v-if="r.s.source==='manual'" class="tag">คีย์เอง</span></td>
+                    <span v-if="r.s.source==='manual'" class="tag">คีย์เอง</span>
+                    <a v-if="r.s.pr_no" href="#" class="tag ok" title="ออกไฟล์ใบนี้อีกครั้ง"
+                       @click.prevent="fbReissue(r.s.pr_no)">ใบ {{ r.s.pr_no }}</a></td>
                   <td>
                     <template v-if="r.st==='done'">
                       <span class="hint">รับ {{ localDate(r.s.done_at) }} {{ r.s.done_by }}</span>
@@ -2161,7 +2165,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fbRows.length"><td colspan="10" class="empty">
+                <tr v-if="!fbRows.length"><td colspan="11" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!fbShowDone" class="hint">· ที่รับของแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
@@ -2174,6 +2178,33 @@ textarea{font:inherit}
             กด <b>ไปรับของ</b> แล้วจะพาไปหน้ารับเข้าพร้อมกรอกรหัสกับจำนวนให้ —
             <b>รับเข้าทางเดิมทางเดียว</b> หน้านี้ไม่มีทางบันทึกของเข้าคลังเอง<br>
             บันทึกใบรับเข้าเสร็จแล้วเรื่องจะถูกปิดและผูกกับเลขที่รายการนั้นให้เอง</p>
+        </div>
+
+        <!-- ใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) -->
+        <div class="card" v-if="fbPicked.length">
+          <div class="row">
+            <h2 style="margin:0">ออกใบสั่งซื้อ — {{ fbPicked.length }} รายการ · {{ fbDocGroups.length }} Item</h2>
+            <div class="grow"></div>
+            <label class="f" style="width:150px">วันที่ใบ<input v-model="fbDoc.date" type="date"></label>
+            <button class="btn primary" style="align-self:flex-end" :disabled="fbDoc.busy" @click="fbIssue">
+              {{ fbDoc.busy ? 'กำลังออกใบ...' : 'ออกใบสั่งซื้อ (Excel)' }}</button>
+          </div>
+          <p class="hint" style="margin:6px 0 8px">จัดกลุ่มเป็น Item ตาม P/N + PO ที่เสีย แบบฟอร์ม FM-PU-02 ·
+            Request By = ชื่อในช่อง "ผู้บันทึก" · ออกแล้วเรื่องจะติดเลขใบไว้ ใส่ใบอื่นซ้ำไม่ได้</p>
+          <div class="scroll" style="max-height:30vh">
+            <table><thead><tr><th style="width:55px">Item</th><th style="width:125px">Part NO.</th>
+              <th style="width:125px">Old Po.</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th>ชื่อ</th>
+              <th style="width:100px">Q'ty</th><th>REMARK</th></tr></thead>
+              <tbody><template v-for="(g, gi) in fbDocGroups" :key="g.part_no + '|' + g.po">
+                <tr v-for="(l, li) in g.lines" :key="l.id">
+                  <td class="mono">{{ li ? '' : gi + 1 }}</td>
+                  <td class="mono">{{ li ? '' : (g.part_no || '—') }}</td><td class="mono">{{ li ? '' : (g.po || '—') }}</td>
+                  <td class="mono">{{ l.code }}</td><td class="hint">{{ catOf(l.code) || '—' }}</td><td>{{ (matOf(l.code) || {}).description || '—' }}</td>
+                  <td class="mono">{{ l.qty }} {{ l.unit }}</td><td class="hint">{{ l.note || '' }}</td>
+                </tr></template></tbody></table>
+          </div>
+          <p class="msg warn" style="margin:8px 0 0" v-if="fbDocGroups.some(g => !g.po || !g.part_no)">
+            มีรายการที่ยังไม่มี PO ที่เสีย หรือ P/N — ออกใบได้ แต่ช่องในใบจะว่าง</p>
         </div>
 
         <!-- ของที่ต้องสั่งแต่ไม่ได้มาจากของเสียในสมุด (เจ้าของเคาะ 2 ต.ค. 2026) -->
