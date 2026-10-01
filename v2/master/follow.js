@@ -74,7 +74,10 @@ export function makeFollow(input = {}) {
   const qty = Number(input.qty);
   if (!isFinite(qty) || qty <= 0) throw new Error('จำนวนต้องมากกว่าศูนย์');
 
-  for (const f of def.need) {
+  // ซื้อทดแทนที่คีย์เอง (ไม่ได้มาจากของเสีย) ไม่มีรายการของเสียให้ผูก — เจ้าของเคาะ 2 ต.ค. 2026
+  // ⚠️ ยกเว้นเฉพาะ source 'manual' · เรื่องที่ระบบตั้งจากของเสีย (auto) ยังต้องผูกเสมอ ไม่งั้นตั้งซ้ำได้ไม่รู้ตัว
+  const skipNeed = kind === 'buy' && txt(input.source) === 'manual';
+  for (const f of skipNeed ? [] : def.need) {
     if (!txt(input[f])) throw new Error(`งานตามแบบ "${def.label}" ต้องระบุ ${FIELD_LABEL[f] || f}`);
   }
   if (kind === 'short' && SHORT_TYPES.indexOf(txt(input.type)) < 0) {
@@ -758,7 +761,9 @@ export function pendingScraps(entries, entity, follows) {
                  && !buyFor(follows, e.id))
     .map(e => ({ id: txt(e.id), code: txt(e.material_code), qty: round5(Number(e.qty) || 0),
                  lot: txt(e.lot), at: txt(e.at), reason_code: txt(e.reason_code),
-                 note: txt(e.note), person: txt(e.person) }))
+                 note: txt(e.note), person: txt(e.person),
+                 // PO ที่ของเสียเกิด + P/N — ช่อง "Old Po." / "Part NO." ของใบสั่งซื้อ FM-PU-02
+                 po: txt(e.doc_ref), part_no: txt(e.part_no) }))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
@@ -777,7 +782,21 @@ export function fromScrapRow(row, { entity, person = '', unit = '', date = '',
     kind: 'buy', entity, source: 'auto',
     code: row.code, qty: row.qty, unit,
     scrap_entry_id: row.id,
+    // po = PO เดิมที่ของเสียเกิด (Old Po.) · PO ใหม่ที่ Delta ออกให้ทีหลังเก็บที่ next_po
+    po: txt(row.po), part_no: txt(row.part_no),
     note: txt(row.note), by: person, now: at, date
+  });
+}
+
+/**
+ * ซื้อทดแทนที่คีย์เอง — ของที่ต้องสั่งแต่ไม่ได้มาจากของเสียในสมุด (เจ้าของเคาะ 2 ต.ค. 2026)
+ * ไม่มี scrap_entry_id จึงไม่ถูกนับเป็นเรื่องที่ต้นเหตุหายไป (orphanBuys ข้ามให้)
+ */
+export function fromManualBuy({ entity, code, qty, unit = '', po = '', part_no = '', note = '',
+                                person = '', date = '', at = '' } = {}) {
+  return makeFollow({
+    kind: 'buy', entity, source: 'manual', code, qty, unit,
+    po: txt(po), part_no: txt(part_no), note: txt(note), by: person, now: at, date
   });
 }
 

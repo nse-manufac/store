@@ -12,7 +12,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys,
+         buyFor, pendingScraps, fromScrapRow, fromManualBuy, linkReceive, orphanBuys,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver }
   from '../v2/master/follow.js';
@@ -708,7 +708,9 @@ ok('ตั้งเรื่องแล้วได้งานตามแบ�
    buyCase.kind === 'buy' && buyCase.qty === 6 && buyCase.code === C1);
 ok('ผูกกับรายการของเสียใบนั้นไว้ ไล่ย้อนได้ว่าซื้อแทนของที่เสียครั้งไหน',
    buyCase.scrap_entry_id === 'S1' && buyCase.source === 'auto');
-ok('PO ยังว่างได้ — ตอนตั้งเรื่องมักยังไม่รู้ว่า Delta จะออกใบไหน', buyCase.po === '');
+// po ของเรื่องซื้อ = PO เดิมที่ของเสียเกิด (Old Po.) · ของเสียที่ไม่ได้อ้าง PO ก็ว่างได้
+ok('ของเสียไม่ได้อ้าง PO — เรื่องซื้อตั้งได้ PO ว่าง · PO ใหม่ (next_po) ยังไม่รู้',
+   buyCase.po === '' && buyCase.next_po === '');
 throws('ตั้งเรื่องโดยไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromScrapRow(scrapRow, {}), 'A3');
 throws('ไม่มีรายการของเสียก็ตั้งเรื่องไม่ได้',
        () => fromScrapRow(null, { entity: 'TUE-H' }), 'ของเสีย');
@@ -1352,6 +1354,35 @@ console.log('\n=== S. Short / Over บน Bin Card (เจ้าของสั�
      cardShortOver([negRows[1]], negOpt)[0].short === 10, JSON.stringify(cardShortOver([negRows[1]], negOpt)));
   ok('ยอดสะสมยังเก็บตามจริง — รับเพิ่ม 6 หลังติดลบ 4 ได้ขาด 8 ไม่ใช่ 4',
      cardShortOver([...negRows, { kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 6 }], negOpt)[2].short === 8);
+}
+
+console.log('\n=== O. ใบสั่งซื้อทดแทน — PO ที่เสีย · คีย์เพิ่มเอง (เจ้าของเคาะ 2 ต.ค. 2026) ===');
+{
+  const sc = scrap({ doc_kind: 'po', doc_ref: 'PO-OLD-1', part_no: 'PN-1' });
+  const row = pendingScraps([sc], 'TUE-H', [])[0];
+  ok('ของเสียที่อ้าง PO — รายการรอตั้งเรื่องพก PO กับ P/N มาด้วย', row.po === 'PO-OLD-1' && row.part_no === 'PN-1',
+     JSON.stringify(row));
+  const b = fromScrapRow(row, { entity: 'TUE-H', person: 'ก', unit: 'PCS' });
+  ok('เรื่องซื้อจากของเสีย — po = PO เดิม · part_no ติดไป · next_po ยังว่าง',
+     b.po === 'PO-OLD-1' && b.part_no === 'PN-1' && b.next_po === '' && b.scrap_entry_id === 'S1');
+
+  const m = fromManualBuy({ entity: 'TUE-H', code: C1, qty: 3, unit: 'MTR', po: 'PO-OLD-2', part_no: 'PN-2',
+                            note: '5 Roll', person: 'ก' });
+  ok('ซื้อที่คีย์เอง — ไม่ต้องผูกของเสีย · source manual · รหัสเป็นตัวใหญ่',
+     m.kind === 'buy' && m.source === 'manual' && m.scrap_entry_id === '' && m.code === C1.toUpperCase()
+     && m.po === 'PO-OLD-2' && m.part_no === 'PN-2' && m.note === '5 Roll', JSON.stringify(m));
+  ok('ซื้อที่คีย์เองไม่ถูกนับเป็นเรื่องที่ต้นเหตุหายไป', orphanBuys([sc], 'TUE-H', [m]).length === 0);
+  throws('ซื้อที่คีย์เอง ไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromManualBuy({ code: C1, qty: 1 }), 'A3');
+  throws('ซื้อที่คีย์เอง จำนวนต้องมากกว่าศูนย์', () => fromManualBuy({ entity: 'TUE-H', code: C1, qty: 0 }), 'จำนวน');
+  // ⚠️ ยกเว้นเฉพาะ manual — เรื่องที่ระบบตั้ง (auto) ไม่ผูกของเสีย = ตั้งซ้ำได้โดยไม่รู้ตัว
+  throws('เรื่องซื้อที่ไม่ใช่คีย์เอง ยังต้องผูกรายการของเสีย',
+         () => makeFollow({ kind: 'buy', entity: 'TUE-H', code: C1, qty: 1, source: 'auto' }), 'ต้องระบุ');
+
+  const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('ปุ่มไปรับของเติม PO จาก next_po (PO ใหม่) ไม่ใช่ po (PO เดิมที่ของเสียเกิด)',
+     /if \(row\.next_po && !inH\.po\) inH\.po = row\.next_po;/.test(appSrc) && !/inH\.po = row\.po;/.test(appSrc));
+  ok('หน้าของเสียเขียน PO ลง doc_ref เฉพาะชนิดของเสีย',
+     appSrc.includes("...(mk.kind === 'scrap' && mk.po ? { doc_kind: 'po', doc_ref: mk.po } : {})"));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
