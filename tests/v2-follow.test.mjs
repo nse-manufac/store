@@ -12,7 +12,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         buyFor, pendingScraps, fromScrapRow, fromManualBuy, linkReceive, orphanBuys,
+         buyFor, pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver }
@@ -1421,6 +1421,40 @@ console.log('\n=== P. ออกใบสั่งซื้อทดแทน FM-
   throws('ติดเลขซ้ำไม่ได้ — กันสั่งของสองรอบ', () => stampBuyDoc(st, { no: 'x', date: '2026-10-02' }), 'ออกใบไปแล้ว');
   throws('ติดเลขใบได้เฉพาะเรื่องซื้อ', () => stampBuyDoc({ kind: 'short' }, { no: 'x', date: 'y' }), 'ซื้อทดแทน');
   ok('เรื่องใหม่เริ่มที่ยังไม่ออกใบ', b1.pr_no === '' && b1.pr_date === '');
+}
+
+console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้างค่าเดิม · dropdown แนะนำ (เจ้าของเคาะ 2 ต.ค. 2026) ===');
+{
+  const ents = [scrap({ id: 'a', doc_ref: 'PO-1', at: '2026-09-01T00:00:00Z' }),
+                scrap({ id: 'b', doc_ref: 'PO-2', at: '2026-09-03T00:00:00Z' }),
+                scrap({ id: 'c', doc_ref: 'PO-1', at: '2026-09-02T00:00:00Z' }),
+                scrap({ id: 'd', doc_ref: 'PO-X', voided: true }),
+                scrap({ id: 'e', doc_ref: 'PO-U', entity: 'TUE-U' }),
+                recv()];
+  const got = scrapPoSuggest(ents, 'TUE-H', [{ po: 'PO-9' }, { po: 'PO-1' }]);
+  ok('PO ที่เพิ่งคีย์ของเสียขึ้นก่อน (ใหม่สุดก่อน) แล้วต่อด้วยรายการ PO · ไม่ซ้ำ',
+     got.join() === 'PO-2,PO-1,PO-9', got.join());
+  ok('ของเสียที่ยกเลิก / ของนิติบุคคลอื่น ไม่ถูกแนะนำ (A3)', !got.includes('PO-X') && !got.includes('PO-U'));
+  ok('ไม่มีนิติบุคคล = ไม่แนะนำอะไร', scrapPoSuggest(ents, '', [{ po: 'PO-9' }]).length === 0);
+  const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('บันทึกของเสียแล้วล้าง PO กับ P/N — ไม่ค้างค่าเดิม',
+     appSrc.includes("if (mk.kind === 'scrap') { mk.po = ''; mk.part_no = ''; }"));
+  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' })"));
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('ช่อง PO ที่เสียมี dropdown แนะนำ', (html.match(/list="scrappolist"/g) || []).length === 2 && html.includes('id="scrappolist"'));
+  ok('คอลัมน์ PO ใหม่ซ่อนไว้ก่อน (ผู้ตรวจ #119 ข้อ 1)', !html.includes("r.s.next_po || 'ยังไม่รู้'"));
+}
+
+console.log('\n=== O3. ฟังก์ชันที่เทมเพลตเรียก ต้องถูกส่งออกจาก setup ===');
+{
+  /* ⚠️ เทมเพลตเรียกฟังก์ชันที่ setup ไม่ได้ return = หน้าจอขาวทั้งหน้าตอนเปิดแท็บนั้น (Vue prod กลืน error)
+   *    เจอจริงตอนเปิดเบราว์เซอร์ตรวจ #119 — ป้าย "ไม่มีในทะเบียน" เรียก matOf ที่ไม่ได้ส่งออก */
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const ret = app.slice(app.lastIndexOf('return {'));
+  const used = [...new Set([...html.matchAll(/\b(matOf|catOf|unitOf|poUnknown|fbCanPick)\(/g)].map(m => m[1]))];
+  const missing = used.filter(f => !new RegExp('\\b' + f + '\\b').test(ret));
+  ok('ฟังก์ชันที่เทมเพลตเรียก (matOf · catOf · poUnknown …) ส่งออกครบ', missing.length === 0, missing.join(','));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

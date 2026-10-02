@@ -1457,7 +1457,8 @@ textarea{font:inherit}
             <label class="f" style="width:150px" v-if="mk.kind!=='adjust'">ล็อต
               <input v-model.trim="mk.lot" class="mono" placeholder="เว้นว่างได้"></label>
             <label class="f" style="width:150px" v-if="mk.kind==='scrap'" title="ใช้เป็น Old Po. ในใบสั่งซื้อทดแทน">PO ที่เสีย
-              <input v-model.trim="mk.po" class="mono" placeholder="เลขที่เอกสาร" @change="onMkPo"></label>
+              <input v-model.trim="mk.po" class="mono" placeholder="เลือกหรือพิมพ์" list="scrappolist" @change="onMkPo">
+              <span v-if="poUnknown(mk.po)" class="tag warn" style="margin-top:3px">ไม่มีในรายการ PO — ตรวจเลขอีกครั้ง</span></label>
             <label class="f" style="width:140px" v-if="mk.kind!=='adjust'">P/N ที่เกี่ยวข้อง
               <input v-model.trim="mk.part_no" class="mono" list="pnlist"></label>
 
@@ -2134,8 +2135,7 @@ textarea{font:inherit}
                 <th style="width:34px" title="ติ๊กเพื่อใส่ในใบสั่งซื้อ">✓</th>
                 <th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องซื้อ</th><th style="width:100px">ยังค้าง</th>
-                <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th>
-                <th style="width:110px">PO ใหม่</th><th>หมายเหตุ</th>
+                <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th><th>หมายเหตุ</th>
                 <th style="width:185px"></th></tr></thead>
               <tbody>
                 <tr v-for="r in fbRows" :key="r.s.id">
@@ -2148,7 +2148,6 @@ textarea{font:inherit}
                     <span v-else-if="r.st==='done'" class="tag ok">รับของแล้ว</span>
                     <span v-else class="hint">—</span></td>
                   <td class="mono">{{ r.s.po || '—' }}</td><td class="mono hint">{{ r.s.part_no || '—' }}</td>
-                  <td class="mono hint">{{ r.s.next_po || 'ยังไม่รู้' }}</td>
                   <td class="hint">{{ r.s.note || '—' }}
                     <span v-if="r.s.source==='manual'" class="tag">คีย์เอง</span>
                     <a v-if="r.s.pr_no" href="#" class="tag ok" title="ออกไฟล์ใบนี้อีกครั้ง"
@@ -2165,7 +2164,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fbRows.length"><td colspan="11" class="empty">
+                <tr v-if="!fbRows.length"><td colspan="10" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!fbShowDone" class="hint">· ที่รับของแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
@@ -2217,11 +2216,13 @@ textarea{font:inherit}
               <div class="row" style="gap:3px;flex-wrap:nowrap">
                 <input v-model.trim="fbm.code" class="mono grow" style="min-width:0">
                 <button class="btn" style="padding:6px 9px" @click="openPick(fbm)">🔍</button>
-              </div></label>
+              </div>
+              <span v-if="fbm.code && !matOf(fbm.code)" class="tag warn" style="margin-top:3px">ไม่มีในทะเบียน — ตรวจรหัสอีกครั้ง</span></label>
             <label class="f" style="width:110px">จำนวน
               <input v-model.number="fbm.qty" type="number" step="any" class="mono"></label>
             <label class="f" style="width:150px">PO ที่เสีย
-              <input v-model.trim="fbm.po" class="mono" placeholder="เลขที่เอกสาร" @change="onFbmPo"></label>
+              <input v-model.trim="fbm.po" class="mono" placeholder="เลือกหรือพิมพ์" list="scrappolist" @change="onFbmPo">
+              <span v-if="poUnknown(fbm.po)" class="tag warn" style="margin-top:3px">ไม่มีในรายการ PO — ตรวจเลขอีกครั้ง</span></label>
             <label class="f" style="width:140px">P/N
               <input v-model.trim="fbm.part_no" class="mono" list="pnlist"></label>
             <label class="f grow" style="min-width:160px">หมายเหตุ
@@ -2860,6 +2861,7 @@ textarea{font:inherit}
 
       <!-- รายการ P/N ใช้ร่วมกันหลายหน้า จึงต้องอยู่นอกแท็บ ไม่งั้นหน้าที่ไม่ได้เปิดจะหาไม่เจอ -->
       <datalist id="pnlist"><option v-for="p in bomPnCodes" :key="p" :value="p"></option></datalist>
+      <datalist id="scrappolist"><option v-for="p in scrapPos" :key="p" :value="p"></option></datalist>
 
       <!-- ════════ ตั้งทะเบียนจาก BOM ════════ -->
       <!-- มีอะไรใหม่ — บังคับเลื่อนอ่านจนจบ + ติ๊กก่อนปิด · ไม่มี @click.self โดยตั้งใจ (เจ้าของสั่ง 24 ก.ย. 2026) -->
