@@ -866,12 +866,18 @@ export function stampBuyDoc(row, { no, date, now = '' } = {}) {
  */
 export function scrapPoSuggest(entries, entity, poList = [], limit = 40) {
   if (!txt(entity)) return [];
+  // คืน [{ po, pn }] — P/N กำกับไว้ในตัวเลือก ใบที่ P/N ต่างกันจะได้แยกออก (issue #26 · ผู้ตรวจ #119 รอบ 2 ข้อ 3)
+  const pnOf = new Map();
+  const list = (poList || []).filter(p => p && txt(p.po))
+    // รายการ PO เรียงใหม่สุดก่อน — ถ้าปล่อยตามลำดับในฐานข้อมูล 40 ตัวแรกจะเป็นใบเก่าที่ไม่เกี่ยวกับวันนี้ (ข้อ 4)
+    .sort((a, b) => txt(b.date).localeCompare(txt(a.date)) || txt(b.po).localeCompare(txt(a.po)));
+  for (const p of list) if (!pnOf.has(txt(p.po))) pnOf.set(txt(p.po), txt(p.pn));
   const recent = (entries || [])
     .filter(e => e && e.entity === entity && e.kind === 'scrap' && !e.voided && txt(e.doc_ref))
-    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
-    .map(e => txt(e.doc_ref));
-  const out = [...new Set([...recent, ...(poList || []).map(p => txt(p && p.po)).filter(Boolean)])];
-  return out.slice(0, limit);
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  for (const e of recent) if (!pnOf.has(txt(e.doc_ref))) pnOf.set(txt(e.doc_ref), txt(e.part_no));
+  const order = [...new Set([...recent.map(e => txt(e.doc_ref)), ...list.map(p => txt(p.po))])];
+  return order.slice(0, limit).map(po => ({ po, pn: pnOf.get(po) || '' }));
 }
 
 /**

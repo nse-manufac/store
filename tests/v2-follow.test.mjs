@@ -1431,10 +1431,15 @@ console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้
                 scrap({ id: 'd', doc_ref: 'PO-X', voided: true }),
                 scrap({ id: 'e', doc_ref: 'PO-U', entity: 'TUE-U' }),
                 recv()];
-  const got = scrapPoSuggest(ents, 'TUE-H', [{ po: 'PO-9' }, { po: 'PO-1' }]);
-  ok('PO ที่เพิ่งคีย์ของเสียขึ้นก่อน (ใหม่สุดก่อน) แล้วต่อด้วยรายการ PO · ไม่ซ้ำ',
-     got.join() === 'PO-2,PO-1,PO-9', got.join());
-  ok('ของเสียที่ยกเลิก / ของนิติบุคคลอื่น ไม่ถูกแนะนำ (A3)', !got.includes('PO-X') && !got.includes('PO-U'));
+  const got = scrapPoSuggest(ents, 'TUE-H', [{ po: 'PO-9', pn: 'PN-9', date: '2026-08-01' }, { po: 'PO-1', pn: 'PN-1', date: '2026-09-01' },
+                                             { po: 'PO-8', pn: 'PN-8', date: '2026-09-20' }]);
+  const pos = got.map(x => x.po);
+  ok('PO ที่เพิ่งคีย์ของเสียขึ้นก่อน (ใหม่สุดก่อน) แล้วต่อด้วยรายการ PO ใหม่สุดก่อน · ไม่ซ้ำ',
+     pos.join() === 'PO-2,PO-1,PO-8,PO-9', pos.join());
+  ok('ของเสียที่ยกเลิก / ของนิติบุคคลอื่น ไม่ถูกแนะนำ (A3)', !pos.includes('PO-X') && !pos.includes('PO-U'));
+  ok('แต่ละตัวเลือกมี P/N กำกับ — จากรายการ PO ก่อน ไม่มีค่อยใช้ของในใบของเสีย (issue #26)',
+     got.find(x => x.po === 'PO-1').pn === 'PN-1' && got.find(x => x.po === 'PO-8').pn === 'PN-8', JSON.stringify(got));
+  ok('ตัดที่เพดาน — ไม่ล้น dropdown', scrapPoSuggest(ents, 'TUE-H', [], 1).length === 1);
   ok('ไม่มีนิติบุคคล = ไม่แนะนำอะไร', scrapPoSuggest(ents, '', [{ po: 'PO-9' }]).length === 0);
   const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('บันทึกของเสียแล้วล้าง PO กับ P/N — ไม่ค้างค่าเดิม',
@@ -1442,6 +1447,9 @@ console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้
   ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' })"));
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('ช่อง PO ที่เสียมี dropdown แนะนำ', (html.match(/list="scrappolist"/g) || []).length === 2 && html.includes('id="scrappolist"'));
+  ok('ป้ายเตือนขึ้นหลังออกจากช่องเท่านั้น ไม่ใช่ทุกตัวอักษร (ผู้ตรวจ #119 รอบ 2 ข้อ 2)',
+     html.includes('checked.mkPo === mk.po && poUnknown(mk.po)') && html.includes('checked.fbmPo === fbm.po && poUnknown(fbm.po)')
+     && html.includes('checked.fbmCode === fbm.code'));
   ok('คอลัมน์ PO ใหม่ซ่อนไว้ก่อน (ผู้ตรวจ #119 ข้อ 1)', !html.includes("r.s.next_po || 'ยังไม่รู้'"));
 }
 
