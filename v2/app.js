@@ -37,7 +37,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
-         pendingScraps, fromScrapRow, fromManualBuy, linkReceive, orphanBuys,
+         pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -1398,6 +1398,10 @@ createApp({
       const h = poHeader(pos.value, mk.po);
       if (h && h.pn) mk.part_no = h.pn;
     }
+    // dropdown ช่อง PO ที่เสีย — PO ที่เพิ่งคีย์ของเสียไว้ขึ้นก่อน (ตรรกะอยู่ที่ master/follow.js)
+    const scrapPos = computed(() => scrapPoSuggest(entries.value, entity.value, posVisible.value));
+    /** เตือน ไม่บล็อก (A4) — PO ที่ไม่มีในรายการ PO / รหัสที่ไม่มีในทะเบียน มักคือพิมพ์ผิด */
+    const poUnknown = po => !!(po && !poHeader(pos.value, po));
 
     async function saveMisc() {
       try {
@@ -1424,6 +1428,8 @@ createApp({
           ? `ปรับยอด ${mk.code} จาก ${was} เป็น ${mk.counted} แล้ว`
           : `บันทึก${mkDef.value.label} ${mk.qty} ${mkUnit.value} แล้ว`);
         mk.qty = null; mk.counted = null; mk.lot = ''; mk.note = '';
+        // ของเสีย: ล้าง PO ทุกครั้ง ไม่ค้างค่าเดิม — ของชิ้นถัดไปอาจเป็นงานของอีกใบ (เจ้าของเคาะ 2 ต.ค. 2026)
+        if (mk.kind === 'scrap') { mk.po = ''; mk.part_no = ''; }
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2392,7 +2398,8 @@ createApp({
           person: fsBy.value, date: todayLocal() });
         await fsPut(rec);
         flash(`เพิ่มเรื่องซื้อ ${rec.code} จำนวน ${rec.qty} แล้ว`);
-        Object.assign(fbm, { code: '', qty: null, note: '' });   // PO · P/N คงไว้ — มักคีย์หลายรหัสของใบเดียวกัน
+        // ล้างทุกช่อง ไม่ค้าง PO เดิม — กติกาเดียวกับหน้าของเสีย (เจ้าของเคาะ 2 ต.ค. 2026) · เลือกซ้ำได้จาก dropdown
+        Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' });
       } catch (err) { flash(err.message, true); }
     }
 
@@ -3182,7 +3189,7 @@ createApp({
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
-             ready, bootMsg, bootError, tab, entity, catOf,
+             ready, bootMsg, bootError, tab, entity, catOf, matOf,
              materials, entries, bom, q, fCat, fState, edit, toast,
              activeCount, needReview, shown, codeCheck, dupOf,
              startAdd, startEdit, saveEdit, approve,
@@ -3238,6 +3245,7 @@ createApp({
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmReady, onFbmPo, fbmSave,
+             scrapPos, poUnknown,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
   }
 }).mount('#app');

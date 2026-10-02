@@ -789,6 +789,21 @@ export function fromScrapRow(row, { entity, person = '', unit = '', date = '',
 }
 
 /**
+ * PO ที่แนะนำในช่อง "PO ที่เสีย" — PO ที่เพิ่งคีย์ของเสียไว้ขึ้นก่อน (ใหม่สุดก่อน) แล้วต่อด้วยรายการ PO
+ * เจ้าของเคาะ 2 ต.ค. 2026: ไม่ค้างค่าเดิมหลังบันทึก (กัน Old Po. ผิดใบ) แต่ให้กดเลือกจากที่เคยคีย์ได้ง่าย ๆ
+ * ⚠️ เฉพาะนิติบุคคลนี้ (A3) · ของเสียที่ยกเลิกแล้วไม่นับ
+ */
+export function scrapPoSuggest(entries, entity, poList = [], limit = 40) {
+  if (!txt(entity)) return [];
+  const recent = (entries || [])
+    .filter(e => e && e.entity === entity && e.kind === 'scrap' && !e.voided && txt(e.doc_ref))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .map(e => txt(e.doc_ref));
+  const out = [...new Set([...recent, ...(poList || []).map(p => txt(p && p.po)).filter(Boolean)])];
+  return out.slice(0, limit);
+}
+
+/**
  * ซื้อทดแทนที่คีย์เอง — ของที่ต้องสั่งแต่ไม่ได้มาจากของเสียในสมุด (เจ้าของเคาะ 2 ต.ค. 2026)
  * ไม่มี scrap_entry_id จึงไม่ถูกนับเป็นเรื่องที่ต้นเหตุหายไป (orphanBuys ข้ามให้)
  */
