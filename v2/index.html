@@ -1458,7 +1458,7 @@ textarea{font:inherit}
               <input v-model.trim="mk.lot" class="mono" placeholder="เว้นว่างได้"></label>
             <label class="f" style="width:150px" v-if="mk.kind==='scrap'" title="ใช้เป็น Old Po. ในใบสั่งซื้อทดแทน">PO ที่เสีย
               <input v-model.trim="mk.po" class="mono" placeholder="เลือกหรือพิมพ์" list="scrappolist" @change="onMkPo">
-              <span v-if="poUnknown(mk.po)" class="tag warn" style="margin-top:3px">ไม่มีในรายการ PO — ตรวจเลขอีกครั้ง</span></label>
+              <span v-if="checked.mkPo === mk.po && poUnknown(mk.po)" class="tag warn" style="margin-top:3px">ไม่มีในรายการ PO — ตรวจเลขอีกครั้ง</span></label>
             <label class="f" style="width:140px" v-if="mk.kind!=='adjust'">P/N ที่เกี่ยวข้อง
               <input v-model.trim="mk.part_no" class="mono" list="pnlist"></label>
 
@@ -2183,15 +2183,15 @@ textarea{font:inherit}
           <div class="row">
             <label class="f" style="width:190px">รหัสวัตถุดิบ
               <div class="row" style="gap:3px;flex-wrap:nowrap">
-                <input v-model.trim="fbm.code" class="mono grow" style="min-width:0">
+                <input v-model.trim="fbm.code" class="mono grow" style="min-width:0" @change="checked.fbmCode = fbm.code">
                 <button class="btn" style="padding:6px 9px" @click="openPick(fbm)">🔍</button>
               </div>
-              <span v-if="fbm.code && !matOf(fbm.code)" class="tag warn" style="margin-top:3px">ไม่มีในทะเบียน — ตรวจรหัสอีกครั้ง</span></label>
+              <span v-if="fbm.code && checked.fbmCode === fbm.code && !matOf(fbm.code)" class="tag warn" style="margin-top:3px">ไม่มีในทะเบียน — ตรวจรหัสอีกครั้ง</span></label>
             <label class="f" style="width:110px">จำนวน
               <input v-model.number="fbm.qty" type="number" step="any" class="mono"></label>
             <label class="f" style="width:150px">PO ที่เสีย
               <input v-model.trim="fbm.po" class="mono" placeholder="เลือกหรือพิมพ์" list="scrappolist" @change="onFbmPo">
-              <span v-if="poUnknown(fbm.po)" class="tag warn" style="margin-top:3px">ไม่มีในรายการ PO — ตรวจเลขอีกครั้ง</span></label>
+              <span v-if="checked.fbmPo === fbm.po && poUnknown(fbm.po)" class="tag warn" style="margin-top:3px">ไม่มีในรายการ PO — ตรวจเลขอีกครั้ง</span></label>
             <label class="f" style="width:140px">P/N
               <input v-model.trim="fbm.part_no" class="mono" list="pnlist"></label>
             <label class="f grow" style="min-width:160px">หมายเหตุ
@@ -2830,7 +2830,7 @@ textarea{font:inherit}
 
       <!-- รายการ P/N ใช้ร่วมกันหลายหน้า จึงต้องอยู่นอกแท็บ ไม่งั้นหน้าที่ไม่ได้เปิดจะหาไม่เจอ -->
       <datalist id="pnlist"><option v-for="p in bomPnCodes" :key="p" :value="p"></option></datalist>
-      <datalist id="scrappolist"><option v-for="p in scrapPos" :key="p" :value="p"></option></datalist>
+      <datalist id="scrappolist"><option v-for="p in scrapPos" :key="p.po" :value="p.po">{{ p.pn ? 'P/N ' + p.pn : '' }}</option></datalist>
 
       <!-- ════════ ตั้งทะเบียนจาก BOM ════════ -->
       <!-- มีอะไรใหม่ — บังคับเลื่อนอ่านจนจบ + ติ๊กก่อนปิด · ไม่มี @click.self โดยตั้งใจ (เจ้าของสั่ง 24 ก.ย. 2026) -->

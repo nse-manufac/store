@@ -1397,7 +1397,11 @@ createApp({
     function onMkPo() {
       const h = poHeader(pos.value, mk.po);
       if (h && h.pn) mk.part_no = h.pn;
+      checked.mkPo = mk.po;
     }
+    /* ป้ายเตือนขึ้นตอนออกจากช่อง (@change) ไม่ใช่ทุกตัวอักษร — ไม่งั้นป้ายโผล่/หายตลอดตอนพิมพ์ ช่องข้าง ๆ กระพริบ
+     * (ผู้ตรวจ #119 รอบ 2 ข้อ 2) · จำค่าที่ตรวจล่าสุดไว้ แก้ช่องใหม่แล้วป้ายหายจนกว่าจะออกจากช่องอีกครั้ง */
+    const checked = reactive({ mkPo: '', fbmPo: '', fbmCode: '' });
     // dropdown ช่อง PO ที่เสีย — PO ที่เพิ่งคีย์ของเสียไว้ขึ้นก่อน (ตรรกะอยู่ที่ master/follow.js)
     const scrapPos = computed(() => scrapPoSuggest(entries.value, entity.value, posVisible.value));
     /** เตือน ไม่บล็อก (A4) — PO ที่ไม่มีในรายการ PO / รหัสที่ไม่มีในทะเบียน มักคือพิมพ์ผิด */
@@ -2390,7 +2394,7 @@ createApp({
     // ── ซื้อทดแทนที่คีย์เอง (ไม่ได้มาจากของเสีย) ──
     const fbm = reactive({ code: '', qty: null, po: '', part_no: '', note: '' });
     const fbmReady = computed(() => !!(entity.value && fbm.code && Number(fbm.qty) > 0));
-    function onFbmPo() { const h = poHeader(pos.value, fbm.po); if (h && h.pn) fbm.part_no = h.pn; }
+    function onFbmPo() { const h = poHeader(pos.value, fbm.po); if (h && h.pn) fbm.part_no = h.pn; checked.fbmPo = fbm.po; }
     async function fbmSave() {
       try {
         const rec = fromManualBuy({ entity: entity.value, code: normCode(fbm.code), qty: Number(fbm.qty),
@@ -3245,7 +3249,7 @@ createApp({
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmReady, onFbmPo, fbmSave,
-             scrapPos, poUnknown,
+             scrapPos, poUnknown, checked,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
   }
 }).mount('#app');
