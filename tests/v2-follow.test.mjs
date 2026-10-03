@@ -1450,6 +1450,11 @@ console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้
   ok('ป้ายเตือนขึ้นหลังออกจากช่องเท่านั้น ไม่ใช่ทุกตัวอักษร (ผู้ตรวจ #119 รอบ 2 ข้อ 2)',
      html.includes('checked.mkPo === mk.po && poUnknown(mk.po)') && html.includes('checked.fbmPo === fbm.po && poUnknown(fbm.po)')
      && html.includes('checked.fbmCode === fbm.code'));
+  // ⚠️ ป้ายโผล่ตอน @change = ตอน mousedown บนปุ่มบันทึก · ถ้าป้ายเพิ่มความสูง ปุ่มเลื่อนหนีเมาส์ก่อน mouseup แล้วคลิกไม่ติด
+  //    (ผู้ตรวจ #119 รอบ 3) → จองที่ไว้เสมอ สลับแค่ visibility ห้ามใช้ v-if
+  ok('ป้ายเตือน PO/รหัส จองที่ไว้ (visibility) ไม่ใช่ v-if — ปุ่มบันทึกไม่เลื่อนตอนกด',
+     !/v-if="[^"]*(poUnknown\((mk|fbm)\.po\)|checked\.fbmCode)/.test(html)
+     && (html.match(/:style="\{ visibility: [^"]*(poUnknown\((mk|fbm)\.po\)|checked\.fbmCode)/g) || []).length === 3);
   ok('คอลัมน์ PO ใหม่ซ่อนไว้ก่อน (ผู้ตรวจ #119 ข้อ 1)', !html.includes("r.s.next_po || 'ยังไม่รู้'"));
 }
 
