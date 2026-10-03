@@ -1404,8 +1404,13 @@ console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้
   ok('ตัดที่เพดาน — ไม่ล้น dropdown', scrapPoSuggest(ents, 'TUE-H', [], 1).length === 1);
   ok('ไม่มีนิติบุคคล = ไม่แนะนำอะไร', scrapPoSuggest(ents, '', [{ po: 'PO-9' }]).length === 0);
   const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  ok('บันทึกของเสียแล้วล้าง PO กับ P/N — ไม่ค้างค่าเดิม',
-     appSrc.includes("if (mk.kind === 'scrap') { mk.po = ''; mk.part_no = ''; }"));
+  /* ⚠️ ฟอร์ม "งานอื่น ๆ" ใช้ร่วมกันสามชนิด — ถ้าล้าง PO เฉพาะตอนบันทึกชนิด scrap
+   *    คนที่พิมพ์ PO ไว้แล้วสลับไปบันทึกคืนของ/ปรับยอด จะเหลือ PO ค้างสวมของเสียใบถัดไป
+   *    (ผู้ตรวจ #119 รอบ 6 ข้อ 1) → ล้างทุกครั้งที่บันทึกสำเร็จ ห้ามอยู่ใต้เงื่อนไขชนิด */
+  ok('บันทึกสำเร็จแล้วล้าง PO ทุกครั้ง ไม่ใช่เฉพาะชนิดของเสีย — ไม่ค้างข้ามใบ',
+     /\n\s*mk\.po = '';/.test(appSrc) && !/if \(mk\.kind === 'scrap'\)[^\n]*mk\.po/.test(appSrc));
+  ok('บันทึกของเสียแล้วล้าง P/N ด้วย (ชนิดอื่นยังคงค่าไว้ตามเดิม)',
+     appSrc.includes("if (mk.kind === 'scrap') { mk.part_no = ''; }"));
   ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' })"));
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('ช่อง PO ที่เสียมี dropdown แนะนำ', (html.match(/list="scrappolist"/g) || []).length === 2 && html.includes('id="scrappolist"'));
