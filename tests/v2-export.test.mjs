@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { localDate, localTime, atFrom, todayLocal } from '../v2/core/localtime.js';
 import { BINCARD_TPL, toCardLines, sheetNameFor, safeFileName,
          writeBinCard, UNKNOWN_KIND_NOTE, SO_HEAD, SO_SCALE,
-         soWidths, textWidth, fitScale, FIT_MAX } from '../v2/export/bincard.js';
+         soWidths, textWidth, fitScale, FIT_MAX, writeBuyPo, BUYPO } from '../v2/export/bincard.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -273,6 +273,36 @@ console.log('\n=== F. ขยายคอลัมน์ให้พอดีข�
   ok('คำเตือนยาวใต้แถวรวมไม่ทำให้คอลัมน์ No (B) ขยาย', widthOf(ws3, 'B') === base.B, String(widthOf(ws3, 'B')));
   ok('fitColWidths อยู่นอก applyTpl / writeCard (หมวด C) และทำหลัง addShortOverCols',
      /addShortOverCols\(ws, lines\);\s*fitColWidths\(ws, lines\);/.test(fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8')));
+}
+
+console.log('\n=== G. ใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) ===');
+{
+  const ws = fakeWs();
+  const groups = [
+    { part_no: 'PN-1', po: 'PO-A', lines: [{ id: 'a', code: 'C1', desc: 'ของ 1', qty: 3, unit: 'MTR', note: '5 Roll' },
+                                           { id: 'b', code: 'C2', desc: 'ของ 2', qty: 0.5, unit: 'KGM', note: '' }] },
+    { part_no: 'PN-2', po: 'PO-B', lines: [{ id: 'c', code: 'C3', desc: 'ของ 3', qty: 10, unit: 'PCE', note: '' }] }];
+  const res = writeBuyPo(ws, { company: 'บริษัทสมมติ', address: 'ที่อยู่สมมติ', entity: 'TUE-H',
+                               docNo: '2.10.26 H', date: '2026-10-02', requestBy: 'ผู้ทดสอบ', groups });
+  const v = a => ws.getCell(a).value;
+  ok('หัวกระดาษมาจากทะเบียนนิติบุคคลที่ส่งเข้ามา ไม่ใช่ค่าตายตัว', v('B4') === 'บริษัทสมมติ' && v('B5') === 'ที่อยู่สมมติ');
+  ok('เลขใบ · รหัสฟอร์ม · SUB · DATE แบบ dd/mm/yyyy',
+     String(v('I3')).includes('2.10.26 H') && String(v('I2')).includes(BUYPO.docCode)
+     && String(v('C7')).includes('TUE-H') && String(v('I7')).includes('02/10/2026'));
+  ok('หัวตารางตามฟอร์มเดิม', v('B8') === 'Item' && v('C8') === 'Part NO.' && v('D8') === 'Old Po.' && v('I8') === 'REMARK');
+  ok('Item / P/N / PO เขียนเฉพาะบรรทัดแรกของกลุ่ม',
+     v('B9') === 1 && v('C9') === 'PN-1' && v('D9') === 'PO-A' && v('E9') === 'C1' && v('G9') === 3 && v('I9') === '5 Roll'
+     && v('B10') == null && v('C10') == null && v('E10') === 'C2' && v('B11') === 2 && v('D11') === 'PO-B');
+  ok('บรรทัดว่างเผื่อเขียนมือ — ท้ายใบอยู่หลังแถวขั้นต่ำ', res.lastRow === 9 + BUYPO.minRows + 1, String(res.lastRow));
+  ok('ท้ายใบนับ P/N กับรายการให้ · Request By',
+     String(v('B' + (res.lastRow - 1))).includes('2  P/N') && String(v('B' + (res.lastRow - 1))).includes('3 รายการ')
+     && String(v('B' + res.lastRow)).includes('ผู้ทดสอบ'));
+  ok('พิมพ์ A4 นอน พอดีกว้างหนึ่งหน้า · หัวตารางซ้ำทุกหน้า',
+     ws.pageSetup.paperSize === 9 && ws.pageSetup.fitToWidth === 1 && ws.pageSetup.printTitlesRow === '8:8'
+     && ws.pageSetup.printArea === 'A1:I' + res.lastRow);
+  const src = fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8');
+  ok('ไม่มีชื่อบริษัทเขียนตายตัวในตัวเขียนใบสั่งซื้อ (repo สาธารณะ)',
+     !/Thai Union|ทีพีพี|Co\.,Ltd/i.test(src.slice(src.indexOf('ใบสั่งซื้อทดแทน FM-PU-02'))));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

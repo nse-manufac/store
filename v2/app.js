@@ -19,7 +19,7 @@ import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, ro
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
 import { localDate, atFrom, todayLocal } from './core/localtime.js';
-import { writeBinCard, toCardLines, sheetNameFor, safeFileName } from './export/bincard.js';
+import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl } from './core/sync.js';
@@ -38,6 +38,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
+         buyDocNo, buyDocNos, buyDocPick, buyDocGroups, stampBuyDoc,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -2393,6 +2394,52 @@ createApp({
     }));
     const fbRows = computed(() => fbAll.value.slice(0, SHOW_MAX));
     /** เรื่องที่ต้นเหตุหายไปแล้ว — แสดงให้เห็น ไม่ตัดสินแทนคน */
+    /* ── ใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) ── ตรรกะอยู่ที่ master/follow.js · ไฟล์ที่ export/bincard.js
+     * ติ๊กเรื่อง → จัดกลุ่ม P/N + PO → ออก Excel → ติดเลขใบไว้ที่เรื่อง (กันสั่งซ้ำ)
+     * ⚠️ เลขใบเก็บในชีต Shorts คอลัมน์ pr_no · pr_date — ต้อง deploy Apps Script รุ่นที่มีสองคอลัมน์นี้ */
+    const fbPick = reactive({});
+    const fbDoc = reactive({ date: todayLocal(), busy: false });
+    const fbPicked = computed(() => entity.value
+      ? buyDocPick(shorts.value, entity.value, Object.keys(fbPick).filter(k => fbPick[k])).rows : []);
+    const fbDocGroups = computed(() => buyDocGroups(fbPicked.value));
+    const fbCanPick = s => !s.voided && !s.pr_no && statusOf(s) !== 'done';
+    const descOf = c => { const m = matOf(c); return m ? m.description : ''; };
+    async function buyDocFile(no, date, rows) {
+      await loadLib('lib/exceljs.min.js', 'ExcelJS');
+      const ent = entities.value.find(e => e.entity_code === entity.value) || {};
+      const groups = buyDocGroups(rows).map(g => ({ ...g, lines: g.lines.map(l => ({ ...l, desc: descOf(l.code) })) }));
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'ระบบ Bin Card';
+      const ws = wb.addWorksheet(sheetNameFor(no));
+      writeBuyPo(ws, { company: ent.company_name || '', address: ent.address || '', entity: entity.value,
+                       docNo: no, date, requestBy: fsBy.value, groups });
+      saveBlob(new Blob([await wb.xlsx.writeBuffer()], { type: 'application/octet-stream' }),
+               `ใบสั่งซื้อ ${safeFileName(no)}.xlsx`);
+    }
+    async function fbIssue() {
+      if (fbDoc.busy) return;
+      if (!fsBy.value) { flash('ยังไม่ได้ใส่ชื่อผู้บันทึก — ใส่ที่ช่อง "ผู้บันทึก" ก่อน จะขึ้นเป็น Request By ในใบ', true); return; }
+      const rows = fbPicked.value;
+      if (!rows.length) { flash('ยังไม่ได้ติ๊กเรื่องที่จะใส่ในใบ', true); return; }
+      fbDoc.busy = true;
+      try {
+        const no = buyDocNo(fbDoc.date, entity.value, buyDocNos(shorts.value, entity.value));
+        await buyDocFile(no, fbDoc.date, rows);        // ไฟล์ออกได้ก่อน แล้วค่อยติดเลข — ออกไฟล์พังจะได้ไม่มีเลขค้าง
+        const now = new Date().toISOString();
+        for (const r of rows) await fsPut(stampBuyDoc(plain(r), { no, date: fbDoc.date, now }));
+        for (const k of Object.keys(fbPick)) delete fbPick[k];
+        flash(`ออกใบสั่งซื้อ ${no} แล้ว — ${rows.length} รายการ · ติดเลขใบไว้ที่เรื่องแล้ว`);
+      } catch (err) { flash('ออกใบสั่งซื้อไม่สำเร็จ: ' + err.message + ' — ลองกดอีกครั้ง', true); }
+      finally { fbDoc.busy = false; }
+    }
+    /** ออกไฟล์ใบเดิมซ้ำ (เช่นทำไฟล์หาย) — เลขใบเดิม ไม่ติดเลขใหม่ */
+    async function fbReissue(no) {
+      const rows = shorts.value.filter(f => f.kind === 'buy' && f.entity === entity.value && f.pr_no === no && !f.voided);
+      if (!rows.length) { flash('ไม่เจอเรื่องของใบ ' + no, true); return; }
+      try { await buyDocFile(no, rows[0].pr_date, rows); flash('ออกไฟล์ใบ ' + no + ' อีกครั้งแล้ว'); }
+      catch (err) { flash('ออกไฟล์ไม่สำเร็จ: ' + err.message, true); }
+    }
+
     const fbOrphans = computed(() =>
       entity.value ? orphanBuys(entries.value, entity.value, shorts.value) : []);
 
@@ -3254,6 +3301,7 @@ createApp({
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmReady, onFbmPo, fbmSave,
+             fbPick, fbDoc, fbPicked, fbDocGroups, fbCanPick, fbIssue, fbReissue,
              scrapPos, poUnknown, checked,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
   }

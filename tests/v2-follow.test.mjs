@@ -13,6 +13,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
+         entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver }
   from '../v2/master/follow.js';
@@ -1383,6 +1384,43 @@ console.log('\n=== O. ใบสั่งซื้อทดแทน — PO ท�
      /if \(row\.next_po && !inH\.po\) inH\.po = row\.next_po;/.test(appSrc) && !/inH\.po = row\.po;/.test(appSrc));
   ok('หน้าของเสียเขียน PO ลง doc_ref เฉพาะชนิดของเสีย',
      appSrc.includes("...(mk.kind === 'scrap' && mk.po ? { doc_kind: 'po', doc_ref: mk.po } : {})"));
+}
+
+console.log('\n=== P. ออกใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) ===');
+{
+  ok('ตัวย่อนิติบุคคล — TUE-H → H · ไม่มีขีดใช้ทั้งรหัส', entityTag('TUE-H') === 'H' && entityTag('nse') === 'NSE');
+  ok('เลขใบแบบชื่อชีตเดิม "วัน.เดือน.ปี นิติบุคคล"', buyDocNo('2026-09-22', 'TUE-H') === '22.9.26 H');
+  ok('วันเดียวกันออกใบที่สอง/สาม ต่อท้าย -2 -3',
+     buyDocNo('2026-09-22', 'TUE-H', ['22.9.26 H']) === '22.9.26 H-2'
+     && buyDocNo('2026-09-22', 'TUE-H', ['22.9.26 H', '22.9.26 H-2']) === '22.9.26 H-3');
+  throws('เลขใบไม่บอกนิติบุคคลไม่ได้ (A3)', () => buyDocNo('2026-09-22', ''), 'A3');
+  throws('วันที่ผิดรูปต้องบอกทางออก', () => buyDocNo('22/9/2026', 'TUE-H'), 'วันที่');
+
+  const B = (o = {}) => ({ ...fromManualBuy({ entity: 'TUE-H', code: C1, qty: 4, unit: 'MTR', po: 'PO-A', part_no: 'PN-2' }), ...o });
+  const b1 = B({ id: 'B1', code: 'Z9' }), b2 = B({ id: 'B2', code: 'A1' }),
+        b3 = B({ id: 'B3', po: 'PO-B', part_no: 'PN-1' }),
+        bDone = B({ id: 'B4', done: true, done_qty: 4 }), bVoid = B({ id: 'B5', voided: true }),
+        bU = B({ id: 'B6', entity: 'TUE-U' }), bStamped = B({ id: 'B7', pr_no: '1.10.26 H', pr_date: '2026-10-01' });
+  const all = [b1, b2, b3, bDone, bVoid, bU, bStamped];
+  const pick = buyDocPick(all, 'TUE-H', all.map(x => x.id));
+  ok('ใส่ในใบได้เฉพาะเรื่องที่ยังเปิด · ไม่ยกเลิก · นิติบุคคลเดียวกัน · ยังไม่ออกใบ',
+     pick.rows.map(x => x.id).join() === 'B1,B2,B3' && pick.skipped.length === 4, JSON.stringify(pick.skipped));
+  ok('เรื่องที่ออกใบแล้วบอกเลขใบเดิม', pick.skipped.some(x => x.id === 'B7' && x.why.includes('1.10.26 H')));
+  ok('เลขใบที่ใช้ไปแล้วนับเฉพาะนิติบุคคลนี้', buyDocNos(all, 'TUE-H').join() === '1.10.26 H' && buyDocNos(all, 'TUE-U').length === 0);
+
+  const g = buyDocGroups(pick.rows);
+  ok('จัดกลุ่ม Item = P/N + PO · เรียงตาม P/N · บรรทัดในกลุ่มเรียงตามรหัส',
+     g.length === 2 && g[0].part_no === 'PN-1' && g[1].part_no === 'PN-2'
+     && g[1].lines.map(l => l.code).join() === 'A1,Z9', JSON.stringify(g));
+  ok('จำนวนในใบ = ยอดที่ยังค้าง', g[0].lines[0].qty === 4);
+
+  const st = stampBuyDoc(b1, { no: '2.10.26 H', date: '2026-10-02', now: '2026-10-02T03:00:00.000Z' });
+  ok('ติดเลขใบแล้ว id / created_at ไม่ขยับ (B3) · updated_at เดินหน้า',
+     st.pr_no === '2.10.26 H' && st.pr_date === '2026-10-02' && st.id === b1.id && st.created_at === b1.created_at
+     && st.updated_at === '2026-10-02T03:00:00.000Z');
+  throws('ติดเลขซ้ำไม่ได้ — กันสั่งของสองรอบ', () => stampBuyDoc(st, { no: 'x', date: '2026-10-02' }), 'ออกใบไปแล้ว');
+  throws('ติดเลขใบได้เฉพาะเรื่องซื้อ', () => stampBuyDoc({ kind: 'short' }, { no: 'x', date: 'y' }), 'ซื้อทดแทน');
+  ok('เรื่องใหม่เริ่มที่ยังไม่ออกใบ', b1.pr_no === '' && b1.pr_date === '');
 }
 
 console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้างค่าเดิม · dropdown แนะนำ (เจ้าของเคาะ 2 ต.ค. 2026) ===');
