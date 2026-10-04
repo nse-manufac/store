@@ -12,7 +12,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         buyFor, pendingScraps, fromScrapRow, linkReceive, orphanBuys,
+         buyFor, pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver }
   from '../v2/master/follow.js';
@@ -708,7 +708,9 @@ ok('ตั้งเรื่องแล้วได้งานตามแบ�
    buyCase.kind === 'buy' && buyCase.qty === 6 && buyCase.code === C1);
 ok('ผูกกับรายการของเสียใบนั้นไว้ ไล่ย้อนได้ว่าซื้อแทนของที่เสียครั้งไหน',
    buyCase.scrap_entry_id === 'S1' && buyCase.source === 'auto');
-ok('PO ยังว่างได้ — ตอนตั้งเรื่องมักยังไม่รู้ว่า Delta จะออกใบไหน', buyCase.po === '');
+// po ของเรื่องซื้อ = PO เดิมที่ของเสียเกิด (Old Po.) · ของเสียที่ไม่ได้อ้าง PO ก็ว่างได้
+ok('ของเสียไม่ได้อ้าง PO — เรื่องซื้อตั้งได้ PO ว่าง · PO ใหม่ (next_po) ยังไม่รู้',
+   buyCase.po === '' && buyCase.next_po === '');
 throws('ตั้งเรื่องโดยไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromScrapRow(scrapRow, {}), 'A3');
 throws('ไม่มีรายการของเสียก็ตั้งเรื่องไม่ได้',
        () => fromScrapRow(null, { entity: 'TUE-H' }), 'ของเสีย');
@@ -1352,6 +1354,87 @@ console.log('\n=== S. Short / Over บน Bin Card (เจ้าของสั�
      cardShortOver([negRows[1]], negOpt)[0].short === 10, JSON.stringify(cardShortOver([negRows[1]], negOpt)));
   ok('ยอดสะสมยังเก็บตามจริง — รับเพิ่ม 6 หลังติดลบ 4 ได้ขาด 8 ไม่ใช่ 4',
      cardShortOver([...negRows, { kind: 'receive', doc_ref: 'PA', material_code: 'M', qty: 6 }], negOpt)[2].short === 8);
+}
+
+console.log('\n=== O. ใบสั่งซื้อทดแทน — PO ที่เสีย · คีย์เพิ่มเอง (เจ้าของเคาะ 2 ต.ค. 2026) ===');
+{
+  const sc = scrap({ doc_kind: 'po', doc_ref: 'PO-OLD-1', part_no: 'PN-1' });
+  const row = pendingScraps([sc], 'TUE-H', [])[0];
+  ok('ของเสียที่อ้าง PO — รายการรอตั้งเรื่องพก PO กับ P/N มาด้วย', row.po === 'PO-OLD-1' && row.part_no === 'PN-1',
+     JSON.stringify(row));
+  const b = fromScrapRow(row, { entity: 'TUE-H', person: 'ก', unit: 'PCS' });
+  ok('เรื่องซื้อจากของเสีย — po = PO เดิม · part_no ติดไป · next_po ยังว่าง',
+     b.po === 'PO-OLD-1' && b.part_no === 'PN-1' && b.next_po === '' && b.scrap_entry_id === 'S1');
+
+  const m = fromManualBuy({ entity: 'TUE-H', code: C1, qty: 3, unit: 'MTR', po: 'PO-OLD-2', part_no: 'PN-2',
+                            note: '5 Roll', person: 'ก' });
+  ok('ซื้อที่คีย์เอง — ไม่ต้องผูกของเสีย · source manual · รหัสเป็นตัวใหญ่',
+     m.kind === 'buy' && m.source === 'manual' && m.scrap_entry_id === '' && m.code === C1.toUpperCase()
+     && m.po === 'PO-OLD-2' && m.part_no === 'PN-2' && m.note === '5 Roll', JSON.stringify(m));
+  ok('ซื้อที่คีย์เองไม่ถูกนับเป็นเรื่องที่ต้นเหตุหายไป', orphanBuys([sc], 'TUE-H', [m]).length === 0);
+  throws('ซื้อที่คีย์เอง ไม่บอกนิติบุคคลไม่ได้ (A3)', () => fromManualBuy({ code: C1, qty: 1 }), 'A3');
+  throws('ซื้อที่คีย์เอง จำนวนต้องมากกว่าศูนย์', () => fromManualBuy({ entity: 'TUE-H', code: C1, qty: 0 }), 'จำนวน');
+  // ⚠️ ยกเว้นเฉพาะ manual — เรื่องที่ระบบตั้ง (auto) ไม่ผูกของเสีย = ตั้งซ้ำได้โดยไม่รู้ตัว
+  throws('เรื่องซื้อที่ไม่ใช่คีย์เอง ยังต้องผูกรายการของเสีย',
+         () => makeFollow({ kind: 'buy', entity: 'TUE-H', code: C1, qty: 1, source: 'auto' }), 'ต้องระบุ');
+
+  const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('ปุ่มไปรับของเติม PO จาก next_po (PO ใหม่) ไม่ใช่ po (PO เดิมที่ของเสียเกิด)',
+     /if \(row\.next_po && !inH\.po\) inH\.po = row\.next_po;/.test(appSrc) && !/inH\.po = row\.po;/.test(appSrc));
+  ok('หน้าของเสียเขียน PO ลง doc_ref เฉพาะชนิดของเสีย',
+     appSrc.includes("...(mk.kind === 'scrap' && mk.po ? { doc_kind: 'po', doc_ref: mk.po } : {})"));
+}
+
+console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้างค่าเดิม · dropdown แนะนำ (เจ้าของเคาะ 2 ต.ค. 2026) ===');
+{
+  const ents = [scrap({ id: 'a', doc_ref: 'PO-1', at: '2026-09-01T00:00:00Z' }),
+                scrap({ id: 'b', doc_ref: 'PO-2', at: '2026-09-03T00:00:00Z' }),
+                scrap({ id: 'c', doc_ref: 'PO-1', at: '2026-09-02T00:00:00Z' }),
+                scrap({ id: 'd', doc_ref: 'PO-X', voided: true }),
+                scrap({ id: 'e', doc_ref: 'PO-U', entity: 'TUE-U' }),
+                recv()];
+  const got = scrapPoSuggest(ents, 'TUE-H', [{ po: 'PO-9', pn: 'PN-9', date: '2026-08-01' }, { po: 'PO-1', pn: 'PN-1', date: '2026-09-01' },
+                                             { po: 'PO-8', pn: 'PN-8', date: '2026-09-20' }]);
+  const pos = got.map(x => x.po);
+  ok('PO ที่เพิ่งคีย์ของเสียขึ้นก่อน (ใหม่สุดก่อน) แล้วต่อด้วยรายการ PO ใหม่สุดก่อน · ไม่ซ้ำ',
+     pos.join() === 'PO-2,PO-1,PO-8,PO-9', pos.join());
+  ok('ของเสียที่ยกเลิก / ของนิติบุคคลอื่น ไม่ถูกแนะนำ (A3)', !pos.includes('PO-X') && !pos.includes('PO-U'));
+  ok('แต่ละตัวเลือกมี P/N กำกับ — จากรายการ PO ก่อน ไม่มีค่อยใช้ของในใบของเสีย (issue #26)',
+     got.find(x => x.po === 'PO-1').pn === 'PN-1' && got.find(x => x.po === 'PO-8').pn === 'PN-8', JSON.stringify(got));
+  ok('ตัดที่เพดาน — ไม่ล้น dropdown', scrapPoSuggest(ents, 'TUE-H', [], 1).length === 1);
+  ok('ไม่มีนิติบุคคล = ไม่แนะนำอะไร', scrapPoSuggest(ents, '', [{ po: 'PO-9' }]).length === 0);
+  const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  /* ⚠️ ฟอร์ม "งานอื่น ๆ" ใช้ร่วมกันสามชนิด — ถ้าล้าง PO เฉพาะตอนบันทึกชนิด scrap
+   *    คนที่พิมพ์ PO ไว้แล้วสลับไปบันทึกคืนของ/ปรับยอด จะเหลือ PO ค้างสวมของเสียใบถัดไป
+   *    (ผู้ตรวจ #119 รอบ 6 ข้อ 1) → ล้างทุกครั้งที่บันทึกสำเร็จ ห้ามอยู่ใต้เงื่อนไขชนิด */
+  ok('บันทึกสำเร็จแล้วล้าง PO ทุกครั้ง ไม่ใช่เฉพาะชนิดของเสีย — ไม่ค้างข้ามใบ',
+     /\n\s*mk\.po = '';/.test(appSrc) && !/if \(mk\.kind === 'scrap'\)[^\n]*mk\.po/.test(appSrc));
+  ok('บันทึกของเสียแล้วล้าง P/N ด้วย (ชนิดอื่นยังคงค่าไว้ตามเดิม)',
+     appSrc.includes("if (mk.kind === 'scrap') { mk.part_no = ''; }"));
+  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' })"));
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('ช่อง PO ที่เสียมี dropdown แนะนำ', (html.match(/list="scrappolist"/g) || []).length === 2 && html.includes('id="scrappolist"'));
+  ok('ป้ายเตือนขึ้นหลังออกจากช่องเท่านั้น ไม่ใช่ทุกตัวอักษร (ผู้ตรวจ #119 รอบ 2 ข้อ 2)',
+     html.includes('checked.mkPo === mk.po && poUnknown(mk.po)') && html.includes('checked.fbmPo === fbm.po && poUnknown(fbm.po)')
+     && html.includes('checked.fbmCode === fbm.code'));
+  // ⚠️ ป้ายโผล่ตอน @change = ตอน mousedown บนปุ่มบันทึก · ถ้าป้ายเพิ่มความสูง ปุ่มเลื่อนหนีเมาส์ก่อน mouseup แล้วคลิกไม่ติด
+  //    (ผู้ตรวจ #119 รอบ 3) → จองที่ไว้เสมอ สลับแค่ visibility ห้ามใช้ v-if
+  ok('ป้ายเตือน PO/รหัส จองที่ไว้ (visibility) ไม่ใช่ v-if — ปุ่มบันทึกไม่เลื่อนตอนกด',
+     !/v-if="[^"]*(poUnknown\((mk|fbm)\.po\)|checked\.fbmCode)/.test(html)
+     && (html.match(/:style="\{ visibility: [^"]*(poUnknown\((mk|fbm)\.po\)|checked\.fbmCode)/g) || []).length === 3);
+  ok('คอลัมน์ PO ใหม่ซ่อนไว้ก่อน (ผู้ตรวจ #119 ข้อ 1)', !html.includes("r.s.next_po || 'ยังไม่รู้'"));
+}
+
+console.log('\n=== O3. ฟังก์ชันที่เทมเพลตเรียก ต้องถูกส่งออกจาก setup ===');
+{
+  /* ⚠️ เทมเพลตเรียกฟังก์ชันที่ setup ไม่ได้ return = หน้าจอขาวทั้งหน้าตอนเปิดแท็บนั้น (Vue prod กลืน error)
+   *    เจอจริงตอนเปิดเบราว์เซอร์ตรวจ #119 — ป้าย "ไม่มีในทะเบียน" เรียก matOf ที่ไม่ได้ส่งออก */
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const ret = app.slice(app.lastIndexOf('return {'));
+  const used = [...new Set([...html.matchAll(/\b(matOf|catOf|unitOf|poUnknown|fbCanPick)\(/g)].map(m => m[1]))];
+  const missing = used.filter(f => !new RegExp('\\b' + f + '\\b').test(ret));
+  ok('ฟังก์ชันที่เทมเพลตเรียก (matOf · catOf · poUnknown …) ส่งออกครบ', missing.length === 0, missing.join(','));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

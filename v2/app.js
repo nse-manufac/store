@@ -37,7 +37,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
-         pendingScraps, fromScrapRow, linkReceive, orphanBuys,
+         pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -1358,7 +1358,7 @@ createApp({
     // สามชนิดนี้คือส่วนที่ v1 ไม่มีเลย พนักงานจึงต้องเอาไปแอบใส่ในจ่ายออก
     // ผลคือยอด "จ่ายออก" ในรายงานปนของเสียอยู่ข้างใน แยกกันไม่ออกย้อนหลัง
     const mk = reactive({ kind: 'scrap', code: '', qty: null, counted: null,
-                          lot: '', part_no: '', reason: '', note: '',
+                          lot: '', po: '', part_no: '', reason: '', note: '',
                           date: todayLocal(), person: '' });
 
     const mkDef = computed(() => KINDS[mk.kind]);
@@ -1393,6 +1393,19 @@ createApp({
     // แล้วจะไปตกตอน makeEntry ซึ่งสายเกินไปที่จะบอกพนักงาน
     watch(() => mk.kind, () => { mk.reason = ''; });
     function onMkCode() { mk.lot = ''; }
+    /** ของเสียอ้าง PO — เติม P/N จากไฟล์ PO รายวันให้ (ช่อง Old Po. ของใบสั่งซื้อทดแทน · เจ้าของเคาะ 2 ต.ค. 2026) */
+    function onMkPo() {
+      const h = poHeader(pos.value, mk.po);
+      if (h && h.pn) mk.part_no = h.pn;
+      checked.mkPo = mk.po;
+    }
+    /* ป้ายเตือนขึ้นตอนออกจากช่อง (@change) ไม่ใช่ทุกตัวอักษร — ไม่งั้นป้ายโผล่/หายตลอดตอนพิมพ์ ช่องข้าง ๆ กระพริบ
+     * (ผู้ตรวจ #119 รอบ 2 ข้อ 2) · จำค่าที่ตรวจล่าสุดไว้ แก้ช่องใหม่แล้วป้ายหายจนกว่าจะออกจากช่องอีกครั้ง */
+    const checked = reactive({ mkPo: '', fbmPo: '', fbmCode: '' });
+    // dropdown ช่อง PO ที่เสีย — PO ที่เพิ่งคีย์ของเสียไว้ขึ้นก่อน (ตรรกะอยู่ที่ master/follow.js)
+    const scrapPos = computed(() => scrapPoSuggest(entries.value, entity.value, posVisible.value));
+    /** เตือน ไม่บล็อก (A4) — PO ที่ไม่มีในรายการ PO / รหัสที่ไม่มีในทะเบียน มักคือพิมพ์ผิด */
+    const poUnknown = po => !!(po && !poHeader(pos.value, po));
 
     async function saveMisc() {
       try {
@@ -1401,6 +1414,8 @@ createApp({
         const base = {
           entity: entity.value, kind: mk.kind, material_code: mk.code,
           lot: mk.lot, part_no: mk.part_no, reason_code: mk.reason, note: mk.note.trim(),
+          // PO เก็บเฉพาะของเสีย — ใบสั่งซื้อทดแทนต้องรู้ว่าเสียจากงานของ PO ไหน
+          ...(mk.kind === 'scrap' && mk.po ? { doc_kind: 'po', doc_ref: mk.po } : {}),
           at: atFrom(mk.date),
           person: mk.person, device: device.value
         };
@@ -1417,6 +1432,13 @@ createApp({
           ? `ปรับยอด ${mk.code} จาก ${was} เป็น ${mk.counted} แล้ว`
           : `บันทึก${mkDef.value.label} ${mk.qty} ${mkUnit.value} แล้ว`);
         mk.qty = null; mk.counted = null; mk.lot = ''; mk.note = '';
+        /* ล้าง PO ทุกครั้งที่บันทึกสำเร็จ ไม่ค้างค่าเดิม — ของชิ้นถัดไปอาจเป็นงานของอีกใบ (เจ้าของเคาะ 2 ต.ค. 2026)
+         * ⚠️ ล้างนอกเงื่อนไขชนิด: ฟอร์มนี้ใช้ร่วมกันสามชนิด พิมพ์ PO ตอนของเสียแล้วสลับไปบันทึกคืนของ/ปรับยอด
+         * PO จะค้างรอสวมของเสียใบถัดไป = Old Po. ผิดใบ (ผู้ตรวจ #119 รอบ 6 ข้อ 1)
+         * ช่องนี้มีแต่ของเสียที่เห็นและที่เขียนลงสมุด การล้างตอนบันทึกชนิดอื่นจึงไม่กระทบอะไร */
+        mk.po = '';
+        // P/N ยังคงค่าไว้ข้ามการบันทึกตามพฤติกรรมเดิมของหน้านี้ (คีย์คืนของหลายบรรทัดของ P/N เดียวกัน)
+        if (mk.kind === 'scrap') { mk.part_no = ''; }
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2374,6 +2396,22 @@ createApp({
     const fbOrphans = computed(() =>
       entity.value ? orphanBuys(entries.value, entity.value, shorts.value) : []);
 
+    // ── ซื้อทดแทนที่คีย์เอง (ไม่ได้มาจากของเสีย) ──
+    const fbm = reactive({ code: '', qty: null, po: '', part_no: '', note: '' });
+    const fbmReady = computed(() => !!(entity.value && fbm.code && Number(fbm.qty) > 0));
+    function onFbmPo() { const h = poHeader(pos.value, fbm.po); if (h && h.pn) fbm.part_no = h.pn; checked.fbmPo = fbm.po; }
+    async function fbmSave() {
+      try {
+        const rec = fromManualBuy({ entity: entity.value, code: normCode(fbm.code), qty: Number(fbm.qty),
+          unit: unitOf(fbm.code), po: fbm.po, part_no: fbm.part_no, note: fbm.note,
+          person: fsBy.value, date: todayLocal() });
+        await fsPut(rec);
+        flash(`เพิ่มเรื่องซื้อ ${rec.code} จำนวน ${rec.qty} แล้ว`);
+        // ล้างทุกช่อง ไม่ค้าง PO เดิม — กติกาเดียวกับหน้าของเสีย (เจ้าของเคาะ 2 ต.ค. 2026) · เลือกซ้ำได้จาก dropdown
+        Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' });
+      } catch (err) { flash(err.message, true); }
+    }
+
     async function fbStart(row) {
       try {
         const rec = fromScrapRow(row, { entity: entity.value, person: fsBy.value,
@@ -2406,7 +2444,8 @@ createApp({
       if (!buyWaits.value.some(w => w.id === row.id)) {
         buyWaits.value.push({ id: row.id, code: normCode(row.code) });
       }
-      if (row.po && !inH.po) inH.po = row.po;
+      // ⚠️ next_po = PO ใหม่ · row.po คือ PO เดิมที่ของเสียเกิด
+      if (row.next_po && !inH.po) inH.po = row.next_po;
       const l = blankLine(row.code);
       fillInLine(l);
       l.qty = remainOf(row);
@@ -3159,7 +3198,7 @@ createApp({
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
-             ready, bootMsg, bootError, tab, entity, catOf,
+             ready, bootMsg, bootError, tab, entity, catOf, matOf,
              materials, entries, bom, q, fCat, fState, edit, toast,
              activeCount, needReview, shown, codeCheck, dupOf,
              startAdd, startEdit, saveEdit, approve,
@@ -3214,7 +3253,8 @@ createApp({
       foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
-             mkDelta, mkAfter, mkReady, onMkCode, saveMisc,
+             mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmReady, onFbmPo, fbmSave,
+             scrapPos, poUnknown, checked,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
   }
 }).mount('#app');

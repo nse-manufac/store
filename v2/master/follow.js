@@ -74,7 +74,10 @@ export function makeFollow(input = {}) {
   const qty = Number(input.qty);
   if (!isFinite(qty) || qty <= 0) throw new Error('จำนวนต้องมากกว่าศูนย์');
 
-  for (const f of def.need) {
+  // ซื้อทดแทนที่คีย์เอง (ไม่ได้มาจากของเสีย) ไม่มีรายการของเสียให้ผูก — เจ้าของเคาะ 2 ต.ค. 2026
+  // ⚠️ ยกเว้นเฉพาะ source 'manual' · เรื่องที่ระบบตั้งจากของเสีย (auto) ยังต้องผูกเสมอ ไม่งั้นตั้งซ้ำได้ไม่รู้ตัว
+  const skipNeed = kind === 'buy' && txt(input.source) === 'manual';
+  for (const f of skipNeed ? [] : def.need) {
     if (!txt(input[f])) throw new Error(`งานตามแบบ "${def.label}" ต้องระบุ ${FIELD_LABEL[f] || f}`);
   }
   if (kind === 'short' && SHORT_TYPES.indexOf(txt(input.type)) < 0) {
@@ -758,7 +761,9 @@ export function pendingScraps(entries, entity, follows) {
                  && !buyFor(follows, e.id))
     .map(e => ({ id: txt(e.id), code: txt(e.material_code), qty: round5(Number(e.qty) || 0),
                  lot: txt(e.lot), at: txt(e.at), reason_code: txt(e.reason_code),
-                 note: txt(e.note), person: txt(e.person) }))
+                 note: txt(e.note), person: txt(e.person),
+                 // PO ที่ของเสียเกิด + P/N — ช่อง "Old Po." / "Part NO." ของใบสั่งซื้อ FM-PU-02
+                 po: txt(e.doc_ref), part_no: txt(e.part_no) }))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
@@ -777,7 +782,42 @@ export function fromScrapRow(row, { entity, person = '', unit = '', date = '',
     kind: 'buy', entity, source: 'auto',
     code: row.code, qty: row.qty, unit,
     scrap_entry_id: row.id,
+    // po = PO เดิมที่ของเสียเกิด (Old Po.) · PO ใหม่ที่ Delta ออกให้ทีหลังเก็บที่ next_po
+    po: txt(row.po), part_no: txt(row.part_no),
     note: txt(row.note), by: person, now: at, date
+  });
+}
+
+/**
+ * PO ที่แนะนำในช่อง "PO ที่เสีย" — PO ที่เพิ่งคีย์ของเสียไว้ขึ้นก่อน (ใหม่สุดก่อน) แล้วต่อด้วยรายการ PO
+ * เจ้าของเคาะ 2 ต.ค. 2026: ไม่ค้างค่าเดิมหลังบันทึก (กัน Old Po. ผิดใบ) แต่ให้กดเลือกจากที่เคยคีย์ได้ง่าย ๆ
+ * ⚠️ เฉพาะนิติบุคคลนี้ (A3) · ของเสียที่ยกเลิกแล้วไม่นับ
+ */
+export function scrapPoSuggest(entries, entity, poList = [], limit = 40) {
+  if (!txt(entity)) return [];
+  // คืน [{ po, pn }] — P/N กำกับไว้ในตัวเลือก ใบที่ P/N ต่างกันจะได้แยกออก (issue #26 · ผู้ตรวจ #119 รอบ 2 ข้อ 3)
+  const pnOf = new Map();
+  const list = (poList || []).filter(p => p && txt(p.po))
+    // รายการ PO เรียงใหม่สุดก่อน — ถ้าปล่อยตามลำดับในฐานข้อมูล 40 ตัวแรกจะเป็นใบเก่าที่ไม่เกี่ยวกับวันนี้ (ข้อ 4)
+    .sort((a, b) => txt(b.date).localeCompare(txt(a.date)) || txt(b.po).localeCompare(txt(a.po)));
+  for (const p of list) if (!pnOf.has(txt(p.po))) pnOf.set(txt(p.po), txt(p.pn));
+  const recent = (entries || [])
+    .filter(e => e && e.entity === entity && e.kind === 'scrap' && !e.voided && txt(e.doc_ref))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  for (const e of recent) if (!pnOf.has(txt(e.doc_ref))) pnOf.set(txt(e.doc_ref), txt(e.part_no));
+  const order = [...new Set([...recent.map(e => txt(e.doc_ref)), ...list.map(p => txt(p.po))])];
+  return order.slice(0, limit).map(po => ({ po, pn: pnOf.get(po) || '' }));
+}
+
+/**
+ * ซื้อทดแทนที่คีย์เอง — ของที่ต้องสั่งแต่ไม่ได้มาจากของเสียในสมุด (เจ้าของเคาะ 2 ต.ค. 2026)
+ * ไม่มี scrap_entry_id จึงไม่ถูกนับเป็นเรื่องที่ต้นเหตุหายไป (orphanBuys ข้ามให้)
+ */
+export function fromManualBuy({ entity, code, qty, unit = '', po = '', part_no = '', note = '',
+                                person = '', date = '', at = '' } = {}) {
+  return makeFollow({
+    kind: 'buy', entity, source: 'manual', code, qty, unit,
+    po: txt(po), part_no: txt(part_no), note: txt(note), by: person, now: at, date
   });
 }
 
