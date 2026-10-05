@@ -313,3 +313,80 @@ export function fitScale(W) {
     .reduce((s, c) => s + (W[c] === undefined ? XL_DEFAULT_W : W[c]) * 7 + 5, 0);
   return Math.max(10, Math.floor(room / px * 100));
 }
+
+/* ═══════════ ใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) ═══════════
+ * เลียนหน้าตาฟอร์ม Excel เดิม "ISSUE MATERIAL LOSS FOR SUBCONTRACT" เฉพาะคอลัมน์ที่พิมพ์ออกมา
+ * (ฟอร์มเดิมซ่อนคอลัมน์ตามงานหลังสั่งกับราคาไว้ — เจ้าของให้ทำทีหลัง)
+ * ⚠️ ชื่อบริษัท/ที่อยู่มาจากทะเบียนนิติบุคคลตอนออกใบเสมอ ห้ามเขียนตายตัวในโค้ด (repo สาธารณะ)
+ * ใช้แค่ getCell / getColumn / getRow / mergeCells / pageSetup ให้ชีตปลอมในเทสทำงานได้ */
+export const BUYPO = { cols: { A: 1.4, B: 7.2, C: 17, D: 17, E: 16, F: 46, G: 12, H: 9, I: 34 },
+                       minRows: 15, docCode: 'FM-PU-02' };
+const THIN = { style: 'thin' }, MED = { style: 'medium' };
+const F14 = (bold = false) => ({ name: 'Calibri', size: 14, bold });
+export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo = '', date = '',
+                                 requestBy = '', groups = [] } = {}) {
+  for (const [c, w] of Object.entries(BUYPO.cols)) ws.getColumn(c).width = w;
+  const cell = (a, v, font, extra = {}) => { const c = ws.getCell(a); if (v !== undefined) c.value = v;
+    if (font) c.font = font; Object.assign(c, extra); return c; };
+  const center = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  const dmy = d => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d)); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d); };
+
+  // หัวกระดาษ
+  ws.mergeCells('B2:E3'); ws.mergeCells('B4:E4'); ws.mergeCells('B5:E5'); ws.mergeCells('F2:H5');
+  cell('B2', entity, { name: 'Calibri', size: 16, bold: true }, { alignment: center });
+  cell('B4', company, { name: 'Calibri', size: 16, bold: true }, { alignment: center });
+  cell('B5', address, { name: 'Calibri', size: 12, bold: true }, { alignment: center });
+  cell('F2', 'ใบสั่งซื้อ', { name: 'Calibri', size: 30, bold: true }, { alignment: center });
+  [['I2', 'Document Code :  ' + BUYPO.docCode], ['I3', 'เลขที่ใบ :  ' + docNo],
+   ['I4', 'วันที่ :  ' + dmy(date)], ['I5', 'Page :  1']].forEach(([a, v]) => cell(a, v, F14(true)));
+  ws.mergeCells('B6:I6');
+  cell('B6', 'ISSUE MATERIAL LOSS FOR SUBCONTRACT', { name: 'Arial Narrow', size: 14, bold: true }, { alignment: center });
+  const yellow = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+  cell('C7', 'SUB :   ' + entity, F14(true), { alignment: center, fill: yellow });
+  cell('I7', 'DATE : ' + dmy(date), F14(true), { alignment: center, fill: yellow });
+  for (const r of [2, 3, 4, 5]) ws.getRow(r).height = 27.6;
+  ws.getRow(6).height = 32.4; ws.getRow(7).height = 30;
+
+  // หัวตาราง
+  const head = ['Item', 'Part NO.', 'Old Po.', "Code mat'l", 'Description', "Q'ty", 'Unit', 'REMARK'];
+  const COLS = 'BCDEFGHI';
+  head.forEach((h, i) => cell(COLS[i] + '8', h, F14(true),
+    { alignment: center, border: { left: THIN, right: THIN, top: MED, bottom: MED } }));
+  ws.getRow(8).height = 36;
+
+  // บรรทัด — Item / P/N / PO เขียนเฉพาะบรรทัดแรกของกลุ่มแบบฟอร์มเดิม
+  let r = 9, item = 0, lines = 0;
+  for (const g of groups) {
+    item++;
+    g.lines.forEach((l, k) => {
+      // บรรทัดที่ยกเลิกเรื่องทีหลังยังอยู่ในใบ (ใบที่ส่งไปแล้วมีบรรทัดนั้น) แต่ต้องบอกบนใบว่ายกเลิกแล้ว
+      const rem = l.voided ? ['ยกเลิกแล้ว', l.note].filter(Boolean).join(' · ') : (l.note || '');
+      const v = [k ? '' : item, k ? '' : g.part_no, k ? '' : g.po, l.code, l.desc || '', l.qty, l.unit, rem];
+      v.forEach((x, i) => cell(COLS[i] + r, x === '' ? null : x, F14(i !== 4),
+        { alignment: i === 4 || i === 7 ? { vertical: 'middle', horizontal: 'left' } : center,
+          border: { left: THIN, right: THIN, top: k ? THIN : MED, bottom: THIN } }));
+      ws.getRow(r).height = 22.8;
+      r++; lines++;
+    });
+  }
+  // บรรทัดว่างให้เขียนมือเพิ่มได้ เหมือนฟอร์มเดิม
+  for (; r < 9 + BUYPO.minRows; r++) {
+    for (const c of COLS) cell(c + r, null, F14(), { border: { left: THIN, right: THIN, top: THIN, bottom: THIN } });
+    ws.getRow(r).height = 22.8;
+  }
+
+  // ท้ายใบ
+  const f1 = r, f2 = r + 1;
+  ws.mergeCells(`B${f1}:I${f1}`);
+  cell('B' + f1, `รวมซื้อ Mat'l ทั้งสิ้น  ${groups.length}  P/N  ( ${lines} รายการ )`, F14(true),
+    { alignment: { vertical: 'middle', horizontal: 'left' }, border: { left: MED, right: MED, top: MED, bottom: MED } });
+  ws.mergeCells(`B${f2}:E${f2}`); ws.mergeCells(`F${f2}:I${f2}`);
+  cell('B' + f2, 'Request By :   ' + requestBy, F14(true), { alignment: { vertical: 'middle' }, border: { left: MED, right: MED, top: MED, bottom: MED } });
+  cell('F' + f2, 'Approve :', F14(true), { alignment: { vertical: 'middle' }, border: { left: MED, right: MED, top: MED, bottom: MED } });
+  ws.getRow(f1).height = 30; ws.getRow(f2).height = 40;
+
+  ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+    printArea: `A1:I${f2}`, printTitlesRow: '8:8',
+    margins: { left: 0.2, right: 0.2, top: 0.3, bottom: 0.3, header: 0.2, footer: 0.2 } };
+  return { lines, items: groups.length, lastRow: f2 };
+}
