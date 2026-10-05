@@ -13,7 +13,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
-         entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, stampBuyDoc,
+         entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver }
   from '../v2/master/follow.js';
@@ -1413,6 +1413,31 @@ console.log('\n=== P. ออกใบสั่งซื้อทดแทน FM-
      g.length === 2 && g[0].part_no === 'PN-1' && g[1].part_no === 'PN-2'
      && g[1].lines.map(l => l.code).join() === 'A1,Z9', JSON.stringify(g));
   ok('จำนวนในใบ = ยอดที่ยังค้าง', g[0].lines[0].qty === 4);
+
+  /* ── พิมพ์ใบเดิมซ้ำ ต้องได้ใบเดิม ไม่ใช่ใบตามยอดค้างวันนี้ (ผู้ตรวจ #121 รอบ 1 ข้อ 1) ── */
+  const p1 = B({ id: 'P1', code: 'C1', pr_no: '2.10.26 H', pr_date: '2026-10-02', done_qty: 2 }),
+        p2 = B({ id: 'P2', code: 'C2', pr_no: '2.10.26 H', pr_date: '2026-10-02', done_qty: 4, done: true }),
+        p3 = B({ id: 'P3', code: 'C3', pr_no: '2.10.26 H', pr_date: '2026-10-02', voided: true }),
+        p4 = B({ id: 'P4', code: 'C4', pr_no: '3.10.26 H', pr_date: '2026-10-03' }),
+        p5 = B({ id: 'P5', code: 'C5', entity: 'TUE-U', pr_no: '2.10.26 H', pr_date: '2026-10-02' });
+  const inDoc = buyDocRows([...all, p1, p2, p3, p4, p5], 'TUE-H', '2.10.26 H');
+  ok('เรื่องในใบเลขนี้ — รวมที่ยกเลิกทีหลัง · ไม่เอาใบอื่น/นิติบุคคลอื่น',
+     inDoc.map(x => x.id).join() === 'P1,P2,P3', inDoc.map(x => x.id).join());
+  throws('หาเรื่องในใบ ไม่บอกนิติบุคคลไม่ได้ (A3)', () => buyDocRows(all, '', '2.10.26 H'), 'A3');
+  ok('ไม่บอกเลขใบ = ไม่คืนอะไรเลย', buyDocRows(all, 'TUE-H', '').length === 0);
+
+  const gr = buyDocGroups(inDoc, { qty: 'order' });
+  ok('ใบที่พิมพ์ซ้ำใช้จำนวนที่สั่งไป ไม่ใช่ยอดค้าง — รับของแล้วจำนวนในใบไม่ขยับ',
+     gr.length === 1 && gr[0].lines.map(l => l.code + '=' + l.qty).join() === 'C1=4,C2=4,C3=4',
+     JSON.stringify(gr[0].lines));
+  ok('ใบที่พิมพ์ซ้ำยังมีบรรทัดของเรื่องที่ยกเลิกทีหลัง และติดธงไว้ให้บอกบนใบ',
+     gr[0].lines.filter(l => l.voided).map(l => l.code).join() === 'C3');
+  ok('ใบที่ออกใหม่ยังใช้ยอดค้างเหมือนเดิม (ตั้งต้น remain)',
+     buyDocGroups(inDoc)[0].lines.map(l => l.code + '=' + l.qty).join() === 'C1=2,C2=0,C3=4');
+  const appJs = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('เส้นทางพิมพ์ซ้ำใน app.js เรียกด้วย order และใช้ buyDocRows (ตรรกะอยู่ใน master/ ไม่ใช่ app.js)',
+     /buyDocRows\(shorts\.value, entity\.value, no\)/.test(appJs)
+     && /buyDocFile\(no, rows\[0\]\.pr_date, rows, 'order'\)/.test(appJs));
 
   const st = stampBuyDoc(b1, { no: '2.10.26 H', date: '2026-10-02', now: '2026-10-02T03:00:00.000Z' });
   ok('ติดเลขใบแล้ว id / created_at ไม่ขยับ (B3) · updated_at เดินหน้า',

@@ -359,7 +359,9 @@ export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo 
   for (const g of groups) {
     item++;
     g.lines.forEach((l, k) => {
-      const v = [k ? '' : item, k ? '' : g.part_no, k ? '' : g.po, l.code, l.desc || '', l.qty, l.unit, l.note || ''];
+      // บรรทัดที่ยกเลิกเรื่องทีหลังยังอยู่ในใบ (ใบที่ส่งไปแล้วมีบรรทัดนั้น) แต่ต้องบอกบนใบว่ายกเลิกแล้ว
+      const rem = l.voided ? ['ยกเลิกแล้ว', l.note].filter(Boolean).join(' · ') : (l.note || '');
+      const v = [k ? '' : item, k ? '' : g.part_no, k ? '' : g.po, l.code, l.desc || '', l.qty, l.unit, rem];
       v.forEach((x, i) => cell(COLS[i] + r, x === '' ? null : x, F14(i !== 4),
         { alignment: i === 4 || i === 7 ? { vertical: 'middle', horizontal: 'left' } : center,
           border: { left: THIN, right: THIN, top: k ? THIN : MED, bottom: THIN } }));

@@ -837,13 +837,35 @@ export function buyDocPick(follows, entity, ids) {
   return { rows, skipped };
 }
 
-/** จัดกลุ่มเป็น Item ของฟอร์ม — Part NO. + Old Po. · เรียงตาม P/N แล้ว PO · บรรทัดในกลุ่มเรียงตามรหัส */
-export function buyDocGroups(rows) {
+/**
+ * เรื่องทั้งหมดที่อยู่ในใบเลขนี้ — ใช้ตอนพิมพ์ใบเดิมซ้ำ
+ * ⚠️ รวมเรื่องที่ยกเลิกทีหลังด้วย เพราะใบที่ส่งให้ผู้ขายไปแล้วมีบรรทัดนั้นอยู่
+ *    ตัดออก = ใบเลขเดียวกันสองใบมีจำนวนบรรทัดไม่เท่ากัน (ผู้ตรวจ #121 รอบ 1 ข้อ 1)
+ */
+export function buyDocRows(follows, entity, no) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const want = txt(no);
+  if (!want) return [];
+  return (follows || []).filter(f =>
+    f && f.kind === 'buy' && f.entity === entity && txt(f.pr_no) === want);
+}
+
+/**
+ * จัดกลุ่มเป็น Item ของฟอร์ม — Part NO. + Old Po. · เรียงตาม P/N แล้ว PO · บรรทัดในกลุ่มเรียงตามรหัส
+ *
+ * qty = 'remain' (ตั้งต้น) ยอดที่ยังค้าง — ใบที่ออกใหม่ สั่งเฉพาะของที่ยังไม่มา
+ * qty = 'order'  จำนวนที่ตั้งเรื่องไว้ (`qty` ซึ่งไม่ขยับหลังสร้าง) — **ใบที่พิมพ์ซ้ำต้องใช้ตัวนี้**
+ *   ถ้าพิมพ์ซ้ำด้วย 'remain' จำนวนในใบจะลดลงทุกครั้งที่รับของ และเป็น 0 เมื่อรับครบ
+ *   ทั้งที่ใบจริงที่ส่งให้ผู้ขายเขียนจำนวนเดิม (ผู้ตรวจ #121 รอบ 1 ข้อ 1)
+ */
+export function buyDocGroups(rows, { qty = 'remain' } = {}) {
+  const qtyOf = qty === 'order' ? f => round5(Number(f && f.qty) || 0) : remainOf;
   const by = new Map();
   for (const f of rows || []) {
     const key = txt(f.part_no) + '|' + txt(f.po);
     if (!by.has(key)) by.set(key, { part_no: txt(f.part_no), po: txt(f.po), lines: [] });
-    by.get(key).lines.push({ id: txt(f.id), code: txt(f.code), qty: remainOf(f), unit: txt(f.unit), note: txt(f.note) });
+    by.get(key).lines.push({ id: txt(f.id), code: txt(f.code), qty: qtyOf(f), unit: txt(f.unit),
+                             note: txt(f.note), voided: !!f.voided });
   }
   const groups = [...by.values()].sort((a, b) =>
     a.part_no.localeCompare(b.part_no) || a.po.localeCompare(b.po));

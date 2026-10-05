@@ -38,7 +38,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
-         buyDocNo, buyDocNos, buyDocPick, buyDocGroups, stampBuyDoc,
+         buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -2404,10 +2404,10 @@ createApp({
     const fbDocGroups = computed(() => buyDocGroups(fbPicked.value));
     const fbCanPick = s => !s.voided && !s.pr_no && statusOf(s) !== 'done';
     const descOf = c => { const m = matOf(c); return m ? m.description : ''; };
-    async function buyDocFile(no, date, rows) {
+    async function buyDocFile(no, date, rows, qty = 'remain') {
       await loadLib('lib/exceljs.min.js', 'ExcelJS');
       const ent = entities.value.find(e => e.entity_code === entity.value) || {};
-      const groups = buyDocGroups(rows).map(g => ({ ...g, lines: g.lines.map(l => ({ ...l, desc: descOf(l.code) })) }));
+      const groups = buyDocGroups(rows, { qty }).map(g => ({ ...g, lines: g.lines.map(l => ({ ...l, desc: descOf(l.code) })) }));
       const wb = new ExcelJS.Workbook();
       wb.creator = 'ระบบ Bin Card';
       const ws = wb.addWorksheet(sheetNameFor(no));
@@ -2432,11 +2432,15 @@ createApp({
       } catch (err) { flash('ออกใบสั่งซื้อไม่สำเร็จ: ' + err.message + ' — ลองกดอีกครั้ง', true); }
       finally { fbDoc.busy = false; }
     }
-    /** ออกไฟล์ใบเดิมซ้ำ (เช่นทำไฟล์หาย) — เลขใบเดิม ไม่ติดเลขใหม่ */
+    /**
+     * ออกไฟล์ใบเดิมซ้ำ (เช่นทำไฟล์หาย) — เลขใบเดิม ไม่ติดเลขใหม่
+     * ⚠️ จำนวนใช้ 'order' = จำนวนที่สั่งไป ไม่ใช่ยอดค้างวันนี้ · รวมบรรทัดที่ยกเลิกเรื่องทีหลัง
+     *    ใบที่พิมพ์ซ้ำจึงเหมือนใบที่ส่งให้ผู้ขายไปแล้ว (ผู้ตรวจ #121 รอบ 1 ข้อ 1)
+     */
     async function fbReissue(no) {
-      const rows = shorts.value.filter(f => f.kind === 'buy' && f.entity === entity.value && f.pr_no === no && !f.voided);
+      const rows = buyDocRows(shorts.value, entity.value, no);
       if (!rows.length) { flash('ไม่เจอเรื่องของใบ ' + no, true); return; }
-      try { await buyDocFile(no, rows[0].pr_date, rows); flash('ออกไฟล์ใบ ' + no + ' อีกครั้งแล้ว'); }
+      try { await buyDocFile(no, rows[0].pr_date, rows, 'order'); flash('ออกไฟล์ใบ ' + no + ' อีกครั้งแล้ว'); }
       catch (err) { flash('ออกไฟล์ไม่สำเร็จ: ' + err.message, true); }
     }
 

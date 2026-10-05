@@ -300,6 +300,18 @@ console.log('\n=== G. ใบสั่งซื้อทดแทน FM-PU-02 (�
   ok('พิมพ์ A4 นอน พอดีกว้างหนึ่งหน้า · หัวตารางซ้ำทุกหน้า',
      ws.pageSetup.paperSize === 9 && ws.pageSetup.fitToWidth === 1 && ws.pageSetup.printTitlesRow === '8:8'
      && ws.pageSetup.printArea === 'A1:I' + res.lastRow);
+  {
+    // ใบที่พิมพ์ซ้ำมีบรรทัดของเรื่องที่ยกเลิกทีหลังอยู่ด้วย — ต้องบอกบนใบ ไม่ใช่หายไปเงียบ ๆ
+    const wsV = fakeWs();
+    writeBuyPo(wsV, { entity: 'TUE-H', docNo: '2.10.26 H', date: '2026-10-02', groups: [
+      { part_no: 'PN-1', po: 'PO-A', lines: [{ id: 'a', code: 'C1', qty: 3, unit: 'MTR', note: '5 Roll', voided: true },
+                                             { id: 'b', code: 'C2', qty: 1, unit: 'KGM', note: '', voided: true },
+                                             { id: 'c', code: 'C3', qty: 2, unit: 'PCE', note: 'ปกติ' }] }] });
+    ok('บรรทัดที่ยกเลิกเรื่องทีหลังขึ้น "ยกเลิกแล้ว" ใน REMARK · หมายเหตุเดิมยังอยู่',
+       wsV.getCell('I9').value === 'ยกเลิกแล้ว · 5 Roll' && wsV.getCell('I10').value === 'ยกเลิกแล้ว'
+       && wsV.getCell('I11').value === 'ปกติ',
+       [9, 10, 11].map(r => JSON.stringify(wsV.getCell('I' + r).value)).join(' · '));
+  }
   const src = fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8');
   ok('ไม่มีชื่อบริษัทเขียนตายตัวในตัวเขียนใบสั่งซื้อ (repo สาธารณะ)',
      !/Thai Union|ทีพีพี|Co\.,Ltd/i.test(src.slice(src.indexOf('ใบสั่งซื้อทดแทน FM-PU-02'))));
