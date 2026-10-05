@@ -115,9 +115,12 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
      box.includes(':disabled="!noticeCanClose(notice)"') && box.includes(':disabled="!notice.atEnd"'));
   ok('ในกล่องประกาศต้องไม่มีเลขรุ่นตายตัว (F4 — เลขรุ่นอยู่ที่ <meta app-version> ที่เดียว)',
      box.length > 0 && !/\d{4}-\d{2}-\d{2}\.\d+/.test(box));
-  ok('ลิงก์คู่มือชี้ไปไฟล์ PDF ที่มีอยู่จริงใน repo',
-     box.includes('href="docs/update-2026-09-24.pdf"')
-     && fs.existsSync(new URL('../v2/docs/update-2026-09-24.pdf', import.meta.url)));
+  // ฉบับ 2026-10-05 ไม่มี PDF (เจ้าของเคาะ) — ถ้าฉบับไหนกลับมามีลิงก์ ไฟล์ต้องมีอยู่จริงใน repo
+  const links = [...box.matchAll(/href="(docs\/[^"]+)"/g)].map(m => m[1]);
+  ok('ลิงก์เอกสารในประกาศ (ถ้ามี) ชี้ไปไฟล์ที่มีอยู่จริงใน repo',
+     links.every(p => fs.existsSync(new URL('../v2/' + p, import.meta.url))), links.join(','));
+  ok('ประกาศฉบับนี้พูดถึงใบสั่งซื้อทดแทนและช่อง PO ที่เสีย',
+     box.includes('FM-PU-02') && box.includes('PO ที่เสีย'));
 }
 {
   // ขยายจอหรือซูมออกจนเนื้อหาพอดีกล่อง เบราว์เซอร์ไม่ยิง scroll ให้ (ไม่มีอะไรขยับ)
