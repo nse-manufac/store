@@ -567,17 +567,30 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN
 }
 
 /**
- * ตัดคู่ PO+รหัสที่มีเรื่องขาดเปิดอยู่แล้วออก — ทุกที่มา (Delta แจ้ง · ไฟล์ PO · ตั้งเอง)
+ * ตัดคู่ PO+รหัสที่มีเรื่องขาดอยู่แล้วออก — ทุกที่มา (Delta แจ้ง · ไฟล์ PO · ตั้งเอง)
  * เจ้าของเคาะ 28 ก.ย. 2026: เรื่องที่ Delta แจ้งมาแล้วไม่ขึ้นซ้ำในการ์ดคำนวณ
+ *
+ * ⚠️ เรื่องที่ปิดแล้วก็กันด้วย ถ้ายอดที่คิดได้ตอนนี้เท่ากับยอดของเรื่องที่ปิด (เจ้าของเคาะ 6 ต.ค. 2026)
+ *    ของที่ส่งมาแทนมักรับเข้าด้วย PO อื่น ยอดขาดของ PO เดิมจึงไม่หายไปไหน
+ *    เดิมปิดเรื่องแล้วคู่นั้นโผล่ในการ์ดอีก แล้วถูกตั้งซ้ำทั้งที่ยอดเท่าเดิม
+ *    (วัดจากชีตจริง 6 ต.ค.: เรื่องที่ตั้งช่วงเย็น 198 จาก 215 เรื่อง เป็นคู่ที่เคยปิดไปแล้ว)
+ *    ยอดต่างจากเรื่องที่ปิด = ขาดเพิ่มจริง ยังขึ้นให้ตั้งเรื่องได้ · เรื่องที่ยกเลิกไม่กัน
  */
 export function shortPending(rows, follows) {
-  const busy = new Set();
+  const busy = new Set(), closed = new Map();
   for (const f of follows || []) {
     if (!f || f.kind !== 'short') continue;
-    const st = statusOf(f);
-    if (st === 'open' || st === 'partial') busy.add(pairKey(f.po, f.code));
+    const st = statusOf(f), k = pairKey(f.po, f.code);
+    if (st === 'open' || st === 'partial') busy.add(k);
+    else if (st === 'done') {
+      if (!closed.has(k)) closed.set(k, []);
+      closed.get(k).push(round5(Number(f.qty) || 0));
+    }
   }
-  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)));
+  // เกณฑ์ "ยอดเท่ากัน" เดียวกับ shortChecker — ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม
+  const sameAsClosed = r => (closed.get(pairKey(r.po, r.code)) || [])
+    .some(q => q > 0 && Math.abs(q - (Number(r.short) || 0)) < 5e-4);
+  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !sameAsClosed(r));
 }
 
 /**
