@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced,
          chunk, toWire, syncPlan, looksLikeOldScript, normKeys, normKeysAll,
-         KEY_COLS, missingTables, normalizeScriptUrl } from '../v2/core/sync.js';
+         KEY_COLS, missingTables, normalizeScriptUrl, syncBadge } from '../v2/core/sync.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -214,6 +214,36 @@ ok('ไม่ได้ส่งอะไรมาเลย ถือว่าข
    missingTables(undefined).length === Object.keys(TABLES).length);
 ok('ตอนนี้ประกาศไว้เจ็ดตาราง — เพิ่มเมื่อไหร่ต้องไปต่อสายใน app.js ด้วย',
    Object.keys(TABLES).length === 7, String(Object.keys(TABLES).length));
+
+console.log('\n=== ป้ายสถานะซิงค์บนหัวจอ (เจ้าของขอ 6 ต.ค. 2026) ===');
+{
+  const U = 'https://script.google.com/macros/s/X/exec';
+  const fmt = { time: iso => iso.slice(11, 16), date: iso => iso.slice(0, 10), today: '2026-10-06' };
+  const b = (o, f = fmt) => syncBadge({ url: U, ...o }, f);
+  ok('ยังไม่ตั้งค่า = เทา "ยังไม่เชื่อมต่อ"', syncBadge({}, fmt).cls === '' && syncBadge({}, fmt).text === 'ยังไม่เชื่อมต่อ');
+  ok('กำลังซิงค์ = เหลือง', b({ state: 'busy' }).cls === 'busy');
+  ok('ซิงค์ไม่ได้ = แดง บอกยอดค้าง · title มีข้อความ error จริง',
+     b({ state: 'error', error: 'HTTP 404', pending: 3 }).cls === 'error'
+     && b({ state: 'error', pending: 3 }).text === 'ซิงค์ไม่ได้ · ค้าง 3'
+     && b({ state: 'error', error: 'HTTP 404' }).title.startsWith('HTTP 404'));
+  ok('error ชนะ "รอส่ง" — มีของค้างแล้วซิงค์ไม่ได้ ต้องเห็นแดง ไม่ใช่เหลือง',
+     b({ state: 'error', pending: 5, lastOkAt: '2026-10-06T08:00:00.000Z' }).cls === 'error');
+  ok('มีของรอส่ง = เหลือง "รอส่ง N"', b({ state: 'ok', pending: 2 }).text === 'รอส่ง 2' && b({ pending: 2 }).cls === 'pending');
+  ok('ซิงค์แล้ววันนี้ = เขียว บอกแค่เวลา', b({ state: 'ok', lastOkAt: '2026-10-06T08:05:00.000Z' }).text === 'ซิงค์แล้ว 08:05'
+     && b({ lastOkAt: '2026-10-06T08:05:00.000Z' }).cls === 'ok');
+  ok('ซิงค์ล่าสุดไม่ใช่วันนี้ = บอกวันที่ด้วย (เห็นว่าค้างมาแต่เมื่อวาน)',
+     b({ lastOkAt: '2026-10-05T08:05:00.000Z' }).text === 'ซิงค์แล้ว 2026-10-05 08:05');
+  ok('กดทดสอบผ่านแต่ยังไม่เคยซิงค์ = ไม่ขึ้นเขียว (ok ดูจาก lastOkAt ไม่ใช่ state)',
+     b({ state: 'ok' }).cls === '' && b({ state: 'ok' }).text === 'ยังไม่เคยซิงค์');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('หัวจอมีป้าย ผูกกับ badge และกดได้', /class="sync-badge"[^>]*@click="onBadge"/.test(html) && html.includes(':class="badge.cls"'));
+  ok('เวลา "ซิงค์ล่าสุด" ใช้เวลาเครื่อง ไม่ใช่ตัด ISO ตรง ๆ (= UTC ช้ากว่าเวลาไทย 7 ชั่วโมง)',
+     !html.includes('lastOkAt.slice(11') && (html.match(/localTime\(sync\.lastOkAt\)/g) || []).length === 2);
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const ret = app.slice(app.lastIndexOf('return {'));
+  ok('badge · onBadge · localTime ส่งออกให้เทมเพลต (ไม่งั้นจอขาวทั้งหน้า)',
+     ['badge', 'onBadge', 'localTime'].every(f => new RegExp('\\b' + f + '\\b').test(ret)));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

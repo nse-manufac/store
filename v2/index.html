@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-05.1">
+<meta name="app-version" content="2026-10-06.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -36,6 +36,15 @@ header .who-pick{font:inherit;font-size:13px;font-weight:600;padding:4px 8px;
   background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);
   border-radius:6px}
 header .who-pick option{color:var(--ink)}
+/* ป้ายสถานะซิงค์ — แบบเดียวกับ plan (เจ้าของขอ 6 ต.ค. 2026) */
+header .sync-badge{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.3);color:#fff;padding:4px 12px;border-radius:99px;font:inherit;
+  font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+header .sync-badge:hover{background:rgba(255,255,255,.24)}
+header .sync-badge .dot{width:9px;height:9px;border-radius:50%;background:#9ca3af;flex-shrink:0}
+header .sync-badge .dot.ok{background:#4ade80}
+header .sync-badge .dot.busy,header .sync-badge .dot.pending{background:#fbbf24}
+header .sync-badge .dot.error{background:#f87171}
 .tabs{display:flex;gap:3px;flex-wrap:wrap}
 .tabs button{background:rgba(255,255,255,.12);color:#fff;border:0;padding:7px 14px;
   border-radius:5px 5px 0 0;font:inherit;font-size:13px;cursor:pointer}
@@ -144,6 +153,8 @@ textarea{font:inherit}
                 :class="{on: openGroup===g.k}" @click="openGroup=g.k">{{ g.label }}</button>
       </div>
       <div class="grow"></div>
+      <button class="sync-badge" :title="badge.title" @click="onBadge">
+        <span class="dot" :class="badge.cls"></span><span>{{ badge.text }}</span></button>
       <!-- เปลี่ยนตัวนี้ = เปลี่ยนความหมายของทุกยอดบนหน้าจอ ไม่ใช่แค่การกรอง -->
       <select class="who-pick" :value="entity" @change="switchEntity($event.target.value)"
               title="นิติบุคคล — ยอดคงคลังของแต่ละโรงงานแยกกัน">
@@ -223,7 +234,7 @@ textarea{font:inherit}
             <button class="btn" style="padding:2px 9px" @click="tab='sync'">ไปตั้งค่า</button>
           </p>
           <p class="hint" style="margin:12px 0 0" v-else-if="sync.lastOkAt">
-            ซิงค์ล่าสุด {{ localDate(sync.lastOkAt) }} {{ sync.lastOkAt.slice(11,16) }}
+            ซิงค์ล่าสุด {{ localDate(sync.lastOkAt) }} {{ localTime(sync.lastOkAt) }}
           </p>
         </div>
       </template>
@@ -2816,7 +2827,7 @@ textarea{font:inherit}
             <h2 style="margin:0">ของที่รอส่งขึ้น</h2>
             <div class="grow"></div>
             <span class="hint" v-if="sync.lastOkAt">ซิงค์สำเร็จล่าสุด {{ localDate(sync.lastOkAt) }}
-              {{ sync.lastOkAt.slice(11,16) }}</span>
+              {{ localTime(sync.lastOkAt) }}</span>
             <span class="hint" v-else>ยังไม่เคยซิงค์สำเร็จ</span>
           </div>
           <div class="row" style="margin-top:12px;gap:28px">
