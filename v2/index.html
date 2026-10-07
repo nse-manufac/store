@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-05.1">
+<meta name="app-version" content="2026-10-07.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1939,7 +1939,7 @@ textarea{font:inherit}
                 <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono hint">{{ r.order }}</td><td class="mono hint">{{ r.need }}</td>
                 <td class="mono">{{ r.have }}</td><td class="mono"><b>{{ r.short }}</b></td>
-                <td><button class="btn" style="padding:2px 9px" :disabled="!entity"
+                <td><button class="btn" style="padding:2px 9px" :disabled="!entity || isStarting('short', r)"
                             @click="fsStart(r)">ตั้งเรื่อง short</button></td>
               </tr></tbody>
             </table>
@@ -2088,7 +2088,7 @@ textarea{font:inherit}
                 <td class="mono">{{ r.po || '—' }}</td><td class="mono hint">{{ r.part_no || '—' }}</td>
                 <td>{{ reasonLabel({ kind: 'scrap', reason_code: r.reason_code }) }}</td>
                 <td class="hint">{{ r.note || '—' }}</td>
-                <td><button class="btn" style="padding:2px 9px" :disabled="!entity"
+                <td><button class="btn" style="padding:2px 9px" :disabled="!entity || isStarting('buy', r)"
                             @click="fbStart(r)">ตั้งเรื่องซื้อ</button></td>
               </tr></tbody>
             </table>
@@ -2441,7 +2441,7 @@ textarea{font:inherit}
                 <td class="mono">{{ r.recv }}</td>
                 <td class="mono hint">{{ r.sentBack || '—' }}</td>
                 <td class="mono"><b>{{ r.over }}</b></td>
-                <td><button class="btn" style="padding:2px 9px" :disabled="!entity"
+                <td><button class="btn" style="padding:2px 9px" :disabled="!entity || isStarting('over', r)"
                             @click="foStart(r)">ตั้งเรื่องคืน</button></td>
               </tr></tbody>
             </table>
