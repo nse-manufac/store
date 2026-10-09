@@ -1261,10 +1261,27 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
        .every(m => f(sa, 'TM9269H001', m.code) && f(sa, 'TM9269H001', m.code).short === m.miss));
 
   const tickets = [makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'A', qty: 8, source: 'delta' }),
-                   { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'B', qty: 2 }), done: true }];
+                   { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'B', qty: 3 }), done: true }];
   const pend = shortPending(sa.filter(r => !r.why), tickets);
-  ok('คู่ที่มีเรื่องเปิดอยู่ (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ · เรื่องที่ปิดแล้วไม่กัน',
+  ok('คู่ที่มีเรื่องเปิดอยู่ (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ · เรื่องที่ปิดแล้วยอดต่างจากตอนนี้ ไม่กัน (ขาดเพิ่มจริง)',
      !pend.some(r => r.code === 'A') && pend.some(r => r.code === 'B') && pend.some(r => r.code === 'C'));
+  // เจ้าของเคาะ 6 ต.ค. 2026 — ปิดเรื่องแล้วยอดที่คิดได้ยังเท่าเดิม ห้ามขึ้นให้ตั้งซ้ำ
+  //   (ของที่ส่งมาแทนรับเข้าด้วย PO อื่น ยอดขาดของ PO เดิมจึงยังอยู่ — ชีตจริงมีเรื่องซ้ำแบบนี้ราว 365 คู่)
+  const closedSame = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'B', qty: 2 }), done: true };
+  ok('เรื่องที่ปิดแล้ว ยอดเท่าที่คิดได้ตอนนี้ — กัน ไม่ขึ้นซ้ำ',
+     !shortPending(sa.filter(r => !r.why), [closedSame]).some(r => r.code === 'B'));
+  ok('ปิดด้วยยอดรับครบ (done_qty ถึง qty) ก็นับว่าปิด — กันเหมือนกัน',
+     !shortPending(sa.filter(r => !r.why), [{ ...closedSame, done: false, done_qty: 2 }]).some(r => r.code === 'B'));
+  ok('ยอดที่วิ่งผ่านชีตมาเพี้ยนทศนิยม (2.0000001) ยังนับว่าเท่ากัน',
+     !shortPending(sa.filter(r => !r.why), [{ ...closedSame, qty: 2.0000001 }]).some(r => r.code === 'B'));
+  ok('เรื่องที่ยกเลิก ไม่กัน — ยังตั้งเรื่องใหม่ได้',
+     shortPending(sa.filter(r => !r.why), [{ ...closedSame, voided: true }]).some(r => r.code === 'B'));
+  ok('เรื่องที่ปิดแล้วแต่ไม่มียอด (qty 0 · เรื่องรอส่ง) ไม่กัน — ไม่มียอดให้เทียบ',
+     shortPending(sa.filter(r => !r.why), [{ ...closedSame, qty: 0 }]).some(r => r.code === 'B'));
+  ok('ปิดหลายรอบ — ยอดตรงกับรอบไหนก็กัน',
+     !shortPending(sa.filter(r => !r.why), [{ ...closedSame, qty: 7 }, closedSame]).some(r => r.code === 'B'));
+  ok('เรื่องของ PO อื่นที่รหัสเดียวกัน ไม่กันคู่นี้',
+     shortPending(sa.filter(r => !r.why), [{ ...closedSame, po: 'TM9269H002' }]).some(r => r.code === 'B'));
 
   const all0 = shortAll(led, E, { ...opt, all: true });
   ok('เทียบกับยอดที่ Delta แจ้ง — ตรง', JSON.stringify(shortCheckOf(tickets[0], all0)) === JSON.stringify({ calc: 8, why: '', same: true }));
