@@ -15,7 +15,7 @@
 
 const { test, expect } = require('@playwright/test');
 
-const APP = '/Stock-log.html';
+const APP = '/archive/v1/Stock-log.html';   // v1 ปิดใช้งาน 9 ต.ค. 2026 — โค้ดเดิมอยู่ใน archive/v1/
 
 const PN   = '2870603701';
 const PO   = 'TM5268H082';

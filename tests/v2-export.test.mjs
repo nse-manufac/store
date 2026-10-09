@@ -97,7 +97,8 @@ ok('ชื่อชีตตัดอักขระที่ Excel ไม่ย
 ok('ชื่อไฟล์ในซิปตัดอักขระต้องห้าม', safeFileName('METAL/PART') === 'METAL-PART');
 
 console.log('\n=== C. ฟอร์มต้องตรงกับ v1 เป๊ะ ===');
-const v1 = fs.readFileSync(new URL('../Stock-log.html', import.meta.url), 'utf8');
+// v1 ปิดใช้งาน 9 ต.ค. 2026 — ฟอร์มต้นฉบับยังเทียบกับโค้ดเดิมใน archive/v1/
+const v1 = fs.readFileSync(new URL('../archive/v1/Stock-log.html', import.meta.url), 'utf8');
 
 const mTpl = /const BINCARD_TPL = (\{.*\});/.exec(v1);
 ok('หา BINCARD_TPL ใน v1 เจอ', !!mTpl);
