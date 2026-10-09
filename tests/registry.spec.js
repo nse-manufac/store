@@ -10,8 +10,9 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-const APP = '/ทะเบียนวัตถุดิบ.html';
-const APP_FILE = path.resolve(__dirname, '..', 'ทะเบียนวัตถุดิบ.html');
+// ปิดใช้งาน 9 ต.ค. 2026 — โค้ดเดิมย้ายไป archive/v1/
+const APP = '/archive/v1/ทะเบียนวัตถุดิบ.html';
+const APP_FILE = path.resolve(__dirname, '..', 'archive', 'v1', 'ทะเบียนวัตถุดิบ.html');
 
 /** ตรงกับ request ที่แอปยิงหาไฟล์ตัวเองตอนตรวจเวอร์ชัน
  *  ต้อง decode ก่อน เพราะชื่อไฟล์ภาษาไทยถูก percent-encode ใน URL */

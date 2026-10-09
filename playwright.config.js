@@ -15,7 +15,7 @@ module.exports = defineConfig({
   },
   webServer: {
     command: 'node tests/server.js 8123',
-    url: 'http://127.0.0.1:8123/Stock-log.html',
+    url: 'http://127.0.0.1:8123/archive/v1/Stock-log.html',
     reuseExistingServer: !process.env.CI,
     timeout: 20_000
   },

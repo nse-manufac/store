@@ -134,5 +134,22 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
      close.length > 0 && /removeEventListener\(\s*'resize'\s*,\s*noticeScroll\s*\)/.test(close));
 }
 
+console.log('\n=== v1 กับเครื่องมือแยกตัวเดิม ปิดใช้งาน (เจ้าของสั่ง 9 ต.ค. 2026) ===');
+{
+  const rd = p => fs.readFileSync(new URL('../' + p, import.meta.url), 'utf8');
+  const metaVer = s => (/<meta name="app-version" content="([^"]+)">/.exec(s) || [])[1] || '';
+  for (const f of ['Stock-log.html', 'ทะเบียนวัตถุดิบ.html', 'แปลง BOM จาก SAP.html']) {
+    const stub = rd(f), old = rd('archive/v1/' + f);
+    ok(`${f} — หน้าแจ้งปิดใช้งาน ลิงก์ไป v2 และเลขรุ่นใหม่กว่าตัวเดิม (เครื่องที่เปิดค้างจะเห็นแถบให้โหลดใหม่)`,
+       stub.includes('ปิดใช้งานแล้ว') && stub.includes('href="v2/index.html"') && metaVer(stub) > metaVer(old),
+       metaVer(stub) + ' vs ' + metaVer(old));
+    ok(`${f} — โค้ดเดิมยังอยู่ครบใน archive/v1/`, old.length > 10000 && !old.includes('ปิดใช้งานแล้ว</h1>'));
+  }
+  const home = rd('index.html');
+  ok('หน้ารวมลิงก์ไม่มีทางเข้า v1 กับเครื่องมือแยกตัวเดิมแล้ว — เหลือ v2',
+     !/href="Stock-log\.html"/.test(home) && !home.includes('href="%E0%B8%97%E0%B8%B0') && !home.includes('href="%E0%B9%81%E0%B8%9B')
+     && home.includes('href="v2/index.html"'));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

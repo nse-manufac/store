@@ -18,8 +18,9 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-const APP = '/Stock-log.html';
-const APP_FILE = path.resolve(__dirname, '..', 'Stock-log.html');
+// v1 ปิดใช้งาน 9 ต.ค. 2026 — โค้ดเดิมย้ายไป archive/v1/ (หน้า /Stock-log.html เหลือแค่ป้ายแจ้งว่าปิดแล้ว)
+const APP = '/archive/v1/Stock-log.html';
+const APP_FILE = path.resolve(__dirname, '..', 'archive', 'v1', 'Stock-log.html');
 
 const SEAM = `document.querySelector('#app')._vnode.component.setupState`;
 
