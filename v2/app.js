@@ -38,6 +38,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
+         startKey, startOnce,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES } from './master/follow.js';
 
@@ -2222,12 +2223,17 @@ createApp({
     });
     const NO_CHECK = { calc: null, why: '', same: null };
     const fsCheck = s => fsCheckById.value.get(s.id) || NO_CHECK;
+    /* ปุ่มตั้งเรื่องกดซ้ำระหว่างบันทึกไม่ได้ (master/follow.js startOnce) — กดรัวเคยได้ over ซ้ำ 144 เรื่อง */
+    const starting = reactive(new Set());
+    const isStarting = (kind, row) => starting.has(startKey(kind, row));
     async function fsStart(row) {
       try {
-        const rec = fromShortRow(row, { entity: entity.value, person: fsBy.value,
-                                        unit: unitOf(row.code), date: todayLocal() });
-        await fsPut(rec);
-        flash(`ตั้งเรื่องขาด ${rec.po} · ${rec.code} จำนวน ${rec.qty} แล้ว`);
+        await startOnce(starting, startKey('short', row), async () => {
+          const rec = fromShortRow(row, { entity: entity.value, person: fsBy.value,
+                                          unit: unitOf(row.code), date: todayLocal(), follows: shorts.value });
+          await fsPut(rec);
+          flash(`ตั้งเรื่องขาด ${rec.po} · ${rec.code} จำนวน ${rec.qty} แล้ว`);
+        });
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2283,11 +2289,13 @@ createApp({
 
     async function foStart(row) {
       try {
-        // date: todayLocal() — ตามกฎเดียวกับ fuSave() ข้างล่าง (ผู้ตรวจ #68)
-        const rec = fromOverRow(row, { entity: entity.value, person: fsBy.value,
-                                       unit: unitOf(row.code), date: todayLocal() });
-        await fsPut(rec);
-        flash(`ตั้งเรื่องคืน ${rec.po} · ${rec.code} จำนวน ${rec.qty} แล้ว`);
+        await startOnce(starting, startKey('over', row), async () => {
+          // date: todayLocal() — ตามกฎเดียวกับ fuSave() ข้างล่าง (ผู้ตรวจ #68)
+          const rec = fromOverRow(row, { entity: entity.value, person: fsBy.value,
+                                         unit: unitOf(row.code), date: todayLocal(), follows: shorts.value });
+          await fsPut(rec);
+          flash(`ตั้งเรื่องคืน ${rec.po} · ${rec.code} จำนวน ${rec.qty} แล้ว`);
+        });
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2465,11 +2473,13 @@ createApp({
 
     async function fbStart(row) {
       try {
-        const rec = fromScrapRow(row, { entity: entity.value, person: fsBy.value,
-                                        unit: unitOf(row.code), date: todayLocal(),
-                                        follows: shorts.value });
-        await fsPut(rec);
-        flash(`ตั้งเรื่องซื้อทดแทน ${rec.code} จำนวน ${rec.qty} แล้ว`);
+        await startOnce(starting, startKey('buy', row), async () => {
+          const rec = fromScrapRow(row, { entity: entity.value, person: fsBy.value,
+                                          unit: unitOf(row.code), date: todayLocal(),
+                                          follows: shorts.value });
+          await fsPut(rec);
+          flash(`ตั้งเรื่องซื้อทดแทน ${rec.code} จำนวน ${rec.qty} แล้ว`);
+        });
       } catch (err) { flash(err.message, true); }
     }
 
@@ -3298,7 +3308,7 @@ createApp({
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
-      fsNew, fsBlocked, fsCheck, fsStart, cardPoSO,
+      fsNew, fsBlocked, fsCheck, fsStart, cardPoSO, isStarting,
       fsAssign, fsClose, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,

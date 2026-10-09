@@ -15,7 +15,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
-         cardShortOver, codeShortOver }
+         cardShortOver, codeShortOver, startKey, startOnce, openPairFor }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1498,6 +1498,54 @@ console.log('\n=== O3. ฟังก์ชันที่เทมเพลตเ
   const used = [...new Set([...html.matchAll(/\b(matOf|catOf|unitOf|poUnknown|fbCanPick)\(/g)].map(m => m[1]))];
   const missing = used.filter(f => !new RegExp('\\b' + f + '\\b').test(ret));
   ok('ฟังก์ชันที่เทมเพลตเรียก (matOf · catOf · poUnknown …) ส่งออกครบ', missing.length === 0, missing.join(','));
+}
+
+console.log('\n=== T. กันกดตั้งเรื่องซ้ำ (เจ้าของสั่ง 7 ต.ค. 2026) ===');
+{
+  // ชีตจริง 7 ต.ค.: over เปิดค้างซ้ำ 38 คู่ (เกิน 144 เรื่อง) สร้างห่างกันไม่ถึงวินาที = กดรัว
+  const busy = new Set();
+  let runs = 0, release;
+  const slow = () => new Promise(r => { release = r; });
+  const first = startOnce(busy, 'over|PO|A', async () => { runs++; await slow(); });
+  const again = await startOnce(busy, 'over|PO|A', async () => { runs++; });
+  ok('กดซ้ำระหว่างที่ครั้งแรกยังบันทึกไม่เสร็จ — ไม่ทำซ้ำ คืน false', again === false && runs === 1);
+  ok('ระหว่างรอ กุญแจยังจับอยู่ (ปุ่มกดไม่ได้)', busy.has('over|PO|A'));
+  const other = await startOnce(busy, 'over|PO|B', async () => { runs++; });
+  ok('แถวอื่นกดได้ตามปกติ ไม่ติดกุญแจของแถวแรก', other === true && runs === 2);
+  release(); const done = await first;
+  ok('เสร็จแล้วปลดกุญแจ กดใหม่ได้', done === true && !busy.has('over|PO|A'));
+  let threw = false;
+  try { await startOnce(busy, 'k', async () => { throw new Error('พัง'); }); } catch (e) { threw = e.message === 'พัง'; }
+  ok('งานพัง — โยน error ต่อ และปลดกุญแจ (ไม่ติดค้างจนกดไม่ได้อีก)', threw && !busy.has('k'));
+
+  ok('กุญแจ: short/over ใช้คู่ PO+รหัส (ไม่สนตัวพิมพ์ของรหัส) · buy ใช้เลขที่ของเสีย',
+     startKey('over', { po: 'P1', code: 'a1' }) === startKey('over', { po: 'P1', code: 'A1' })
+     && startKey('over', { po: 'P1', code: 'A1' }) !== startKey('short', { po: 'P1', code: 'A1' })
+     && startKey('buy', { id: 'E9' }) === 'buy|E9');
+
+  const E = 'TUE-H';
+  const openOver = makeFollow({ kind: 'over', entity: E, po: 'P1', code: 'A1', part_no: 'PN', qty: 5 });
+  const row = { po: 'P1', code: 'A1', pn: 'PN', over: 5, order: 10, recv: 15 };
+  ok('openPairFor หาเรื่องที่เปิดอยู่ของคู่นี้เจอ', openPairFor([openOver], 'over', E, 'P1', 'a1') === openOver);
+  ok('openPairFor ไม่นับเรื่องที่ปิดแล้ว · ยกเลิกแล้ว · นิติบุคคลอื่น · ชนิดอื่น',
+     !openPairFor([{ ...openOver, done: true }, { ...openOver, voided: true }, { ...openOver, entity: 'TUE-U' },
+                   { ...openOver, kind: 'short' }], 'over', E, 'P1', 'A1'));
+  throws('ตั้งเรื่องคืนซ้ำคู่ที่เปิดอยู่ = โยน (ด่านที่สองถ้ากดซ้ำหลุดมา)',
+         () => fromOverRow(row, { entity: E, follows: [openOver] }), 'เปิดอยู่แล้ว');
+  ok('เรื่องเดิมปิดแล้ว ตั้งใหม่ได้', fromOverRow(row, { entity: E, follows: [{ ...openOver, done: true }] }).kind === 'over');
+  ok('ไม่ส่ง follows มา = ไม่เช็ค (ของเดิมไม่พัง)', fromOverRow(row, { entity: E }).kind === 'over');
+  const openShort = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'P1', code: 'A1', qty: 2 });
+  throws('ตั้งเรื่อง short ซ้ำคู่ที่เปิดอยู่ = โยน',
+         () => fromShortRow({ po: 'P1', code: 'A1', pn: 'PN', short: 2, order: 1, need: 3, have: 1 },
+                            { entity: E, follows: [openShort] }), 'เปิดอยู่แล้ว');
+
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('ปุ่มตั้งเรื่องทั้งสามแบบ กดไม่ได้ระหว่างบันทึก',
+     ["isStarting('short', r)", "isStarting('over', r)", "isStarting('buy', r)"].every(x => html.includes(x)));
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('ทั้งสามทางเดินผ่าน startOnce และส่ง follows ให้ด่านที่สอง',
+     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 3
+     && /fromShortRow\(row, \{[^}]*follows: shorts\.value/.test(app) && /fromOverRow\(row, \{[^}]*follows: shorts\.value/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
