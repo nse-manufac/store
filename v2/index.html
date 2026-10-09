@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-09.1">
+<meta name="app-version" content="2026-10-09.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1936,7 +1936,9 @@ textarea{font:inherit}
           </div>
           <p class="hint" style="margin:6px 0 0">
             ของมาเป็นรอบ — ยอดขาดตรงนี้รวมของที่ยังไม่ถึงรอบด้วย · <b>กดตั้งเรื่องเมื่อแน่ใจว่าใบนั้นไม่มีของมาเพิ่มแล้ว</b>
-            · PO+รหัสที่มีเรื่องเปิดอยู่แล้ว (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ · นับทุกยอดที่ขาด แม้ไม่ถึง 1 หน่วย
+            · PO+รหัสที่มีเรื่องเปิดอยู่แล้ว (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ ·
+            คู่ที่เพิ่งปิดเรื่องไปด้วยยอดเท่ากับยอดขาดตอนนี้ก็ไม่ขึ้น (ยอดต่างจากเดิมจะขึ้นให้ตั้งเรื่องได้) ·
+            ถ้าต้องตั้งเรื่องคู่ที่ถูกซ่อน ใช้แผง <b>เพิ่มเรื่องเอง</b> ด้านล่าง · นับทุกยอดที่ขาด แม้ไม่ถึง 1 หน่วย
             <span v-if="fsBlocked.length"> · คิดไม่ได้ {{ fsBlocked.length }} ใบ:
               {{ fsBlocked.slice(0, 3).map(r => r.po + ' (' + r.why + ')').join(' · ') }}{{ fsBlocked.length > 3 ? ' …' : '' }}</span></p>
           <div class="scroll" style="max-height:32vh;margin-top:8px" v-if="fsNew.length">
