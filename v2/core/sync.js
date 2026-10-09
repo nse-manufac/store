@@ -227,6 +227,28 @@ export function syncPlan(store) {
   return { per, total };
 }
 
+/**
+ * ป้ายสถานะซิงค์บนหัวจอ — เจ้าของขอ 6 ต.ค. 2026 ให้เหมือนของ plan
+ * เดิมต้องเข้าแท็บระบบถึงจะรู้ว่าซิงค์อยู่ไหม พังเงียบ ๆ ได้ทั้งวันโดยไม่มีใครเห็น
+ *
+ * คืน { cls, text, title } · cls = '' (เทา) · ok (เขียว) · busy / pending (เหลือง) · error (แดง)
+ * ⚠️ "ok" ดูจาก lastOkAt ไม่ใช่ state — กดทดสอบการเชื่อมต่อผ่าน (state 'ok') ไม่ได้แปลว่าข้อมูลซิงค์แล้ว
+ * time = ตัวแปลงเวลาเป็นเวลาเครื่อง (localTime) · today = วันนี้ YYYY-MM-DD ตามเวลาเครื่อง
+ *   ส่งเข้ามาแทนที่จะ import เอง — ไฟล์นี้ตั้งใจไม่ผูกกับนาฬิกาเครื่อง เทสด้วย node ได้ตรง ๆ
+ */
+export function syncBadge({ url = '', state = '', error = '', pending = 0, lastOkAt = '' } = {},
+                          { time = iso => String(iso).slice(11, 16), date = iso => String(iso).slice(0, 10), today = '' } = {}) {
+  const n = Number(pending) || 0;
+  if (!url) return { cls: '', text: 'ยังไม่เชื่อมต่อ', title: 'ยังไม่ได้ตั้งค่าซิงค์ — กดเพื่อไปตั้งค่า' };
+  if (state === 'busy') return { cls: 'busy', text: 'กำลังซิงค์...', title: 'กำลังส่งและดึงข้อมูล' };
+  if (state === 'error') return { cls: 'error', text: 'ซิงค์ไม่ได้' + (n ? ` · ค้าง ${n}` : ''),
+                                  title: (error || 'ซิงค์ไม่สำเร็จ') + ' — กดเพื่อลองใหม่ · รายละเอียดอยู่ที่แท็บระบบ' };
+  if (n) return { cls: 'pending', text: `รอส่ง ${n}`, title: `มี ${n} รายการที่ยังไม่ได้ส่งขึ้น — กดเพื่อซิงค์ทันที` };
+  if (!lastOkAt) return { cls: '', text: 'ยังไม่เคยซิงค์', title: 'เครื่องนี้ยังไม่เคยซิงค์สำเร็จ — กดเพื่อซิงค์ทันที' };
+  const when = (today && date(lastOkAt) !== today ? date(lastOkAt) + ' ' : '') + time(lastOkAt);
+  return { cls: 'ok', text: 'ซิงค์แล้ว ' + when, title: 'ซิงค์สำเร็จล่าสุด ' + when + ' — กดเพื่อซิงค์ทันที' };
+}
+
 /** เซิร์ฟเวอร์ยังเป็นสคริปต์เวอร์ชันเก่าหรือเปล่า — ดูจากข้อความที่ตอบกลับมา */
 export const looksLikeOldScript = msg =>
   /ไม่รู้จัก(คำสั่ง|ตาราง)/.test(String(msg || ''));

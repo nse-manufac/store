@@ -18,11 +18,11 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
-import { localDate, atFrom, todayLocal } from './core/localtime.js';
+import { localDate, localTime, atFrom, todayLocal } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
-         normalizeScriptUrl } from './core/sync.js';
+         normalizeScriptUrl, syncBadge } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust, NOTICE_ID, noticeDue, noticeCanClose, atScrollEnd } from './core/version.js';
 import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
@@ -2953,6 +2953,11 @@ createApp({
     const syncStore = computed(() =>
       Object.fromEntries(Object.entries(LIST_OF).map(([t, l]) => [t, l.value])));
     const pending = computed(() => syncPlan(syncStore.value));
+    /** ป้ายสถานะซิงค์บนหัวจอ (ตรรกะอยู่ที่ core/sync.js) · กด = ซิงค์ทันที · ยังไม่ตั้งค่า = พาไปหน้าตั้งค่า */
+    const badge = computed(() => syncBadge(
+      { url: sync.url, state: sync.state, error: sync.error, pending: pending.value.total, lastOkAt: sync.lastOkAt },
+      { time: localTime, date: localDate, today: todayLocal() }));
+    function onBadge() { if (!sync.url) tab.value = 'sync'; else syncNow(false); }
 
     async function syncNow(silent = false) {
       if (!sync.url || syncing) return;
@@ -3288,7 +3293,7 @@ createApp({
              balQ, balCat, balZero, balShown, balSum, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
-             expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate,
+             expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
              homeTasks, homeAlerts, strangeKinds, homeIn, homeOut, homeToday,
              sync, pending, wiringGap, urlNote, onSyncUrl, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
              newVersion, verBusy, checkUpdate, reloadApp,
