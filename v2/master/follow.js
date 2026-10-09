@@ -631,9 +631,13 @@ export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow)
  * ตั้งเรื่องขาดจากแถวที่ระบบคำนวณได้ — ประเภท "ขาด" · ที่มา auto
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ แช่แข็งลงในเรื่องตรงนี้ เหมือน fromOverRow
  */
-export function fromShortRow(row, { entity, person = '', at = '', unit = '', date = '' } = {}) {
+export function fromShortRow(row, { entity, person = '', at = '', unit = '', date = '', follows = null } = {}) {
   if (!row) throw new Error('ไม่มีแถวให้ตั้งเรื่อง');
   if (row.why) throw new Error('แถวนี้คำนวณยอดขาดไม่ได้: ' + row.why);
+  // ด่านที่สอง ถ้ากดซ้ำหลุดมาได้ (เช่นสองเครื่อง หรือการ์ดยังไม่ทันคิดใหม่) — ส่ง follows มาเพื่อเช็ค
+  if (follows && openPairFor(follows, 'short', entity, row.po, row.code)) {
+    throw new Error(`PO ${txt(row.po)} · ${txt(row.code)} มีเรื่อง short เปิดอยู่แล้ว — ไม่ต้องตั้งซ้ำ`);
+  }
   return makeFollow({
     kind: 'short', type: 'ขาด', entity, source: 'auto',
     code: row.code, po: row.po, part_no: row.pn, unit,
@@ -642,6 +646,36 @@ export function fromShortRow(row, { entity, person = '', at = '', unit = '', dat
     note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)',
     by: person, now: at, date
   });
+}
+
+/* ══════════ กันกดตั้งเรื่องซ้ำ (เจ้าของสั่ง 7 ต.ค. 2026) ══════════
+ * วัดจากชีตจริง 7 ต.ค.: over เปิดค้างซ้ำคู่เดียวกัน 38 คู่ รวมเกินมา 144 เรื่อง
+ * สร้างห่างกัน 0–1 วินาที (กลางราว 0.4 วิ) ยอดเท่ากันทุกเรื่อง = กดปุ่มซ้ำระหว่างที่ยังบันทึกไม่เสร็จ
+ * แถวยังไม่หายจากการ์ดจนกว่าการเขียนลงเครื่องจะเสร็จ กดอีกทีก็ได้อีกเรื่อง
+ * ⚠️ เรื่อง over ที่ซ้ำ = เสี่ยงคืนของซ้ำ = ตัดสต็อกเกินจริง
+ */
+
+/** กุญแจของปุ่มตั้งเรื่องหนึ่งแถว — short/over ใช้คู่ PO+รหัส · buy ใช้เลขที่ของเสีย */
+export const startKey = (kind, row) => kind === 'buy'
+  ? 'buy|' + txt(row && row.id)
+  : kind + '|' + pairKey(row && row.po, row && row.code);
+
+/**
+ * ทำงานทีละครั้งต่อกุญแจ — กดซ้ำระหว่างที่ครั้งแรกยังไม่เสร็จ = ไม่ทำอะไร คืน false
+ * busy = Set (ฝั่งจอส่ง reactive Set มา เพื่อให้ปุ่มกดไม่ได้ระหว่างรอ) · เสร็จหรือพังก็ปลดกุญแจเสมอ
+ */
+export async function startOnce(busy, key, fn) {
+  if (busy.has(key)) return false;
+  busy.add(key);
+  try { await fn(); return true; }
+  finally { busy.delete(key); }
+}
+
+/** เรื่องที่ยังเปิดอยู่ของคู่ PO+รหัสนี้ (ชนิดเดียวกัน · นิติบุคคลเดียวกัน) — ไม่มี = null */
+export function openPairFor(follows, kind, entity, po, code) {
+  const k = pairKey(po, code);
+  return (follows || []).find(f => f && f.kind === kind && f.entity === entity
+    && pairKey(f.po, f.code) === k && ['open', 'partial'].includes(statusOf(f))) || null;
 }
 
 /* ══════════ Short / Over บน Bin Card (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */
@@ -714,9 +748,12 @@ export function codeShortOver(calcAll, code, follows = []) {
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้
  *    ใบรับเข้าที่คีย์ทีหลังจะทำให้ยอดของเรื่องที่ตั้งไปแล้วขยับเองถ้าไม่แช่แข็ง
  */
-export function fromOverRow(row, { entity, person = '', at = '', unit = '', date = '' } = {}) {
+export function fromOverRow(row, { entity, person = '', at = '', unit = '', date = '', follows = null } = {}) {
   if (!row) throw new Error('ไม่มีแถวให้ตั้งเรื่อง');
   if (row.why) throw new Error('แถวนี้คำนวณยอดเกินไม่ได้: ' + row.why);
+  if (follows && openPairFor(follows, 'over', entity, row.po, row.code)) {
+    throw new Error(`PO ${txt(row.po)} · ${txt(row.code)} มีเรื่องคืนเปิดอยู่แล้ว — ไม่ต้องตั้งซ้ำ`);
+  }
   return makeFollow({
     kind: 'over', entity, source: 'auto',
     code: row.code, po: row.po, part_no: row.pn, unit,
