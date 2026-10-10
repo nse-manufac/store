@@ -979,11 +979,16 @@ export function buyFromBom({ entity, po = '', part_no = '', picks = [], note = '
   for (const p of picks || []) {
     const code = txt(p && p.code).toUpperCase();
     const q = Number(p && p.qty);
-    if (!(q > 0)) { errors.push({ code, why: `${code} ใส่จำนวนที่จะสั่ง (มากกว่าศูนย์)` }); continue; }
+    if (!(q > 0) || !isFinite(q)) { errors.push({ code, why: `${code} ใส่จำนวนที่จะสั่ง (มากกว่าศูนย์)` }); continue; }
+    if (!code) { errors.push({ code: '', why: 'มีแถวที่ไม่มีรหัสวัตถุดิบ — ตรวจสูตรของ P/N นี้ที่ ข้อมูลตั้งต้น → BOM' }); continue; }
     const open = (follows || []).some(f => f && f.kind === 'buy' && f.entity === entity && !f.voided
       && !txt(f.pr_no) && statusOf(f) !== 'done' && txt(f.po) === txt(po) && txt(f.code).toUpperCase() === code);
     if (open) dup.push(code);
-    if (!errors.length) recs.push(fromManualBuy({ entity, code, qty: q, unit: txt(p.unit), po, part_no, note, person, date, at }));
+    /* ⚠️ ห้ามให้ error หลุดออกจากฟังก์ชันนี้ — ผู้เรียกคือ computed (fbmPlan) · โยนที่นั่น = จอหยุดอัปเดต */
+    if (!errors.length) {
+      try { recs.push(fromManualBuy({ entity, code, qty: q, unit: txt(p.unit), po, part_no, note, person, date, at })); }
+      catch (err) { errors.push({ code, why: `${code} ${err.message}` }); }
+    }
   }
   return { ok: !errors.length, recs: errors.length ? [] : recs, errors, dup };
 }

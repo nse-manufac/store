@@ -1586,6 +1586,20 @@ console.log('\n=== U. ซื้อทดแทนจาก BOM ของ PO — 
         [{ ...openBuy, [k]: k === 'pr_no' ? '1.10.26 H' : true }]).dup.length)
      && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] }, [{ ...openBuy, po: 'PO-X' }]).dup.length
      && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] }, [{ ...openBuy, entity: 'TUE-U' }]).dup.length);
+  /* ⚠️ ผู้เรียกคือ computed (fbmPlan) — โยน error ที่นั่น = Vue เรนเดอร์ล้ม จอหยุดอัปเดต
+        ค่าพวกนี้ถึงมือพนักงานได้จริงจาก <input type="number"> (พิมพ์/วาง 1e999 ได้ตามสเปก HTML) */
+  const guard = [
+    ['จำนวนเป็น Infinity (พิมพ์ 1e999)', [{ code: 'A1', qty: Infinity }]],
+    ['จำนวนเป็น -Infinity', [{ code: 'A1', qty: -Infinity }]],
+    ['แถวที่ไม่มีรหัสวัตถุดิบ', [{ code: '', qty: 5 }]],
+    ['รหัสเป็นช่องว่างล้วน', [{ code: '  ', qty: 5 }]],
+  ];
+  for (const [why, picks] of guard) {
+    let r, thrown = '';
+    try { r = buyFromBom({ ...base, picks }); } catch (err) { thrown = err.message; }
+    ok(`${why} = คืน errors ไม่โยน (ผู้เรียกเป็น computed)`,
+       !thrown && r && r.ok === false && r.recs.length === 0 && r.errors.length > 0, thrown);
+  }
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: กาง BOM ของ P/N ให้ติ๊ก · ช่องจำนวนเปิดเมื่อติ๊ก · ปุ่มเพิ่มกันกดซ้ำ (startOnce)',
