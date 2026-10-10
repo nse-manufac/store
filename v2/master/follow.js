@@ -724,7 +724,11 @@ export function dupFollows(follows, { kind, entity } = {}) {
   const out = [];
   for (const rows of groups.values()) {
     if (rows.length < 2) continue;
-    const byTime = [...rows].sort((a, b) => (enriched(b) - enriched(a)) || txt(a.created_at).localeCompare(txt(b.created_at)));
+    /* ⚠️ ชั้นสุดท้ายต้องเป็น id (B3 ห้ามแก้หลังสร้าง) ไม่ใช่ลำดับในอาร์เรย์ — แถวเก่าที่ migrateFollow เติม created_at ให้
+     *    ละเอียดแค่ระดับวัน เสมอกันได้จริง · ลำดับในอาร์เรย์ต่างกันตามเครื่อง (ของที่ซิงค์มาต่อท้าย)
+     *    สองเครื่องเสนอใบตรงข้ามกัน แล้วกดทั้งคู่ = ยกเลิกทั้งสองใบ (ผู้ตรวจ #131 รอบ 5 ข้อ 1) */
+    const byTime = [...rows].sort((a, b) => (enriched(b) - enriched(a))
+      || txt(a.created_at).localeCompare(txt(b.created_at)) || txt(a.id).localeCompare(txt(b.id)));
     const kept = byTime.filter(moved);
     for (const f of byTime) {
       if (moved(f)) continue;

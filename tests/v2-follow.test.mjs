@@ -1687,6 +1687,15 @@ console.log('\n=== W. ล้างเรื่องซ้ำที่ค้า�
   ok('สองใบเปล่าที่ต่างกันแค่ว่าเครื่องไหนส่งขึ้นแล้ว = เสนอใบเดียวกันทุกเครื่อง (ใบที่ตั้งทีหลัง)',
      pick([f1, f2]) === f2.id && pick([{ ...f1, updated_at: '2026-10-09T10:00:00.000Z' }, f2]) === f2.id
      && pick([f1, { ...f2, updated_at: '2026-10-09T10:00:00.000Z' }]) === f2.id);
+  {
+    // created_at เสมอกันเป๊ะ (แถวเก่าที่ migrateFollow เติมให้ระดับวัน) — ผลต้องไม่ขึ้นกับลำดับในอาร์เรย์
+    const day = '2026-10-03T00:00:00.000Z';
+    const ta = { ...mk('over', 'TM9269H009', 'J1', 2, 3), id: 'F-aaa', created_at: day };
+    const tb = { ...mk('over', 'TM9269H009', 'J1', 2, 3), id: 'F-bbb', created_at: day };
+    const x1 = dupFollows([ta, tb], { kind: 'over', entity: E }), x2 = dupFollows([tb, ta], { kind: 'over', entity: E });
+    ok('วันที่ตั้งเสมอกัน = ตัดสินด้วยเลขที่เรื่อง · สลับลำดับแล้วเสนอใบเดียวกันทุกเครื่อง (ผู้ตรวจ #131 รอบ 5)',
+       x1.length === 1 && x2.length === 1 && x1[0].row.id === 'F-bbb' && x2[0].row.id === 'F-bbb');
+  }
   ok('ความคืบหน้ายังชนะข้อมูลเพิ่มเสมอ', dupFollows([eb, closeFollow(ea, { qty: 1, by: 'ก' })], { kind: 'short', entity: E })
      .every(d => d.row.id === eb.id));
   /* ⚠️ แถวที่เกิดจากปุ่มตั้งเรื่องของหน้า short มีหมายเหตุประจำติดมาทุกใบ (fromShortRow)
