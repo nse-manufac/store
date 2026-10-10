@@ -7,7 +7,7 @@
  */
 import * as db from './core/db.js';
 import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
-         searchMaterials, duplicateDescriptions, normCode } from './master/materials.js';
+         searchMaterials, duplicateDescriptions, normCode , codeSuggest } from './master/materials.js';
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf, manualBomPlan,
@@ -296,10 +296,13 @@ createApp({
     const dragOver = ref(false);
 
     const bomSum = computed(() => summarize(bomDocs.value));
-    const bomPns = computed(() => pnSummary(bom.value));
-    const missingPack = computed(() => pnsMissingPackMat(bom.value));
-    const bomUnknownCodes = computed(() => unknownCodes(bom.value, materials.value));
-    const bomUnconfirmed = computed(() => bom.value.filter(r => r.uomConfirmed === false).length);
+    // ⚠️ ตัวเลขสรุปนับเฉพาะบรรทัดที่ยังใช้อยู่ — บรรทัดที่ติดธงลบยังอยู่ใน bom (ผู้ตรวจ #127 ข้อ ค)
+    //    ไม่งั้นตัดบรรทัดแพ็กกิ้งออกแล้ว P/N นั้นจะไม่ขึ้นเตือน "ยังไม่มีวัสดุแพ็กกิ้ง"
+    const bomLive = computed(() => bom.value.filter(r => !r.deleted));
+    const bomPns = computed(() => pnSummary(bomLive.value));
+    const missingPack = computed(() => pnsMissingPackMat(bomLive.value));
+    const bomUnknownCodes = computed(() => unknownCodes(bomLive.value, materials.value));
+    const bomUnconfirmed = computed(() => bomLive.value.filter(r => r.uomConfirmed === false).length);
 
     function readBomFiles(files) {
       const list = [...files].filter(f => /\.html?$/i.test(f.name));
@@ -566,12 +569,36 @@ createApp({
     }
     // Enter ที่แถวไหนก็ลงไปช่องรหัสของแถวถัดไป · แถวสุดท้ายเพิ่มแถวให้ (คีย์รัวด้วยคีย์บอร์ดได้ G2)
     function nbNext(i) {
+      nbSug.i = -1;
       if (i >= nb.lines.length - 1) nb.lines.push(nbLine());
       nextTick(() => { const el = document.querySelector(`[data-nb-code="${i + 1}"]`); if (el) el.focus(); });
     }
     const nbHasCur = computed(() => !!nb.pn && activeBomRowsOf(bom.value, nb.pn).length > 0);
     const nbPlan = computed(() => nb.open
-      ? manualBomPlan({ ...nb, by: bomBy.value }, bom.value, { materials: materials.value }) : null);
+      ? manualBomPlan({ ...nb, by: bomBy.value }, bom.value, { materials: materials.value, today: todayLocal() }) : null);
+    // ช่องรหัส: พิมพ์บางส่วนแล้วมีตัวเลือกให้ (master/materials.js codeSuggest) · ลูกศรเลื่อน · Enter เลือกแล้วไปช่องจำนวน
+    const nbSug = reactive({ i: -1, k: 0 });
+    const nbSugList = computed(() => {
+      const l = nb.lines[nbSug.i];
+      return l && String(l.code || '').length >= 3 ? codeSuggest(materials.value, l.code).items : [];
+    });
+    // ทะเบียนของแต่ละแถว คิดครั้งเดียวจากดัชนี — matOf ไล่ทั้งทะเบียน 12,000 กว่ารหัสทุกครั้งที่จอวาด
+    const nbMats = computed(() => nb.lines.map(l => (l.code ? matIndex.value.get(normCode(l.code)) : null) || null));
+    function nbTyping(i) { nbSug.i = i; nbSug.k = 0; }
+    function nbMove(d) { const n = nbSugList.value.length; if (n) nbSug.k = (nbSug.k + d + n) % n; }
+    function nbFocusQty(i) {
+      nextTick(() => { const el = document.querySelector(`[data-nb-qty="${i}"]`); if (el) el.focus(); });
+    }
+    function nbChoose(i, m) {
+      const l = nb.lines[i];
+      if (!l) return;
+      const r = m ? { code: normCode(m.material_code) } : codeSuggest(materials.value, l.code);
+      if (!m && !r.code && nbSugList.value.length) r.code = normCode(nbSugList.value[nbSug.k].material_code);
+      if (r.code) { l.code = r.code; l.desc = ''; l.unit = ''; nbFill(l); }
+      nbSug.i = -1;
+      nbFocusQty(i);
+    }
+    function nbBlur(i) { setTimeout(() => { if (nbSug.i === i) nbSug.i = -1; }, 150); }
     async function nbSave() {
       const p = nbPlan.value;
       if (!p || !p.ok || nb.busy) return;
@@ -611,7 +638,7 @@ createApp({
     // ── ตั้งทะเบียนจาก BOM ─────────────────────────────────────────
     // BOM ที่ Delta ให้มามีครบสามอย่างที่ทะเบียนต้องใช้ คือ รหัส ชื่อ หน่วย
     // จึงใช้ตั้งต้นทะเบียนได้เลย และได้เฉพาะของที่ใช้ผลิตจริง
-    const regPlan = computed(() => registryPlan(bom.value, materials.value));
+    const regPlan = computed(() => registryPlan(bomLive.value, materials.value));
     const regDraft = ref(null);      // ตารางที่กำลังตรวจก่อนกดสร้าง
     const regBusy = ref(false);
 
@@ -3327,6 +3354,7 @@ createApp({
              incRegUsed, incRegAll, applyIncomeRegistry,
              bomPn, bomEdit, bomBy, bomRowsOfPn, openBomPn, startBomRow, onBomCode,
              nb, nbLine, openNewBom, nbLoadCurrent, nbFill, nbNext, nbPlan, nbSave, nbHasCur,
+             nbSug, nbSugList, nbTyping, nbMove, nbChoose, nbBlur, bomLive, nbMats,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,

@@ -613,7 +613,7 @@ textarea{font:inherit}
         <div class="card">
           <div class="row">
             <h2 style="margin:0">BOM ในเครื่อง</h2>
-            <span class="tag">{{ bomPns.length }} P/N · {{ bom.length.toLocaleString() }} บรรทัด</span>
+            <span class="tag">{{ bomPns.length }} P/N · {{ bomLive.length.toLocaleString() }} บรรทัด</span>
             <button class="btn" @click="openNewBom()" title="Delta ให้มาเป็นกระดาษ ไม่มีไฟล์">+ ตั้ง BOM จาก hard copy</button>
             <div class="grow"></div>
             <span v-if="bomUnconfirmed" class="tag warn">หน่วยยังไม่ยืนยัน {{ bomUnconfirmed }} บรรทัด</span>
@@ -661,7 +661,11 @@ textarea{font:inherit}
           </div>
           <div class="row" style="margin-top:10px">
             <label class="f" style="width:140px">P/N
-              <input v-model.trim="nb.pn" class="mono" list="pnlist" data-nb-pn></label>
+              <input v-model.trim="nb.pn" class="mono" list="pnlist" data-nb-pn>
+              <!-- พิมพ์ P/N ผิดตัวเดียวจะได้สูตรใบใหม่เงียบ ๆ แทนที่จะแทนที่ใบที่ตั้งใจ (ผู้ตรวจ #127 ข้อ ฉ) -->
+              <span class="tag" :class="nbPlan && nbPlan.isNew ? 'warn' : 'ok'" style="margin-top:3px"
+                    :style="{ visibility: nb.pn ? 'visible' : 'hidden' }">
+                {{ nbPlan && nbPlan.isNew ? 'P/N ใหม่ — ยังไม่มีสูตรในเครื่อง' : 'มีสูตรอยู่แล้ว — จะแทนที่ทั้ง P/N' }}</span></label>
             <label class="f" style="width:90px">REV
               <input v-model.trim="nb.rev" class="mono"></label>
             <label class="f" style="width:150px">มีผลตั้งแต่
@@ -681,27 +685,42 @@ textarea{font:inherit}
           </div>
           <div class="scroll" style="margin-top:10px;max-height:46vh">
             <table>
-              <thead><tr><th style="width:34px">#</th><th style="width:170px">รหัส</th><th>ชื่อ</th>
+              <thead><tr><th style="width:34px">#</th><th style="width:190px">รหัส (พิมพ์บางส่วนได้)</th><th>ชื่อ</th>
                 <th style="width:120px">{{ nb.mode==='total' ? 'ยอดรวม' : 'ต่อชิ้น' }}</th>
                 <th style="width:110px" v-if="nb.mode==='total'">ต่อชิ้น</th>
                 <th style="width:80px">หน่วย</th><th style="width:170px">หมายเหตุ</th><th style="width:44px"></th></tr></thead>
-              <tbody><tr v-for="(l, i) in nb.lines" :key="i">
+              <tbody><template v-for="(l, i) in nb.lines" :key="i"><tr>
                 <td class="hint">{{ i + 1 }}</td>
                 <td><div class="row" style="gap:3px;flex-wrap:nowrap">
-                  <input v-model.trim="l.code" class="mono grow" style="min-width:0" :data-nb-code="i" @change="nbFill(l)">
+                  <input v-model.trim="l.code" class="mono grow" style="min-width:0" :data-nb-code="i" autocomplete="off"
+                         @input="nbTyping(i)" @blur="nbBlur(i)"
+                         @keydown.down.prevent="nbMove(1)" @keydown.up.prevent="nbMove(-1)"
+                         @keydown.enter.prevent="nbChoose(i)" @keydown.esc="nbSug.i = -1">
                   <button class="btn" style="padding:4px 7px" @click="openPick(l)">🔍</button></div></td>
-                <td><input v-model.trim="l.desc"></td>
-                <td><input v-model="l.qty" type="number" step="any" class="mono" @keydown.enter.prevent="nbNext(i)"></td>
-                <td class="mono hint" v-if="nb.mode==='total'">{{ nb.order > 0 && l.qty > 0 ? Math.round(l.qty / nb.order * 1e10) / 1e10 : '—' }}</td>
-                <td><input v-model.trim="l.unit" class="mono" @keydown.enter.prevent="nbNext(i)"></td>
+                <!-- ชื่อกับหน่วยมาจากทะเบียน (เจ้าของสั่ง 10 ต.ค. 2026) · รหัสไม่มีในทะเบียน = ให้คีย์หน่วยเองเฉพาะแถวนั้น -->
+                <td><template v-if="nbMats[i]">{{ nbMats[i].description }}</template>
+                  <span v-else-if="l.code && nbSug.i !== i" class="tag warn">ไม่มีในทะเบียน — ใส่หน่วยเอง แล้วตั้งทะเบียนทีหลัง</span></td>
+                <td><input v-model="l.qty" type="number" step="any" class="mono" :data-nb-qty="i" @keydown.enter.prevent="nbNext(i)"></td>
+                <td class="mono hint" v-if="nb.mode==='total'">{{ nbPlan && nbPlan.lineUsage[i] != null ? nbPlan.lineUsage[i] : '—' }}</td>
+                <td><span v-if="nbMats[i] && nbMats[i].unit" class="mono">{{ nbMats[i].unit }}</span>
+                  <input v-else-if="l.code && nbSug.i !== i" v-model.trim="l.unit" class="mono" placeholder="หน่วย" @keydown.enter.prevent="nbNext(i)"></td>
                 <td><input v-model.trim="l.note" @keydown.enter.prevent="nbNext(i)"></td>
                 <td><button class="btn" style="padding:2px 8px" @click="nb.lines.splice(i, 1)" title="ลบแถว">✕</button></td>
-              </tr></tbody>
+              </tr>
+              <!-- ตัวเลือกจากที่พิมพ์บางส่วน — แถวแทรกใต้แถวที่พิมพ์ · @mousedown.prevent ให้คลิกได้ก่อนช่องเสีย focus -->
+              <tr v-if="nbSug.i === i && nbSugList.length"><td></td>
+                <td :colspan="nb.mode==='total' ? 7 : 6" style="padding:2px 6px 8px">
+                  <div v-for="(m, k) in nbSugList" :key="m.material_code" @mousedown.prevent="nbChoose(i, m)"
+                       style="padding:4px 8px;cursor:pointer;border-radius:4px"
+                       :style="{ background: k === nbSug.k ? 'var(--line)' : '' }">
+                    <b class="mono">{{ m.material_code }}</b> <span class="hint">{{ m.unit }}</span> {{ m.description }}</div>
+                  <div class="hint" style="padding:2px 8px">↑↓ เลือก · Enter ใช้ตัวนี้ · Esc ปิด</div>
+                </td></tr></template></tbody>
             </table>
           </div>
           <div class="row" style="margin-top:8px">
             <button class="btn" @click="nbNext(nb.lines.length - 1)">+ เพิ่มแถว</button>
-            <span class="hint">กด Enter ที่ช่องยอด/หน่วย/หมายเหตุ เพื่อลงแถวถัดไป · รหัสเดียวกันหลายแถว = รวมยอด</span>
+            <span class="hint">พิมพ์รหัสบางส่วน (เช่นเลขท้าย) → ลูกศรเลือก → Enter → ใส่จำนวน → Enter ลงแถวถัดไป · รหัสเดียวกันหลายแถว = รวมยอด</span>
           </div>
           <template v-if="nbPlan">
             <div class="msg bad" style="margin:10px 0 0" v-if="nbPlan.errors.length">

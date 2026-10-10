@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 /**
  * เทส BOM ของ v2 — รันด้วย node
  *   node tests/v2-bom.test.mjs
@@ -187,7 +188,7 @@ console.log('\n=== ตั้ง BOM ทั้งใบจาก hard copy (เ�
      && bad.errors.some(e => e.i === 2) && bad.errors.some(e => e.i === 3 && /หน่วย/.test(e.why)), JSON.stringify(bad.errors));
   const w = P({ pn: 'PN-W', lines: [{ code: '9999', qty: 1, unit: 'pce' }] });
   ok('รหัสที่ไม่มีในทะเบียน — เตือน ไม่บล็อก · หน่วยเป็นตัวใหญ่', w.ok && w.warns.length === 1 && w.rows[0].unit === 'PCE');
-  ok('หน่วยไม่ตรงกันในรหัสเดียว = ผิด', !P({ pn: 'X', lines: [{ code: '9100000101', qty: 1 }, { code: '9100000101', qty: 1, unit: 'KGM' }] }).ok);
+  ok('รหัสนอกทะเบียน คีย์ซ้ำหน่วยไม่ตรงกัน = ผิด', !P({ pn: 'X', lines: [{ code: '9999', qty: 1, unit: 'PCE' }, { code: '9999', qty: 1, unit: 'KGM' }] }).ok);   // รหัสนอกทะเบียน — ในทะเบียนหน่วยมาจากทะเบียนเสมอ ชนกันไม่ได้
   const old = [
     { id: bomId('PN-R', '9100000101'), pn: 'PN-R', code: '9100000101', usage: 0.1, unit: 'MTR' },
     { id: bomId('PN-R', '9100000102'), pn: 'PN-R', code: '9100000102', usage: 1, unit: 'PCE' },
@@ -204,6 +205,32 @@ console.log('\n=== ตั้ง BOM ทั้งใบจาก hard copy (เ�
   ok('วันที่มีผลไม่ใส่ = วันนี้ · ใส่ผิดรูป = ผิด', P({ pn: 'Q', lines: [{ code: '9100000101', qty: 1 }] }).rows[0].valid_from === '2026-10-10'
      && !P({ pn: 'Q', valid_from: '10/10/2026', lines: [{ code: '9100000101', qty: 1 }] }).ok);
   ok('ไม่มีบรรทัดเลย = ผิด', !P({ pn: 'Q', lines: [{ code: '', qty: null }] }).ok);
+}
+
+console.log('\n=== hard copy — ชื่อ/หน่วยจากทะเบียน · ข้อสังเกตผู้ตรวจ #127 ===');
+{
+  const mats = [{ material_code: '9100000101', description: 'TAPE', unit: 'MTR' }];
+  const P = (inp, o = {}) => manualBomPlan(inp, [], { materials: mats, now: '2026-10-09T20:00:00.000Z', ...o });
+  const a = P({ pn: 'Q', lines: [{ code: '9100000101', qty: 1, desc: 'พิมพ์ผิด', unit: 'KGM' }] });
+  ok('รหัสที่มีในทะเบียน — ชื่อกับหน่วยมาจากทะเบียนเสมอ ไม่ใช่ที่คีย์ (พนักงานคีย์แค่รหัสกับจำนวน)',
+     a.ok && a.rows[0].desc === 'TAPE' && a.rows[0].unit === 'MTR');
+  const b = P({ pn: 'Q', lines: [{ code: '9999', qty: 2, unit: 'pce' }] });
+  ok('รหัสที่ไม่มีในทะเบียน — ใช้หน่วยที่คีย์เอง + เตือน', b.ok && b.rows[0].unit === 'PCE' && b.warns.length === 1);
+  const c = P({ pn: 'Q', lines: [{ code: '9999', qty: 2 }] });
+  ok('ไม่มีในทะเบียนและไม่ได้คีย์หน่วย = ผิด และไม่โผล่ซ้ำในกล่องเตือน (ข้อ ช) · ข้อความบอกทางออก (ข้อ ซ)',
+     !c.ok && c.warns.length === 0 && /ใส่หน่วย/.test(c.errors[0].why));
+  ok('ไม่มีรหัสแต่มียอด — ข้อความบอกทางออก (ข้อ ซ)', /ลบแถว/.test(P({ pn: 'Q', lines: [{ code: '', qty: 3 }] }).errors[0].why));
+  const t = P({ pn: 'Q', mode: 'total', order: 3, lines: [{ code: '9100000101', qty: 1 }, { code: '', qty: null }] });
+  ok('ยอดต่อชิ้นรายแถวคืนมาให้จอโชว์ — ค่าเดียวกับที่บันทึก (ข้อ ง)', t.lineUsage[0] === t.rows[0].usage && t.lineUsage[1] === null);
+  ok('วันที่ว่าง = วันนี้ตามเวลาไทยที่ส่งมา ไม่ใช่วันที่ UTC (ข้อ จ — 03:00 น. ไทย = 20:00Z เมื่อวาน)',
+     P({ pn: 'Q', lines: [{ code: '9100000101', qty: 1 }] }, { today: '2026-10-10' }).rows[0].valid_from === '2026-10-10');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ช่องชื่อไม่ให้พิมพ์ · ป้าย P/N ใหม่ (ข้อ ฉ) · ต่อชิ้นมาจาก plan ไม่คิดซ้ำในเทมเพลต (ข้อ ง)',
+     !html.includes('v-model.trim="l.desc"') && html.includes('P/N ใหม่ — ยังไม่มีสูตรในเครื่อง')
+     && html.includes('nbPlan.lineUsage[i]') && !html.includes('l.qty / nb.order'));
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('ตัวเลขสรุปหน้า BOM ไม่นับบรรทัดที่ลบแล้ว (ข้อ ค)',
+     /pnSummary\(bomLive\.value\)/.test(app) && /pnsMissingPackMat\(bomLive\.value\)/.test(app) && /registryPlan\(bomLive\.value/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

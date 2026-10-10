@@ -7,7 +7,7 @@
  * C คืออาการที่พนักงานแจ้งเข้ามาเองใน issue #26
  */
 import { categorize, checkCode, normCode, makeMaterial, addedOnFloor,
-         searchMaterials, duplicateDescriptions, CATEGORIES } from '../v2/master/materials.js';
+         searchMaterials, duplicateDescriptions, CATEGORIES , codeSuggest } from '../v2/master/materials.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -95,6 +95,22 @@ const floor = addedOnFloor({ material_code: '3999999900', description: 'เท�
 ok('รหัสที่เพิ่มหน้างานติดธงรอตรวจ', floor.needs_review === true);
 ok('บันทึกไว้ว่าใครเพิ่ม', floor.note.includes('สมชาย'), floor.note);
 ok('รู้ว่ามาจากการเพิ่มด้วยมือ', floor.source === 'มือ');
+
+console.log('\n=== พิมพ์รหัสบางส่วนแล้วมีตัวเลือก (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  const L = [{ material_code: '9100000101', description: 'TAPE 6mm', unit: 'MTR' },
+             { material_code: '9100000201', description: 'TAPE 8mm', unit: 'MTR' },
+             { material_code: '9100000102', description: 'BOBBIN 0101', unit: 'PCE' },
+             { material_code: '5999000101', description: 'CORE', unit: 'PCE', active: false }];
+  const a = codeSuggest(L, '0101');
+  ok('พิมพ์เลขท้าย — ตัวที่ลงท้ายด้วยขึ้นก่อน · ไม่ค้นในชื่อ (BOBBIN 0101 ไม่โผล่) · ตัวที่ปิดใช้ไม่โผล่',
+     a.items.map(m => m.material_code).join() === '9100000101' && a.code === '9100000101', JSON.stringify(a.items.map(m => m.material_code)));
+  const b = codeSuggest(L, '01');
+  ok('ตรงหลายตัว = ไม่เดา (code ว่าง) ให้คนเลือก', b.code === '' && b.items.length === 3);
+  ok('พิมพ์เต็มตรงเป๊ะ = ได้เลย', codeSuggest(L, '9100000201').code === '9100000201');
+  ok('ไม่พิมพ์ / ไม่ตรงอะไร = ว่าง', codeSuggest(L, '').items.length === 0 && codeSuggest(L, 'ZZZ').code === '');
+  ok('เพดานจำนวนตัวเลือก', codeSuggest(L, '0', { limit: 2 }).items.length === 2);
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

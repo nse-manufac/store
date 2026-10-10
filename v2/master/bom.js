@@ -170,7 +170,7 @@ const r10 = n => Math.round(n * 1e10) / 1e10;
  * คืน { ok, rows, removed, errors: [{ i, why }], warns: [{ i, code, why }], isNew, diff }
  *   i = ลำดับแถวที่คีย์ (เริ่ม 0) · -1 = หัวใบ · แถวว่างทั้งแถวข้ามไปเฉย ๆ
  */
-export function manualBomPlan(input = {}, existing = [], { materials = [], now = new Date().toISOString() } = {}) {
+export function manualBomPlan(input = {}, existing = [], { materials = [], now = new Date().toISOString(), today = '' } = {}) {
   const pn = String(input.pn || '').trim();
   const mode = input.mode === 'total' ? 'total' : 'unit';
   const order = Number(input.order);
@@ -181,19 +181,26 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
   if (vf && !/^\d{4}-\d{2}-\d{2}$/.test(vf)) errors.push({ i: -1, why: 'วันที่มีผลไม่ถูกต้อง — เลือกวันที่ใหม่' });
   const matOf = new Map((materials || []).map(m => [normCode(m.material_code), m]));
   const merged = new Map();
+  // ยอดต่อชิ้นของแต่ละแถวที่คีย์ — ให้จอโชว์ค่าเดียวกับที่จะบันทึก ไม่คิดซ้ำในเทมเพลต (ผู้ตรวจ #127 ข้อ ง)
+  const lineUsage = [];
   (input.lines || []).forEach((l, i) => {
+    lineUsage[i] = null;
     const code = normCode(l && l.code);
     const raw = l ? l.qty : null;
     if (!code && (raw === '' || raw == null)) return;
-    if (!code) { errors.push({ i, why: 'ไม่มีรหัส' }); return; }
+    if (!code) { errors.push({ i, why: 'ไม่มีรหัส — ใส่รหัส หรือกด ✕ ลบแถวนี้' }); return; }
     if (isInHouse(code)) { errors.push({ i, why: `${code} ขึ้นต้น 28 = ของทำเอง ไม่ใช่วัตถุดิบที่เบิกจากคลัง` }); return; }
     const q = Number(raw);
     if (raw === '' || raw == null || !isFinite(q) || q <= 0) { errors.push({ i, why: `${code} ยอดต้องเป็นตัวเลขมากกว่าศูนย์` }); return; }
     const m = matOf.get(code);
+    // ชื่อกับหน่วยมาจากทะเบียนเสมอ (เจ้าของสั่ง 10 ต.ค. 2026 — พนักงานคีย์แค่รหัสกับจำนวน)
+    // คีย์หน่วยเองได้เฉพาะรหัสที่ไม่มีในทะเบียน หรือทะเบียนยังไม่มีหน่วย
+    const unit = String(((m && m.unit) || l.unit || '')).trim().toUpperCase();
+    if (!unit) { errors.push({ i, why: `${code} ไม่มีหน่วย — ใส่หน่วยในช่องหน่วยของแถวนี้` }); return; }
+    // เตือนเฉพาะแถวที่ผ่านแล้ว แถวที่ตกไปแล้วอยู่ในกล่องแดงที่เดียว (ผู้ตรวจ #127 ข้อ ช)
     if (!m) warns.push({ i, code, why: 'ไม่มีในทะเบียน' });
-    const unit = String((l.unit || (m && m.unit) || '')).trim().toUpperCase();
-    if (!unit) { errors.push({ i, why: `${code} ไม่มีหน่วย` }); return; }
     const usage = mode === 'total' ? (order > 0 ? r10(q / order) : 0) : r10(q);
+    lineUsage[i] = usage;
     const hit = merged.get(code);
     if (hit) {
       if (hit.unit !== unit) { errors.push({ i, why: `${code} คีย์ซ้ำแต่หน่วยไม่ตรงกัน (${hit.unit} กับ ${unit})` }); return; }
@@ -201,7 +208,7 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
       if (l.note) hit.note = [hit.note, String(l.note).trim()].filter(Boolean).join(' · ');
     } else {
       merged.set(code, { code, unit, usage, lines: 1,
-                         desc: String(l.desc || (m && m.description) || '').trim(), note: String(l.note || '').trim() });
+                         desc: String((m && m.description) || l.desc || '').trim(), note: String(l.note || '').trim() });
     }
   });
   if (!merged.size && !errors.length) errors.push({ i: -1, why: 'ยังไม่มีบรรทัดสูตร' });
@@ -214,7 +221,8 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
     lines: l.lines, altPct: null,
     // คนคีย์จากเอกสารเอง = ยืนยันหน่วยแล้ว ไม่ใช่ค่าที่ระบบเดามา
     uomConfirmed: true, uomWhy: '', rawQpa: l.usage, rawUom: l.unit,
-    rev: String(input.rev || '').trim(), valid_from: vf || now.slice(0, 10),
+    // วันที่ว่าง = วันนี้ตามเวลาไทย (ผู้เรียกส่ง today มา) · now.slice เป็นวันที่ UTC ตี 0–7 จะได้เมื่อวาน (ผู้ตรวจ #127 ข้อ จ)
+    rev: String(input.rev || '').trim(), valid_from: vf || today || now.slice(0, 10),
     // ขึ้นต้น 'มือ' — manualRowsOf จะเตือนก่อนนำเข้าไฟล์ทับ
     source: 'มือ · hard copy · ' + by, imported_at: now, deleted: false,
     note: [String(input.note || '').trim(), l.note].filter(Boolean).join(' · ')
@@ -229,7 +237,7 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
       diff.changed.push({ code: r.code, from: Number(old.usage) || 0, to: r.usage, fromUnit: old.unit || '', unit: r.unit });
     } else diff.same++;
   }
-  return { ok: !errors.length, rows, removed, errors, warns, isNew: !cur.length, replacing: cur.length, diff };
+  return { ok: !errors.length, rows, removed, errors, warns, isNew: !cur.length, replacing: cur.length, diff, lineUsage };
 }
 
 /** บรรทัดที่แก้มือไว้ของ P/N พวกนี้ — ใช้เตือนก่อนนำเข้าไฟล์ทับ */
