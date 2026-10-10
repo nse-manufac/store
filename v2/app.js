@@ -827,7 +827,11 @@ createApp({
       t.code = m.material_code;
       if (t === mk) onMkCode();
       else if (t === bomEdit.value) onBomCode();
-      else if (nb.lines.includes(t)) nbFill(t);
+      // ล้างก่อนเติม เหมือน nbChoose — ไม่งั้นหน่วยของรหัสเดิมติดไปกับรหัสใหม่ที่ทะเบียนยังไม่มีหน่วย
+      // แล้วด่าน "ไม่มีหน่วย" ถูกข้าม สูตรได้หน่วยผิดเงียบ ๆ (ผู้ตรวจ #127 รอบ 4)
+      // ⚠️ ห้ามย้ายการล้างไปไว้ใน nbFill เอง — nbLoadCurrent เรียก nb.lines.forEach(nbFill)
+      // กับแถวที่โหลดจากสูตรเดิม ถ้าล้างในนั้น รหัสนอกทะเบียนจะเสียหน่วยที่บันทึกไว้แล้ว
+      else if (nb.lines.includes(t)) { t.desc = ''; t.unit = ''; nbFill(t); }
       else if (outLines.value.includes(t)) fillOutLine(t);
       else if (inLines.value.includes(t)) fillInLine(t);   // ต้องได้ยอดตามสูตรเหมือนคีย์รหัสเอง
       else fillLine(t);

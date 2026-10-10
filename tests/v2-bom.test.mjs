@@ -301,5 +301,80 @@ console.log('\n=== hard copy — เปลี่ยนรหัสของแ�
   ok('แถวนั้นถูกลบไปแล้วระหว่างพิมพ์ = ไม่ระเบิด', !threw);
 }
 
+console.log('\n=== hard copy — ปุ่ม 🔍 เลือกรหัสใหม่ หน่วยเดิมต้องไม่ติดไปด้วย (ผู้ตรวจ #127 รอบ 4) ===');
+{
+  // ดึง choosePick + nbFill ตัวจริงจาก app.js มารัน แล้วส่งผลต่อเข้า manualBomPlan (วิธีเดียวกับรอบ 3)
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const bodyOf = (name) => {
+    const at = src.indexOf(`function ${name}(`);
+    if (at < 0) throw new Error(`หาไม่เจอใน app.js: ${name}`);
+    let depth = 0;
+    for (let j = src.indexOf('{', at); j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}' && --depth === 0) return src.slice(at, j + 1);
+    }
+    throw new Error(`ปิดวงเล็บไม่ครบ: ${name}`);
+  };
+  // ทะเบียน: 01 มีหน่วย · 09 มีอยู่แต่หน่วยว่าง (income-bom ใส่ unit:'' ให้หน่วยที่แปลงไม่ได้) · 11 มีหน่วย
+  const mats = [
+    { material_code: '9100000101', description: 'TAPE 6MM', unit: 'MTR' },
+    { material_code: '9100000109', description: 'SOLVENT X', unit: '' },
+    { material_code: '9100000111', description: 'BOX', unit: 'PCE' },
+  ];
+  const matOf = code => mats.find(m => String(m.material_code).trim().toUpperCase() === String(code || '').trim().toUpperCase());
+  const nbFill = new Function('matOf', `${bodyOf('nbFill')}\nreturn nbFill;`)(matOf);
+  const P = (lines) => manualBomPlan({ pn: 'Q', lines }, [], { materials: mats, now: '2026-10-10T03:00:00.000Z', today: '2026-10-10' });
+  // สิ่งที่ choosePick ต้องมีรอบตัว — แถว nb เท่านั้นที่เทสนี้สนใจ ทางอื่นใส่ของหลอกไว้ให้ไม่ระเบิด
+  const pickOf = (nb) => {
+    const pick = { value: null };
+    const noop = () => {};
+    const fn = new Function('pick', 'mk', 'onMkCode', 'bomEdit', 'onBomCode', 'nb', 'nbFill',
+      'outLines', 'fillOutLine', 'inLines', 'fillInLine', 'fillLine',
+      `${bodyOf('choosePick')}\nreturn choosePick;`)(
+      pick, {}, noop, { value: {} }, noop, nb, nbFill,
+      { value: [] }, noop, { value: [] }, noop, noop);
+    return { pick, choosePick: fn };
+  };
+
+  // A) แถวมีรหัสที่ทะเบียนบอกหน่วย MTR → กด 🔍 → เลือกรหัสที่ทะเบียนยังไม่มีหน่วย
+  const nbA = { lines: [{ code: '9100000101', desc: 'TAPE 6MM', qty: 3, unit: 'MTR', note: '' }] };
+  const A = pickOf(nbA);
+  A.pick.value = nbA.lines[0];
+  A.choosePick({ material_code: '9100000109' });
+  ok('🔍 เลือกรหัสที่ทะเบียนไม่มีหน่วย → หน่วยของรหัสเดิมไม่ค้าง (ชื่อมาจากทะเบียน)',
+     nbA.lines[0].code === '9100000109' && nbA.lines[0].unit === '' && nbA.lines[0].desc === 'SOLVENT X',
+     JSON.stringify(nbA.lines[0]));
+  const rA = P(nbA.lines);
+  ok('A) ด่าน "ไม่มีหน่วย" ทำงาน ไม่ใช่บันทึกด้วยหน่วย MTR ของรหัสเดิมเงียบ ๆ',
+     !rA.ok && rA.errors.some(e => e.i === 0 && /ไม่มีหน่วย/.test(e.why)),
+     JSON.stringify({ ok: rA.ok, rows: rA.rows, errors: rA.errors }));
+
+  // B) แถวเป็นรหัสนอกทะเบียนที่พนักงานคีย์หน่วยเอง → 🔍 → เลือกรหัสที่ทะเบียนไม่มีหน่วย
+  const nbB = { lines: [{ code: '7777777777', desc: '', qty: 2, unit: 'KGM', note: '' }] };
+  const B = pickOf(nbB);
+  B.pick.value = nbB.lines[0];
+  B.choosePick({ material_code: '9100000109' });
+  const rB = P(nbB.lines);
+  ok('B) หน่วยที่พนักงานคีย์ให้รหัสเดิม ไม่ติดไปกับรหัสที่เลือกใหม่',
+     nbB.lines[0].unit === '' && !rB.ok && rB.errors.some(e => e.i === 0 && /ไม่มีหน่วย/.test(e.why)),
+     JSON.stringify({ line: nbB.lines[0], ok: rB.ok, errors: rB.errors }));
+
+  // C) เส้นทางปกติ — เลือกรหัสที่ทะเบียนมีหน่วย ต้องยังได้ชื่อ/หน่วยของรหัสใหม่ครบ
+  const nbC = { lines: [{ code: '9100000101', desc: 'TAPE 6MM', qty: 4, unit: 'MTR', note: '' }] };
+  const C = pickOf(nbC);
+  C.pick.value = nbC.lines[0];
+  C.choosePick({ material_code: '9100000111' });
+  const rC = P(nbC.lines);
+  ok('C) เลือกรหัสที่ทะเบียนมีหน่วย = ได้ชื่อ/หน่วยของรหัสใหม่ บันทึกได้ตามปกติ',
+     rC.ok && rC.rows[0].code === '9100000111' && rC.rows[0].desc === 'BOX' && rC.rows[0].unit === 'PCE',
+     JSON.stringify(rC.rows));
+
+  // แถวที่โหลดมาจากสูตรเดิมแล้วไม่กด 🔍 ต้องไม่เสียหน่วย — ห้ามย้ายการล้างไปไว้ใน nbFill
+  const keepLine = { code: '7777777777', desc: 'ของเดิม', qty: 2, unit: 'PCE', note: '' };
+  nbFill(keepLine);
+  ok('nbFill เองยังไม่ล้าง — แถวเดิมที่เป็นรหัสนอกทะเบียน (nbLoadCurrent เรียก forEach(nbFill)) ไม่เสียหน่วย',
+     keepLine.desc === 'ของเดิม' && keepLine.unit === 'PCE', JSON.stringify(keepLine));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
