@@ -38,7 +38,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
-         startKey, startOnce, buyUnit,
+         startKey, startOnce, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES } from './master/follow.js';
 
@@ -2469,6 +2469,52 @@ createApp({
       finally { rb.busy = false; }
     }
 
+    /** เอาเรื่อง over กลับ — ยกเลิกรายการส่งคืนที่ผูกไว้ด้วย ยอดคงคลังกลับมา (ตรรกะที่ master/follow.js reopenOver) */
+    async function foReopen(row) {
+      try {
+        await startOnce(starting, 'foreopen|' + row.id, async () => {
+          const { rec, voids } = reopenOver(plain(row), entries.value, { by: fsBy.value });
+          if (!confirm(`เอาเรื่องกลับ = เปิดเรื่อง ${row.po} · ${row.code} ใหม่`
+              + (voids.length ? ` และยกเลิกรายการส่งคืน ${voids.length} รายการ`
+                  + ` (${voids.map(v => v.qty).join(', ')}) — ยอดคงคลังจะกลับมาเท่าที่คืนไป` : '')
+              + '\n\nทำต่อไหม')) return;
+          if (voids.length) {
+            await db.put('entries', voids);
+            for (const v of voids) { const i = entries.value.findIndex(e => e.id === v.id); if (i >= 0) entries.value.splice(i, 1, v); }
+            db.announce('entries');
+          }
+          await fsPut(rec);
+          flash('เปิดเรื่องกลับมาแล้ว' + (voids.length ? ` · ยกเลิกรายการส่งคืน ${voids.length} รายการ` : ''));
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /* ── ล้างเรื่องซ้ำที่ค้างในข้อมูลเดิม (เจ้าของสั่ง 10 ต.ค. 2026) ── กติกาอยู่ที่ master/follow.js dupFollows
+     * ติ๊กไว้ทุกแถวเป็นค่าตั้งต้น (dupSkip = แถวที่ติ๊กออก) · ยกเลิกแบบไม่ลบ (B1) */
+    const dupLists = computed(() => entity.value
+      ? { short: dupFollows(shorts.value, { kind: 'short', entity: entity.value }),
+          over: dupFollows(shorts.value, { kind: 'over', entity: entity.value }) }
+      : { short: [], over: [] });
+    const dupSkip = reactive({});
+    const dupShow = reactive({ short: false, over: false });
+    const dupPicked = kind => dupLists.value[kind].filter(d => !dupSkip[d.row.id]);
+    const foDouble = computed(() => doubleReturns(shorts.value, entries.value, { entity: entity.value }));
+    async function dupVoid(kind) {
+      const list = dupPicked(kind);
+      if (!list.length) return;
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      if (!confirm(`ยกเลิกเรื่อง ${kind} ที่ซ้ำ ${list.length} เรื่อง?\n\nไม่ลบทิ้ง — ยังดูย้อนหลังได้ · ยอดคงคลังไม่เปลี่ยน`)) return;
+      try {
+        await startOnce(starting, 'dupvoid|' + kind, async () => {
+          const recs = list.map(d => voidFollow(plain(d.row), { by: fsBy.value, reason: 'เรื่องซ้ำ — ' + d.why }));
+          await db.put('shorts', recs);
+          const at = new Map(recs.map(r => [r.id, r]));
+          shorts.value = shorts.value.map(s => at.get(s.id) || s);
+          flash(`ยกเลิกเรื่องซ้ำ ${recs.length} เรื่องแล้ว`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+
     /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) */
     async function foVoid(row) {
       const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
@@ -3470,7 +3516,7 @@ createApp({
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo,
       buyWaits, cancelBuyWaits,
-      foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
+      foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
