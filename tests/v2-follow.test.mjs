@@ -1671,10 +1671,22 @@ console.log('\n=== W. ล้างเรื่องซ้ำที่ค้า�
   const ea = mk('short', 'TM9269H006', 'F1', 5, 1), eb = mk('short', 'TM9269H006', 'F1', 5, 2, { eta: '2026-10-20' });
   const de = dupFollows([ea, eb], { kind: 'short', entity: E });
   ok('ใบที่มี ETA ถูกเก็บไว้แม้ตั้งทีหลัง — เสนอยกเลิกใบเปล่า', de.length === 1 && de[0].row.id === ea.id && de[0].twin.id === eb.id);
-  const ec = mk('short', 'TM9269H006', 'F1', 5, 2, { note: 'Delta แจ้ง 8 ต.ค.', updated_at: '2026-10-08T03:00:00.000Z' });
+  const ec = mk('short', 'TM9269H006', 'F1', 5, 2, { note: 'Delta แจ้ง 8 ต.ค.' });
   const du = dupFollows([ea, ec], { kind: 'short', entity: E });
-  ok('ใบที่ถูกแก้หลังตั้ง (ไฟล์ Delta มาอัปเดตหมายเหตุ) ถูกเก็บไว้ก่อนใบที่ไม่เคยแตะ',
+  ok('ใบที่มีหมายเหตุจากไฟล์ Delta ถูกเก็บไว้ก่อนใบเปล่า',
      du.length === 1 && du[0].row.id === ea.id && du[0].twin.id === ec.id);
+  /* ⚠️ markSynced เขียน updated_at ทับทุกแถวที่ส่งขึ้นสำเร็จ (D4 · core/sync.js)
+   * ข้อมูลที่ใบนี้มาล้างซิงค์แล้วทั้งหมด → "updated_at ขยับ" ไม่ใช่ร่องรอยว่ามีใครเติมข้อมูล
+   * และถ้าใช้เป็นเกณฑ์ สองเครื่องจะเสนอยกเลิกใบตรงข้ามกัน (ผู้ตรวจ #131 รอบ 3 ข้อ 1) */
+  const es = { ...ea, updated_at: '2026-10-09T10:00:00.000Z' };
+  const ds = dupFollows([es, eb], { kind: 'short', entity: E });
+  ok('ใบเปล่าที่ซิงค์แล้ว (updated_at ถูกเขียนทับตาม D4) ไม่นับว่า "มีข้อมูลเพิ่ม" — ยังเก็บใบที่มี ETA',
+     ds.length === 1 && ds[0].row.id === es.id && ds[0].twin.id === eb.id);
+  const f1 = mk('short', 'TM9269H007', 'G1', 5, 1), f2 = mk('short', 'TM9269H007', 'G1', 5, 2);
+  const pick = rows => { const d = dupFollows(rows, { kind: 'short', entity: E }); return d.length === 1 ? d[0].row.id : '?'; };
+  ok('สองใบเปล่าที่ต่างกันแค่ว่าเครื่องไหนส่งขึ้นแล้ว = เสนอใบเดียวกันทุกเครื่อง (ใบที่ตั้งทีหลัง)',
+     pick([f1, f2]) === f2.id && pick([{ ...f1, updated_at: '2026-10-09T10:00:00.000Z' }, f2]) === f2.id
+     && pick([f1, { ...f2, updated_at: '2026-10-09T10:00:00.000Z' }]) === f2.id);
   ok('ความคืบหน้ายังชนะข้อมูลเพิ่มเสมอ', dupFollows([eb, closeFollow(ea, { qty: 1, by: 'ก' })], { kind: 'short', entity: E })
      .every(d => d.row.id === eb.id));
 
