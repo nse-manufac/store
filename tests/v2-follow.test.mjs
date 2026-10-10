@@ -1689,6 +1689,17 @@ console.log('\n=== W. ล้างเรื่องซ้ำที่ค้า�
      && pick([f1, { ...f2, updated_at: '2026-10-09T10:00:00.000Z' }]) === f2.id);
   ok('ความคืบหน้ายังชนะข้อมูลเพิ่มเสมอ', dupFollows([eb, closeFollow(ea, { qty: 1, by: 'ก' })], { kind: 'short', entity: E })
      .every(d => d.row.id === eb.id));
+  /* ⚠️ แถวที่เกิดจากปุ่มตั้งเรื่องของหน้า short มีหมายเหตุประจำติดมาทุกใบ (fromShortRow)
+   * นับหมายเหตุนั้นว่า "ข้อมูลเพิ่ม" = คู่ที่ซ้ำเสมอกันทั้งคู่ แล้วกฎนี้ไม่มีผลกับหน้า short เลย
+   * fixture ที่ใช้ makeFollow ตรง ๆ ได้ note: '' ซึ่งไม่เหมือนของจริง (ผู้ตรวจ #131 รอบ 4 ข้อ 1) */
+  const sr = { po: 'TM9269H008', code: 'H1', pn: 'PN1', short: 5, order: 10, need: 10, have: 5 };
+  const g1 = fromShortRow(sr, { entity: E, person: 'ก', at: '2026-10-01T03:00:00.000Z', date: '2026-10-01' });
+  const g2 = { ...fromShortRow(sr, { entity: E, person: 'ก', at: '2026-10-02T03:00:00.000Z', date: '2026-10-02' }),
+               eta: '2026-10-20' };
+  const dg = dupFollows([g1, g2], { kind: 'short', entity: E });
+  ok('หมายเหตุที่ระบบใส่เองไม่นับว่ามีข้อมูลเพิ่ม — คู่ที่ตั้งจากปุ่มของหน้า short ยังเก็บใบที่มี ETA',
+     dg.length === 1 && dg[0].row.id === g1.id && dg[0].twin.id === g2.id,
+     JSON.stringify(dg.map(d => ({ voidEta: d.row.eta, keepEta: d.twin.eta }))));
 
   const at = '2026-10-05T03:00:00.000Z';
   const ra = sendbackEntry(o1, { qty: 3, person: 'ก', at, reason_code: 'over' }), rb = sendbackEntry(o2, { qty: 3, person: 'ก', at, reason_code: 'over' });

@@ -627,6 +627,10 @@ export function shortChecker(calcRows) {
 }
 export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow);
 
+/* หมายเหตุประจำที่ fromShortRow ติดให้ทุกแถวที่ระบบตั้ง — เหมือนกันเป๊ะทุกใบ
+ * ⚠️ ประกาศไว้ที่เดียว เพราะ enriched (บรรทัด ~705) ต้องไม่นับข้อความนี้ว่าเป็น "ข้อมูลเพิ่ม" */
+const SYS_SHORT_NOTE = 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)';
+
 /**
  * ตั้งเรื่องขาดจากแถวที่ระบบคำนวณได้ — ประเภท "ขาด" · ที่มา auto
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ แช่แข็งลงในเรื่องตรงนี้ เหมือน fromOverRow
@@ -643,7 +647,7 @@ export function fromShortRow(row, { entity, person = '', at = '', unit = '', dat
     code: row.code, po: row.po, part_no: row.pn, unit,
     qty: row.short,
     order_qty: row.order, bom_qty: row.need, recv_qty: row.have,
-    note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)',
+    note: SYS_SHORT_NOTE,
     by: person, now: at, date
   });
 }
@@ -699,8 +703,10 @@ const idsOf = v => String(v || '').split(/\s+/).filter(Boolean);
  * ⚠️ ห้ามใช้ updated_at > created_at เป็นสัญญาณ "ถูกแก้หลังตั้ง" — markSynced เขียน updated_at
  *    ทับทุกแถวที่ส่งขึ้นสำเร็จตาม D4 (core/sync.js) ข้อมูลที่มาล้างซิงค์แล้วทั้งหมดโดยนิยาม
  *    จึงไม่มีผลกับของจริง และทำให้สองเครื่องเสนอยกเลิกใบตรงข้ามกันของคู่เดียวกัน (ผู้ตรวจ #131 รอบ 3)
- *    ดูแค่ข้อมูลที่มีอยู่จริง ซึ่งเท่ากันทุกเครื่องและเป็นคอลัมน์ที่คนเห็นบนจอ */
-const enriched = f => !!txt(f.eta) || !!txt(f.note);
+ *    ดูแค่ข้อมูลที่มีอยู่จริง ซึ่งเท่ากันทุกเครื่องและเป็นคอลัมน์ที่คนเห็นบนจอ
+ * ⚠️ หมายเหตุที่ fromShortRow ใส่เองไม่นับว่า "ข้อมูลเพิ่ม" — ทุกใบที่ระบบตั้งมีข้อความนี้เหมือนกันหมด
+ *    นับด้วยแล้วคู่ที่ซ้ำจะ enriched เสมอกันทั้งคู่ แล้วกฎนี้ไม่มีผลกับหน้า short เลย (ผู้ตรวจ #131 รอบ 4) */
+const enriched = f => !!txt(f.eta) || (!!txt(f.note) && txt(f.note) !== SYS_SHORT_NOTE);
 const moved = f => statusOf(f) !== 'open' || idsOf(f.return_entry_id).length > 0
                    || idsOf(f.receive_entry_id).length > 0;
 
