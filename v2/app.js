@@ -10,7 +10,7 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
          searchMaterials, duplicateDescriptions, normCode } from './master/materials.js';
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan, registryPlan, makeManualRow, manualRowsOf,
+         importPlan, registryPlan, makeManualRow, manualRowsOf, manualBomPlan,
          bomId, activeBomRowsOf, reqmtOf } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
@@ -541,6 +541,56 @@ createApp({
       flash('ลบแล้ว');
     }
 
+    // ── ตั้ง BOM ทั้งใบจาก hard copy (เจ้าของสั่ง 10 ต.ค. 2026 · ตรรกะอยู่ที่ master/bom.js) ──
+    const nbLine = () => ({ code: '', desc: '', qty: null, unit: '', note: '' });
+    const nb = reactive({ open: false, pn: '', rev: '', valid_from: '', mode: 'unit', order: null,
+                          note: '', lines: [], busy: false });
+    function openNewBom(pn = '', loadCurrent = false) {
+      Object.assign(nb, { open: true, pn: String(pn || ''), rev: '', valid_from: todayLocal(), mode: 'unit',
+                          order: null, note: '', lines: [nbLine(), nbLine(), nbLine()], busy: false });
+      if (loadCurrent) nbLoadCurrent();
+      nextTick(() => { const el = document.querySelector('[data-nb-pn]'); if (el) el.focus(); });
+    }
+    /** REV ใหม่ที่เปลี่ยนไม่กี่บรรทัด — โหลดสูตรเดิมมาแก้ แทนที่จะคีย์ใหม่หมด */
+    function nbLoadCurrent() {
+      const cur = activeBomRowsOf(bom.value, nb.pn)
+        .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+      if (!cur.length) { flash('P/N นี้ยังไม่มีสูตรในเครื่อง', true); return; }
+      nb.mode = 'unit'; nb.rev = cur[0].rev || '';
+      nb.lines = [...cur.map(r => ({ code: r.code, desc: r.desc, qty: r.usage, unit: r.unit, note: '' })), nbLine()];
+      nb.lines.forEach(nbFill);   // บรรทัดเดิมที่ไม่มีชื่อ เติมจากทะเบียนให้
+    }
+    function nbFill(l) {
+      const m = matOf(l.code);
+      if (m) { if (!l.desc) l.desc = m.description; if (!l.unit) l.unit = m.unit; }
+    }
+    // Enter ที่แถวไหนก็ลงไปช่องรหัสของแถวถัดไป · แถวสุดท้ายเพิ่มแถวให้ (คีย์รัวด้วยคีย์บอร์ดได้ G2)
+    function nbNext(i) {
+      if (i >= nb.lines.length - 1) nb.lines.push(nbLine());
+      nextTick(() => { const el = document.querySelector(`[data-nb-code="${i + 1}"]`); if (el) el.focus(); });
+    }
+    const nbHasCur = computed(() => !!nb.pn && activeBomRowsOf(bom.value, nb.pn).length > 0);
+    const nbPlan = computed(() => nb.open
+      ? manualBomPlan({ ...nb, by: bomBy.value }, bom.value, { materials: materials.value }) : null);
+    async function nbSave() {
+      const p = nbPlan.value;
+      if (!p || !p.ok || nb.busy) return;
+      if (!p.isNew && !confirm(`แทนที่สูตรเดิมของ ${nb.pn} ทั้ง P/N\n\n`
+          + `เดิม ${p.replacing} บรรทัด → ใหม่ ${p.rows.length} บรรทัด`
+          + `\nเพิ่ม ${p.diff.added.length} · เปลี่ยนยอด ${p.diff.changed.length} · ตัดออก ${p.diff.removed.length}`)) return;
+      nb.busy = true;
+      try {
+        const recs = plain([...p.rows, ...p.removed]);
+        await db.put('bom', recs);
+        const byId = new Map(recs.map(r => [r.id, r]));
+        bom.value = [...bom.value.filter(r => !byId.has(r.id)), ...recs];
+        db.announce('bom');
+        flash(`บันทึกสูตร ${nb.pn} แล้ว — ${p.rows.length} บรรทัด`);
+        const pn = nb.pn; nb.open = false; openBomPn(pn);
+      } catch (err) { flash(err.message, true); }
+      finally { nb.busy = false; }
+    }
+
     /** บรรทัดที่แก้มือไว้ และกำลังจะถูกไฟล์ที่ลากมาทับ */
     /**
      * บรรทัดที่แก้มือไว้ แล้วกำลังจะโดนทับ
@@ -739,6 +789,7 @@ createApp({
       t.code = m.material_code;
       if (t === mk) onMkCode();
       else if (t === bomEdit.value) onBomCode();
+      else if (nb.lines.includes(t)) nbFill(t);
       else if (outLines.value.includes(t)) fillOutLine(t);
       else if (inLines.value.includes(t)) fillInLine(t);   // ต้องได้ยอดตามสูตรเหมือนคีย์รหัสเอง
       else fillLine(t);
@@ -3275,6 +3326,7 @@ createApp({
              incFlagsOf, onDropInc, onPickInc, incPickAll, applyIncome,
              incRegUsed, incRegAll, applyIncomeRegistry,
              bomPn, bomEdit, bomBy, bomRowsOfPn, openBomPn, startBomRow, onBomCode,
+             nb, nbLine, openNewBom, nbLoadCurrent, nbFill, nbNext, nbPlan, nbSave, nbHasCur,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,

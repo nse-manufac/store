@@ -6,7 +6,7 @@
  * เพราะ Delta กำลังทยอยใส่ pack mat เข้ามาทีละ REV ถ้าผสมกันยอดจะเบิ้ลเงียบ ๆ
  */
 import { makeBomRows, byPn, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan, registryPlan, bomId, activeBomRowsOf, reqmtOf } from '../v2/master/bom.js';
+         importPlan, registryPlan, bomId, activeBomRowsOf, reqmtOf, manualBomPlan, manualRowsOf } from '../v2/master/bom.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -161,6 +161,50 @@ ok('ยังไม่ใส่จำนวนสั่ง = ว่าง ไม
 ok('จำนวนสั่งที่มาเป็นข้อความก็คิดได้ (ช่องกรอกคืนข้อความ)', reqmtOf(rq, 'C-TAPE4', '3') === 0.3);
 ok('รหัสที่เป็นตัวเลขเทียบเท่าข้อความ', reqmtOf([{ pn: 'P', code: 5301000100, usage: 2 }], '5301000100', 2) === 4);
 ok('สูตรว่างหรือยังไม่ได้โหลด ก็ไม่พัง', reqmtOf([], 'C-TAPE4', 3) === null && reqmtOf(null, 'C-TAPE4', 3) === null);
+
+console.log('\n=== ตั้ง BOM ทั้งใบจาก hard copy (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  const mats = [{ material_code: '9100000101', description: 'TAPE', unit: 'MTR' },
+                { material_code: '9100000102', description: 'BOBBIN', unit: 'PCE' }];
+  const NOW = '2026-10-10T03:00:00.000Z';
+  const P = (inp, ex = []) => manualBomPlan(inp, ex, { materials: mats, now: NOW });
+  const a = P({ pn: '9900000001', rev: 'C', valid_from: '2026-10-10', by: 'สมชาย',
+                lines: [{ code: '9100000101', qty: 0.12 }, { code: '', qty: null }, { code: '9100000102', qty: 1 }] });
+  ok('ยอดต่อชิ้น — ได้แถวครบ เติมชื่อ/หน่วยจากทะเบียน · แถวว่างข้าม', a.ok && a.rows.length === 2
+     && a.rows[0].desc === 'TAPE' && a.rows[0].unit === 'MTR' && a.rows[0].usage === 0.12 && a.isNew, JSON.stringify(a.errors));
+  ok('แถวที่ได้ — id/pn/rev/วันที่มีผล · ติดธงแก้มือ (source ขึ้นต้น มือ) · ยืนยันหน่วยแล้ว',
+     a.rows[0].id === bomId('9900000001', '9100000101') && a.rows[0].rev === 'C' && a.rows[0].valid_from === '2026-10-10'
+     && a.rows[0].source.startsWith('มือ') && a.rows[0].uomConfirmed === true && manualRowsOf(a.rows, ['9900000001']).length === 2);
+  const t = P({ pn: 'PN-T', mode: 'total', order: 500, lines: [{ code: '9100000101', qty: 60 }, { code: '9100000102', qty: 500 }] });
+  ok('ยอดรวมทั้งใบ ÷ จำนวนสั่ง = ต่อชิ้น', t.ok && t.rows[0].usage === 0.12 && t.rows[1].usage === 1, JSON.stringify(t.rows.map(r => r.usage)));
+  ok('ยอดรวมแต่ไม่ใส่จำนวนสั่ง = บอกให้ใส่', !P({ pn: 'PN-T', mode: 'total', lines: [{ code: '9100000101', qty: 60 }] }).ok);
+  const d = P({ pn: 'PN-D', lines: [{ code: '9100000101', qty: 0.1 }, { code: '9100000101', qty: 0.05 }] });
+  ok('รหัสเดียวกันหลายแถว — รวมยอด นับจำนวนบรรทัด', d.ok && d.rows.length === 1 && d.rows[0].usage === 0.15 && d.rows[0].lines === 2);
+  const bad = P({ pn: '', lines: [{ code: '9100000101', qty: 0 }, { code: '2800000001', qty: 1 }, { code: '', qty: 3 },
+                                  { code: '9999', qty: 1 }] });
+  ok('ข้อผิดบอกเป็นรายแถว — ไม่มี P/N · ยอดศูนย์ · ของทำเอง 28 · ไม่มีรหัส · ไม่มีหน่วย',
+     !bad.ok && bad.errors.some(e => e.i === -1) && bad.errors.some(e => e.i === 0) && bad.errors.some(e => e.i === 1 && /28/.test(e.why))
+     && bad.errors.some(e => e.i === 2) && bad.errors.some(e => e.i === 3 && /หน่วย/.test(e.why)), JSON.stringify(bad.errors));
+  const w = P({ pn: 'PN-W', lines: [{ code: '9999', qty: 1, unit: 'pce' }] });
+  ok('รหัสที่ไม่มีในทะเบียน — เตือน ไม่บล็อก · หน่วยเป็นตัวใหญ่', w.ok && w.warns.length === 1 && w.rows[0].unit === 'PCE');
+  ok('หน่วยไม่ตรงกันในรหัสเดียว = ผิด', !P({ pn: 'X', lines: [{ code: '9100000101', qty: 1 }, { code: '9100000101', qty: 1, unit: 'KGM' }] }).ok);
+  const old = [
+    { id: bomId('PN-R', '9100000101'), pn: 'PN-R', code: '9100000101', usage: 0.1, unit: 'MTR' },
+    { id: bomId('PN-R', '9100000102'), pn: 'PN-R', code: '9100000102', usage: 1, unit: 'PCE' },
+    { id: bomId('PN-R', '9100000103'), pn: 'PN-R', code: '9100000103', usage: 2, unit: 'PCE' },
+    { id: bomId('PN-R', '9100000104'), pn: 'PN-R', code: '9100000104', usage: 5, unit: 'PCE', deleted: true },
+    { id: bomId('PN-X', '9100000101'), pn: 'PN-X', code: '9100000101', usage: 9, unit: 'MTR' }];
+  const r = P({ pn: 'PN-R', lines: [{ code: '9100000101', qty: 0.12 }, { code: '9100000102', qty: 1 }, { code: '9100000105', qty: 3, unit: 'PCE' }] }, old);
+  ok('P/N ที่มีอยู่ — แทนที่ทั้ง P/N: เปลี่ยนยอด 1 · เท่าเดิม 1 · เพิ่ม 1 · ตัดออก 1',
+     r.ok && !r.isNew && r.replacing === 3 && r.diff.changed.length === 1 && r.diff.changed[0].from === 0.1 && r.diff.changed[0].to === 0.12
+     && r.diff.same === 1 && r.diff.added.join() === '9100000105' && r.diff.removed.join() === '9100000103', JSON.stringify(r.diff));
+  ok('บรรทัดที่ตัดออก = ติดธง deleted ไม่ลบทิ้ง (B1 · ลบจริงแล้วเครื่องอื่นซิงค์กลับมา) · ที่ลบไปแล้วไม่นับซ้ำ · P/N อื่นไม่โดน',
+     r.removed.length === 1 && r.removed[0].deleted === true && r.removed[0].id === bomId('PN-R', '9100000103')
+     && r.removed[0].imported_at === NOW && !r.removed.some(x => x.pn === 'PN-X'));
+  ok('วันที่มีผลไม่ใส่ = วันนี้ · ใส่ผิดรูป = ผิด', P({ pn: 'Q', lines: [{ code: '9100000101', qty: 1 }] }).rows[0].valid_from === '2026-10-10'
+     && !P({ pn: 'Q', valid_from: '10/10/2026', lines: [{ code: '9100000101', qty: 1 }] }).ok);
+  ok('ไม่มีบรรทัดเลย = ผิด', !P({ pn: 'Q', lines: [{ code: '', qty: null }] }).ok);
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
