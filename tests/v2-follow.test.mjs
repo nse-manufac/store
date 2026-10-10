@@ -15,12 +15,13 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
-         cardShortOver, codeShortOver, startKey, startOnce, openPairFor, arriveShort, reopenShort, buyUnit }
+         cardShortOver, codeShortOver, startKey, startOnce, openPairFor, arriveShort, reopenShort,
+         negAfterVoids, buyUnit }
   from '../v2/master/follow.js';
-import { receivedOfDoc } from '../v2/core/balance.js';
+import { receivedOfDoc, balanceOf } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
 import { makeManualRow, activeBomRowsOf } from '../v2/master/bom.js';
-import { signedQty, KINDS, round5 } from '../v2/core/ledger.js';
+import { signedQty, KINDS, round5, makeEntry } from '../v2/core/ledger.js';
 import { localDate, atFrom, rollDay } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
@@ -1708,6 +1709,46 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
     ok('ข้อความ A3 อ้างแต่ปุ่ม/การ์ดที่มีอยู่จริงใน index.html (G3)',
        named.length > 0 && ghost.length === 0, 'ไม่มีบนจอ: ' + ghost.join(' · ') + '  ← ' + msg);
     ok('ข้อความ A3 บอกทางออกครบ — ต้องเลือกนิติบุคคลที่หัวจอก่อน (G3)', /หัวจอ/.test(msg), msg);
+  }
+  /* คำเตือนยอดติดลบก่อนกด "เอากลับ" (A4 · ผู้ตรวจ #130 รอบ 6 ข้อ 1)
+   * รายการรับเข้าของเรื่องเดียวเป็นรหัสเดียวกันทั้งหมด เทียบทีละใบกับยอดก้อนเดิมจะเตือนน้อยกว่าจริง */
+  {
+    const sh6 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H003', code: 'C1', part_no: 'PN1', qty: 6 });
+    const d1 = arriveShort(sh6, { qty: 3, person: 'สมชาย', date: '2026-10-10', at });
+    const d2 = arriveShort(d1.rec, { qty: 3, person: 'สมชาย', date: '2026-10-10', at });
+    const issued = makeEntry({ entity: E, kind: 'issue', material_code: 'C1', qty: 1,
+      doc_kind: 'po', doc_ref: 'TM9269H003', at, person: 'สมชาย' });
+    const led6 = [d1.entry, d2.entry, issued];
+    const r6 = reopenShort(d2.rec, led6, { by: 'หัวหน้า' });
+    ok('รับสองรอบ 3+3 เบิกออก 1 → ยอดก่อนเอากลับ 5', balanceOf(led6, E, 'C1') === 5, String(balanceOf(led6, E, 'C1')));
+    const neg6 = negAfterVoids(led6, r6.voids);
+    ok('เตือนติดลบ 1 คู่ และบอกเลขที่จะติดลบจริง = −1 (หักสะสม ไม่ใช่ทีละใบ)',
+       r6.voids.length === 2 && neg6.length === 1 && neg6[0].after === -1
+       && neg6[0].entity === E && neg6[0].material_code === 'C1', JSON.stringify(neg6));
+    const after6 = balanceOf(led6.map(e => r6.voids.find(v => v.id === e.id) || e), E, 'C1');
+    ok('เลขในคำเตือนตรงกับยอดคงคลังจริงหลังยกเลิกครบ', after6 === (neg6[0] || {}).after, String(after6));
+    ok('คู่เดียวเตือนครั้งเดียว ไม่พิมพ์รหัสซ้ำตามจำนวนใบ',
+       neg6.map(n => n.material_code).join(',') === 'C1');
+    // ของยังอยู่ในคลังพอ = ไม่ต้องเตือน
+    const got = makeEntry({ entity: E, kind: 'receive', material_code: 'C1', qty: 10,
+      lot: '2026-10-01', doc_kind: 'po', doc_ref: 'TM9269H003', at, person: 'สมชาย' });
+    ok('ยอดเหลือพอหักครบ = ไม่เตือน', negAfterVoids([...led6, got], r6.voids).length === 0);
+    ok('ไม่มีรายการให้ยกเลิก = ไม่เตือน', negAfterVoids(led6, []).length === 0);
+    // A2 — เลขในคำเตือนต้องปัดแล้ว ไม่ใช่ −0.30000000000000004
+    const f1 = arriveShort(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H004', code: 'D1', qty: 0.3 }),
+      { qty: 0.1, person: 'สมชาย', date: '2026-10-10', at });
+    const f2 = arriveShort(f1.rec, { qty: 0.2, person: 'สมชาย', date: '2026-10-10', at });
+    const issued2 = makeEntry({ entity: E, kind: 'issue', material_code: 'D1', qty: 0.3,
+      doc_kind: 'po', doc_ref: 'TM9269H004', at, person: 'สมชาย' });
+    const rf = reopenShort(f2.rec, [f1.entry, f2.entry, issued2], { by: 'หัวหน้า' });
+    const negF = negAfterVoids([f1.entry, f2.entry, issued2], rf.voids);
+    ok('เลขในคำเตือนปัดทศนิยมแล้ว (A2)', negF.length === 1 && negF[0] && negF[0].after === -0.3, JSON.stringify(negF));
+    // A3 — ยอดของนิติบุคคลอื่นห้ามปนเข้ามาคิด
+    const otherLed = [...led6, makeEntry({ entity: 'OTHER', kind: 'receive', material_code: 'C1', qty: 999,
+      lot: '2026-10-01', doc_kind: 'po', doc_ref: 'PO-X', at, person: 'ก' })];
+    ok('ยอดนิติบุคคลอื่นไม่ปนเข้ามาคิดคำเตือน (A3)', (negAfterVoids(otherLed, r6.voids)[0] || {}).after === -1);
+    ok('จอ: fsReopen ใช้ negAfterVoids และยังเป็นคำเตือน ไม่บล็อก (A4)',
+       /const neg = negAfterVoids\(entries\.value, voids\)/.test(app) && /ติดลบเป็น \$\{n\.after\}/.test(app));
   }
 }
 

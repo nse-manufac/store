@@ -15,7 +15,8 @@
  * ไม่เขียนลงฐานข้อมูลเอง ไม่แตะหน้าจอ คืนอ็อบเจกต์ให้ผู้เรียกไปบันทึก
  * แบบเดียวกับ core/count.js — เพื่อให้เทสด้วย node ล้วนได้โดยไม่ต้องมีเบราว์เซอร์
  */
-import { round5, makeEntry, voidEntry } from '../core/ledger.js';
+import { round5, makeEntry, voidEntry, signedQty } from '../core/ledger.js';
+import { balanceOf } from '../core/balance.js';
 import { resolveEntity, entityOfPo } from './entities.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
@@ -242,6 +243,31 @@ export function reopenShort(row, entries = [], { by = '', at = '' } = {}) {
   if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการรับเข้า');
   const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง short กลับ — กด "มาแล้ว" ผิด' }));
   return { rec: { ...reopenFollow(row, { at }), receive_entry_id: '' }, voids };
+}
+
+/**
+ * ยอดคงคลังหลังยกเลิกรายการกลุ่มนี้ — คืนเฉพาะคู่ที่จะติดลบ
+ * ใช้เตือนก่อนกด "เอากลับ" (A4 — เตือนได้ ห้ามบล็อก)
+ *
+ * ⚠️ ต้องหักสะสมต่อคู่ (นิติบุคคล + รหัส) ไม่ใช่เทียบรายการทีละใบกับยอดก้อนเดิม
+ *    รายการรับเข้าของเรื่อง short ใบเดียวเป็น "รหัสเดียวกันทั้งหมด" เสมอ (arriveShort ใช้ row.code)
+ *    เทียบทีละใบจึงเตือนน้อยกว่าความจริงเป็นระบบทันทีที่มีสองใบขึ้นไป
+ *    เช่น รับ 3+3 เบิกออก 1 เหลือ 5 → ทีละใบได้ 5−3=2 ผ่านทั้งคู่ ทั้งที่หักครบแล้วเหลือ −1
+ *    (ผู้ตรวจ #130 รอบ 6 ข้อ 1 · ตรรกะเดิมอยู่ใน app.js จึงไม่มีเทสจับ)
+ *
+ * ยอดตั้งต้นต้องเป็นยอด "ก่อน" ยกเลิก — ส่ง entries ชุดที่ยังไม่ได้เขียน voids ลงไป
+ * คืน [{ entity, material_code, after }] เรียงตามลำดับที่เจอ · after = ยอดหลังยกเลิกครบทุกใบของคู่นั้น
+ */
+export function negAfterVoids(entries = [], voids = []) {
+  const after = new Map();
+  for (const v of voids || []) {
+    if (!v || !txt(v.entity)) continue;                       // ไม่มีนิติบุคคล = balanceOf โยน (A3) · ข้ามไปไม่เตือน
+    const code = String(v.material_code == null ? '' : v.material_code);
+    const key = v.entity + '|' + code;
+    const base = after.has(key) ? after.get(key).after : balanceOf(entries || [], v.entity, code);
+    after.set(key, { entity: v.entity, material_code: code, after: round5(base - signedQty(v)) });
+  }
+  return [...after.values()].filter(x => x.after < 0);
 }
 
 /** ยกเลิกเรื่อง — ไม่ลบทิ้ง (INVARIANTS B1) แบบเดียวกับ voidEntry ของสมุด */

@@ -17,7 +17,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
-import { balances, balanceOf, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
+import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
 import { localDate, localTime, atFrom, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
@@ -40,7 +40,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          startKey, startOnce, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
-         SHORT_TYPES, arriveShort, reopenShort } from './master/follow.js';
+         SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
 
@@ -2290,10 +2290,11 @@ createApp({
         const { rec, voids } = reopenShort(plain(row), entries.value, { by: fsBy.value });
         if (voids.length) {
           // ของที่เบิกออกไปแล้ว ยกเลิกรับเข้าแล้วยอดจะติดลบ — เตือน ไม่บล็อก (A4)
-          const neg = voids.filter(v => balanceOf(entries.value, v.entity, v.material_code) - (Number(v.qty) || 0) < 0);
+          // หักสะสมต่อคู่ใน negAfterVoids — เทียบทีละใบจะเตือนน้อยกว่าจริง (ผู้ตรวจ #130 รอบ 6)
+          const neg = negAfterVoids(entries.value, voids);
           if (!confirm(`เอาเรื่องกลับ = ยกเลิกรายการรับเข้าที่ปุ่ม "มาแล้ว" สร้างไว้ ${voids.length} รายการ`
               + ` (${voids.map(v => v.material_code + ' ' + v.qty).join(', ')})`
-              + (neg.length ? `\n\n⚠️ ${neg.map(v => v.material_code).join(', ')} ถูกเบิกออกไปแล้ว ยกเลิกแล้วยอดคงคลังจะติดลบ` : '')
+              + neg.map(n => `\n\n⚠️ ${n.material_code} ถูกเบิกออกไปแล้ว ยกเลิกแล้วยอดคงคลังจะติดลบเป็น ${n.after}`).join('')
               + '\n\nทำต่อไหม')) return;
           await db.put('entries', voids);
           for (const v of voids) { const i = entries.value.findIndex(e => e.id === v.id); if (i >= 0) entries.value.splice(i, 1, v); }
