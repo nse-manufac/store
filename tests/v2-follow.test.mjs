@@ -15,13 +15,14 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
-         cardShortOver, codeShortOver, startKey, startOnce, openPairFor, buyUnit }
+         cardShortOver, codeShortOver, startKey, startOnce, openPairFor, arriveShort, reopenShort,
+         negAfterVoids, buyUnit }
   from '../v2/master/follow.js';
-import { receivedOfDoc } from '../v2/core/balance.js';
+import { receivedOfDoc, balanceOf } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
 import { makeManualRow, activeBomRowsOf } from '../v2/master/bom.js';
-import { signedQty, KINDS, round5 } from '../v2/core/ledger.js';
-import { localDate, atFrom } from '../v2/core/localtime.js';
+import { signedQty, KINDS, round5, makeEntry } from '../v2/core/ledger.js';
+import { localDate, atFrom, rollDay } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -1636,6 +1637,119 @@ console.log('\n=== U2. ซื้อทดแทน — รหัสนอกส�
   ok('ปุ่มเพิ่มจางและบอก "กำลังเพิ่ม..." ระหว่างบันทึก (ผู้ตรวจ #128 ข้อ 3)',
      html.includes(':disabled="!fbmPlan || !fbmPlan.ok || fbmBusy"') && html.includes("กำลังเพิ่ม...")
      && /fbmBusy = computed\(\(\) => starting\.has\('buybom\|' \+ fbm\.po\)\)/.test(app));
+}
+
+console.log('\n=== V. short "มาแล้ว" = รับเข้าคลังด้วย (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  const E = 'TUE-H';
+  const sh = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'A1', part_no: 'PN1', qty: 8 });
+  const at = '2026-10-10T03:00:00.000Z';
+  const a = arriveShort(sh, { person: 'สมชาย', device: 'PC-T', date: '2026-10-10', at });
+  ok('เว้นยอด = ปิดทั้งเรื่อง + รับเข้า 8 · อ้าง PO ของเรื่อง · ล็อต = วันที่ · นิติบุคคลของเรื่อง · ผูกเลขที่ไว้',
+     statusOf(a.rec) === 'done' && a.entry && a.entry.kind === 'receive' && a.entry.qty === 8 && a.entry.doc_ref === 'TM9269H001'
+     && a.entry.doc_kind === 'po' && a.entry.part_no === 'PN1' && a.entry.lot === '2026-10-10' && a.entry.entity === E
+     && a.entry.material_code === 'A1' && a.rec.receive_entry_id === a.entry.id && a.entry.person === 'สมชาย', JSON.stringify(a.entry));
+  const b = arriveShort(sh, { qty: 3, person: 'สมชาย', date: '2026-10-10', at });
+  ok('ใส่ยอด 3 = มาบางส่วน รับเข้า 3 เหลือค้าง 5', statusOf(b.rec) === 'partial' && b.entry.qty === 3 && remainOf(b.rec) === 5);
+  const b2 = arriveShort(b.rec, { qty: 5, person: 'สมชาย', date: '2026-10-11', at: '2026-10-11T03:00:00.000Z' });
+  ok('รอบสองรับที่เหลือ — ผูกเลขที่ต่อท้าย ไม่ทับของเดิม', statusOf(b2.rec) === 'done' && b2.entry.qty === 5
+     && b2.rec.receive_entry_id === b.entry.id + ' ' + b2.entry.id);
+  const c = arriveShort(sh, { receive: false, person: 'สมชาย', at });
+  ok('ติ๊กออก = ปิดเรื่องอย่างเดียว ไม่รับเข้า (ของมากับ Kit List ที่คีย์ไปแล้ว)', statusOf(c.rec) === 'done' && c.entry === null && !c.rec.receive_entry_id);
+  // แถวที่แกะจากไฟล์ PO แล้วไม่บอกจำนวนมี qty 0 โดยการออกแบบ (makeFollow ไม่สร้างให้ จึงต่อเอง)
+  const z = { ...makeFollow({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H002', code: 'B1', qty: 1 }), qty: 0 };
+  const z1 = arriveShort(z, { person: 'สมชาย', at });
+  ok('เรื่องไม่ระบุจำนวน + เว้นยอด = ปิดเฉย ๆ ไม่รับเข้า (ไม่รู้ว่ามาเท่าไหร่)', statusOf(z1.rec) === 'done' && z1.entry === null);
+  const z2 = arriveShort(z, { qty: 12, person: 'สมชาย', date: '2026-10-10', at });
+  ok('เรื่องไม่ระบุจำนวน + ใส่ยอด 12 = ปิด + รับเข้า 12', statusOf(z2.rec) === 'done' && z2.entry && z2.entry.qty === 12);
+  throws('รับเข้าแต่ไม่มีชื่อผู้บันทึก = โยน บอกทางออก', () => arriveShort(sh, { at }), 'ผู้บันทึก');
+  throws('เรื่องไม่มีนิติบุคคล = ไม่รับเข้าให้ (A3)', () => arriveShort({ ...sh, entity: '' }, { person: 'ก', at }), 'A3');
+  throws('ใช้กับเรื่องชนิดอื่นไม่ได้', () => arriveShort({ ...sh, kind: 'over' }, { person: 'ก', at }), 'short');
+
+  const r = reopenShort(b2.rec, [b.entry, b2.entry, { ...a.entry }], { by: 'หัวหน้า' });
+  ok('เอากลับ = เปิดเรื่องใหม่ ล้างเลขที่ผูก · ยกเลิกรายการรับเข้าทั้งสองรอบแบบไม่ลบ (B1) · ไม่แตะรายการอื่น',
+     statusOf(r.rec) === 'open' && r.rec.receive_entry_id === '' && r.voids.length === 2
+     && r.voids.every(v => v.voided && v.void_by === 'หัวหน้า' && /short/.test(v.void_reason))
+     && r.voids.map(v => v.id).sort().join() === [b.entry.id, b2.entry.id].sort().join());
+  ok('รายการที่ยกเลิกไปแล้ว ไม่ยกเลิกซ้ำ', reopenShort(b2.rec, [{ ...b.entry, voided: true }, b2.entry], { by: 'ก' }).voids.length === 1);
+  throws('มีรายการให้ยกเลิกแต่ไม่มีชื่อผู้บันทึก = โยน', () => reopenShort(b2.rec, [b.entry], {}), 'ผู้บันทึก');
+  ok('เรื่องที่ปิดแบบไม่รับเข้า เอากลับได้โดยไม่ต้องมีชื่อ', reopenShort(c.rec, [], {}).voids.length === 0);
+  // คีย์ย้อนวัน — ของมาเมื่อวานแต่เพิ่งกดวันนี้ (เจ้าของสั่ง 10 ต.ค. 2026)
+  const nowIso = '2026-10-12T02:00:00.000Z';
+  const bk = arriveShort(sh, { person: 'สมชาย', date: '2026-10-11', at: '2026-10-11T02:00:00.000Z', now: nowIso });
+  ok('วันที่ของมาย้อนหลัง = รายการรับเข้า/ล็อต/วันปิดเรื่องเป็นวันนั้น · updated_at ของเรื่องเป็นเวลาจริงตอนกด (D5)',
+     bk.entry.lot === '2026-10-11' && bk.entry.at === '2026-10-11T02:00:00.000Z'
+     && bk.rec.done_at === '2026-10-11T02:00:00.000Z' && bk.rec.updated_at === nowIso, JSON.stringify(bk.rec));
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: ช่อง "วันที่ของมา" ผูก fsDate และส่งเข้า arriveShort',
+     /v-model="fsDate" type="date"/.test(fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8'))
+     && /const day = fsDayNow\(\)/.test(app) && /return fsDate\.value \|\| t/.test(app));
+  // จอเปิดค้างข้ามคืน (ผู้ตรวจ #130 รอบ 2 ข้อ 2)
+  ok('ข้ามวัน + คนไม่ได้แก้ช่อง = เลื่อนเป็นวันนี้', rollDay('2026-10-10', '2026-10-10', '2026-10-11') === '2026-10-11');
+  ok('ข้ามวัน + คนตั้งวันอื่นไว้เอง = คงไว้', rollDay('2026-10-08', '2026-10-10', '2026-10-11') === '2026-10-08');
+  ok('จอ: เช็กข้ามวันตอนกด "มาแล้ว" และตอนเปิดหน้า short', /fsDateOn !== t\) \{ fsDate\.value = rollDay\(/.test(app)
+     && /watch\(tab, k => \{ if \(k === 'fshort'\) fsDayNow\(\); \}\)/.test(app));
+  ok('จอ: วันปิดเรื่องโชว์ตามวันที่ไทย ไม่สไลซ์ ISO แบบ UTC (ผู้ตรวจ #130 รอบ 2 ข้อ 3)',
+     fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8').includes("ปิด {{ localDate(r.s.done_at) }}"));
+  {
+    // กดตี 5 ครึ่งเวลาไทย เลือกวันที่ 8 → ISO เป็นวันที่ 7 ตาม UTC แต่ต้องโชว์วันที่ 8
+    const early = atFrom('2026-10-08', new Date(2026, 9, 10, 5, 30));
+    ok('localDate ของวันปิดเรื่องได้วันที่ที่คนเลือก', localDate(early) === '2026-10-08');
+  }
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
+     html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
+  // ข้อความ A3 ต้องชี้ของที่มีอยู่จริงบนจอ — เดินถึงได้จริงเมื่อยังไม่เลือกนิติบุคคลที่หัวจอ
+  // แล้วตารางเหลือแต่แถวกำพร้า (G3 · ผู้ตรวจ #130 รอบ 4 ข้อ 1)
+  {
+    let msg = '';
+    try { arriveShort({ ...sh, entity: '' }, { person: 'ก', at }); } catch (e) { msg = e.message; }
+    const named = [...msg.matchAll(/"([^"]+)"/g)].map(m => m[1]);
+    const ghost = named.filter(n => !html.includes(n));
+    ok('ข้อความ A3 อ้างแต่ปุ่ม/การ์ดที่มีอยู่จริงใน index.html (G3)',
+       named.length > 0 && ghost.length === 0, 'ไม่มีบนจอ: ' + ghost.join(' · ') + '  ← ' + msg);
+    ok('ข้อความ A3 บอกทางออกครบ — ต้องเลือกนิติบุคคลที่หัวจอก่อน (G3)', /หัวจอ/.test(msg), msg);
+  }
+  /* คำเตือนยอดติดลบก่อนกด "เอากลับ" (A4 · ผู้ตรวจ #130 รอบ 6 ข้อ 1)
+   * รายการรับเข้าของเรื่องเดียวเป็นรหัสเดียวกันทั้งหมด เทียบทีละใบกับยอดก้อนเดิมจะเตือนน้อยกว่าจริง */
+  {
+    const sh6 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H003', code: 'C1', part_no: 'PN1', qty: 6 });
+    const d1 = arriveShort(sh6, { qty: 3, person: 'สมชาย', date: '2026-10-10', at });
+    const d2 = arriveShort(d1.rec, { qty: 3, person: 'สมชาย', date: '2026-10-10', at });
+    const issued = makeEntry({ entity: E, kind: 'issue', material_code: 'C1', qty: 1,
+      doc_kind: 'po', doc_ref: 'TM9269H003', at, person: 'สมชาย' });
+    const led6 = [d1.entry, d2.entry, issued];
+    const r6 = reopenShort(d2.rec, led6, { by: 'หัวหน้า' });
+    ok('รับสองรอบ 3+3 เบิกออก 1 → ยอดก่อนเอากลับ 5', balanceOf(led6, E, 'C1') === 5, String(balanceOf(led6, E, 'C1')));
+    const neg6 = negAfterVoids(led6, r6.voids);
+    ok('เตือนติดลบ 1 คู่ และบอกเลขที่จะติดลบจริง = −1 (หักสะสม ไม่ใช่ทีละใบ)',
+       r6.voids.length === 2 && neg6.length === 1 && neg6[0].after === -1
+       && neg6[0].entity === E && neg6[0].material_code === 'C1', JSON.stringify(neg6));
+    const after6 = balanceOf(led6.map(e => r6.voids.find(v => v.id === e.id) || e), E, 'C1');
+    ok('เลขในคำเตือนตรงกับยอดคงคลังจริงหลังยกเลิกครบ', after6 === (neg6[0] || {}).after, String(after6));
+    ok('คู่เดียวเตือนครั้งเดียว ไม่พิมพ์รหัสซ้ำตามจำนวนใบ',
+       neg6.map(n => n.material_code).join(',') === 'C1');
+    // ของยังอยู่ในคลังพอ = ไม่ต้องเตือน
+    const got = makeEntry({ entity: E, kind: 'receive', material_code: 'C1', qty: 10,
+      lot: '2026-10-01', doc_kind: 'po', doc_ref: 'TM9269H003', at, person: 'สมชาย' });
+    ok('ยอดเหลือพอหักครบ = ไม่เตือน', negAfterVoids([...led6, got], r6.voids).length === 0);
+    ok('ไม่มีรายการให้ยกเลิก = ไม่เตือน', negAfterVoids(led6, []).length === 0);
+    // A2 — เลขในคำเตือนต้องปัดแล้ว ไม่ใช่ −0.30000000000000004
+    const f1 = arriveShort(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H004', code: 'D1', qty: 0.3 }),
+      { qty: 0.1, person: 'สมชาย', date: '2026-10-10', at });
+    const f2 = arriveShort(f1.rec, { qty: 0.2, person: 'สมชาย', date: '2026-10-10', at });
+    const issued2 = makeEntry({ entity: E, kind: 'issue', material_code: 'D1', qty: 0.3,
+      doc_kind: 'po', doc_ref: 'TM9269H004', at, person: 'สมชาย' });
+    const rf = reopenShort(f2.rec, [f1.entry, f2.entry, issued2], { by: 'หัวหน้า' });
+    const negF = negAfterVoids([f1.entry, f2.entry, issued2], rf.voids);
+    ok('เลขในคำเตือนปัดทศนิยมแล้ว (A2)', negF.length === 1 && negF[0] && negF[0].after === -0.3, JSON.stringify(negF));
+    // A3 — ยอดของนิติบุคคลอื่นห้ามปนเข้ามาคิด
+    const otherLed = [...led6, makeEntry({ entity: 'OTHER', kind: 'receive', material_code: 'C1', qty: 999,
+      lot: '2026-10-01', doc_kind: 'po', doc_ref: 'PO-X', at, person: 'ก' })];
+    ok('ยอดนิติบุคคลอื่นไม่ปนเข้ามาคิดคำเตือน (A3)', (negAfterVoids(otherLed, r6.voids)[0] || {}).after === -1);
+    ok('จอ: fsReopen ใช้ negAfterVoids และยังเป็นคำเตือน ไม่บล็อก (A4)',
+       /const neg = negAfterVoids\(entries\.value, voids\)/.test(app) && /ติดลบเป็น \$\{n\.after\}/.test(app));
+  }
 }
 
 console.log('\n=== X. ซื้อทดแทน — หน่วยจากทะเบียนก่อน · หมายเหตุรายรหัส (เจ้าของสั่ง 10 ต.ค. 2026) ===');

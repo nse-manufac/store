@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-10.7">
+<meta name="app-version" content="2026-10-10.9">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2068,6 +2068,10 @@ textarea{font:inherit}
               <input v-model="fsSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
             <label class="f" style="width:150px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <label style="font-weight:600;font-size:12.5px" title="ติ๊กออกเมื่อของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ">
+              <input type="checkbox" v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย</label>
+            <label class="f" style="width:145px" title="ของมาเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่ของมาจริง">วันที่ของมา
+              <input v-model="fsDate" type="date"></label>
             <label style="font-weight:600;font-size:12.5px">
               <input type="checkbox" v-model="fsShowDone"> แสดงที่ปิดแล้ว</label>
           </div>
@@ -2103,17 +2107,17 @@ textarea{font:inherit}
                   <td class="hint">{{ r.s.note }}</td>
                   <td>
                     <template v-if="r.st==='done'">
-                      <span class="hint">ปิด {{ (r.s.done_at || '').slice(0,10) }}
+                      <span class="hint">ปิด {{ localDate(r.s.done_at) }}
                         {{ r.s.done_by }}</span>
                       <button class="btn" style="padding:2px 8px;margin-left:5px"
                               @click="fsReopen(r.s)">เอากลับ</button>
                     </template>
                     <template v-else>
-                      <input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]" type="number" step="any"
-                             class="mono" style="width:76px" placeholder="ทั้งใบ"
+                      <!-- ช่องจำนวนทุกแถว ไม่บังคับ (เจ้าของสั่ง 10 ต.ค. 2026) · เรื่องที่ไม่ระบุจำนวน + เว้นว่าง = ปิดเฉย ๆ ไม่รับเข้า -->
+                      <input v-model="fsGot[r.s.id]" type="number" step="any"
+                             class="mono" style="width:76px" :placeholder="r.s.qty > 0 ? 'ทั้งใบ' : 'จำนวน'"
+                             :title="r.s.qty > 0 ? '' : 'ไฟล์ PO ไม่ได้บอกจำนวน — ใส่จำนวนที่มา ถ้าอยากรับเข้าคลังด้วย'"
                              @keyup.enter="fsClose(r.s)">
-                      <span v-else class="hint"
-                            title="ไฟล์ PO ไม่ได้บอกจำนวนมา ปิดได้ทั้งใบเท่านั้น">ไม่ระบุจำนวน</span>
                       <button class="btn" style="padding:2px 8px;margin-left:4px"
                               @click="fsClose(r.s)">มาแล้ว</button>
                     </template>
@@ -2130,8 +2134,9 @@ textarea{font:inherit}
           <p class="hint" style="margin:8px 0 0">
             เว้นช่องยอดไว้แล้วกด <b>มาแล้ว</b> = ปิดทั้งเรื่อง ·
             ใส่ยอดก่อนกด (หรือกด Enter ในช่อง) = ของมาบางส่วน แล้วจะเหลือค้างตามส่วนต่าง<br>
-            แถวที่ขึ้นว่า <b>ไม่ระบุจำนวน</b> คือแถวที่ไฟล์ PO บอกแค่ว่ายังไม่ส่ง ไม่ได้บอกจำนวน
-            — ปิดได้ทั้งใบเท่านั้น</p>
+            ติ๊ก <b>รับเข้าคลังด้วย</b> ไว้ = บันทึกรับเข้าให้เลย อ้าง PO ของเรื่อง · ล็อต = <b>วันที่ของมา</b> (ค่าตั้งต้นคือวันนี้ แก้ย้อนหลังได้) — ไม่ต้องไปคีย์ที่หน้ารับเข้าซ้ำ ·
+            กด <b>เอากลับ</b> = ยกเลิกรายการรับเข้านั้นให้ด้วย<br>
+            แถวที่ไฟล์ PO ไม่ได้บอกจำนวน (ช่องขึ้นว่า "จำนวน") ใส่จำนวนที่มาเพื่อรับเข้าคลัง · เว้นว่าง = ปิดเรื่องเฉย ๆ</p>
         </div>
 
         <div class="card">

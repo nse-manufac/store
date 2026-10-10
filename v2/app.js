@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
 import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
-import { localDate, localTime, atFrom, todayLocal } from './core/localtime.js';
+import { localDate, localTime, atFrom, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
@@ -40,7 +40,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          startKey, startOnce, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
-         SHORT_TYPES } from './master/follow.js';
+         SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
 
@@ -2251,25 +2251,57 @@ createApp({
      *    และกรณีแถวถูกยกเลิกไปแล้ว · ปล่อยให้ promise reject เงียบ ๆ แปลว่า
      *    คนกดปุ่มแล้วไม่มีอะไรเกิดขึ้นและไม่รู้ว่าทำไม ซึ่งขัด INVARIANTS G3
      */
+    // กด "มาแล้ว" แล้วรับเข้าคลังด้วย (เจ้าของสั่ง 10 ต.ค. 2026 · ตรรกะอยู่ที่ master/follow.js arriveShort)
+    // ติ๊กออก = ปิดเรื่องอย่างเดียว เช่นของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ
+    const fsRecv = ref(true);
+    // วันที่ของมาจริง — ของมาเมื่อวานแต่เพิ่งมากดวันนี้ คีย์ย้อนได้ (เจ้าของสั่ง 10 ต.ค. 2026)
+    // ⚠️ จอเปิดค้างข้ามคืน ช่องต้องเลื่อนเป็นวันนี้เอง (over ตั้งใหม่ทุกครั้งที่เปิดกล่อง · ช่องนี้อยู่ถาวรจึงต้องเช็กเอง)
+    let fsDateOn = todayLocal();
+    const fsDate = ref(fsDateOn);
+    function fsDayNow() {
+      const t = todayLocal();
+      if (fsDateOn !== t) { fsDate.value = rollDay(fsDate.value, fsDateOn, t); fsDateOn = t; }
+      return fsDate.value || t;
+    }
+    watch(tab, k => { if (k === 'fshort') fsDayNow(); });
     async function fsClose(row) {
       const raw = fsGot[row.id];
       try {
-        const rec = closeFollow(plain(row), {
-          qty: raw === '' || raw == null ? undefined : Number(raw),
-          by: fsBy.value
+        await startOnce(starting, 'fsclose|' + row.id, async () => {
+          const day = fsDayNow();
+          const { rec, entry } = arriveShort(plain(row), {
+            qty: raw === '' || raw == null ? undefined : Number(raw),
+            receive: fsRecv.value, person: fsBy.value, device: device.value, date: day, at: atFrom(day)
+          });
+          // ลงสมุดก่อน แล้วค่อยปิดเรื่อง — ถ้าปิดเรื่องไม่สำเร็จ ของยังอยู่ในคลังตามจริง
+          if (entry) { await db.put('entries', [entry]); entries.value.push(entry); db.announce('entries'); }
+          await fsPut(rec);
+          fsGot[row.id] = '';
+          const recv = entry ? ` · รับเข้าคลัง ${entry.qty} แล้ว` : '';
+          flash((statusOf(rec) === 'done'
+            ? `ปิดเรื่อง ${rec.po || rec.code} แล้ว`
+            : `รับมาแล้ว ${rec.done_qty} · ยังค้าง ${remainOf(rec)}`) + recv);
         });
-        await fsPut(rec);
-        fsGot[row.id] = '';
-        flash(statusOf(rec) === 'done'
-          ? `ปิดเรื่อง ${rec.po || rec.code} แล้ว`
-          : `รับมาแล้ว ${rec.done_qty} · ยังค้าง ${remainOf(rec)}`);
       } catch (err) { flash(err.message, true); }
     }
 
     async function fsReopen(row) {
       try {
-        await fsPut(reopenFollow(plain(row)));
-        flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง');
+        const { rec, voids } = reopenShort(plain(row), entries.value, { by: fsBy.value });
+        if (voids.length) {
+          // ของที่เบิกออกไปแล้ว ยกเลิกรับเข้าแล้วยอดจะติดลบ — เตือน ไม่บล็อก (A4)
+          // หักสะสมต่อคู่ใน negAfterVoids — เทียบทีละใบจะเตือนน้อยกว่าจริง (ผู้ตรวจ #130 รอบ 6)
+          const neg = negAfterVoids(entries.value, voids);
+          if (!confirm(`เอาเรื่องกลับ = ยกเลิกรายการรับเข้าที่ปุ่ม "มาแล้ว" สร้างไว้ ${voids.length} รายการ`
+              + ` (${voids.map(v => v.material_code + ' ' + v.qty).join(', ')})`
+              + neg.map(n => `\n\n⚠️ ${n.material_code} ถูกเบิกออกไปแล้ว ยกเลิกแล้วยอดคงคลังจะติดลบเป็น ${n.after}`).join('')
+              + '\n\nทำต่อไหม')) return;
+          await db.put('entries', voids);
+          for (const v of voids) { const i = entries.value.findIndex(e => e.id === v.id); if (i >= 0) entries.value.splice(i, 1, v); }
+          db.announce('entries');
+        }
+        await fsPut(rec);
+        flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง' + (voids.length ? ` · ยกเลิกรับเข้า ${voids.length} รายการ` : ''));
       } catch (err) { flash(err.message, true); }
     }
 
@@ -3463,7 +3495,7 @@ createApp({
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsNew, fsBlocked, fsCheck, fsStart, cardPoSO, isStarting,
-      fsAssign, fsClose, fsReopen,
+      fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
