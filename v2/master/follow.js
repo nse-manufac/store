@@ -217,7 +217,9 @@ export function arriveShort(row, { qty, receive = true, person = '', device = ''
   const rec = closeFollow(row, { qty, by: person, at: now, doneAt: at });
   const added = round5((Number(rec.done_qty) || 0) - (Number(row.done_qty) || 0));
   if (!receive || !(added > 0)) return { rec, entry: null };
-  if (!txt(row.entity)) throw new Error('เรื่องนี้ไม่มีนิติบุคคล — กด "ย้ายมาที่นี่" ก่อน (INVARIANTS A3)');
+  // G3 — ชื่อที่อ้างต้องมีอยู่บนจอจริง ห้ามบอกให้ไปกดปุ่มที่ไม่มี (ผู้ตรวจ #104 · #130 รอบ 4)
+  if (!txt(row.entity)) throw new Error('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — เลือกนิติบุคคลที่หัวจอ '
+    + 'แล้วกดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ที่หัวแท็บก่อน (INVARIANTS A3)');
   if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — รับเข้าคลังต้องมีชื่อคนรับ');
   const day = txt(date) || txt(at).slice(0, 10);
   const entry = makeEntry({

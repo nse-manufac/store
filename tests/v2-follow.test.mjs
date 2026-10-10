@@ -1698,6 +1698,17 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
      html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
+  // ข้อความ A3 ต้องชี้ของที่มีอยู่จริงบนจอ — เดินถึงได้จริงเมื่อยังไม่เลือกนิติบุคคลที่หัวจอ
+  // แล้วตารางเหลือแต่แถวกำพร้า (G3 · ผู้ตรวจ #130 รอบ 4 ข้อ 1)
+  {
+    let msg = '';
+    try { arriveShort({ ...sh, entity: '' }, { person: 'ก', at }); } catch (e) { msg = e.message; }
+    const named = [...msg.matchAll(/"([^"]+)"/g)].map(m => m[1]);
+    const ghost = named.filter(n => !html.includes(n));
+    ok('ข้อความ A3 อ้างแต่ปุ่ม/การ์ดที่มีอยู่จริงใน index.html (G3)',
+       named.length > 0 && ghost.length === 0, 'ไม่มีบนจอ: ' + ghost.join(' · ') + '  ← ' + msg);
+    ok('ข้อความ A3 บอกทางออกครบ — ต้องเลือกนิติบุคคลที่หัวจอก่อน (G3)', /หัวจอ/.test(msg), msg);
+  }
 }
 
 console.log('\n=== X. ซื้อทดแทน — หน่วยจากทะเบียนก่อน · หมายเหตุรายรหัส (เจ้าของสั่ง 10 ต.ค. 2026) ===');
