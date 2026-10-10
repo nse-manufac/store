@@ -37,7 +37,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
-         pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
+         pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          startKey, startOnce,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES } from './master/follow.js';
@@ -2455,19 +2455,41 @@ createApp({
     const fbOrphans = computed(() =>
       entity.value ? orphanBuys(entries.value, entity.value, shorts.value) : []);
 
-    // ── ซื้อทดแทนที่คีย์เอง (ไม่ได้มาจากของเสีย) ──
-    const fbm = reactive({ code: '', qty: null, po: '', part_no: '', note: '' });
-    const fbmReady = computed(() => !!(entity.value && fbm.code && Number(fbm.qty) > 0));
-    function onFbmPo() { const h = poHeader(pos.value, fbm.po); if (h && h.pn) fbm.part_no = h.pn; checked.fbmPo = fbm.po; }
+    // ── ซื้อทดแทนที่คีย์เอง: คีย์ PO → กาง BOM ของ P/N → ติ๊กรหัสที่จะสั่ง (เจ้าของสั่ง 10 ต.ค. 2026) ──
+    // ตรรกะอยู่ที่ master/follow.js buyFromBom · ที่นี่ต่อสายอย่างเดียว
+    const fbm = reactive({ po: '', part_no: '', note: '', pick: {}, qty: {} });
+    const fbmHead = computed(() => poHeader(pos.value, fbm.po));
+    function onFbmPo() {
+      const h = fbmHead.value;
+      if (h && h.pn) fbm.part_no = h.pn;
+      checked.fbmPo = fbm.po;
+      fbm.pick = {}; fbm.qty = {};
+    }
+    /** สูตรของ P/N นั้น + ยอดตามสูตรของทั้ง PO ไว้ดูเทียบ (ต่อชิ้น × จำนวนสั่งของ PO) */
+    const fbmRows = computed(() => {
+      if (!fbm.part_no) return [];
+      const rows = activeBomRowsOf(bom.value, fbm.part_no);
+      const order = fbmHead.value && fbmHead.value.pn === fbm.part_no ? fbmHead.value.order : null;
+      return rows.map(r => ({ code: normCode(r.code), desc: r.desc || ((matIndex.value.get(normCode(r.code)) || {}).description || ''),
+                              unit: r.unit, usage: r.usage, need: reqmtOf(rows, r.code, order) }))
+        .sort((a, b) => a.code.localeCompare(b.code));
+    });
+    const fbmPlan = computed(() => entity.value ? buyFromBom({
+      entity: entity.value, po: fbm.po, part_no: fbm.part_no, note: fbm.note, person: fsBy.value, date: todayLocal(),
+      picks: fbmRows.value.filter(r => fbm.pick[r.code]).map(r => ({ code: r.code, qty: fbm.qty[r.code], unit: r.unit }))
+    }, shorts.value) : null);
     async function fbmSave() {
       try {
-        const rec = fromManualBuy({ entity: entity.value, code: normCode(fbm.code), qty: Number(fbm.qty),
-          unit: unitOf(fbm.code), po: fbm.po, part_no: fbm.part_no, note: fbm.note,
-          person: fsBy.value, date: todayLocal() });
-        await fsPut(rec);
-        flash(`เพิ่มเรื่องซื้อ ${rec.code} จำนวน ${rec.qty} แล้ว`);
-        // ล้างทุกช่อง ไม่ค้าง PO เดิม — กติกาเดียวกับหน้าของเสีย (เจ้าของเคาะ 2 ต.ค. 2026) · เลือกซ้ำได้จาก dropdown
-        Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' });
+        // กันกดซ้ำ — ทางเดียวกับปุ่มตั้งเรื่องอื่น (#125)
+        await startOnce(starting, 'buybom|' + fbm.po, async () => {
+          const p = fbmPlan.value;
+          if (!p || !p.ok) { flash((p && p.errors[0] && p.errors[0].why) || 'ยังเพิ่มไม่ได้', true); return; }
+          if (p.dup.length && !confirm(`PO ${fbm.po} มีเรื่องซื้อที่ยังไม่ออกใบของรหัสนี้อยู่แล้ว:\n${p.dup.join(', ')}\n\nเพิ่มอีกเรื่องไหม`)) return;
+          for (const rec of p.recs) await fsPut(rec);
+          flash(`เพิ่มเรื่องซื้อ ${p.recs.length} รายการ ของ PO ${fbm.po} แล้ว`);
+          // ล้างทุกช่อง ไม่ค้าง PO เดิม — กติกาเดียวกับหน้าของเสีย (เจ้าของเคาะ 2 ต.ค. 2026) · เลือกซ้ำได้จาก dropdown
+          Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {} });
+        });
       } catch (err) { flash(err.message, true); }
     }
 
@@ -3319,7 +3341,7 @@ createApp({
       foStart, foVoid, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
-             mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmReady, onFbmPo, fbmSave,
+             mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
              fbPick, fbDoc, fbPicked, fbDocGroups, fbCanPick, fbIssue, fbReissue,
              scrapPos, poUnknown, checked,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };

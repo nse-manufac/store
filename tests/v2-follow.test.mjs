@@ -12,7 +12,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         buyFor, pendingScraps, fromScrapRow, fromManualBuy, scrapPoSuggest, linkReceive, orphanBuys,
+         buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver, startKey, startOnce, openPairFor }
@@ -1491,17 +1491,16 @@ console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้
      /\n\s*mk\.po = '';/.test(appSrc) && !/if \(mk\.kind === 'scrap'\)[^\n]*mk\.po/.test(appSrc));
   ok('บันทึกของเสียแล้วล้าง P/N ด้วย (ชนิดอื่นยังคงค่าไว้ตามเดิม)',
      appSrc.includes("if (mk.kind === 'scrap') { mk.part_no = ''; }"));
-  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { code: '', qty: null, po: '', part_no: '', note: '' })"));
+  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {} })"));
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('ช่อง PO ที่เสียมี dropdown แนะนำ', (html.match(/list="scrappolist"/g) || []).length === 2 && html.includes('id="scrappolist"'));
   ok('ป้ายเตือนขึ้นหลังออกจากช่องเท่านั้น ไม่ใช่ทุกตัวอักษร (ผู้ตรวจ #119 รอบ 2 ข้อ 2)',
-     html.includes('checked.mkPo === mk.po && poUnknown(mk.po)') && html.includes('checked.fbmPo === fbm.po && poUnknown(fbm.po)')
-     && html.includes('checked.fbmCode === fbm.code'));
+     html.includes('checked.mkPo === mk.po && poUnknown(mk.po)') && html.includes('checked.fbmPo === fbm.po && poUnknown(fbm.po)'));
   // ⚠️ ป้ายโผล่ตอน @change = ตอน mousedown บนปุ่มบันทึก · ถ้าป้ายเพิ่มความสูง ปุ่มเลื่อนหนีเมาส์ก่อน mouseup แล้วคลิกไม่ติด
   //    (ผู้ตรวจ #119 รอบ 3) → จองที่ไว้เสมอ สลับแค่ visibility ห้ามใช้ v-if
   ok('ป้ายเตือน PO/รหัส จองที่ไว้ (visibility) ไม่ใช่ v-if — ปุ่มบันทึกไม่เลื่อนตอนกด',
      !/v-if="[^"]*(poUnknown\((mk|fbm)\.po\)|checked\.fbmCode)/.test(html)
-     && (html.match(/:style="\{ visibility: [^"]*(poUnknown\((mk|fbm)\.po\)|checked\.fbmCode)/g) || []).length === 3);
+     && (html.match(/:style="\{ visibility: [^"]*(poUnknown\((mk|fbm)\.po\)|checked\.fbmCode)/g) || []).length === 2);   // ช่องรหัสของแผงคีย์เองเลิกใช้ (เปลี่ยนเป็นติ๊กจาก BOM 10 ต.ค. 2026)
   ok('คอลัมน์ PO ใหม่ซ่อนไว้ก่อน (ผู้ตรวจ #119 ข้อ 1)', !html.includes("r.s.next_po || 'ยังไม่รู้'"));
 }
 
@@ -1563,6 +1562,35 @@ console.log('\n=== T. กันกดตั้งเรื่องซ้ำ (�
   ok('ทั้งสามทางเดินผ่าน startOnce และส่ง follows ให้ด่านที่สอง',
      (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 3
      && /fromShortRow\(row, \{[^}]*follows: shorts\.value/.test(app) && /fromOverRow\(row, \{[^}]*follows: shorts\.value/.test(app));
+}
+
+console.log('\n=== U. ซื้อทดแทนจาก BOM ของ PO — ติ๊กเลือกหลายรหัส (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  const E = 'TUE-H';
+  const base = { entity: E, po: 'PO-B1', part_no: 'PN-B', person: 'สมหญิง', date: '2026-10-10', at: '2026-10-10T03:00:00.000Z' };
+  const a = buyFromBom({ ...base, note: 'แตก', picks: [{ code: 'a1', qty: 5, unit: 'MTR' }, { code: 'A2', qty: 2, unit: 'PCE' }] });
+  ok('ติ๊ก 2 รหัส = เรื่องซื้อ 2 เรื่อง — PO ที่เสีย · P/N · หน่วย · หมายเหตุติดไป · ที่มา manual · รหัสตัวใหญ่',
+     a.ok && a.recs.length === 2 && a.recs.every(r => r.kind === 'buy' && r.source === 'manual' && r.po === 'PO-B1'
+       && r.part_no === 'PN-B' && r.note === 'แตก' && r.entity === E) && a.recs[0].code === 'A1' && a.recs[0].unit === 'MTR' && a.recs[0].qty === 5,
+     JSON.stringify(a.errors));
+  const b = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 5 }, { code: 'A2', qty: null }] });
+  ok('ติ๊กแล้วไม่ใส่จำนวน = ไม่เพิ่มสักเรื่อง บอกว่ารหัสไหน', !b.ok && b.recs.length === 0 && b.errors.some(e => e.code === 'A2'));
+  ok('ไม่ได้ติ๊กเลย / ไม่มี PO = บอกทางออก', !buyFromBom({ ...base, picks: [] }).ok
+     && /PO/.test(buyFromBom({ ...base, po: '', picks: [{ code: 'A1', qty: 1 }] }).errors[0].why));
+  throws('ไม่บอกนิติบุคคล = โยน (A3)', () => buyFromBom({ ...base, entity: '', picks: [{ code: 'A1', qty: 1 }] }), 'A3');
+  const openBuy = fromManualBuy({ entity: E, code: 'A1', qty: 3, po: 'PO-B1', part_no: 'PN-B' });
+  const c = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }, { code: 'A2', qty: 1 }] }, [openBuy]);
+  ok('รหัสที่มีเรื่องซื้อของ PO นี้เปิดอยู่ (ยังไม่ออกใบ) = เตือน ไม่บล็อก', c.ok && c.dup.join() === 'A1' && c.recs.length === 2);
+  ok('เรื่องเดิมออกใบแล้ว / ปิดแล้ว / ยกเลิก / PO อื่น / นิติบุคคลอื่น ไม่นับว่าซ้ำ',
+     ['pr_no', 'done', 'voided'].every(k => !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] },
+        [{ ...openBuy, [k]: k === 'pr_no' ? '1.10.26 H' : true }]).dup.length)
+     && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] }, [{ ...openBuy, po: 'PO-X' }]).dup.length
+     && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] }, [{ ...openBuy, entity: 'TUE-U' }]).dup.length);
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: กาง BOM ของ P/N ให้ติ๊ก · ช่องจำนวนเปิดเมื่อติ๊ก · ปุ่มเพิ่มกันกดซ้ำ (startOnce)',
+     html.includes('v-for="r in fbmRows"') && html.includes(':disabled="!fbm.pick[r.code]"')
+     && /startOnce\(starting, 'buybom\|'/.test(app) && /activeBomRowsOf\(bom\.value, fbm\.part_no\)/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

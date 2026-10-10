@@ -965,6 +965,30 @@ export function fromManualBuy({ entity, code, qty, unit = '', po = '', part_no =
 }
 
 /**
+ * ตั้งเรื่องซื้อทดแทนหลายรหัสทีเดียว จากสูตรของ PO ที่เสีย (เจ้าของสั่ง 10 ต.ค. 2026)
+ * คีย์เลข PO → ได้ P/N → กาง BOM → ติ๊กรหัสที่จะสั่ง + คีย์จำนวนเองทุกแถว → เป็นเรื่องซื้อ (source manual) ทีละรหัส
+ * picks = [{ code, qty, unit }] · คืน { ok, recs, errors: [{ code, why }], dup: [code] }
+ * dup = รหัสที่มีเรื่องซื้อของ PO นี้เปิดอยู่และยังไม่ออกใบ — เตือนก่อน ไม่บล็อก (สั่งเพิ่มได้จริง)
+ */
+export function buyFromBom({ entity, po = '', part_no = '', picks = [], note = '', person = '', date = '', at = '' } = {},
+                           follows = []) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const errors = [], recs = [], dup = [];
+  if (!txt(po)) errors.push({ code: '', why: 'ใส่เลข PO ที่เสียก่อน' });
+  if (!(picks || []).length) errors.push({ code: '', why: 'ยังไม่ได้ติ๊กรายการไหนเลย' });
+  for (const p of picks || []) {
+    const code = txt(p && p.code).toUpperCase();
+    const q = Number(p && p.qty);
+    if (!(q > 0)) { errors.push({ code, why: `${code} ใส่จำนวนที่จะสั่ง (มากกว่าศูนย์)` }); continue; }
+    const open = (follows || []).some(f => f && f.kind === 'buy' && f.entity === entity && !f.voided
+      && !txt(f.pr_no) && statusOf(f) !== 'done' && txt(f.po) === txt(po) && txt(f.code).toUpperCase() === code);
+    if (open) dup.push(code);
+    if (!errors.length) recs.push(fromManualBuy({ entity, code, qty: q, unit: txt(p.unit), po, part_no, note, person, date, at }));
+  }
+  return { ok: !errors.length, recs: errors.length ? [] : recs, errors, dup };
+}
+
+/**
  * ของที่ซื้อทดแทนมาถึงแล้ว — ผูกเลขที่รายการรับเข้าไว้ แล้วปิดเรื่องตามจำนวนที่รับจริง
  *
  * ⚠️ รับมามากกว่าที่ตั้งเรื่องไว้ไม่ใช่ความผิดพลาด (Delta ส่งเผื่อ) · ปิดได้แค่ยอดที่ค้าง
