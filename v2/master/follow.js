@@ -965,9 +965,20 @@ export function fromManualBuy({ entity, code, qty, unit = '', po = '', part_no =
 }
 
 /**
+ * หน่วยที่ติดไปกับเรื่องซื้อ — ทะเบียนก่อนเสมอ ไม่มีค่อยใช้ของ BOM / ที่คีย์ (เจ้าของเคาะ 10 ต.ค. 2026)
+ * หน่วยนี้ไหลไปถึงใบสั่งซื้อที่ส่งผู้ขาย · ทะเบียน = หน่วยที่ซื้อจริง
+ * ⚠️ เดิมแถวที่ติ๊กจาก BOM ใช้หน่วย BOM ก่อน แต่แถวนอกสูตรใช้ทะเบียนก่อน — รหัสเดียวกันได้หน่วยคนละตัว (ผู้ตรวจ #129 ข้อ 1)
+ */
+export function buyUnit(regUnit, ...fallbacks) {
+  for (const u of [regUnit, ...fallbacks]) if (txt(u)) return txt(u);
+  return '';
+}
+
+/**
  * ตั้งเรื่องซื้อทดแทนหลายรหัสทีเดียว จากสูตรของ PO ที่เสีย (เจ้าของสั่ง 10 ต.ค. 2026)
  * คีย์เลข PO → ได้ P/N → กาง BOM → ติ๊กรหัสที่จะสั่ง + คีย์จำนวนเองทุกแถว → เป็นเรื่องซื้อ (source manual) ทีละรหัส
- * picks = [{ code, qty, unit }] · คืน { ok, recs, errors: [{ code, why }], dup: [code] }
+ * picks = [{ code, qty, unit, note }] · คืน { ok, recs, errors: [{ code, why }], dup: [code] }
+ * note ของแต่ละแถว (เจ้าของสั่ง 10 ต.ค. 2026 — เดิมได้หมายเหตุเดียวทั้ง PO) · แถวที่เว้นว่างใช้ note ของทั้งชุด
  * dup = รหัสที่มีเรื่องซื้อของ PO นี้เปิดอยู่และยังไม่ออกใบ — เตือนก่อน ไม่บล็อก (สั่งเพิ่มได้จริง)
  */
 export function buyFromBom({ entity, po = '', part_no = '', picks = [], note = '', person = '', date = '', at = '' } = {},
@@ -992,7 +1003,7 @@ export function buyFromBom({ entity, po = '', part_no = '', picks = [], note = '
     if (open) dup.push(code);
     /* ⚠️ ห้ามให้ error หลุดออกจากฟังก์ชันนี้ — ผู้เรียกคือ computed (fbmPlan) · โยนที่นั่น = จอหยุดอัปเดต */
     if (!errors.length) {
-      try { recs.push(fromManualBuy({ entity, code, qty: q, unit: txt(p.unit), po, part_no, note, person, date, at })); }
+      try { recs.push(fromManualBuy({ entity, code, qty: q, unit: txt(p.unit), po, part_no, note: txt(p.note) || note, person, date, at })); }
       catch (err) { errors.push({ code, why: `${code} ${err.message}` }); }
     }
   }
