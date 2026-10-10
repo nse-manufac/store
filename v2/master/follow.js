@@ -690,6 +690,9 @@ export function openPairFor(follows, kind, entity, po, code) {
  *   1. ชนิดเดียวกัน · นิติบุคคลเดียวกัน · PO + รหัสเดียวกัน · ยังไม่ถูกยกเลิก
  *   2. ตัวมันเองยังไม่มีความคืบหน้าเลย (ยังเปิด · ไม่มียอดปิด · ไม่ผูกรายการในสมุด)
  *   3. มีอีกเรื่องในคู่เดียวกันที่ยอดเท่ากัน (ต่างไม่เกิน 5e-4 · เกณฑ์เดียวกับ shortPending)
+ *      - over ซ้ำได้กับเรื่องที่ยังไม่ปิดเท่านั้น (เจ้าของเคาะ 11 ต.ค. 2026 · ผู้ตรวจ #131 รอบ 6)
+ *        คืนครบไปแล้ว แล้วรับเข้าเพิ่มจนเกินอีกเท่าเดิมพอดี = ของเกินก้อนใหม่ ไม่ใช่เรื่องซ้ำ
+ *        short ไม่มีช่องนี้ เพราะ shortPending ไม่ให้ตั้งเรื่องที่ยอดเท่ากับเรื่องที่ปิดแล้วตั้งแต่แรก (#123)
  *      - ลำดับที่เก็บไว้: มีความคืบหน้า → มีข้อมูลเพิ่ม (ETA · หมายเหตุที่ไฟล์ Delta เขียนมา) → ตั้งก่อน
  *        ⚠️ ไฟล์ MAT'L FOLLOWING อัปเดต "ใบแรกที่เจอ" ซึ่งอาจเป็นใบที่ตั้งทีหลัง (ผู้ตรวจ #131 ข้อ 1)
  *           เก็บตามวันที่ตั้งอย่างเดียว = เสนอยกเลิกใบที่มีวันนัดของ Delta แล้วเก็บใบเปล่าไว้
@@ -733,7 +736,8 @@ export function dupFollows(follows, { kind, entity } = {}) {
     for (const f of byTime) {
       if (moved(f)) continue;
       const q = round5(Number(f.qty) || 0);
-      const twin = kept.find(k => SAME_QTY(round5(Number(k.qty) || 0), q) && (q > 0 || statusOf(k) !== 'done'));
+      const twin = kept.find(k => SAME_QTY(round5(Number(k.qty) || 0), q)
+        && (statusOf(k) !== 'done' || (q > 0 && kind === 'short')));
       if (!twin) { kept.push(f); continue; }
       const st = statusOf(twin);
       out.push({ row: f, twin, why: `ซ้ำกับเรื่อง${st === 'done' ? 'ที่ปิดแล้ว' : 'ที่ยังเปิดอยู่'} ตั้ง ${txt(twin.date) || '—'}` });

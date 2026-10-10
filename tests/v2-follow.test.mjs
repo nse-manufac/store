@@ -1651,6 +1651,14 @@ console.log('\n=== W. ล้างเรื่องซ้ำที่ค้า�
   const d2 = dupFollows([s1, s2], { kind: 'short', entity: E });
   ok('short ตั้งซ้ำหลังปิดไปแล้ว ยอดเท่ากัน = เสนอยกเลิกเรื่องที่เปิดอยู่ (กฎเดียวกับ #123)',
      d2.length === 1 && d2[0].row.id === s2.id && /ที่ปิดแล้ว/.test(d2[0].why));
+  {
+    // over คืนครบแล้ว + over ใหม่ยอดเท่ากัน = ของเกินก้อนใหม่หลังรับเพิ่ม ไม่ใช่เรื่องซ้ำ (เจ้าของเคาะ 11 ต.ค. 2026)
+    const od = closeFollow(mk('over', 'TM9269H010', 'K1', 2, 1), { by: 'ก' }), on = mk('over', 'TM9269H010', 'K1', 2, 4);
+    const on2 = mk('over', 'TM9269H010', 'K1', 2, 5);
+    ok('over: ซ้ำกับเรื่องที่ปิดแล้วไม่นับ · ซ้ำกับเรื่องที่ยังเปิดยังนับ',
+       dupFollows([od, on], { kind: 'over', entity: E }).length === 0
+       && dupFollows([od, on, on2], { kind: 'over', entity: E }).map(d => d.row.id).join() === on2.id);
+  }
   ok('ยอดต่างจากเรื่องที่ปิด = ขาดเพิ่มจริง ไม่นับว่าซ้ำ',
      dupFollows([s1, mk('short', 'TM9269H002', 'B1', 7, 4)], { kind: 'short', entity: E }).length === 0);
   const p1 = closeFollow(mk('over', 'TM9269H003', 'C1', 4, 3), { qty: 1, by: 'ก' }), p0 = mk('over', 'TM9269H003', 'C1', 4, 1);
