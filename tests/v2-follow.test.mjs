@@ -21,7 +21,7 @@ import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
 import { makeManualRow, activeBomRowsOf } from '../v2/master/bom.js';
 import { signedQty, KINDS, round5 } from '../v2/core/ledger.js';
-import { localDate, atFrom } from '../v2/core/localtime.js';
+import { localDate, atFrom, rollDay } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -1682,7 +1682,19 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('จอ: ช่อง "วันที่ของมา" ผูก fsDate และส่งเข้า arriveShort',
      /v-model="fsDate" type="date"/.test(fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8'))
-     && /const day = fsDate\.value \|\| todayLocal\(\)/.test(app));
+     && /const day = fsDayNow\(\)/.test(app) && /return fsDate\.value \|\| t/.test(app));
+  // จอเปิดค้างข้ามคืน (ผู้ตรวจ #130 รอบ 2 ข้อ 2)
+  ok('ข้ามวัน + คนไม่ได้แก้ช่อง = เลื่อนเป็นวันนี้', rollDay('2026-10-10', '2026-10-10', '2026-10-11') === '2026-10-11');
+  ok('ข้ามวัน + คนตั้งวันอื่นไว้เอง = คงไว้', rollDay('2026-10-08', '2026-10-10', '2026-10-11') === '2026-10-08');
+  ok('จอ: เช็กข้ามวันตอนกด "มาแล้ว" และตอนเปิดหน้า short', /fsDateOn !== t\) \{ fsDate\.value = rollDay\(/.test(app)
+     && /watch\(tab, k => \{ if \(k === 'fshort'\) fsDayNow\(\); \}\)/.test(app));
+  ok('จอ: วันปิดเรื่องโชว์ตามวันที่ไทย ไม่สไลซ์ ISO แบบ UTC (ผู้ตรวจ #130 รอบ 2 ข้อ 3)',
+     fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8').includes("ปิด {{ localDate(r.s.done_at) }}"));
+  {
+    // กดตี 5 ครึ่งเวลาไทย เลือกวันที่ 8 → ISO เป็นวันที่ 7 ตาม UTC แต่ต้องโชว์วันที่ 8
+    const early = atFrom('2026-10-08', new Date(2026, 9, 10, 5, 30));
+    ok('localDate ของวันปิดเรื่องได้วันที่ที่คนเลือก', localDate(early) === '2026-10-08');
+  }
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
      html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));

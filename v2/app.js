@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
 import { balances, balanceOf, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
-import { localDate, localTime, atFrom, todayLocal } from './core/localtime.js';
+import { localDate, localTime, atFrom, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
@@ -2254,13 +2254,21 @@ createApp({
     // กด "มาแล้ว" แล้วรับเข้าคลังด้วย (เจ้าของสั่ง 10 ต.ค. 2026 · ตรรกะอยู่ที่ master/follow.js arriveShort)
     // ติ๊กออก = ปิดเรื่องอย่างเดียว เช่นของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ
     const fsRecv = ref(true);
-    // วันที่ของมาจริง — ของมาเมื่อวานแต่เพิ่งมากดวันนี้ คีย์ย้อนได้ (เจ้าของสั่ง 10 ต.ค. 2026 · แบบเดียวกับ "วันที่คืน" ของ over)
-    const fsDate = ref(todayLocal());
+    // วันที่ของมาจริง — ของมาเมื่อวานแต่เพิ่งมากดวันนี้ คีย์ย้อนได้ (เจ้าของสั่ง 10 ต.ค. 2026)
+    // ⚠️ จอเปิดค้างข้ามคืน ช่องต้องเลื่อนเป็นวันนี้เอง (over ตั้งใหม่ทุกครั้งที่เปิดกล่อง · ช่องนี้อยู่ถาวรจึงต้องเช็กเอง)
+    let fsDateOn = todayLocal();
+    const fsDate = ref(fsDateOn);
+    function fsDayNow() {
+      const t = todayLocal();
+      if (fsDateOn !== t) { fsDate.value = rollDay(fsDate.value, fsDateOn, t); fsDateOn = t; }
+      return fsDate.value || t;
+    }
+    watch(tab, k => { if (k === 'fshort') fsDayNow(); });
     async function fsClose(row) {
       const raw = fsGot[row.id];
       try {
         await startOnce(starting, 'fsclose|' + row.id, async () => {
-          const day = fsDate.value || todayLocal();
+          const day = fsDayNow();
           const { rec, entry } = arriveShort(plain(row), {
             qty: raw === '' || raw == null ? undefined : Number(raw),
             receive: fsRecv.value, person: fsBy.value, device: device.value, date: day, at: atFrom(day)

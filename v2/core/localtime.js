@@ -46,6 +46,16 @@ export const todayLocal = () => localDate(new Date().toISOString());
  * วิธีนั้นเอาวันที่ตามเวลาเครื่องมาต่อกับเวลาตาม UTC ซึ่งเป็นคนละโซน
  * ผลคือรายการที่คีย์ระหว่างเที่ยงคืนถึงเจ็ดโมงเช้าจะเลื่อนไปอีกวัน
  */
+/**
+ * ช่องวันที่ที่ค่าตั้งต้นคือ "วันนี้" แต่จอเปิดค้างข้ามวัน — คืนค่าที่ควรอยู่ในช่องตอนนี้
+ * value = ค่าในช่อง · setOn = วันที่ที่ตั้งค่าตั้งต้นให้ครั้งล่าสุด · today = วันนี้
+ * คนไม่ได้แก้ช่อง (value === setOn) = เลื่อนเป็นวันนี้ · คนตั้งวันอื่นไว้เอง = คงไว้ ไม่เดาแทน
+ * ⚠️ ไม่เลื่อน = รายการที่คีย์วันรุ่งขึ้นลงเป็นวันเมื่อวานแบบเงียบ ๆ (ผู้ตรวจ #130 รอบ 2 ข้อ 2)
+ */
+export function rollDay(value, setOn, today) {
+  return value === setOn ? today : value;
+}
+
 export function atFrom(dateStr, now = new Date()) {
   if (!dateStr) return now.toISOString();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr).trim());

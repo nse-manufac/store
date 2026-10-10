@@ -2107,7 +2107,7 @@ textarea{font:inherit}
                   <td class="hint">{{ r.s.note }}</td>
                   <td>
                     <template v-if="r.st==='done'">
-                      <span class="hint">ปิด {{ (r.s.done_at || '').slice(0,10) }}
+                      <span class="hint">ปิด {{ localDate(r.s.done_at) }}
                         {{ r.s.done_by }}</span>
                       <button class="btn" style="padding:2px 8px;margin-left:5px"
                               @click="fsReopen(r.s)">เอากลับ</button>
