@@ -8,6 +8,7 @@
  * โดยไม่มีอะไรเตือน เพราะทั้งสองบรรทัดดู "ถูก" ทั้งคู่เมื่อดูทีละบรรทัด
  */
 import { categorize, normCode } from './materials.js';
+import { isInHouse } from './sap-bom.js';
 
 export const bomId = (pn, code) => `${pn}|${code}`;
 
@@ -154,6 +155,94 @@ export function reqmtOf(rows, code, order) {
   if (!n) return null;
   const hit = (rows || []).find(r => String(r.code) === String(code));
   return hit ? Math.round((Number(hit.usage) || 0) * n * 1e5) / 1e5 : null;
+}
+
+const r10 = n => Math.round(n * 1e10) / 1e10;
+
+/**
+ * ตั้ง BOM ทั้งใบด้วยมือ — Delta ให้มาเป็น hard copy ไม่มีไฟล์ (เจ้าของสั่ง 10 ต.ค. 2026)
+ *
+ * mode 'unit'  = คีย์ยอดต่อชิ้นตามใบ
+ * mode 'total' = คีย์ยอดรวมทั้งใบ (เช่นใบเบิก) แล้วหารด้วย order (จำนวนสั่ง) เป็นยอดต่อชิ้น
+ * ⚠️ แทนที่ทั้ง P/N เหมือนการนำเข้าไฟล์ (เจ้าของเลือก) — บรรทัดเดิมที่ไม่มีในใบใหม่ติดธง deleted
+ *    ไม่ลบทิ้ง เพราะลบจริงแล้วเครื่องอื่นจะซิงค์มันกลับมา (กฎเดียวกับ deleteBomRow)
+ * รหัสเดียวกันหลายบรรทัด = คนละขั้นตอนการผลิต รวมยอด (กฎเดียวกับใบเบิก/Kit List)
+ * คืน { ok, rows, removed, errors: [{ i, why }], warns: [{ i, code, why }], isNew, diff }
+ *   i = ลำดับแถวที่คีย์ (เริ่ม 0) · -1 = หัวใบ · แถวว่างทั้งแถวข้ามไปเฉย ๆ
+ */
+export function manualBomPlan(input = {}, existing = [], { materials = [], now = new Date().toISOString(), today = '' } = {}) {
+  const pn = String(input.pn || '').trim();
+  const mode = input.mode === 'total' ? 'total' : 'unit';
+  const order = Number(input.order);
+  const errors = [], warns = [];
+  if (!pn) errors.push({ i: -1, why: 'ต้องระบุ P/N' });
+  if (mode === 'total' && !(order > 0)) errors.push({ i: -1, why: 'คีย์เป็นยอดรวม ต้องใส่จำนวนสั่ง (ชิ้น) ด้วย' });
+  const vf = String(input.valid_from || '').trim();
+  if (vf && !/^\d{4}-\d{2}-\d{2}$/.test(vf)) errors.push({ i: -1, why: 'วันที่มีผลไม่ถูกต้อง — เลือกวันที่ใหม่' });
+  const matOf = new Map((materials || []).map(m => [normCode(m.material_code), m]));
+  const merged = new Map();
+  // ยอดต่อชิ้นของแต่ละแถวที่คีย์ — ให้จอโชว์ค่าเดียวกับที่จะบันทึก ไม่คิดซ้ำในเทมเพลต (ผู้ตรวจ #127 ข้อ ง)
+  const lineUsage = [];
+  (input.lines || []).forEach((l, i) => {
+    lineUsage[i] = null;
+    const code = normCode(l && l.code);
+    const raw = l ? l.qty : null;
+    if (!code && (raw === '' || raw == null)) return;
+    if (!code) { errors.push({ i, why: 'ไม่มีรหัส — ใส่รหัส หรือกด ✕ ลบแถวนี้' }); return; }
+    if (isInHouse(code)) { errors.push({ i, kind: 'inhouse', why: `${code} ขึ้นต้น 28 = ของทำเอง ไม่ใช่วัตถุดิบที่เบิกจากคลัง — ลบแถวนี้` }); return; }
+    const q = Number(raw);
+    if (raw === '' || raw == null || !isFinite(q) || q <= 0) { errors.push({ i, why: `${code} ยอดต้องเป็นตัวเลขมากกว่าศูนย์` }); return; }
+    const m = matOf.get(code);
+    // ชื่อกับหน่วยมาจากทะเบียนเสมอ (เจ้าของสั่ง 10 ต.ค. 2026 — พนักงานคีย์แค่รหัสกับจำนวน)
+    // คีย์หน่วยเองได้เฉพาะรหัสที่ไม่มีในทะเบียน หรือทะเบียนยังไม่มีหน่วย
+    const unit = String(((m && m.unit) || l.unit || '')).trim().toUpperCase();
+    if (!unit) { errors.push({ i, why: `${code} ไม่มีหน่วย — ใส่หน่วยในช่องหน่วยของแถวนี้` }); return; }
+    // เตือนเฉพาะแถวที่ผ่านแล้ว แถวที่ตกไปแล้วอยู่ในกล่องแดงที่เดียว (ผู้ตรวจ #127 ข้อ ช)
+    if (!m) warns.push({ i, code, why: 'ไม่มีในทะเบียน' });
+    const usage = mode === 'total' ? (order > 0 ? r10(q / order) : 0) : r10(q);
+    // ยอดรวมแต่ยังไม่ใส่จำนวนสั่ง = ยังคิดต่อชิ้นไม่ได้ → null (จอโชว์ —) ไม่ใช่ 0 (ผู้ตรวจ #127 รอบ 2 ข้อ 1)
+    lineUsage[i] = mode === 'total' && !(order > 0) ? null : usage;
+    const hit = merged.get(code);
+    if (hit) {
+      if (hit.unit !== unit) { errors.push({ i, why: `${code} คีย์ซ้ำแต่หน่วยไม่ตรงกัน (${hit.unit} กับ ${unit})` }); return; }
+      hit.usage = r10(hit.usage + usage); hit.lines++;
+      if (l.note) hit.note = [hit.note, String(l.note).trim()].filter(Boolean).join(' · ');
+    } else {
+      merged.set(code, { code, unit, usage, lines: 1,
+                         desc: String((m && m.description) || l.desc || '').trim(), note: String(l.note || '').trim() });
+    }
+  });
+  if (!merged.size && !errors.length) errors.push({ i: -1, why: 'ยังไม่มีบรรทัดสูตร' });
+
+  const cur = (existing || []).filter(r => String(r.pn) === pn && !r.deleted);
+  const curOf = new Map(cur.map(r => [normCode(r.code), r]));
+  const by = String(input.by || '').trim() || 'หน้างาน';
+  const rows = [...merged.values()].map(l => ({
+    id: bomId(pn, l.code), pn, code: l.code, desc: l.desc, usage: l.usage, unit: l.unit,
+    lines: l.lines, altPct: null,
+    // คนคีย์จากเอกสารเอง = ยืนยันหน่วยแล้ว ไม่ใช่ค่าที่ระบบเดามา
+    uomConfirmed: true, uomWhy: '', rawQpa: l.usage, rawUom: l.unit,
+    // วันที่ว่าง = วันนี้ตามเวลาไทย (ผู้เรียกส่ง today มา) · now.slice เป็นวันที่ UTC ตี 0–7 จะได้เมื่อวาน (ผู้ตรวจ #127 ข้อ จ)
+    rev: String(input.rev || '').trim(), valid_from: vf || today || now.slice(0, 10),
+    // ขึ้นต้น 'มือ' — manualRowsOf จะเตือนก่อนนำเข้าไฟล์ทับ
+    source: 'มือ · hard copy · ' + by, imported_at: now, deleted: false,
+    note: [String(input.note || '').trim(), l.note].filter(Boolean).join(' · ')
+  }));
+  // ⚠️ ตัดออกเทียบด้วย id ไม่ใช่รหัสที่ normalize — แถวเดิมที่ id ต่างจากแถวใหม่ (เช่นรหัสตัวพิมพ์เล็กในฐาน)
+  //    ต้องถูกติดธงลบ ไม่งั้นเหลือสองแถว active ของรหัสเดียวกัน = ยอดเบิ้ล (ผู้ตรวจ #127 รอบ 2 ข้อ 6)
+  const newIds = new Set(rows.map(r => r.id));
+  const removed = cur.filter(r => !newIds.has(r.id))
+    .map(r => ({ ...r, deleted: true, imported_at: now }));
+  const diff = { added: [], changed: [], same: 0,
+                 removed: removed.filter(r => !merged.has(normCode(r.code))).map(r => r.code) };
+  for (const r of rows) {
+    const old = curOf.get(r.code);
+    if (!old) diff.added.push(r.code);
+    else if (Math.abs((Number(old.usage) || 0) - r.usage) > 1e-9 || String(old.unit || '').toUpperCase() !== r.unit) {
+      diff.changed.push({ code: r.code, from: Number(old.usage) || 0, to: r.usage, fromUnit: old.unit || '', unit: r.unit });
+    } else diff.same++;
+  }
+  return { ok: !errors.length, rows, removed, errors, warns, isNew: !cur.length, replacing: cur.length, diff, lineUsage };
 }
 
 /** บรรทัดที่แก้มือไว้ของ P/N พวกนี้ — ใช้เตือนก่อนนำเข้าไฟล์ทับ */
