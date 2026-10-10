@@ -686,13 +686,17 @@ export function openPairFor(follows, kind, entity, po, code) {
  *   1. ชนิดเดียวกัน · นิติบุคคลเดียวกัน · PO + รหัสเดียวกัน · ยังไม่ถูกยกเลิก
  *   2. ตัวมันเองยังไม่มีความคืบหน้าเลย (ยังเปิด · ไม่มียอดปิด · ไม่ผูกรายการในสมุด)
  *   3. มีอีกเรื่องในคู่เดียวกันที่ยอดเท่ากัน (ต่างไม่เกิน 5e-4 · เกณฑ์เดียวกับ shortPending)
- *      - เรื่องที่มีความคืบหน้าถูกเก็บไว้ก่อนเสมอ · ที่เหลือเก็บเรื่องที่ตั้งก่อน
+ *      - ลำดับที่เก็บไว้: มีความคืบหน้า → มีข้อมูลเพิ่ม (ETA · ถูกแก้หลังตั้ง เช่นไฟล์ Delta มาอัปเดต) → ตั้งก่อน
+ *        ⚠️ ไฟล์ MAT'L FOLLOWING อัปเดต "ใบแรกที่เจอ" ซึ่งอาจเป็นใบที่ตั้งทีหลัง (ผู้ตรวจ #131 ข้อ 1)
+ *           เก็บตามวันที่ตั้งอย่างเดียว = เสนอยกเลิกใบที่มีวันนัดของ Delta แล้วเก็บใบเปล่าไว้
  *      - ยอด 0 (รอส่ง ไม่บอกจำนวน) ซ้ำได้กับเรื่องที่ยังเปิดเท่านั้น — เรื่องปิดแล้วยอด 0 ไม่บอกว่าเป็นของก้อนเดียวกัน
  * ⚠️ เรื่องที่มีความคืบหน้าไม่ถูกเสนอให้ยกเลิกเลย · ยอดต่างกัน = ขาด/เกินเพิ่มจริง ไม่นับว่าซ้ำ
  * ⚠️ แค่เสนอรายการ · คนติ๊กและกดยืนยันเอง · ยกเลิกแบบไม่ลบ (B1)
  */
 const SAME_QTY = (a, b) => Math.abs(a - b) < 5e-4;
 const idsOf = v => String(v || '').split(/\s+/).filter(Boolean);
+// มีข้อมูลที่คนหรือไฟล์ Delta เติมให้หลังตั้งเรื่อง — ยกเลิกใบนี้แล้วข้อมูลนั้นหายจากจอ
+const enriched = f => !!txt(f.eta) || txt(f.updated_at) > txt(f.created_at);
 const moved = f => statusOf(f) !== 'open' || idsOf(f.return_entry_id).length > 0
                    || idsOf(f.receive_entry_id).length > 0;
 
@@ -710,7 +714,7 @@ export function dupFollows(follows, { kind, entity } = {}) {
   const out = [];
   for (const rows of groups.values()) {
     if (rows.length < 2) continue;
-    const byTime = [...rows].sort((a, b) => txt(a.created_at).localeCompare(txt(b.created_at)));
+    const byTime = [...rows].sort((a, b) => (enriched(b) - enriched(a)) || txt(a.created_at).localeCompare(txt(b.created_at)));
     const kept = byTime.filter(moved);
     for (const f of byTime) {
       if (moved(f)) continue;

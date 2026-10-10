@@ -1667,6 +1667,16 @@ console.log('\n=== W. ล้างเรื่องซ้ำที่ค้า�
      dupFollows([z1, z2], { kind: 'short', entity: E }).length === 1
      && dupFollows([closeFollow(z1, { by: 'ก' }), z2], { kind: 'short', entity: E }).length === 0);
   throws('ชนิด buy ไม่ได้', () => dupFollows([], { kind: 'buy', entity: E }), 'short');
+  // ไฟล์ Delta อัปเดตใบแรกที่เจอ ซึ่งอาจเป็นใบที่ตั้งทีหลัง (ผู้ตรวจ #131 ข้อ 1)
+  const ea = mk('short', 'TM9269H006', 'F1', 5, 1), eb = mk('short', 'TM9269H006', 'F1', 5, 2, { eta: '2026-10-20' });
+  const de = dupFollows([ea, eb], { kind: 'short', entity: E });
+  ok('ใบที่มี ETA ถูกเก็บไว้แม้ตั้งทีหลัง — เสนอยกเลิกใบเปล่า', de.length === 1 && de[0].row.id === ea.id && de[0].twin.id === eb.id);
+  const ec = mk('short', 'TM9269H006', 'F1', 5, 2, { note: 'Delta แจ้ง 8 ต.ค.', updated_at: '2026-10-08T03:00:00.000Z' });
+  const du = dupFollows([ea, ec], { kind: 'short', entity: E });
+  ok('ใบที่ถูกแก้หลังตั้ง (ไฟล์ Delta มาอัปเดตหมายเหตุ) ถูกเก็บไว้ก่อนใบที่ไม่เคยแตะ',
+     du.length === 1 && du[0].row.id === ea.id && du[0].twin.id === ec.id);
+  ok('ความคืบหน้ายังชนะข้อมูลเพิ่มเสมอ', dupFollows([eb, closeFollow(ea, { qty: 1, by: 'ก' })], { kind: 'short', entity: E })
+     .every(d => d.row.id === eb.id));
 
   const at = '2026-10-05T03:00:00.000Z';
   const ra = sendbackEntry(o1, { qty: 3, person: 'ก', at, reason_code: 'over' }), rb = sendbackEntry(o2, { qty: 3, person: 'ก', at, reason_code: 'over' });
@@ -1695,7 +1705,8 @@ console.log('\n=== W. ล้างเรื่องซ้ำที่ค้า�
      && /await db\.put\('entries', voids\)[\s\S]{0,300}await fsPut\(rec\)/.test(app));
   ok('จอ: การ์ดเรื่องซ้ำทั้งหน้า short และ over · ติ๊กไว้เป็นค่าตั้งต้น · ยกเลิกด้วย voidFollow ไม่ลบ',
      html.includes(`@click="dupVoid('short')"`) && html.includes(`@click="dupVoid('over')"`)
-     && html.includes(':checked="!dupSkip[d.row.id]"') && /voidFollow\(plain\(d\.row\)/.test(app) && html.includes('v-if="foDouble.length"'));
+     && html.includes(':checked="!dupSkip[d.row.id]"') && /voidFollow\(plain\(d\.row\)/.test(app) && html.includes('v-if="foDouble.length"')
+     && (html.match(/\{\{ d\.row\.eta \|\| '—' \}\}/g) || []).length === 2);
 }
 
 console.log('\n=== X. ซื้อทดแทน — หน่วยจากทะเบียนก่อน · หมายเหตุรายรหัส (เจ้าของสั่ง 10 ต.ค. 2026) ===');

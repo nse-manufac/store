@@ -2016,13 +2016,14 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.short">
             <table>
               <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
-                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th>ซ้ำกับ</th></tr></thead>
+                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
                 <tr v-for="d in dupLists.short" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
                   <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
                   <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
+                  <td class="mono hint">{{ d.row.eta || '—' }}</td><td class="hint">{{ d.row.note || '—' }}</td>
                   <td class="hint">{{ d.why }}</td>
                 </tr>
               </tbody>
@@ -2671,13 +2672,14 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.over">
             <table>
               <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
-                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th>ซ้ำกับ</th></tr></thead>
+                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
                 <tr v-for="d in dupLists.over" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
                   <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
                   <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
+                  <td class="mono hint">{{ d.row.eta || '—' }}</td><td class="hint">{{ d.row.note || '—' }}</td>
                   <td class="hint">{{ d.why }}</td>
                 </tr>
               </tbody>
