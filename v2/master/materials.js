@@ -151,6 +151,25 @@ export function searchMaterials(list, q, { limit = 40, activeOnly = true } = {})
   return scored.slice(0, limit);
 }
 
+/**
+ * พิมพ์รหัสบางส่วน (เช่นเลขท้าย) แล้วหาว่าหมายถึงตัวไหน — แผงตั้ง BOM จาก hard copy (เจ้าของสั่ง 10 ต.ค. 2026)
+ * คืน { code, items } · code = รหัสเต็มที่ตัดสินได้แน่นอน (ตรงเป๊ะ หรือเหลือตัวเลือกเดียว) · '' = ต้องให้คนเลือกจาก items
+ * ⚠️ ไม่เดาเมื่อมีหลายตัว — ชื่อซ้ำกันในทะเบียนมีจริง (issue #26) เลือกผิดคือสูตรผิดตัว
+ * ⚠️ ค้นเฉพาะรหัส ไม่ค้นชื่อ — ช่องนี้พิมพ์รหัส ถ้าตัวเลขไปตรงกับเลขในชื่อของอีกตัว จะได้ตัวเลือกที่ไม่เกี่ยว
+ */
+export function codeSuggest(list, q, { limit = 8 } = {}) {
+  const term = normCode(q);
+  if (!term) return { code: '', items: [] };
+  const pool = (list || []).filter(m => m.active !== false);
+  const exact = pool.find(m => normCode(m.material_code) === term);
+  if (exact) return { code: normCode(exact.material_code), items: [exact] };
+  const hit = pool.filter(m => normCode(m.material_code).includes(term));
+  // ลงท้ายด้วยที่พิมพ์ขึ้นก่อน (คนมักจำเลขท้าย) แล้วขึ้นต้น แล้วที่เหลือ
+  const rank = m => { const c = normCode(m.material_code); return c.endsWith(term) ? 0 : c.startsWith(term) ? 1 : 2; };
+  hit.sort((a, b) => rank(a) - rank(b) || normCode(a.material_code).localeCompare(normCode(b.material_code)));
+  return { code: hit.length === 1 ? normCode(hit[0].material_code) : '', items: hit.slice(0, limit) };
+}
+
 /** คำอธิบายที่ซ้ำกันในกลุ่มที่ใช้งานอยู่ — ให้เจ้าของไล่เก็บทีหลัง */
 export function duplicateDescriptions(list) {
   const by = new Map();

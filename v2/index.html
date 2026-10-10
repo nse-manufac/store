@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-09.2">
+<meta name="app-version" content="2026-10-10.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -613,7 +613,8 @@ textarea{font:inherit}
         <div class="card">
           <div class="row">
             <h2 style="margin:0">BOM ในเครื่อง</h2>
-            <span class="tag">{{ bomPns.length }} P/N · {{ bom.length.toLocaleString() }} บรรทัด</span>
+            <span class="tag">{{ bomPns.length }} P/N · {{ bomLive.length.toLocaleString() }} บรรทัด</span>
+            <button class="btn" @click="openNewBom()" title="Delta ให้มาเป็นกระดาษ ไม่มีไฟล์">+ ตั้ง BOM จาก hard copy</button>
             <div class="grow"></div>
             <span v-if="bomUnconfirmed" class="tag warn">หน่วยยังไม่ยืนยัน {{ bomUnconfirmed }} บรรทัด</span>
           </div>
@@ -650,6 +651,100 @@ textarea{font:inherit}
             </div>
           </div>
 
+        <!-- ตั้ง BOM ทั้งใบจาก hard copy — Delta ไม่ได้ส่งไฟล์มา (เจ้าของสั่ง 10 ต.ค. 2026) -->
+        <div class="card" v-if="nb.open">
+          <div class="row">
+            <h2 style="margin:0">ตั้ง BOM จาก hard copy</h2>
+            <span class="hint">คีย์ทั้งใบแล้วบันทึกทีเดียว · ถ้า P/N มีสูตรอยู่แล้ว จะแทนที่ทั้ง P/N</span>
+            <div class="grow"></div>
+            <button class="btn" @click="nb.open=false">ปิด</button>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <label class="f" style="width:140px">P/N
+              <input v-model.trim="nb.pn" class="mono" list="pnlist" data-nb-pn>
+              <!-- พิมพ์ P/N ผิดตัวเดียวจะได้สูตรใบใหม่เงียบ ๆ แทนที่จะแทนที่ใบที่ตั้งใจ (ผู้ตรวจ #127 ข้อ ฉ) -->
+              <span class="tag" :class="nbPlan && nbPlan.isNew ? 'warn' : 'ok'" style="margin-top:3px"
+                    :style="{ visibility: nb.pn ? 'visible' : 'hidden' }">
+                {{ nbPlan && nbPlan.isNew ? 'P/N ใหม่ — ยังไม่มีสูตรในเครื่อง' : 'มีสูตรอยู่แล้ว — จะแทนที่ทั้ง P/N' }}</span></label>
+            <label class="f" style="width:90px">REV
+              <input v-model.trim="nb.rev" class="mono"></label>
+            <label class="f" style="width:150px">มีผลตั้งแต่
+              <input v-model="nb.valid_from" type="date"></label>
+            <label class="f" style="width:140px">ผู้คีย์
+              <input v-model.trim="bomBy" placeholder="ชื่อคนคีย์"></label>
+            <label class="f grow" style="min-width:160px">หมายเหตุทั้งใบ
+              <input v-model.trim="nb.note" placeholder="เช่น hard copy จาก Delta วันที่ ..."></label>
+          </div>
+          <div class="row" style="margin-top:8px;gap:16px">
+            <label><input type="radio" value="unit" v-model="nb.mode"> ยอดต่อชิ้น (ตามใบ BOM)</label>
+            <label><input type="radio" value="total" v-model="nb.mode"> ยอดรวมทั้งใบ (เช่นใบเบิก) — หารด้วยจำนวนสั่ง</label>
+            <label class="f" style="width:130px" v-if="nb.mode==='total'">จำนวนสั่ง (ชิ้น)
+              <input v-model.number="nb.order" type="number" step="any" class="mono"></label>
+            <div class="grow"></div>
+            <button class="btn" v-if="nbHasCur" @click="nbLoadCurrent">โหลดสูตรเดิมมาแก้</button>
+          </div>
+          <div class="scroll" style="margin-top:10px;max-height:46vh">
+            <table>
+              <thead><tr><th style="width:34px">#</th><th style="width:190px">รหัส (พิมพ์บางส่วนได้)</th><th>ชื่อ</th>
+                <th style="width:120px">{{ nb.mode==='total' ? 'ยอดรวม' : 'ต่อชิ้น' }}</th>
+                <th style="width:110px" v-if="nb.mode==='total'">ต่อชิ้น</th>
+                <th style="width:80px">หน่วย</th><th style="width:170px">หมายเหตุ</th><th style="width:44px"></th></tr></thead>
+              <tbody><template v-for="(l, i) in nb.lines" :key="i"><tr>
+                <td class="hint">{{ i + 1 }}</td>
+                <td><div class="row" style="gap:3px;flex-wrap:nowrap">
+                  <input v-model.trim="l.code" class="mono grow" style="min-width:0" :data-nb-code="i" autocomplete="off"
+                         @input="nbTyping(i)" @blur="nbBlur(i)"
+                         @keydown.down.prevent="nbMove(1)" @keydown.up.prevent="nbMove(-1)"
+                         @keydown.enter.prevent="nbChoose(i)" @keydown.esc="nbSug.i = -1">
+                  <button class="btn" style="padding:4px 7px" @click="openPick(l)">🔍</button></div></td>
+                <!-- ชื่อกับหน่วยมาจากทะเบียน (เจ้าของสั่ง 10 ต.ค. 2026) · รหัสไม่มีในทะเบียน = ให้คีย์หน่วยเองเฉพาะแถวนั้น -->
+                <td><template v-if="nbMats[i]">{{ nbMats[i].description }}</template>
+                  <span v-else-if="nbInHouse.has(i)" class="tag bad">ของทำเอง (28) — ใส่ในสูตรไม่ได้ ลบแถวนี้</span>
+                  <span v-else-if="l.code && nbSug.i !== i" class="tag warn">ไม่มีในทะเบียน — ใส่หน่วยเอง แล้วตั้งทะเบียนทีหลัง</span></td>
+                <td><input v-model="l.qty" type="number" step="any" class="mono" :data-nb-qty="i" @keydown.enter.prevent="nbNext(i)"></td>
+                <td class="mono hint" v-if="nb.mode==='total'">{{ nbPlan && nbPlan.lineUsage[i] != null ? nbPlan.lineUsage[i] : '—' }}</td>
+                <td><span v-if="nbMats[i] && nbMats[i].unit" class="mono">{{ nbMats[i].unit }}</span>
+                  <input v-else-if="l.code && nbSug.i !== i && !nbInHouse.has(i)" v-model.trim="l.unit" class="mono" placeholder="หน่วย" @keydown.enter.prevent="nbNext(i)"></td>
+                <td><input v-model.trim="l.note" @keydown.enter.prevent="nbNext(i)"></td>
+                <td><button class="btn" style="padding:2px 8px" @click="nbRemove(i)" title="ลบแถว">✕</button></td>
+              </tr>
+              <!-- ตัวเลือกจากที่พิมพ์บางส่วน — แถวแทรกใต้แถวที่พิมพ์ · @mousedown.prevent ให้คลิกได้ก่อนช่องเสีย focus -->
+              <tr v-if="nbSug.i === i && nbSugList.length"><td></td>
+                <td :colspan="nb.mode==='total' ? 7 : 6" style="padding:2px 6px 8px">
+                  <div v-for="(m, k) in nbSugList" :key="m.material_code" @mousedown.prevent="nbChoose(i, m)"
+                       style="padding:4px 8px;cursor:pointer;border-radius:4px"
+                       :style="{ background: k === nbSug.k ? 'var(--line)' : '' }">
+                    <b class="mono">{{ m.material_code }}</b> <span class="hint">{{ m.unit }}</span> {{ m.description }}</div>
+                  <div class="hint" style="padding:2px 8px">↑↓ เลือก · Enter ใช้ตัวนี้ · Esc ปิด</div>
+                </td></tr></template></tbody>
+            </table>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn" @click="nbNext(nb.lines.length - 1)">+ เพิ่มแถว</button>
+            <span class="hint">พิมพ์รหัสบางส่วน (เช่นเลขท้าย) → ลูกศรเลือก → Enter → ใส่จำนวน → Enter ลงแถวถัดไป · รหัสเดียวกันหลายแถว = รวมยอด</span>
+          </div>
+          <template v-if="nbPlan">
+            <div class="msg bad" style="margin:10px 0 0" v-if="nbPlan.errors.length">
+              <div v-for="(e, k) in nbPlan.errors" :key="k">{{ e.i >= 0 ? 'แถว ' + (e.i + 1) + ': ' : '' }}{{ e.why }}</div></div>
+            <div class="msg warn" style="margin:10px 0 0" v-if="nbPlan.warns.length">
+              ยังไม่มีในทะเบียน (บันทึกได้ แต่ควรตั้งทะเบียนด้วย):
+              <span class="mono">{{ nbPlan.warns.map(w => w.code).join(' · ') }}</span></div>
+            <div class="msg" style="margin:10px 0 0" v-if="nbPlan.ok && !nbPlan.isNew">
+              <b>แทนที่สูตรเดิม {{ nbPlan.replacing }} บรรทัด</b> —
+              เพิ่ม {{ nbPlan.diff.added.length }} · เปลี่ยนยอด {{ nbPlan.diff.changed.length }} ·
+              เท่าเดิม {{ nbPlan.diff.same }} · ตัดออก {{ nbPlan.diff.removed.length }}
+              <div class="mono hint" v-if="nbPlan.diff.changed.length">
+                {{ nbPlan.diff.changed.map(c => c.code + ' ' + c.from + ' → ' + c.to).join(' · ') }}</div>
+              <div class="mono hint" v-if="nbPlan.diff.removed.length">ตัดออก: {{ nbPlan.diff.removed.join(' · ') }}</div>
+            </div>
+          </template>
+          <div class="row" style="margin-top:10px">
+            <div class="grow"></div>
+            <button class="btn primary" :disabled="!nbPlan || !nbPlan.ok || nb.busy" @click="nbSave">
+              {{ nb.busy ? 'กำลังบันทึก...' : 'บันทึกสูตร ' + (nbPlan && nbPlan.rows.length ? nbPlan.rows.length + ' บรรทัด' : '') }}</button>
+          </div>
+        </div>
+
         <!-- แก้สูตรด้วยมือ — ไฟล์ SAP ไม่ได้มาทุกครั้งที่สูตรเปลี่ยน -->
         <div class="card" v-if="bomPn">
           <div class="row">
@@ -658,6 +753,8 @@ textarea{font:inherit}
             <div class="grow"></div>
             <label class="f" style="width:140px">ผู้แก้
               <input v-model.trim="bomBy" placeholder="ชื่อคนแก้"></label>
+            <button class="btn" style="align-self:flex-end" @click="openNewBom(bomPn, true)"
+                    title="REV ใหม่จาก hard copy — แทนที่ทั้ง P/N">คีย์ทั้งใบใหม่</button>
             <button class="btn" style="align-self:flex-end" @click="startBomRow(null)">+ เพิ่มบรรทัด</button>
             <button class="btn" style="align-self:flex-end" @click="bomPn=''">ปิด</button>
           </div>

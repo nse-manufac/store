@@ -7,10 +7,10 @@
  */
 import * as db from './core/db.js';
 import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
-         searchMaterials, duplicateDescriptions, normCode } from './master/materials.js';
+         searchMaterials, duplicateDescriptions, normCode , codeSuggest } from './master/materials.js';
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
-         importPlan, registryPlan, makeManualRow, manualRowsOf,
+         importPlan, registryPlan, makeManualRow, manualRowsOf, manualBomPlan,
          bomId, activeBomRowsOf, reqmtOf } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
@@ -296,10 +296,13 @@ createApp({
     const dragOver = ref(false);
 
     const bomSum = computed(() => summarize(bomDocs.value));
-    const bomPns = computed(() => pnSummary(bom.value));
-    const missingPack = computed(() => pnsMissingPackMat(bom.value));
-    const bomUnknownCodes = computed(() => unknownCodes(bom.value, materials.value));
-    const bomUnconfirmed = computed(() => bom.value.filter(r => r.uomConfirmed === false).length);
+    // ⚠️ ตัวเลขสรุปนับเฉพาะบรรทัดที่ยังใช้อยู่ — บรรทัดที่ติดธงลบยังอยู่ใน bom (ผู้ตรวจ #127 ข้อ ค)
+    //    ไม่งั้นตัดบรรทัดแพ็กกิ้งออกแล้ว P/N นั้นจะไม่ขึ้นเตือน "ยังไม่มีวัสดุแพ็กกิ้ง"
+    const bomLive = computed(() => bom.value.filter(r => !r.deleted));
+    const bomPns = computed(() => pnSummary(bomLive.value));
+    const missingPack = computed(() => pnsMissingPackMat(bomLive.value));
+    const bomUnknownCodes = computed(() => unknownCodes(bomLive.value, materials.value));
+    const bomUnconfirmed = computed(() => bomLive.value.filter(r => r.uomConfirmed === false).length);
 
     function readBomFiles(files) {
       const list = [...files].filter(f => /\.html?$/i.test(f.name));
@@ -541,6 +544,91 @@ createApp({
       flash('ลบแล้ว');
     }
 
+    // ── ตั้ง BOM ทั้งใบจาก hard copy (เจ้าของสั่ง 10 ต.ค. 2026 · ตรรกะอยู่ที่ master/bom.js) ──
+    const nbLine = () => ({ code: '', desc: '', qty: null, unit: '', note: '' });
+    const nb = reactive({ open: false, pn: '', rev: '', valid_from: '', mode: 'unit', order: null,
+                          note: '', lines: [], busy: false });
+    function openNewBom(pn = '', loadCurrent = false) {
+      Object.assign(nb, { open: true, pn: String(pn || ''), rev: '', valid_from: todayLocal(), mode: 'unit',
+                          order: null, note: '', lines: [nbLine(), nbLine(), nbLine()], busy: false });
+      if (loadCurrent) nbLoadCurrent();
+      nextTick(() => { const el = document.querySelector('[data-nb-pn]'); if (el) el.focus(); });
+    }
+    /** REV ใหม่ที่เปลี่ยนไม่กี่บรรทัด — โหลดสูตรเดิมมาแก้ แทนที่จะคีย์ใหม่หมด */
+    function nbLoadCurrent() {
+      const cur = activeBomRowsOf(bom.value, nb.pn)
+        .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+      if (!cur.length) { flash('P/N นี้ยังไม่มีสูตรในเครื่อง', true); return; }
+      nb.mode = 'unit'; nb.rev = cur[0].rev || '';
+      nb.lines = [...cur.map(r => ({ code: r.code, desc: r.desc, qty: r.usage, unit: r.unit, note: '' })), nbLine()];
+      nb.lines.forEach(nbFill);   // บรรทัดเดิมที่ไม่มีชื่อ เติมจากทะเบียนให้
+    }
+    function nbFill(l) {
+      const m = matOf(l.code);
+      if (m) { if (!l.desc) l.desc = m.description; if (!l.unit) l.unit = m.unit; }
+    }
+    // Enter ที่แถวไหนก็ลงไปช่องรหัสของแถวถัดไป · แถวสุดท้ายเพิ่มแถวให้ (คีย์รัวด้วยคีย์บอร์ดได้ G2)
+    function nbNext(i) {
+      nbSug.i = -1;
+      if (i >= nb.lines.length - 1) nb.lines.push(nbLine());
+      nextTick(() => { const el = document.querySelector(`[data-nb-code="${i + 1}"]`); if (el) el.focus(); });
+    }
+    const nbHasCur = computed(() => !!nb.pn && activeBomRowsOf(bom.value, nb.pn).length > 0);
+    const nbPlan = computed(() => nb.open
+      ? manualBomPlan({ ...nb, by: bomBy.value }, bom.value, { materials: materials.value, today: todayLocal() }) : null);
+    // ช่องรหัส: พิมพ์บางส่วนแล้วมีตัวเลือกให้ (master/materials.js codeSuggest) · ลูกศรเลื่อน · Enter เลือกแล้วไปช่องจำนวน
+    const nbSug = reactive({ i: -1, k: 0 });
+    const nbSugList = computed(() => {
+      const l = nb.lines[nbSug.i];
+      return l && String(l.code || '').length >= 3 ? codeSuggest(materials.value, l.code).items : [];
+    });
+    // ทะเบียนของแต่ละแถว คิดครั้งเดียวจากดัชนี — matOf ไล่ทั้งทะเบียน 12,000 กว่ารหัสทุกครั้งที่จอวาด
+    const nbMats = computed(() => nb.lines.map(l => (l.code ? matIndex.value.get(normCode(l.code)) : null) || null));
+    // ชื่อ/หน่วยที่เติมไว้เป็นของรหัสเดิม ห้ามติดไปกับรหัสใหม่ที่ยังไม่มีในทะเบียน
+    // (ไม่ล้าง = ด่าน "ไม่มีหน่วย" ถูกข้าม แล้วสูตรกับทะเบียนได้ชื่อ/หน่วยผิดเงียบ ๆ · ผู้ตรวจ #127 รอบ 3)
+    function nbTyping(i) {
+      const l = nb.lines[i];
+      if (l) { l.desc = ''; l.unit = ''; }
+      nbSug.i = i; nbSug.k = 0;
+    }
+    function nbMove(d) { const n = nbSugList.value.length; if (n) nbSug.k = (nbSug.k + d + n) % n; }
+    function nbFocusQty(i) {
+      nextTick(() => { const el = document.querySelector(`[data-nb-qty="${i}"]`); if (el) el.focus(); });
+    }
+    function nbChoose(i, m) {
+      const l = nb.lines[i];
+      if (!l) return;
+      const r = m ? { code: normCode(m.material_code) } : codeSuggest(materials.value, l.code);
+      // ตัวเลือกต้องเป็นของแถวนี้ — คลิกไปช่องแถวอื่นแล้วกด Enter เร็ว ๆ ก่อนตัวเลือกเดิมปิด (ผู้ตรวจ #127 รอบ 2 ข้อ 3)
+      if (!m && !r.code && nbSug.i === i && nbSugList.value.length) r.code = normCode(nbSugList.value[nbSug.k].material_code);
+      if (r.code) { l.code = r.code; l.desc = ''; l.unit = ''; nbFill(l); }
+      nbSug.i = -1;
+      nbFocusQty(i);
+    }
+    function nbBlur(i) { setTimeout(() => { if (nbSug.i === i) nbSug.i = -1; }, 150); }
+    function nbRemove(i) { nb.lines.splice(i, 1); nbSug.i = -1; }   // ไม่งั้นตัวเลือกไปค้างใต้แถวที่เลื่อนขึ้นมาแทน
+    // แถวของทำเอง (28) — ช่องชื่อบอกว่าใส่ในสูตรไม่ได้ ไม่ชวนให้คีย์หน่วย (ผู้ตรวจ #127 รอบ 2 ข้อ 2)
+    const nbInHouse = computed(() => new Set(((nbPlan.value && nbPlan.value.errors) || [])
+      .filter(e => e.kind === 'inhouse').map(e => e.i)));
+    async function nbSave() {
+      const p = nbPlan.value;
+      if (!p || !p.ok || nb.busy) return;
+      if (!p.isNew && !confirm(`แทนที่สูตรเดิมของ ${nb.pn} ทั้ง P/N\n\n`
+          + `เดิม ${p.replacing} บรรทัด → ใหม่ ${p.rows.length} บรรทัด`
+          + `\nเพิ่ม ${p.diff.added.length} · เปลี่ยนยอด ${p.diff.changed.length} · ตัดออก ${p.diff.removed.length}`)) return;
+      nb.busy = true;
+      try {
+        const recs = plain([...p.rows, ...p.removed]);
+        await db.put('bom', recs);
+        const byId = new Map(recs.map(r => [r.id, r]));
+        bom.value = [...bom.value.filter(r => !byId.has(r.id)), ...recs];
+        db.announce('bom');
+        flash(`บันทึกสูตร ${nb.pn} แล้ว — ${p.rows.length} บรรทัด`);
+        const pn = nb.pn; nb.open = false; openBomPn(pn);
+      } catch (err) { flash(err.message, true); }
+      finally { nb.busy = false; }
+    }
+
     /** บรรทัดที่แก้มือไว้ และกำลังจะถูกไฟล์ที่ลากมาทับ */
     /**
      * บรรทัดที่แก้มือไว้ แล้วกำลังจะโดนทับ
@@ -561,7 +649,7 @@ createApp({
     // ── ตั้งทะเบียนจาก BOM ─────────────────────────────────────────
     // BOM ที่ Delta ให้มามีครบสามอย่างที่ทะเบียนต้องใช้ คือ รหัส ชื่อ หน่วย
     // จึงใช้ตั้งต้นทะเบียนได้เลย และได้เฉพาะของที่ใช้ผลิตจริง
-    const regPlan = computed(() => registryPlan(bom.value, materials.value));
+    const regPlan = computed(() => registryPlan(bomLive.value, materials.value));
     const regDraft = ref(null);      // ตารางที่กำลังตรวจก่อนกดสร้าง
     const regBusy = ref(false);
 
@@ -739,6 +827,11 @@ createApp({
       t.code = m.material_code;
       if (t === mk) onMkCode();
       else if (t === bomEdit.value) onBomCode();
+      // ล้างก่อนเติม เหมือน nbChoose — ไม่งั้นหน่วยของรหัสเดิมติดไปกับรหัสใหม่ที่ทะเบียนยังไม่มีหน่วย
+      // แล้วด่าน "ไม่มีหน่วย" ถูกข้าม สูตรได้หน่วยผิดเงียบ ๆ (ผู้ตรวจ #127 รอบ 4)
+      // ⚠️ ห้ามย้ายการล้างไปไว้ใน nbFill เอง — nbLoadCurrent เรียก nb.lines.forEach(nbFill)
+      // กับแถวที่โหลดจากสูตรเดิม ถ้าล้างในนั้น รหัสนอกทะเบียนจะเสียหน่วยที่บันทึกไว้แล้ว
+      else if (nb.lines.includes(t)) { t.desc = ''; t.unit = ''; nbFill(t); }
       else if (outLines.value.includes(t)) fillOutLine(t);
       else if (inLines.value.includes(t)) fillInLine(t);   // ต้องได้ยอดตามสูตรเหมือนคีย์รหัสเอง
       else fillLine(t);
@@ -862,7 +955,7 @@ createApp({
     const bomHint = ref('');
     let lineSeq = 0;
 
-    const bomPnCodes = computed(() => [...new Set(bom.value.map(r => r.pn))].sort());
+    const bomPnCodes = computed(() => [...new Set(bomLive.value.map(r => r.pn))].sort());
 
     function blankLine(code = '') {
       // ⚠️ po / pn / entity อยู่รายบรรทัด เพราะไฟล์ Kit List ใบเดียวมีหลาย PO ปนกัน
@@ -3275,6 +3368,8 @@ createApp({
              incFlagsOf, onDropInc, onPickInc, incPickAll, applyIncome,
              incRegUsed, incRegAll, applyIncomeRegistry,
              bomPn, bomEdit, bomBy, bomRowsOfPn, openBomPn, startBomRow, onBomCode,
+             nb, nbLine, openNewBom, nbLoadCurrent, nbFill, nbNext, nbPlan, nbSave, nbHasCur,
+             nbSug, nbSugList, nbTyping, nbMove, nbChoose, nbBlur, bomLive, nbMats, nbRemove, nbInHouse,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,
