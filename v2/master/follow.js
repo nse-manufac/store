@@ -1017,11 +1017,17 @@ export function buyFromBom({ entity, po = '', part_no = '', picks = [], note = '
   const errors = [], recs = [], dup = [];
   if (!txt(po)) errors.push({ code: '', why: 'ใส่เลข PO ที่เสียก่อน' });
   if (!(picks || []).length) errors.push({ code: '', why: 'ยังไม่ได้ติ๊กรายการไหนเลย' });
+  const seen = new Set();
   for (const p of picks || []) {
     const code = txt(p && p.code).toUpperCase();
     const q = Number(p && p.qty);
     if (!(q > 0) || !isFinite(q)) { errors.push({ code, why: `${code} ใส่จำนวนที่จะสั่ง (มากกว่าศูนย์)` }); continue; }
     if (!code) { errors.push({ code: '', why: 'มีแถวที่ไม่มีรหัสวัตถุดิบ — ตรวจสูตรของ P/N นี้ที่ ข้อมูลตั้งต้น → BOM' }); continue; }
+    // รหัสนอกสูตรที่คีย์เอง (เจ้าของสั่ง 10 ต.ค. 2026) ซ้ำกับที่ติ๊กจากสูตรได้ — สองเรื่องรหัสเดียวกันในรอบเดียวคือคีย์พลาด
+    if (seen.has(code)) { errors.push({ code, why: `${code} เลือกซ้ำ — อยู่ในสูตรแล้วหรือคีย์ซ้ำสองแถว ให้เหลือแถวเดียว` }); continue; }
+    seen.add(code);
+    // แถวที่มาจากสูตรไม่มีช่องหน่วยให้คีย์ ต้องบอกทางออกที่มีจริงด้วย (G3 · ผู้ตรวจ #129 ข้อ 1)
+    if (!txt(p.unit)) { errors.push({ code, why: `${code} ไม่มีหน่วย — ใส่หน่วยในช่องหน่วยของแถวนี้ หรือเติมหน่วยให้รหัสนี้ที่ ข้อมูลตั้งต้น → BOM / ทะเบียนวัตถุดิบ` }); continue; }
     const open = (follows || []).some(f => f && f.kind === 'buy' && f.entity === entity && !f.voided
       && !txt(f.pr_no) && statusOf(f) !== 'done' && txt(f.po) === txt(po) && txt(f.code).toUpperCase() === code);
     if (open) dup.push(code);

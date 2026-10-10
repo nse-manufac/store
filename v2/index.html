@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-10.4">
+<meta name="app-version" content="2026-10-10.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2354,13 +2354,41 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
           </div>
-          <div class="row" style="margin-top:10px" v-if="fbmRows.length">
-            <span class="hint" v-if="fbmPlan && fbmPlan.errors.length && fbmRows.some(r => fbm.pick[r.code])">{{ fbmPlan.errors[0].why }}</span>
-            <span class="tag warn" v-if="fbmPlan && fbmPlan.dup.length">มีเรื่องที่ยังไม่ออกใบอยู่แล้ว: {{ fbmPlan.dup.join(', ') }}</span>
-            <div class="grow"></div>
-            <button class="btn primary" :disabled="!fbmPlan || !fbmPlan.ok" @click="fbmSave">
-              เพิ่ม {{ fbmPlan && fbmPlan.ok ? fbmPlan.recs.length + ' ' : '' }}เรื่อง</button>
-          </div>
+          <!-- รหัสนอกสูตร — ของที่ต้องสั่งแต่ไม่อยู่ใน BOM ของ P/N นี้ (เจ้าของสั่ง 10 ต.ค. 2026) -->
+          <template v-if="fbm.po || fbm.part_no">
+            <div class="scroll" style="margin-top:10px" v-if="fbm.extra.length">
+              <table>
+                <thead><tr><th style="width:190px">รหัสนอกสูตร (พิมพ์บางส่วนได้)</th><th style="width:105px">หมวดหมู่</th><th>ชื่อ</th>
+                  <th style="width:120px">จำนวนที่สั่ง</th><th style="width:80px">หน่วย</th><th style="width:44px"></th></tr></thead>
+                <tbody><template v-for="(l, i) in fbm.extra" :key="i"><tr>
+                  <td><input v-model.trim="l.code" class="mono" style="width:100%" :data-fx-code="i" autocomplete="off"
+                             @input="fxTyping(i)" @blur="fxBlur(i)" @keydown.down.prevent="fxMove(1)" @keydown.up.prevent="fxMove(-1)"
+                             @keydown.enter.prevent="fxChoose(i)" @keydown.esc="fxSug.i = -1"></td>
+                  <td class="hint">{{ catOf(l.code) || '—' }}</td>
+                  <td><template v-if="fxMats[i]">{{ fxMats[i].description }}</template>
+                    <span v-else-if="l.code && fxSug.i !== i" class="tag warn">ไม่มีในทะเบียน — ใส่หน่วยเอง</span></td>
+                  <td><input v-model.number="l.qty" type="number" step="any" class="mono" :data-fx-qty="i" @keydown.enter.prevent="fxAdd"></td>
+                  <td><span v-if="fxMats[i] && fxMats[i].unit" class="mono">{{ fxMats[i].unit }}</span>
+                    <input v-else-if="l.code && fxSug.i !== i" v-model.trim="l.unit" class="mono" placeholder="หน่วย"></td>
+                  <td><button class="btn" style="padding:2px 8px" @click="fxRemove(i)" title="ลบแถว">✕</button></td>
+                </tr>
+                <tr v-if="fxSug.i === i && fxSugList.length"><td colspan="6" style="padding:2px 6px 8px">
+                  <div v-for="(m, k) in fxSugList" :key="m.material_code" @mousedown.prevent="fxChoose(i, m)"
+                       style="padding:4px 8px;cursor:pointer;border-radius:4px" :style="{ background: k === fxSug.k ? 'var(--line)' : '' }">
+                    <b class="mono">{{ m.material_code }}</b> <span class="hint">{{ m.unit }}</span> {{ m.description }}</div>
+                  <div class="hint" style="padding:2px 8px">↑↓ เลือก · Enter ใช้ตัวนี้ · Esc ปิด</div>
+                </td></tr></template></tbody>
+              </table>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn" @click="fxAdd">+ รหัสนอกสูตร</button>
+              <span class="hint" v-if="fbmPlan && fbmPlan.errors.length && (fbmRows.some(r => fbm.pick[r.code]) || fbm.extra.some(l => l.code || l.qty))">{{ fbmPlan.errors[0].why }}</span>
+              <span class="tag warn" v-if="fbmPlan && fbmPlan.dup.length">มีเรื่องที่ยังไม่ออกใบอยู่แล้ว: {{ fbmPlan.dup.join(', ') }}</span>
+              <div class="grow"></div>
+              <button class="btn primary" :disabled="!fbmPlan || !fbmPlan.ok || fbmBusy" @click="fbmSave">
+                {{ fbmBusy ? 'กำลังเพิ่ม...' : 'เพิ่ม ' + (fbmPlan && fbmPlan.ok ? fbmPlan.recs.length + ' ' : '') + 'เรื่อง' }}</button>
+            </div>
+          </template>
         </div>
       </template>
 
