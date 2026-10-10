@@ -2550,14 +2550,41 @@ createApp({
 
     // ── ซื้อทดแทนที่คีย์เอง: คีย์ PO → กาง BOM ของ P/N → ติ๊กรหัสที่จะสั่ง (เจ้าของสั่ง 10 ต.ค. 2026) ──
     // ตรรกะอยู่ที่ master/follow.js buyFromBom · ที่นี่ต่อสายอย่างเดียว
-    const fbm = reactive({ po: '', part_no: '', note: '', pick: {}, qty: {} });
+    // extra = รหัสนอกสูตรที่คีย์เอง (เจ้าของสั่ง 10 ต.ค. 2026) — ของที่ต้องสั่งแต่ไม่อยู่ใน BOM ของ P/N นั้น
+    const fbm = reactive({ po: '', part_no: '', note: '', pick: {}, qty: {}, extra: [] });
     const fbmHead = computed(() => poHeader(pos.value, fbm.po));
     function onFbmPo() {
       const h = fbmHead.value;
       if (h && h.pn) fbm.part_no = h.pn;
       checked.fbmPo = fbm.po;
-      fbm.pick = {}; fbm.qty = {};
+      fbm.pick = {}; fbm.qty = {}; fbm.extra = [];
     }
+    // ── รหัสนอกสูตร: พิมพ์บางส่วนแล้วมีตัวเลือก (codeSuggest ตัวเดียวกับหน้า BOM) · ชื่อ/หน่วยจากทะเบียน ──
+    const fxSug = reactive({ i: -1, k: 0 });
+    const fxMats = computed(() => fbm.extra.map(l => (l.code ? matIndex.value.get(normCode(l.code)) : null) || null));
+    const fxSugList = computed(() => {
+      const l = fbm.extra[fxSug.i];
+      return l && String(l.code || '').length >= 3 ? codeSuggest(materials.value, l.code).items : [];
+    });
+    function fxAdd() {
+      fbm.extra.push({ code: '', qty: null, unit: '' });
+      const i = fbm.extra.length - 1;
+      nextTick(() => { const el = document.querySelector(`[data-fx-code="${i}"]`); if (el) el.focus(); });
+    }
+    // พิมพ์เปลี่ยนรหัส = หน่วยที่คีย์ไว้เป็นของรหัสเดิม ล้างทิ้ง (บทเรียนผู้ตรวจ #127 รอบ 3)
+    function fxTyping(i) { const l = fbm.extra[i]; if (l) l.unit = ''; fxSug.i = i; fxSug.k = 0; }
+    function fxMove(d) { const n = fxSugList.value.length; if (n) fxSug.k = (fxSug.k + d + n) % n; }
+    function fxChoose(i, m) {
+      const l = fbm.extra[i];
+      if (!l) return;
+      const r = m ? { code: normCode(m.material_code) } : codeSuggest(materials.value, l.code);
+      if (!m && !r.code && fxSug.i === i && fxSugList.value.length) r.code = normCode(fxSugList.value[fxSug.k].material_code);
+      if (r.code) { l.code = r.code; l.unit = ''; }
+      fxSug.i = -1;
+      nextTick(() => { const el = document.querySelector(`[data-fx-qty="${i}"]`); if (el) el.focus(); });
+    }
+    function fxBlur(i) { setTimeout(() => { if (fxSug.i === i) fxSug.i = -1; }, 150); }
+    function fxRemove(i) { fbm.extra.splice(i, 1); fxSug.i = -1; }
     /** สูตรของ P/N นั้น + ยอดตามสูตรของทั้ง PO ไว้ดูเทียบ (ต่อชิ้น × จำนวนสั่งของ PO) */
     const fbmRows = computed(() => {
       if (!fbm.part_no) return [];
@@ -2569,8 +2596,15 @@ createApp({
     });
     const fbmPlan = computed(() => entity.value ? buyFromBom({
       entity: entity.value, po: fbm.po, part_no: fbm.part_no, note: fbm.note, person: fsBy.value, date: todayLocal(),
-      picks: fbmRows.value.filter(r => fbm.pick[r.code]).map(r => ({ code: r.code, qty: fbm.qty[r.code], unit: r.unit }))
+      picks: [
+        ...fbmRows.value.filter(r => fbm.pick[r.code]).map(r => ({ code: r.code, qty: fbm.qty[r.code], unit: r.unit })),
+        // แถวนอกสูตรที่ว่างทั้งแถวข้ามไป · หน่วยจากทะเบียนก่อน ไม่มีค่อยใช้ที่คีย์
+        ...fbm.extra.map((l, i) => ({ l, m: fxMats.value[i] })).filter(x => x.l.code || x.l.qty)
+          .map(({ l, m }) => ({ code: normCode(l.code), qty: l.qty, unit: (m && m.unit) || l.unit }))
+      ]
     }, shorts.value) : null);
+    // ระหว่างบันทึกปุ่มจางและบอกว่ากำลังเพิ่ม — กดซ้ำไม่ได้อยู่แล้ว (startOnce) แต่จอต้องบอกด้วย (ผู้ตรวจ #128 ข้อ 3)
+    const fbmBusy = computed(() => starting.has('buybom|' + fbm.po));
     async function fbmSave() {
       try {
         // กันกดซ้ำ — ทางเดียวกับปุ่มตั้งเรื่องอื่น (#125)
@@ -2581,7 +2615,7 @@ createApp({
           for (const rec of p.recs) await fsPut(rec);
           flash(`เพิ่มเรื่องซื้อ ${p.recs.length} รายการ ของ PO ${fbm.po} แล้ว`);
           // ล้างทุกช่อง ไม่ค้าง PO เดิม — กติกาเดียวกับหน้าของเสีย (เจ้าของเคาะ 2 ต.ค. 2026) · เลือกซ้ำได้จาก dropdown
-          Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {} });
+          Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {}, extra: [] });
         });
       } catch (err) { flash(err.message, true); }
     }
@@ -3437,6 +3471,7 @@ createApp({
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
+             fbmBusy, fxSug, fxMats, fxSugList, fxAdd, fxTyping, fxMove, fxChoose, fxBlur, fxRemove,
              fbPick, fbDoc, fbPicked, fbDocGroups, fbCanPick, fbIssue, fbReissue,
              scrapPos, poUnknown, checked,
              voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };

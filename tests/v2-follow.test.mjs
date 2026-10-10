@@ -1491,7 +1491,7 @@ console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้
      /\n\s*mk\.po = '';/.test(appSrc) && !/if \(mk\.kind === 'scrap'\)[^\n]*mk\.po/.test(appSrc));
   ok('บันทึกของเสียแล้วล้าง P/N ด้วย (ชนิดอื่นยังคงค่าไว้ตามเดิม)',
      appSrc.includes("if (mk.kind === 'scrap') { mk.part_no = ''; }"));
-  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {} })"));
+  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {}, extra: [] })"));
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('ช่อง PO ที่เสียมี dropdown แนะนำ', (html.match(/list="scrappolist"/g) || []).length === 2 && html.includes('id="scrappolist"'));
   ok('ป้ายเตือนขึ้นหลังออกจากช่องเท่านั้น ไม่ใช่ทุกตัวอักษร (ผู้ตรวจ #119 รอบ 2 ข้อ 2)',
@@ -1576,16 +1576,16 @@ console.log('\n=== U. ซื้อทดแทนจาก BOM ของ PO — 
   const b = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 5 }, { code: 'A2', qty: null }] });
   ok('ติ๊กแล้วไม่ใส่จำนวน = ไม่เพิ่มสักเรื่อง บอกว่ารหัสไหน', !b.ok && b.recs.length === 0 && b.errors.some(e => e.code === 'A2'));
   ok('ไม่ได้ติ๊กเลย / ไม่มี PO = บอกทางออก', !buyFromBom({ ...base, picks: [] }).ok
-     && /PO/.test(buyFromBom({ ...base, po: '', picks: [{ code: 'A1', qty: 1 }] }).errors[0].why));
-  throws('ไม่บอกนิติบุคคล = โยน (A3)', () => buyFromBom({ ...base, entity: '', picks: [{ code: 'A1', qty: 1 }] }), 'A3');
+     && /PO/.test(buyFromBom({ ...base, po: '', picks: [{ code: 'A1', qty: 1, unit: 'PCE' }] }).errors[0].why));
+  throws('ไม่บอกนิติบุคคล = โยน (A3)', () => buyFromBom({ ...base, entity: '', picks: [{ code: 'A1', qty: 1, unit: 'PCE' }] }), 'A3');
   const openBuy = fromManualBuy({ entity: E, code: 'A1', qty: 3, po: 'PO-B1', part_no: 'PN-B' });
-  const c = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }, { code: 'A2', qty: 1 }] }, [openBuy]);
+  const c = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1, unit: 'PCE' }, { code: 'A2', qty: 1, unit: 'PCE' }] }, [openBuy]);
   ok('รหัสที่มีเรื่องซื้อของ PO นี้เปิดอยู่ (ยังไม่ออกใบ) = เตือน ไม่บล็อก', c.ok && c.dup.join() === 'A1' && c.recs.length === 2);
   ok('เรื่องเดิมออกใบแล้ว / ปิดแล้ว / ยกเลิก / PO อื่น / นิติบุคคลอื่น ไม่นับว่าซ้ำ',
-     ['pr_no', 'done', 'voided'].every(k => !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] },
+     ['pr_no', 'done', 'voided'].every(k => !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1, unit: 'PCE' }] },
         [{ ...openBuy, [k]: k === 'pr_no' ? '1.10.26 H' : true }]).dup.length)
-     && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] }, [{ ...openBuy, po: 'PO-X' }]).dup.length
-     && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1 }] }, [{ ...openBuy, entity: 'TUE-U' }]).dup.length);
+     && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1, unit: 'PCE' }] }, [{ ...openBuy, po: 'PO-X' }]).dup.length
+     && !buyFromBom({ ...base, picks: [{ code: 'A1', qty: 1, unit: 'PCE' }] }, [{ ...openBuy, entity: 'TUE-U' }]).dup.length);
   /* ⚠️ ผู้เรียกคือ computed (fbmPlan) — โยน error ที่นั่น = Vue เรนเดอร์ล้ม จอหยุดอัปเดต
         ค่าพวกนี้ถึงมือพนักงานได้จริงจาก <input type="number"> (พิมพ์/วาง 1e999 ได้ตามสเปก HTML) */
   const guard = [
@@ -1605,6 +1605,25 @@ console.log('\n=== U. ซื้อทดแทนจาก BOM ของ PO — 
   ok('จอ: กาง BOM ของ P/N ให้ติ๊ก · ช่องจำนวนเปิดเมื่อติ๊ก · ปุ่มเพิ่มกันกดซ้ำ (startOnce)',
      html.includes('v-for="r in fbmRows"') && html.includes(':disabled="!fbm.pick[r.code]"')
      && /startOnce\(starting, 'buybom\|'/.test(app) && /activeBomRowsOf\(bom\.value, fbm\.part_no\)/.test(app));
+}
+
+console.log('\n=== U2. ซื้อทดแทน — รหัสนอกสูตร · ปุ่มบอกว่ากำลังเพิ่ม (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  const base = { entity: 'TUE-H', po: 'PO-B1', part_no: 'PN-B', person: 'สมหญิง', date: '2026-10-10', at: '2026-10-10T03:00:00.000Z' };
+  const a = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 5, unit: 'MTR' }, { code: 'X9', qty: 2, unit: 'pce' }] });
+  ok('ติ๊กจากสูตร + รหัสนอกสูตร = เรื่องซื้อครบทั้งสอง', a.ok && a.recs.map(r => r.code).join() === 'A1,X9');
+  const d = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 5, unit: 'MTR' }, { code: 'a1', qty: 1, unit: 'MTR' }] });
+  ok('รหัสนอกสูตรซ้ำกับที่ติ๊กจากสูตร (หรือคีย์ซ้ำสองแถว) = ผิด ไม่เพิ่มสักเรื่อง', !d.ok && d.recs.length === 0 && /ซ้ำ/.test(d.errors[0].why));
+  const u = buyFromBom({ ...base, picks: [{ code: 'X9', qty: 2, unit: '' }] });
+  ok('รหัสนอกทะเบียนที่ไม่ได้ใส่หน่วย = ผิด บอกทางออก', !u.ok && /ใส่หน่วย/.test(u.errors[0].why));
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: แถวรหัสนอกสูตรใช้ codeSuggest · ชื่อ/หน่วยจากทะเบียน (matIndex) · พิมพ์เปลี่ยนรหัสล้างหน่วย',
+     /fxSugList = computed[\s\S]{0,200}codeSuggest\(materials\.value/.test(app) && /fxMats = computed[\s\S]{0,120}matIndex/.test(app)
+     && /function fxTyping\(i\) \{ const l = fbm\.extra\[i\]; if \(l\) l\.unit = ''/.test(app) && html.includes('v-for="(l, i) in fbm.extra"'));
+  ok('ปุ่มเพิ่มจางและบอก "กำลังเพิ่ม..." ระหว่างบันทึก (ผู้ตรวจ #128 ข้อ 3)',
+     html.includes(':disabled="!fbmPlan || !fbmPlan.ok || fbmBusy"') && html.includes("กำลังเพิ่ม...")
+     && /fbmBusy = computed\(\(\) => starting\.has\('buybom\|' \+ fbm\.po\)\)/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
