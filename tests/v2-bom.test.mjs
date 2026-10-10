@@ -253,5 +253,53 @@ console.log('\n=== hard copy — ข้อสังเกตผู้ตรว�
      && /bomPnCodes = computed\(\(\) => \[\.\.\.new Set\(bomLive\.value/.test(app));
 }
 
+console.log('\n=== hard copy — เปลี่ยนรหัสของแถว ชื่อ/หน่วยเดิมต้องไม่ติดไปด้วย (ผู้ตรวจ #127 รอบ 3) ===');
+{
+  // ดึงตัวฟังก์ชันจริงจาก app.js มารัน — ผูกกับพฤติกรรม ไม่ใช่ข้อความในซอร์ส
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const bodyOf = (name) => {
+    const at = src.indexOf(`function ${name}(`);
+    if (at < 0) throw new Error(`หาไม่เจอใน app.js: ${name}`);
+    let depth = 0;
+    for (let j = src.indexOf('{', at); j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}' && --depth === 0) return src.slice(at, j + 1);
+    }
+    throw new Error(`ปิดวงเล็บไม่ครบ: ${name}`);
+  };
+  const nbTypingOf = (nb, nbSug) => new Function('nb', 'nbSug', `${bodyOf('nbTyping')}\nreturn nbTyping;`)(nb, nbSug);
+
+  const mats = [{ material_code: '9100000101', description: 'TAPE 6MM', unit: 'MTR' }];
+  const P = (lines) => manualBomPlan({ pn: 'Q', lines }, [], { materials: mats, now: '2026-10-10T03:00:00.000Z', today: '2026-10-10' });
+
+  // เส้นทางของจริง: กด "คีย์ทั้งใบใหม่" → แถวโหลดมาพร้อมชื่อ/หน่วยจากสูตรเดิม → พนักงานพิมพ์รหัสใหม่ทับ
+  const nb = { lines: [{ code: '9100000101', desc: 'TAPE 6MM', qty: 1, unit: 'MTR', note: '' }] };
+  const nbSug = { i: -1, k: 4 };
+  nb.lines[0].code = '7777777777';          // รหัสใหม่ที่ยังไม่มีในทะเบียน
+  nbTypingOf(nb, nbSug)(0);                 // @input ของช่องรหัสแถวนั้น
+  ok('พิมพ์รหัสทับ → ล้างชื่อ/หน่วยของแถวนั้น และตัวเลือกย้ายมาแถวนี้',
+     nb.lines[0].desc === '' && nb.lines[0].unit === '' && nbSug.i === 0 && nbSug.k === 0, JSON.stringify(nb.lines[0]));
+  const after = P(nb.lines);
+  ok('รหัสนอกทะเบียนที่พิมพ์ทับ = ด่าน "ไม่มีหน่วย" ทำงาน ไม่ใช่บันทึกด้วยหน่วยของรหัสเดิมเงียบ ๆ',
+     !after.ok && after.errors.some(e => e.i === 0 && /ไม่มีหน่วย/.test(e.why)), JSON.stringify({ ok: after.ok, rows: after.rows, errors: after.errors }));
+
+  // แถวที่โหลดมาแล้วไม่แตะช่องรหัส ต้องเก็บชื่อ/หน่วยเดิมไว้ (รหัสนอกทะเบียนที่บันทึกไว้แล้วห้ามเสียหน่วย)
+  const keep = P([{ code: '7777777777', desc: 'ของเดิม', qty: 2, unit: 'PCE', note: '' }]);
+  ok('ไม่แตะช่องรหัส = ชื่อ/หน่วยเดิมของแถวยังอยู่ (nbTyping ไม่ถูกเรียก)',
+     keep.ok && keep.rows[0].desc === 'ของเดิม' && keep.rows[0].unit === 'PCE', JSON.stringify(keep.rows));
+
+  // พิมพ์ทับด้วยรหัสที่มีในทะเบียน — ชื่อ/หน่วยมาจากทะเบียนเสมอ การล้างจึงไม่ทำให้เสียอะไร
+  const nb2 = { lines: [{ code: '7777777777', desc: 'ของเดิม', qty: 1, unit: 'PCE', note: '' }] };
+  nb2.lines[0].code = '9100000101';
+  nbTypingOf(nb2, { i: -1, k: 0 })(0);
+  const good = P(nb2.lines);
+  ok('พิมพ์ทับด้วยรหัสในทะเบียน = ได้ชื่อ/หน่วยของรหัสใหม่',
+     good.ok && good.rows[0].desc === 'TAPE 6MM' && good.rows[0].unit === 'MTR', JSON.stringify(good.rows));
+
+  let threw = false;
+  try { nbTypingOf({ lines: [] }, { i: -1, k: 0 })(3); } catch { threw = true; }
+  ok('แถวนั้นถูกลบไปแล้วระหว่างพิมพ์ = ไม่ระเบิด', !threw);
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

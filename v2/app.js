@@ -584,7 +584,13 @@ createApp({
     });
     // ทะเบียนของแต่ละแถว คิดครั้งเดียวจากดัชนี — matOf ไล่ทั้งทะเบียน 12,000 กว่ารหัสทุกครั้งที่จอวาด
     const nbMats = computed(() => nb.lines.map(l => (l.code ? matIndex.value.get(normCode(l.code)) : null) || null));
-    function nbTyping(i) { nbSug.i = i; nbSug.k = 0; }
+    // ชื่อ/หน่วยที่เติมไว้เป็นของรหัสเดิม ห้ามติดไปกับรหัสใหม่ที่ยังไม่มีในทะเบียน
+    // (ไม่ล้าง = ด่าน "ไม่มีหน่วย" ถูกข้าม แล้วสูตรกับทะเบียนได้ชื่อ/หน่วยผิดเงียบ ๆ · ผู้ตรวจ #127 รอบ 3)
+    function nbTyping(i) {
+      const l = nb.lines[i];
+      if (l) { l.desc = ''; l.unit = ''; }
+      nbSug.i = i; nbSug.k = 0;
+    }
     function nbMove(d) { const n = nbSugList.value.length; if (n) nbSug.k = (nbSug.k + d + n) % n; }
     function nbFocusQty(i) {
       nextTick(() => { const el = document.querySelector(`[data-nb-qty="${i}"]`); if (el) el.focus(); });
