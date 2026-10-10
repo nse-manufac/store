@@ -15,7 +15,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
-         cardShortOver, codeShortOver, startKey, startOnce, openPairFor , arriveShort, reopenShort }
+         cardShortOver, codeShortOver, startKey, startOnce, openPairFor, arriveShort, reopenShort, buyUnit }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1492,7 +1492,7 @@ console.log('\n=== O2. ช่อง PO ที่เสีย — ไม่ค้
      /\n\s*mk\.po = '';/.test(appSrc) && !/if \(mk\.kind === 'scrap'\)[^\n]*mk\.po/.test(appSrc));
   ok('บันทึกของเสียแล้วล้าง P/N ด้วย (ชนิดอื่นยังคงค่าไว้ตามเดิม)',
      appSrc.includes("if (mk.kind === 'scrap') { mk.part_no = ''; }"));
-  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {}, extra: [] })"));
+  ok('เพิ่มเรื่องซื้อเองแล้วล้าง PO ด้วย', appSrc.includes("Object.assign(fbm, { po: '', part_no: '', pick: {}, qty: {}, rnote: {}, extra: [] })"));
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('ช่อง PO ที่เสียมี dropdown แนะนำ', (html.match(/list="scrappolist"/g) || []).length === 2 && html.includes('id="scrappolist"'));
   ok('ป้ายเตือนขึ้นหลังออกจากช่องเท่านั้น ไม่ใช่ทุกตัวอักษร (ผู้ตรวจ #119 รอบ 2 ข้อ 2)',
@@ -1628,10 +1628,10 @@ console.log('\n=== U2. ซื้อทดแทน — รหัสนอกส�
   const reg = new Map([['A1', { material_code: 'A1', description: 'ของในทะเบียน', unit: 'MTR' }]]);
   const bomRow = makeManualRow({ pn: 'PN-B', code: 'A1', desc: '', usage: 2, by: 'สมหญิง' }, []);
   const fromBom = buyFromBom({ ...base, picks: activeBomRowsOf([bomRow], 'PN-B')
-    .map(r => ({ code: normCode(r.code), qty: 4, unit: r.unit || ((reg.get(normCode(r.code)) || {}).unit || '') })) });
+    .map(r => ({ code: normCode(r.code), qty: 4, unit: buyUnit((reg.get(normCode(r.code)) || {}).unit, r.unit) })) });
   ok('แถวจากสูตรที่หน่วยว่าง แต่ทะเบียนมีหน่วย = ตั้งเรื่องได้ · fbmRows ถอยไปเอาหน่วยจากทะเบียน (ผู้ตรวจ #129 ข้อ 1)',
      bomRow.unit === '' && fromBom.ok && fromBom.recs.length === 1 && fromBom.recs[0].unit === 'MTR'
-     && /unit: r\.unit \|\| \(\(matIndex\.value\.get\(normCode\(r\.code\)\) \|\| \{\}\)\.unit \|\| ''\)/.test(app),
+     && /unit: buyUnit\(\(matIndex\.value\.get\(normCode\(r\.code\)\) \|\| \{\}\)\.unit, r\.unit\)/.test(app),
      JSON.stringify(fromBom.errors));
   ok('ปุ่มเพิ่มจางและบอก "กำลังเพิ่ม..." ระหว่างบันทึก (ผู้ตรวจ #128 ข้อ 3)',
      html.includes(':disabled="!fbmPlan || !fbmPlan.ok || fbmBusy"') && html.includes("กำลังเพิ่ม...")
@@ -1698,6 +1698,26 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
      html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
+}
+
+console.log('\n=== X. ซื้อทดแทน — หน่วยจากทะเบียนก่อน · หมายเหตุรายรหัส (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  ok('หน่วย: ทะเบียนก่อน', buyUnit('MTR', 'ROLL') === 'MTR');
+  ok('หน่วย: ทะเบียนว่าง = ใช้ของ BOM / ที่คีย์', buyUnit('', ' ROLL ') === 'ROLL' && buyUnit(undefined, '', 'pce') === 'pce');
+  ok('หน่วย: ไม่มีที่ไหนเลย = ว่าง (ด่านไม่มีหน่วยของ buyFromBom จับต่อ)', buyUnit(null, '', undefined) === '');
+  const base = { entity: 'TUE-H', po: 'PO-N1', part_no: 'PN-N', person: 'สมหญิง', date: '2026-10-10', at: '2026-10-10T03:00:00.000Z' };
+  const r = buyFromBom({ ...base, note: 'ทั้งชุด', picks: [{ code: 'A1', qty: 2, unit: 'MTR', note: ' 5 Roll ' }, { code: 'B1', qty: 1, unit: 'pce', note: '' }] });
+  ok('หมายเหตุรายรหัส ติดไปกับเรื่องของรหัสนั้น · แถวที่เว้นว่างใช้หมายเหตุของทั้งชุด',
+     r.ok && r.recs[0].note === '5 Roll' && r.recs[1].note === 'ทั้งชุด', JSON.stringify(r.recs.map(x => x.note)));
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: แถวจากสูตรและแถวนอกสูตรใช้ buyUnit ทั้งคู่ · ส่ง note รายแถว',
+     /unit: buyUnit\(m && m\.unit, l\.unit\), note: l\.note/.test(app) && /unit: r\.unit, note: fbm\.rnote\[r\.code\]/.test(app));
+  ok('จอ: ช่องหมายเหตุทุกแถว (สูตร + นอกสูตร) · ไม่มีช่องหมายเหตุเดียวทั้ง PO แล้ว · บอกเมื่อหน่วย BOM ไม่ตรงทะเบียน',
+     html.includes('v-model="fbm.rnote[r.code]"') && html.includes('v-model="l.note"') && !html.includes('v-model="fbm.note"')
+     && html.includes('(BOM {{ r.bomUnit }})'));
+  ok('จอ: เปลี่ยน PO / P/N / บันทึกแล้ว ล้างหมายเหตุรายแถวด้วย',
+     /fbm\.pick = \{\}; fbm\.qty = \{\}; fbm\.rnote = \{\}; fbm\.extra = \[\]/.test(app) && html.includes('fbm.pick = {}; fbm.qty = {}; fbm.rnote = {}'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

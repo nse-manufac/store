@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-10.5">
+<meta name="app-version" content="2026-10-10.9">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2332,11 +2332,9 @@ textarea{font:inherit}
               <input v-model.trim="fbm.po" class="mono" placeholder="เลือกหรือพิมพ์" list="scrappolist" @change="onFbmPo">
               <span class="tag warn" style="margin-top:3px" :style="{ visibility: checked.fbmPo === fbm.po && poUnknown(fbm.po) ? 'visible' : 'hidden' }">ไม่มีในรายการ PO — ใส่ P/N เอง</span></label>
             <label class="f" style="width:150px">P/N
-              <input v-model.trim="fbm.part_no" class="mono" list="pnlist" @change="fbm.pick = {}; fbm.qty = {}">
+              <input v-model.trim="fbm.part_no" class="mono" list="pnlist" @change="fbm.pick = {}; fbm.qty = {}; fbm.rnote = {}">
               <span class="hint" style="margin-top:3px" :style="{ visibility: fbmHead && fbmHead.order ? 'visible' : 'hidden' }">
                 สั่ง {{ fbmHead && fbmHead.order }} ชิ้น</span></label>
-            <label class="f grow" style="min-width:160px">หมายเหตุ (ใส่ทุกรายการที่เพิ่ม)
-              <input v-model="fbm.note" placeholder="เช่น 5 Roll · cut 2.7 cm"></label>
           </div>
           <p class="msg warn" style="margin:8px 0 0" v-if="fbm.part_no && !fbmRows.length">
             P/N {{ fbm.part_no }} ยังไม่มี BOM ในเครื่อง — ตั้ง BOM ก่อนที่ ข้อมูลตั้งต้น → BOM</p>
@@ -2344,7 +2342,7 @@ textarea{font:inherit}
             <table>
               <thead><tr><th style="width:34px">✓</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th>ชื่อ</th><th style="width:95px">ต่อชิ้น</th><th style="width:110px">ตามสูตรทั้ง PO</th>
-                <th style="width:120px">จำนวนที่สั่ง</th><th style="width:70px">หน่วย</th></tr></thead>
+                <th style="width:120px">จำนวนที่สั่ง</th><th style="width:90px">หน่วย</th><th style="width:190px">หมายเหตุ</th></tr></thead>
               <tbody><tr v-for="r in fbmRows" :key="r.code" :class="fbm.pick[r.code] ? 'review' : ''">
                 <td><input type="checkbox" v-model="fbm.pick[r.code]"></td>
                 <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
@@ -2352,7 +2350,9 @@ textarea{font:inherit}
                 <td class="mono hint">{{ r.usage }}</td><td class="mono hint">{{ r.need == null ? '—' : r.need }}</td>
                 <td><input v-model.number="fbm.qty[r.code]" type="number" step="any" class="mono" :disabled="!fbm.pick[r.code]"
                            :placeholder="fbm.pick[r.code] ? 'ใส่จำนวน' : ''"></td>
-                <td class="mono">{{ r.unit }}</td>
+                <td class="mono">{{ r.unit }}<span v-if="r.bomUnit && r.bomUnit.toUpperCase() !== r.unit.toUpperCase()" class="hint"
+                    title="หน่วยใน BOM ไม่ตรงกับทะเบียน — เรื่องซื้อใช้หน่วยจากทะเบียน"> (BOM {{ r.bomUnit }})</span></td>
+                <td><input v-model="fbm.rnote[r.code]" :disabled="!fbm.pick[r.code]" :placeholder="fbm.pick[r.code] ? 'เช่น 5 Roll · cut 2.7 cm' : ''"></td>
               </tr></tbody>
             </table>
           </div>
@@ -2361,7 +2361,7 @@ textarea{font:inherit}
             <div class="scroll" style="margin-top:10px" v-if="fbm.extra.length">
               <table>
                 <thead><tr><th style="width:190px">รหัสนอกสูตร (พิมพ์บางส่วนได้)</th><th style="width:105px">หมวดหมู่</th><th>ชื่อ</th>
-                  <th style="width:120px">จำนวนที่สั่ง</th><th style="width:80px">หน่วย</th><th style="width:44px"></th></tr></thead>
+                  <th style="width:120px">จำนวนที่สั่ง</th><th style="width:80px">หน่วย</th><th style="width:190px">หมายเหตุ</th><th style="width:44px"></th></tr></thead>
                 <tbody><template v-for="(l, i) in fbm.extra" :key="i"><tr>
                   <td><input v-model.trim="l.code" class="mono" style="width:100%" :data-fx-code="i" autocomplete="off"
                              @input="fxTyping(i)" @blur="fxBlur(i)" @keydown.down.prevent="fxMove(1)" @keydown.up.prevent="fxMove(-1)"
@@ -2372,9 +2372,10 @@ textarea{font:inherit}
                   <td><input v-model.number="l.qty" type="number" step="any" class="mono" :data-fx-qty="i" @keydown.enter.prevent="fxAdd"></td>
                   <td><span v-if="fxMats[i] && fxMats[i].unit" class="mono">{{ fxMats[i].unit }}</span>
                     <input v-else-if="l.code && fxSug.i !== i" v-model.trim="l.unit" class="mono" placeholder="หน่วย"></td>
+                  <td><input v-model="l.note" placeholder="เช่น 5 Roll" @keydown.enter.prevent="fxAdd"></td>
                   <td><button class="btn" style="padding:2px 8px" @click="fxRemove(i)" title="ลบแถว">✕</button></td>
                 </tr>
-                <tr v-if="fxSug.i === i && fxSugList.length"><td colspan="6" style="padding:2px 6px 8px">
+                <tr v-if="fxSug.i === i && fxSugList.length"><td colspan="7" style="padding:2px 6px 8px">
                   <div v-for="(m, k) in fxSugList" :key="m.material_code" @mousedown.prevent="fxChoose(i, m)"
                        style="padding:4px 8px;cursor:pointer;border-radius:4px" :style="{ background: k === fxSug.k ? 'var(--line)' : '' }">
                     <b class="mono">{{ m.material_code }}</b> <span class="hint">{{ m.unit }}</span> {{ m.description }}</div>
