@@ -233,5 +233,25 @@ console.log('\n=== hard copy — ชื่อ/หน่วยจากทะเ�
      /pnSummary\(bomLive\.value\)/.test(app) && /pnsMissingPackMat\(bomLive\.value\)/.test(app) && /registryPlan\(bomLive\.value/.test(app));
 }
 
+console.log('\n=== hard copy — ข้อสังเกตผู้ตรวจ #127 รอบ 2 ===');
+{
+  const mats = [{ material_code: '9100000101', description: 'TAPE', unit: 'MTR' }];
+  const P = (inp, ex = []) => manualBomPlan(inp, ex, { materials: mats, now: '2026-10-10T03:00:00.000Z' });
+  ok('ยอดรวมแต่ยังไม่ใส่จำนวนสั่ง — ต่อชิ้นเป็น null (จอโชว์ —) ไม่ใช่ 0 (ข้อ 1)',
+     P({ pn: 'Q', mode: 'total', lines: [{ code: '9100000101', qty: 5 }] }).lineUsage[0] === null);
+  const h = P({ pn: 'Q', lines: [{ code: '2800000001', qty: 1 }] });
+  ok('ของทำเอง 28 — ติดชนิด inhouse ให้จอแยกป้ายได้ (ข้อ 2)', h.errors.some(e => e.i === 0 && e.kind === 'inhouse'));
+  const old = [{ id: 'PN|abc1', pn: 'PN', code: 'abc1', usage: 1, unit: 'PCE' }];
+  const r = P({ pn: 'PN', lines: [{ code: 'ABC1', qty: 2, unit: 'PCE' }] }, old);
+  ok('แถวเดิมที่ id ต่าง (ตัวพิมพ์เล็กในฐาน) ถูกติดธงลบ — ไม่เหลือสองแถว active ของรหัสเดียวกัน (ข้อ 6)',
+     r.rows.length === 1 && r.removed.length === 1 && r.removed[0].id === 'PN|abc1' && r.diff.removed.length === 0
+     && r.diff.changed.length === 1, JSON.stringify({ rows: r.rows.map(x => x.id), removed: r.removed.map(x => x.id), diff: r.diff }));
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('เลือกจากตัวเลือกได้เฉพาะของแถวนั้น (ข้อ 3) · ลบแถวแล้วปิดตัวเลือก (ข้อ 4) · รายการ P/N ไม่นับที่ลบหมดแล้ว (ข้อ 5)',
+     app.includes('nbSug.i === i && nbSugList.value.length') && html.includes('@click="nbRemove(i)"')
+     && /bomPnCodes = computed\(\(\) => \[\.\.\.new Set\(bomLive\.value/.test(app));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

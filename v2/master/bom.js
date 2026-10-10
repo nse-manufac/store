@@ -189,7 +189,7 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
     const raw = l ? l.qty : null;
     if (!code && (raw === '' || raw == null)) return;
     if (!code) { errors.push({ i, why: 'ไม่มีรหัส — ใส่รหัส หรือกด ✕ ลบแถวนี้' }); return; }
-    if (isInHouse(code)) { errors.push({ i, why: `${code} ขึ้นต้น 28 = ของทำเอง ไม่ใช่วัตถุดิบที่เบิกจากคลัง` }); return; }
+    if (isInHouse(code)) { errors.push({ i, kind: 'inhouse', why: `${code} ขึ้นต้น 28 = ของทำเอง ไม่ใช่วัตถุดิบที่เบิกจากคลัง — ลบแถวนี้` }); return; }
     const q = Number(raw);
     if (raw === '' || raw == null || !isFinite(q) || q <= 0) { errors.push({ i, why: `${code} ยอดต้องเป็นตัวเลขมากกว่าศูนย์` }); return; }
     const m = matOf.get(code);
@@ -200,7 +200,8 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
     // เตือนเฉพาะแถวที่ผ่านแล้ว แถวที่ตกไปแล้วอยู่ในกล่องแดงที่เดียว (ผู้ตรวจ #127 ข้อ ช)
     if (!m) warns.push({ i, code, why: 'ไม่มีในทะเบียน' });
     const usage = mode === 'total' ? (order > 0 ? r10(q / order) : 0) : r10(q);
-    lineUsage[i] = usage;
+    // ยอดรวมแต่ยังไม่ใส่จำนวนสั่ง = ยังคิดต่อชิ้นไม่ได้ → null (จอโชว์ —) ไม่ใช่ 0 (ผู้ตรวจ #127 รอบ 2 ข้อ 1)
+    lineUsage[i] = mode === 'total' && !(order > 0) ? null : usage;
     const hit = merged.get(code);
     if (hit) {
       if (hit.unit !== unit) { errors.push({ i, why: `${code} คีย์ซ้ำแต่หน่วยไม่ตรงกัน (${hit.unit} กับ ${unit})` }); return; }
@@ -227,9 +228,13 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
     source: 'มือ · hard copy · ' + by, imported_at: now, deleted: false,
     note: [String(input.note || '').trim(), l.note].filter(Boolean).join(' · ')
   }));
-  const removed = cur.filter(r => !merged.has(normCode(r.code)))
+  // ⚠️ ตัดออกเทียบด้วย id ไม่ใช่รหัสที่ normalize — แถวเดิมที่ id ต่างจากแถวใหม่ (เช่นรหัสตัวพิมพ์เล็กในฐาน)
+  //    ต้องถูกติดธงลบ ไม่งั้นเหลือสองแถว active ของรหัสเดียวกัน = ยอดเบิ้ล (ผู้ตรวจ #127 รอบ 2 ข้อ 6)
+  const newIds = new Set(rows.map(r => r.id));
+  const removed = cur.filter(r => !newIds.has(r.id))
     .map(r => ({ ...r, deleted: true, imported_at: now }));
-  const diff = { added: [], changed: [], same: 0, removed: removed.map(r => r.code) };
+  const diff = { added: [], changed: [], same: 0,
+                 removed: removed.filter(r => !merged.has(normCode(r.code))).map(r => r.code) };
   for (const r of rows) {
     const old = curOf.get(r.code);
     if (!old) diff.added.push(r.code);

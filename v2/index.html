@@ -699,13 +699,14 @@ textarea{font:inherit}
                   <button class="btn" style="padding:4px 7px" @click="openPick(l)">🔍</button></div></td>
                 <!-- ชื่อกับหน่วยมาจากทะเบียน (เจ้าของสั่ง 10 ต.ค. 2026) · รหัสไม่มีในทะเบียน = ให้คีย์หน่วยเองเฉพาะแถวนั้น -->
                 <td><template v-if="nbMats[i]">{{ nbMats[i].description }}</template>
+                  <span v-else-if="nbInHouse.has(i)" class="tag bad">ของทำเอง (28) — ใส่ในสูตรไม่ได้ ลบแถวนี้</span>
                   <span v-else-if="l.code && nbSug.i !== i" class="tag warn">ไม่มีในทะเบียน — ใส่หน่วยเอง แล้วตั้งทะเบียนทีหลัง</span></td>
                 <td><input v-model="l.qty" type="number" step="any" class="mono" :data-nb-qty="i" @keydown.enter.prevent="nbNext(i)"></td>
                 <td class="mono hint" v-if="nb.mode==='total'">{{ nbPlan && nbPlan.lineUsage[i] != null ? nbPlan.lineUsage[i] : '—' }}</td>
                 <td><span v-if="nbMats[i] && nbMats[i].unit" class="mono">{{ nbMats[i].unit }}</span>
-                  <input v-else-if="l.code && nbSug.i !== i" v-model.trim="l.unit" class="mono" placeholder="หน่วย" @keydown.enter.prevent="nbNext(i)"></td>
+                  <input v-else-if="l.code && nbSug.i !== i && !nbInHouse.has(i)" v-model.trim="l.unit" class="mono" placeholder="หน่วย" @keydown.enter.prevent="nbNext(i)"></td>
                 <td><input v-model.trim="l.note" @keydown.enter.prevent="nbNext(i)"></td>
-                <td><button class="btn" style="padding:2px 8px" @click="nb.lines.splice(i, 1)" title="ลบแถว">✕</button></td>
+                <td><button class="btn" style="padding:2px 8px" @click="nbRemove(i)" title="ลบแถว">✕</button></td>
               </tr>
               <!-- ตัวเลือกจากที่พิมพ์บางส่วน — แถวแทรกใต้แถวที่พิมพ์ · @mousedown.prevent ให้คลิกได้ก่อนช่องเสีย focus -->
               <tr v-if="nbSug.i === i && nbSugList.length"><td></td>

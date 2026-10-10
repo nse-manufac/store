@@ -593,12 +593,17 @@ createApp({
       const l = nb.lines[i];
       if (!l) return;
       const r = m ? { code: normCode(m.material_code) } : codeSuggest(materials.value, l.code);
-      if (!m && !r.code && nbSugList.value.length) r.code = normCode(nbSugList.value[nbSug.k].material_code);
+      // ตัวเลือกต้องเป็นของแถวนี้ — คลิกไปช่องแถวอื่นแล้วกด Enter เร็ว ๆ ก่อนตัวเลือกเดิมปิด (ผู้ตรวจ #127 รอบ 2 ข้อ 3)
+      if (!m && !r.code && nbSug.i === i && nbSugList.value.length) r.code = normCode(nbSugList.value[nbSug.k].material_code);
       if (r.code) { l.code = r.code; l.desc = ''; l.unit = ''; nbFill(l); }
       nbSug.i = -1;
       nbFocusQty(i);
     }
     function nbBlur(i) { setTimeout(() => { if (nbSug.i === i) nbSug.i = -1; }, 150); }
+    function nbRemove(i) { nb.lines.splice(i, 1); nbSug.i = -1; }   // ไม่งั้นตัวเลือกไปค้างใต้แถวที่เลื่อนขึ้นมาแทน
+    // แถวของทำเอง (28) — ช่องชื่อบอกว่าใส่ในสูตรไม่ได้ ไม่ชวนให้คีย์หน่วย (ผู้ตรวจ #127 รอบ 2 ข้อ 2)
+    const nbInHouse = computed(() => new Set(((nbPlan.value && nbPlan.value.errors) || [])
+      .filter(e => e.kind === 'inhouse').map(e => e.i)));
     async function nbSave() {
       const p = nbPlan.value;
       if (!p || !p.ok || nb.busy) return;
@@ -940,7 +945,7 @@ createApp({
     const bomHint = ref('');
     let lineSeq = 0;
 
-    const bomPnCodes = computed(() => [...new Set(bom.value.map(r => r.pn))].sort());
+    const bomPnCodes = computed(() => [...new Set(bomLive.value.map(r => r.pn))].sort());
 
     function blankLine(code = '') {
       // ⚠️ po / pn / entity อยู่รายบรรทัด เพราะไฟล์ Kit List ใบเดียวมีหลาย PO ปนกัน
@@ -3354,7 +3359,7 @@ createApp({
              incRegUsed, incRegAll, applyIncomeRegistry,
              bomPn, bomEdit, bomBy, bomRowsOfPn, openBomPn, startBomRow, onBomCode,
              nb, nbLine, openNewBom, nbLoadCurrent, nbFill, nbNext, nbPlan, nbSave, nbHasCur,
-             nbSug, nbSugList, nbTyping, nbMove, nbChoose, nbBlur, bomLive, nbMats,
+             nbSug, nbSugList, nbTyping, nbMove, nbChoose, nbBlur, bomLive, nbMats, nbRemove, nbInHouse,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
              csRows, csFilled, csPlanRows, csSum,
