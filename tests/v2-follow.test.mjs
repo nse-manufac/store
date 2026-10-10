@@ -19,6 +19,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
+import { makeManualRow, activeBomRowsOf } from '../v2/master/bom.js';
 import { signedQty, KINDS, round5 } from '../v2/core/ledger.js';
 import { localDate, atFrom } from '../v2/core/localtime.js';
 
@@ -1616,11 +1617,22 @@ console.log('\n=== U2. ซื้อทดแทน — รหัสนอกส�
   ok('รหัสนอกสูตรซ้ำกับที่ติ๊กจากสูตร (หรือคีย์ซ้ำสองแถว) = ผิด ไม่เพิ่มสักเรื่อง', !d.ok && d.recs.length === 0 && /ซ้ำ/.test(d.errors[0].why));
   const u = buyFromBom({ ...base, picks: [{ code: 'X9', qty: 2, unit: '' }] });
   ok('รหัสนอกทะเบียนที่ไม่ได้ใส่หน่วย = ผิด บอกทางออก', !u.ok && /ใส่หน่วย/.test(u.errors[0].why));
+  // ตารางสูตรไม่มีช่องหน่วยให้คีย์ ข้อความต้องบอกทางออกที่มีจริงด้วย (G3 · ผู้ตรวจ #129 ข้อ 1)
+  ok('ข้อความ "ไม่มีหน่วย" บอกที่เติมหน่วยให้แถวที่มาจากสูตรด้วย', /ข้อมูลตั้งต้น → BOM/.test(u.errors[0].why));
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: แถวรหัสนอกสูตรใช้ codeSuggest · ชื่อ/หน่วยจากทะเบียน (matIndex) · พิมพ์เปลี่ยนรหัสล้างหน่วย',
      /fxSugList = computed[\s\S]{0,200}codeSuggest\(materials\.value/.test(app) && /fxMats = computed[\s\S]{0,120}matIndex/.test(app)
      && /function fxTyping\(i\) \{ const l = fbm\.extra\[i\]; if \(l\) l\.unit = ''/.test(app) && html.includes('v-for="(l, i) in fbm.extra"'));
+  // แถว BOM ที่คีย์มือทีละแถวไม่บังคับหน่วย (makeManualRow) — ติ๊กแล้วต้องตั้งเรื่องได้เหมือนเดิม (ผู้ตรวจ #129 ข้อ 1)
+  const reg = new Map([['A1', { material_code: 'A1', description: 'ของในทะเบียน', unit: 'MTR' }]]);
+  const bomRow = makeManualRow({ pn: 'PN-B', code: 'A1', desc: '', usage: 2, by: 'สมหญิง' }, []);
+  const fromBom = buyFromBom({ ...base, picks: activeBomRowsOf([bomRow], 'PN-B')
+    .map(r => ({ code: normCode(r.code), qty: 4, unit: r.unit || ((reg.get(normCode(r.code)) || {}).unit || '') })) });
+  ok('แถวจากสูตรที่หน่วยว่าง แต่ทะเบียนมีหน่วย = ตั้งเรื่องได้ · fbmRows ถอยไปเอาหน่วยจากทะเบียน (ผู้ตรวจ #129 ข้อ 1)',
+     bomRow.unit === '' && fromBom.ok && fromBom.recs.length === 1 && fromBom.recs[0].unit === 'MTR'
+     && /unit: r\.unit \|\| \(\(matIndex\.value\.get\(normCode\(r\.code\)\) \|\| \{\}\)\.unit \|\| ''\)/.test(app),
+     JSON.stringify(fromBom.errors));
   ok('ปุ่มเพิ่มจางและบอก "กำลังเพิ่ม..." ระหว่างบันทึก (ผู้ตรวจ #128 ข้อ 3)',
      html.includes(':disabled="!fbmPlan || !fbmPlan.ok || fbmBusy"') && html.includes("กำลังเพิ่ม...")
      && /fbmBusy = computed\(\(\) => starting\.has\('buybom\|' \+ fbm\.po\)\)/.test(app));

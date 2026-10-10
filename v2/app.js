@@ -2590,8 +2590,10 @@ createApp({
       if (!fbm.part_no) return [];
       const rows = activeBomRowsOf(bom.value, fbm.part_no);
       const order = fbmHead.value && fbmHead.value.pn === fbm.part_no ? fbmHead.value.order : null;
+      // หน่วยถอยไปเอาจากทะเบียนแบบเดียวกับชื่อ — แถว BOM ที่คีย์มือไม่บังคับหน่วย ติ๊กแล้วต้องตั้งเรื่องได้ (ผู้ตรวจ #129 ข้อ 1)
       return rows.map(r => ({ code: normCode(r.code), desc: r.desc || ((matIndex.value.get(normCode(r.code)) || {}).description || ''),
-                              unit: r.unit, usage: r.usage, need: reqmtOf(rows, r.code, order) }))
+                              unit: r.unit || ((matIndex.value.get(normCode(r.code)) || {}).unit || ''),
+                              usage: r.usage, need: reqmtOf(rows, r.code, order) }))
         .sort((a, b) => a.code.localeCompare(b.code));
     });
     const fbmPlan = computed(() => entity.value ? buyFromBom({
