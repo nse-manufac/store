@@ -1673,6 +1673,16 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   ok('รายการที่ยกเลิกไปแล้ว ไม่ยกเลิกซ้ำ', reopenShort(b2.rec, [{ ...b.entry, voided: true }, b2.entry], { by: 'ก' }).voids.length === 1);
   throws('มีรายการให้ยกเลิกแต่ไม่มีชื่อผู้บันทึก = โยน', () => reopenShort(b2.rec, [b.entry], {}), 'ผู้บันทึก');
   ok('เรื่องที่ปิดแบบไม่รับเข้า เอากลับได้โดยไม่ต้องมีชื่อ', reopenShort(c.rec, [], {}).voids.length === 0);
+  // คีย์ย้อนวัน — ของมาเมื่อวานแต่เพิ่งกดวันนี้ (เจ้าของสั่ง 10 ต.ค. 2026)
+  const nowIso = '2026-10-12T02:00:00.000Z';
+  const bk = arriveShort(sh, { person: 'สมชาย', date: '2026-10-11', at: '2026-10-11T02:00:00.000Z', now: nowIso });
+  ok('วันที่ของมาย้อนหลัง = รายการรับเข้า/ล็อต/วันปิดเรื่องเป็นวันนั้น · updated_at ของเรื่องเป็นเวลาจริงตอนกด (D5)',
+     bk.entry.lot === '2026-10-11' && bk.entry.at === '2026-10-11T02:00:00.000Z'
+     && bk.rec.done_at === '2026-10-11T02:00:00.000Z' && bk.rec.updated_at === nowIso, JSON.stringify(bk.rec));
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: ช่อง "วันที่ของมา" ผูก fsDate และส่งเข้า arriveShort',
+     /v-model="fsDate" type="date"/.test(fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8'))
+     && /const day = fsDate\.value \|\| todayLocal\(\)/.test(app));
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
      html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));

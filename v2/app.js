@@ -2254,11 +2254,13 @@ createApp({
     // กด "มาแล้ว" แล้วรับเข้าคลังด้วย (เจ้าของสั่ง 10 ต.ค. 2026 · ตรรกะอยู่ที่ master/follow.js arriveShort)
     // ติ๊กออก = ปิดเรื่องอย่างเดียว เช่นของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ
     const fsRecv = ref(true);
+    // วันที่ของมาจริง — ของมาเมื่อวานแต่เพิ่งมากดวันนี้ คีย์ย้อนได้ (เจ้าของสั่ง 10 ต.ค. 2026 · แบบเดียวกับ "วันที่คืน" ของ over)
+    const fsDate = ref(todayLocal());
     async function fsClose(row) {
       const raw = fsGot[row.id];
       try {
         await startOnce(starting, 'fsclose|' + row.id, async () => {
-          const day = todayLocal();
+          const day = fsDate.value || todayLocal();
           const { rec, entry } = arriveShort(plain(row), {
             qty: raw === '' || raw == null ? undefined : Number(raw),
             receive: fsRecv.value, person: fsBy.value, device: device.value, date: day, at: atFrom(day)
@@ -3483,7 +3485,7 @@ createApp({
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
       fsNew, fsBlocked, fsCheck, fsStart, cardPoSO, isStarting,
-      fsAssign, fsClose, fsRecv, fsReopen,
+      fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,

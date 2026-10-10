@@ -207,12 +207,14 @@ export function reopenFollow(row, { at } = {}) {
  * receive = false = ปิดเรื่องอย่างเดียว (ของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ)
  * ⚠️ รายการรับเข้าอ้าง PO ของเรื่อง short เดิม (เจ้าของเลือก) → ยอดขาดของ PO นั้นลดตามจริง การ์ดไม่ขึ้นให้ตั้งซ้ำ
  * ⚠️ ล็อต = วันที่รับเข้า (กติกาเดียวกับหน้ารับเข้า) · วันหมดอายุเว้นไว้ เติมทีหลังได้ที่แท็บ Log
+ * ⚠️ date/at = วันที่ของมาจริง (แก้ย้อนหลังได้) → ใช้กับรายการรับเข้า ล็อต และ done_at ของเรื่อง
+ *    แต่ updated_at ของเรื่องต้องเป็นเวลาจริงตอนกด ไม่งั้นคีย์ย้อนวันแล้วแพ้ตอนซิงค์ (D5 · กฎเดียวกับ doReturn ของ over)
  * ⚠️ นิติบุคคลมาจากเรื่องนั้นเอง ไม่ใช่หัวจอ (A3) · ผูกเลขที่รายการรับเข้าไว้ที่เรื่อง ให้ "เอากลับ" ยกเลิกตามได้
  * คืน { rec, entry } · entry = null ถ้าไม่ได้รับเข้า
  */
-export function arriveShort(row, { qty, receive = true, person = '', device = '', date = '', at = '' } = {}) {
+export function arriveShort(row, { qty, receive = true, person = '', device = '', date = '', at = '', now } = {}) {
   if (!row || row.kind !== 'short') throw new Error('ใช้ได้กับเรื่อง short เท่านั้น');
-  const rec = closeFollow(row, { qty, by: person, at });
+  const rec = closeFollow(row, { qty, by: person, at: now, doneAt: at });
   const added = round5((Number(rec.done_qty) || 0) - (Number(row.done_qty) || 0));
   if (!receive || !(added > 0)) return { rec, entry: null };
   if (!txt(row.entity)) throw new Error('เรื่องนี้ไม่มีนิติบุคคล — กด "ย้ายมาที่นี่" ก่อน (INVARIANTS A3)');
