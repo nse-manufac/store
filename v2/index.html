@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-10.1">
+<meta name="app-version" content="2026-10-10.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2321,23 +2321,42 @@ textarea{font:inherit}
           <h2>เพิ่มเรื่องซื้อเอง</h2>
           <p class="hint" style="margin:-4px 0 10px">ของที่ต้องสั่งซื้อแต่ไม่ได้คีย์เป็นของเสีย ·
             ของเสียที่คีย์ไว้แล้วให้ตั้งเรื่องจากตารางบนสุด ไม่ต้องคีย์ซ้ำที่นี่</p>
+          <!-- คีย์ PO → ได้ P/N → กาง BOM → ติ๊กรหัสที่จะสั่ง + คีย์จำนวน (เจ้าของสั่ง 10 ต.ค. 2026) -->
           <div class="row">
-            <label class="f" style="width:190px">รหัสวัตถุดิบ
-              <div class="row" style="gap:3px;flex-wrap:nowrap">
-                <input v-model.trim="fbm.code" class="mono grow" style="min-width:0" @change="checked.fbmCode = fbm.code">
-                <button class="btn" style="padding:6px 9px" @click="openPick(fbm)">🔍</button>
-              </div>
-              <span class="tag warn" style="margin-top:3px" :style="{ visibility: fbm.code && checked.fbmCode === fbm.code && !matOf(fbm.code) ? 'visible' : 'hidden' }">ไม่มีในทะเบียน — ตรวจรหัสอีกครั้ง</span></label>
-            <label class="f" style="width:110px">จำนวน
-              <input v-model.number="fbm.qty" type="number" step="any" class="mono"></label>
-            <label class="f" style="width:150px">PO ที่เสีย
+            <label class="f" style="width:160px">PO ที่เสีย
               <input v-model.trim="fbm.po" class="mono" placeholder="เลือกหรือพิมพ์" list="scrappolist" @change="onFbmPo">
-              <span class="tag warn" style="margin-top:3px" :style="{ visibility: checked.fbmPo === fbm.po && poUnknown(fbm.po) ? 'visible' : 'hidden' }">ไม่มีในรายการ PO — ตรวจเลขอีกครั้ง</span></label>
-            <label class="f" style="width:140px">P/N
-              <input v-model.trim="fbm.part_no" class="mono" list="pnlist"></label>
-            <label class="f grow" style="min-width:160px">หมายเหตุ
+              <span class="tag warn" style="margin-top:3px" :style="{ visibility: checked.fbmPo === fbm.po && poUnknown(fbm.po) ? 'visible' : 'hidden' }">ไม่มีในรายการ PO — ใส่ P/N เอง</span></label>
+            <label class="f" style="width:150px">P/N
+              <input v-model.trim="fbm.part_no" class="mono" list="pnlist" @change="fbm.pick = {}; fbm.qty = {}">
+              <span class="hint" style="margin-top:3px" :style="{ visibility: fbmHead && fbmHead.order ? 'visible' : 'hidden' }">
+                สั่ง {{ fbmHead && fbmHead.order }} ชิ้น</span></label>
+            <label class="f grow" style="min-width:160px">หมายเหตุ (ใส่ทุกรายการที่เพิ่ม)
               <input v-model="fbm.note" placeholder="เช่น 5 Roll · cut 2.7 cm"></label>
-            <button class="btn primary" style="align-self:flex-end" :disabled="!fbmReady" @click="fbmSave">เพิ่มเรื่อง</button>
+          </div>
+          <p class="msg warn" style="margin:8px 0 0" v-if="fbm.part_no && !fbmRows.length">
+            P/N {{ fbm.part_no }} ยังไม่มี BOM ในเครื่อง — ตั้ง BOM ก่อนที่ ข้อมูลตั้งต้น → BOM</p>
+          <div class="scroll" style="margin-top:10px;max-height:44vh" v-if="fbmRows.length">
+            <table>
+              <thead><tr><th style="width:34px">✓</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
+                <th>ชื่อ</th><th style="width:95px">ต่อชิ้น</th><th style="width:110px">ตามสูตรทั้ง PO</th>
+                <th style="width:120px">จำนวนที่สั่ง</th><th style="width:70px">หน่วย</th></tr></thead>
+              <tbody><tr v-for="r in fbmRows" :key="r.code" :class="fbm.pick[r.code] ? 'review' : ''">
+                <td><input type="checkbox" v-model="fbm.pick[r.code]"></td>
+                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
+                <td>{{ r.desc || '—' }}</td>
+                <td class="mono hint">{{ r.usage }}</td><td class="mono hint">{{ r.need == null ? '—' : r.need }}</td>
+                <td><input v-model.number="fbm.qty[r.code]" type="number" step="any" class="mono" :disabled="!fbm.pick[r.code]"
+                           :placeholder="fbm.pick[r.code] ? 'ใส่จำนวน' : ''"></td>
+                <td class="mono">{{ r.unit }}</td>
+              </tr></tbody>
+            </table>
+          </div>
+          <div class="row" style="margin-top:10px" v-if="fbmRows.length">
+            <span class="hint" v-if="fbmPlan && fbmPlan.errors.length && fbmRows.some(r => fbm.pick[r.code])">{{ fbmPlan.errors[0].why }}</span>
+            <span class="tag warn" v-if="fbmPlan && fbmPlan.dup.length">มีเรื่องที่ยังไม่ออกใบอยู่แล้ว: {{ fbmPlan.dup.join(', ') }}</span>
+            <div class="grow"></div>
+            <button class="btn primary" :disabled="!fbmPlan || !fbmPlan.ok" @click="fbmSave">
+              เพิ่ม {{ fbmPlan && fbmPlan.ok ? fbmPlan.recs.length + ' ' : '' }}เรื่อง</button>
           </div>
         </div>
       </template>
