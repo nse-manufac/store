@@ -15,7 +15,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
-         cardShortOver, codeShortOver, startKey, startOnce, openPairFor }
+         cardShortOver, codeShortOver, startKey, startOnce, openPairFor, dupFollows, doubleReturns, reopenOver }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1636,6 +1636,66 @@ console.log('\n=== U2. ซื้อทดแทน — รหัสนอกส�
   ok('ปุ่มเพิ่มจางและบอก "กำลังเพิ่ม..." ระหว่างบันทึก (ผู้ตรวจ #128 ข้อ 3)',
      html.includes(':disabled="!fbmPlan || !fbmPlan.ok || fbmBusy"') && html.includes("กำลังเพิ่ม...")
      && /fbmBusy = computed\(\(\) => starting\.has\('buybom\|' \+ fbm\.po\)\)/.test(app));
+}
+
+console.log('\n=== W. ล้างเรื่องซ้ำที่ค้างอยู่ · over เอากลับได้ (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  const E = 'TUE-H';
+  const mk = (kind, po, code, qty, day, extra = {}) => ({ ...makeFollow({ kind, type: 'ขาด', entity: E, po, code, part_no: 'PN1',
+    qty: qty || 1, by: 'ก', now: `2026-10-0${day}T03:00:00.000Z` }), ...(qty === 0 ? { qty: 0 } : {}), ...extra });
+  const o1 = mk('over', 'TM9269H001', 'A1', 3, 1), o2 = mk('over', 'TM9269H001', 'A1', 3, 2), o3 = mk('over', 'TM9269H001', 'a1', 3, 3);
+  const d1 = dupFollows([o3, o1, o2], { kind: 'over', entity: E });
+  ok('over เปิดซ้ำยอดเท่ากัน = เก็บเรื่องที่ตั้งก่อน เสนอยกเลิกที่เหลือ (รหัสตัวพิมพ์เล็กนับเป็นคู่เดียวกัน)',
+     d1.length === 2 && d1.every(d => d.twin.id === o1.id) && d1.map(d => d.row.id).sort().join() === [o2.id, o3.id].sort().join());
+  const s1 = closeFollow(mk('short', 'TM9269H002', 'B1', 5, 1), { by: 'ก' }), s2 = mk('short', 'TM9269H002', 'B1', 5, 4);
+  const d2 = dupFollows([s1, s2], { kind: 'short', entity: E });
+  ok('short ตั้งซ้ำหลังปิดไปแล้ว ยอดเท่ากัน = เสนอยกเลิกเรื่องที่เปิดอยู่ (กฎเดียวกับ #123)',
+     d2.length === 1 && d2[0].row.id === s2.id && /ที่ปิดแล้ว/.test(d2[0].why));
+  ok('ยอดต่างจากเรื่องที่ปิด = ขาดเพิ่มจริง ไม่นับว่าซ้ำ',
+     dupFollows([s1, mk('short', 'TM9269H002', 'B1', 7, 4)], { kind: 'short', entity: E }).length === 0);
+  const p1 = closeFollow(mk('over', 'TM9269H003', 'C1', 4, 3), { qty: 1, by: 'ก' }), p0 = mk('over', 'TM9269H003', 'C1', 4, 1);
+  const d3 = dupFollows([p0, p1], { kind: 'over', entity: E });
+  ok('เรื่องที่มีความคืบหน้าถูกเก็บไว้เสมอ แม้ตั้งทีหลัง — เสนอยกเลิกเรื่องที่ยังไม่ได้ทำอะไร',
+     d3.length === 1 && d3[0].row.id === p0.id && d3[0].twin.id === p1.id);
+  const r1 = mk('over', 'TM9269H004', 'D1', 2, 1), r2 = mk('over', 'TM9269H004', 'D1', 2, 2, { return_entry_id: 'E-x' });
+  ok('เรื่องที่ผูกรายการในสมุดแล้วไม่ถูกเสนอให้ยกเลิก', dupFollows([r1, r2], { kind: 'over', entity: E }).every(d => d.row.id !== r2.id));
+  ok('นิติบุคคลอื่นไม่นับเป็นคู่เดียวกัน (A3) · ไม่มีนิติบุคคล = ไม่เสนออะไร',
+     dupFollows([o1, { ...o2, entity: 'TUE-U' }], { kind: 'over', entity: E }).length === 0 && dupFollows([o1, o2], { kind: 'over', entity: '' }).length === 0);
+  ok('เรื่องที่ยกเลิกไปแล้วไม่นับ', dupFollows([o1, { ...o2, voided: true }], { kind: 'over', entity: E }).length === 0);
+  const z1 = mk('short', 'TM9269H005', 'E1', 0, 1), z2 = mk('short', 'TM9269H005', 'E1', 0, 2);
+  ok('ยอด 0 เปิดซ้ำกัน = ซ้ำ · ยอด 0 ที่ปิดแล้วไม่ใช้เป็นคู่ซ้ำ',
+     dupFollows([z1, z2], { kind: 'short', entity: E }).length === 1
+     && dupFollows([closeFollow(z1, { by: 'ก' }), z2], { kind: 'short', entity: E }).length === 0);
+  throws('ชนิด buy ไม่ได้', () => dupFollows([], { kind: 'buy', entity: E }), 'short');
+
+  const at = '2026-10-05T03:00:00.000Z';
+  const ra = sendbackEntry(o1, { qty: 3, person: 'ก', at, reason_code: 'over' }), rb = sendbackEntry(o2, { qty: 3, person: 'ก', at, reason_code: 'over' });
+  const c1 = { ...closeFollow(o1, { by: 'ก' }), return_entry_id: ra.id }, c2 = { ...closeFollow(o2, { by: 'ก' }), return_entry_id: rb.id };
+  const g = doubleReturns([c1, c2], [ra, rb], { entity: E });
+  ok('คู่ที่คืนไปแล้วสองเรื่อง = ขึ้นให้ตรวจ พร้อมยอดคืนรวม', g.length === 1 && g[0].total === 6 && g[0].rows.length === 2);
+  ok('รายการส่งคืนที่ยกเลิกไปแล้วไม่นับ', doubleReturns([c1, c2], [ra, { ...rb, voided: true }], { entity: E }).length === 0);
+
+  const ra2 = sendbackEntry({ ...o1, done_qty: 0 }, { qty: 1, person: 'ก', at, reason_code: 'over' });
+  const c1b = { ...c1, return_entry_id: ra.id + ' ' + ra2.id };
+  const u = reopenOver(c1b, [ra, ra2, rb], { by: 'หัวหน้า' });
+  ok('เอากลับ = เปิดเรื่องใหม่ ล้างเลขที่ผูก · ยกเลิกรายการส่งคืนทุกรอบแบบไม่ลบ (B1) · ไม่แตะรายการของเรื่องอื่น',
+     statusOf(u.rec) === 'open' && u.rec.return_entry_id === '' && u.voids.length === 2
+     && u.voids.every(v => v.voided && v.void_by === 'หัวหน้า' && /over/.test(v.void_reason))
+     && !u.voids.some(v => v.id === rb.id));
+  ok('รายการที่ยกเลิกไปแล้ว ไม่ยกเลิกซ้ำ', reopenOver(c1b, [{ ...ra, voided: true }, ra2], { by: 'ก' }).voids.length === 1);
+  throws('มีรายการให้ยกเลิกแต่ไม่มีชื่อผู้บันทึก = โยน', () => reopenOver(c1b, [ra], {}), 'ผู้บันทึก');
+  ok('เรื่องที่ไม่ได้ผูกรายการ เอากลับได้โดยไม่ต้องมีชื่อ', reopenOver(closeFollow(o3, { by: 'ก' }), [], {}).voids.length === 0);
+  throws('ใช้กับ short ไม่ได้', () => reopenOver(s1, [], {}), 'over');
+  throws('เรื่องที่ยกเลิกแล้ว เอากลับไม่ได้', () => reopenOver({ ...c1, voided: true }, [ra], { by: 'ก' }), 'ยกเลิก');
+
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ปุ่มเอากลับของ over (ปิดแล้ว + บางส่วน) · ยกเลิกก่อนปิดเรื่องแบบเดียวกับ short',
+     (html.match(/@click="foReopen\(r\.s\)"/g) || []).length === 2 && /reopenOver\(plain\(row\), entries\.value/.test(app)
+     && /await db\.put\('entries', voids\)[\s\S]{0,300}await fsPut\(rec\)/.test(app));
+  ok('จอ: การ์ดเรื่องซ้ำทั้งหน้า short และ over · ติ๊กไว้เป็นค่าตั้งต้น · ยกเลิกด้วย voidFollow ไม่ลบ',
+     html.includes(`@click="dupVoid('short')"`) && html.includes(`@click="dupVoid('over')"`)
+     && html.includes(':checked="!dupSkip[d.row.id]"') && /voidFollow\(plain\(d\.row\)/.test(app) && html.includes('v-if="foDouble.length"'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

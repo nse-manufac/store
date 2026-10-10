@@ -15,7 +15,7 @@
  * ไม่เขียนลงฐานข้อมูลเอง ไม่แตะหน้าจอ คืนอ็อบเจกต์ให้ผู้เรียกไปบันทึก
  * แบบเดียวกับ core/count.js — เพื่อให้เทสด้วย node ล้วนได้โดยไม่ต้องมีเบราว์เซอร์
  */
-import { round5, makeEntry } from '../core/ledger.js';
+import { round5, makeEntry, voidEntry } from '../core/ledger.js';
 import { resolveEntity, entityOfPo } from './entities.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
@@ -676,6 +676,91 @@ export function openPairFor(follows, kind, entity, po, code) {
   const k = pairKey(po, code);
   return (follows || []).find(f => f && f.kind === kind && f.entity === entity
     && pairKey(f.po, f.code) === k && ['open', 'partial'].includes(statusOf(f))) || null;
+}
+
+/* ══════════ ล้างเรื่องซ้ำที่ค้างในข้อมูลเดิม (เจ้าของสั่ง 10 ต.ค. 2026) ══════════
+ * #123 กับ #125 กันได้แต่เรื่องใหม่ · ของที่ตั้งซ้ำไปก่อนหน้ายังค้างในชีต
+ * (วัด 7 ต.ค.: over เปิดซ้ำ 38 คู่ เกินมา 144 เรื่อง · short ที่ตั้งซ้ำหลังปิดไปแล้วอีกหลายร้อย)
+ *
+ * กติกา — เรื่อง "ซ้ำ" ต้องครบทุกข้อ:
+ *   1. ชนิดเดียวกัน · นิติบุคคลเดียวกัน · PO + รหัสเดียวกัน · ยังไม่ถูกยกเลิก
+ *   2. ตัวมันเองยังไม่มีความคืบหน้าเลย (ยังเปิด · ไม่มียอดปิด · ไม่ผูกรายการในสมุด)
+ *   3. มีอีกเรื่องในคู่เดียวกันที่ยอดเท่ากัน (ต่างไม่เกิน 5e-4 · เกณฑ์เดียวกับ shortPending)
+ *      - เรื่องที่มีความคืบหน้าถูกเก็บไว้ก่อนเสมอ · ที่เหลือเก็บเรื่องที่ตั้งก่อน
+ *      - ยอด 0 (รอส่ง ไม่บอกจำนวน) ซ้ำได้กับเรื่องที่ยังเปิดเท่านั้น — เรื่องปิดแล้วยอด 0 ไม่บอกว่าเป็นของก้อนเดียวกัน
+ * ⚠️ เรื่องที่มีความคืบหน้าไม่ถูกเสนอให้ยกเลิกเลย · ยอดต่างกัน = ขาด/เกินเพิ่มจริง ไม่นับว่าซ้ำ
+ * ⚠️ แค่เสนอรายการ · คนติ๊กและกดยืนยันเอง · ยกเลิกแบบไม่ลบ (B1)
+ */
+const SAME_QTY = (a, b) => Math.abs(a - b) < 5e-4;
+const idsOf = v => String(v || '').split(/\s+/).filter(Boolean);
+const moved = f => statusOf(f) !== 'open' || idsOf(f.return_entry_id).length > 0
+                   || idsOf(f.receive_entry_id).length > 0;
+
+/** คืน [{ row, twin, why }] เรียงตาม PO · รหัส · วันที่ตั้ง — row = เรื่องที่เสนอให้ยกเลิก · twin = เรื่องที่เก็บไว้ */
+export function dupFollows(follows, { kind, entity } = {}) {
+  if (kind !== 'short' && kind !== 'over') throw new Error('หาเรื่องซ้ำได้เฉพาะ short กับ over');
+  if (!txt(entity)) return [];
+  const groups = new Map();
+  for (const f of follows || []) {
+    if (!f || f.kind !== kind || f.entity !== entity || f.voided) continue;
+    const k = pairKey(f.po, f.code);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(f);
+  }
+  const out = [];
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue;
+    const byTime = [...rows].sort((a, b) => txt(a.created_at).localeCompare(txt(b.created_at)));
+    const kept = byTime.filter(moved);
+    for (const f of byTime) {
+      if (moved(f)) continue;
+      const q = round5(Number(f.qty) || 0);
+      const twin = kept.find(k => SAME_QTY(round5(Number(k.qty) || 0), q) && (q > 0 || statusOf(k) !== 'done'));
+      if (!twin) { kept.push(f); continue; }
+      const st = statusOf(twin);
+      out.push({ row: f, twin, why: `ซ้ำกับเรื่อง${st === 'done' ? 'ที่ปิดแล้ว' : 'ที่ยังเปิดอยู่'} ตั้ง ${txt(twin.date) || '—'}` });
+    }
+  }
+  return out.sort((a, b) => txt(a.row.po).localeCompare(txt(b.row.po)) || txt(a.row.code).localeCompare(txt(b.row.code))
+                          || txt(a.row.created_at).localeCompare(txt(b.row.created_at)));
+}
+
+/**
+ * คู่ over ที่คืนของไปแล้วมากกว่าหนึ่งเรื่อง — อาจตัดสต็อกซ้ำ ต้องให้คนดูเอง ไม่ตัดสินแทน
+ * นับเฉพาะรายการส่งคืนในสมุดที่ยังไม่ถูกยกเลิก · คืน [{ po, code, rows: [{ row, returned }], total }]
+ */
+export function doubleReturns(follows, entries, { entity } = {}) {
+  if (!txt(entity)) return [];
+  const live = new Map();
+  for (const e of entries || []) if (e && e.kind === 'sendback' && !e.voided) live.set(e.id, Number(e.qty) || 0);
+  const groups = new Map();
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'over' || f.entity !== entity || f.voided) continue;
+    const returned = round5(idsOf(f.return_entry_id).reduce((s, id) => s + (live.get(id) || 0), 0));
+    if (!(returned > 0)) continue;
+    const k = pairKey(f.po, f.code);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push({ row: f, returned });
+  }
+  return [...groups.values()].filter(g => g.length > 1).map(g => ({
+    po: txt(g[0].row.po), code: txt(g[0].row.code), rows: g,
+    total: round5(g.reduce((s, x) => s + x.returned, 0))
+  }));
+}
+
+/**
+ * เอาเรื่อง over กลับ (กด "คืนแล้ว" ผิด หรือคืนซ้ำ) — เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ
+ * ยกเลิกแบบไม่ลบ (B1) · ยอดคงคลังกลับมาเท่าที่คืนไป · คืน { rec, voids } — ผู้เรียกบันทึก voids ลงสมุดเอง
+ * ⚠️ เดิมไม่มีทางย้อน · ยกเลิกรายการส่งคืนที่แท็บ Log แล้วเรื่องยังขึ้น "คืนครบแล้ว" ค้างไว้
+ */
+export function reopenOver(row, entries = [], { by = '', at = '' } = {}) {
+  if (!row || row.kind !== 'over') throw new Error('ใช้ได้กับเรื่อง over เท่านั้น');
+  if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว เอากลับไม่ได้');
+  const ids = idsOf(row.return_entry_id);
+  const hit = (entries || []).filter(e => e && ids.includes(e.id) && !e.voided);
+  if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการส่งคืน');
+  const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง over กลับ — กด "คืนแล้ว" ผิดหรือคืนซ้ำ' }));
+  return { rec: { ...reopenFollow(row, { at }), return_entry_id: '' }, voids };
 }
 
 /* ══════════ Short / Over บน Bin Card (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */

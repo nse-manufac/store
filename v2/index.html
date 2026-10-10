@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-10.4">
+<meta name="app-version" content="2026-10-10.6">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2000,6 +2000,36 @@ textarea{font:inherit}
 
       <!-- ════════ Mat Follow up · short รอส่ง ════════ -->
       <template v-else-if="tab==='fshort'">
+        <div class="card" v-if="dupLists.short.length">
+          <div class="row">
+            <h2 style="margin:0">เรื่องซ้ำที่ค้างอยู่ — {{ dupLists.short.length }} เรื่อง</h2>
+            <div class="grow"></div>
+            <label class="f" style="width:150px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <button class="btn" @click="dupShow.short = !dupShow.short">{{ dupShow.short ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
+            <button class="btn primary" :disabled="!dupPicked('short').length || starting.has('dupvoid|short')"
+                    @click="dupVoid('short')">ยกเลิกที่ติ๊ก {{ dupPicked('short').length }} เรื่อง</button>
+          </div>
+          <p class="hint" style="margin:6px 0 0">
+            PO + รหัสเดียวกัน ยอดเท่ากัน และยังไม่ได้ทำอะไรกับเรื่องนี้เลย — เกิดจากกดตั้งเรื่องซ้ำ หรือตั้งซ้ำหลังปิดไปแล้ว (ก่อนมีตัวกัน)<br>
+            เรื่องที่มีความคืบหน้าแล้วไม่อยู่ในนี้ · ยอดต่างกันไม่นับว่าซ้ำ · ติ๊กออกได้ถ้าไม่แน่ใจ · ยกเลิกแบบไม่ลบ ยอดคงคลังไม่เปลี่ยน</p>
+          <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.short">
+            <table>
+              <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
+                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th>ซ้ำกับ</th></tr></thead>
+              <tbody>
+                <tr v-for="d in dupLists.short" :key="d.row.id">
+                  <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
+                  <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
+                  <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
+                  <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
+                  <td class="hint">{{ d.why }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
 
         <div class="card" v-if="fsNoEntity.length">
           <div class="msg warn">ยังไม่รู้ว่าเป็นของนิติบุคคลไหน <b>{{ fsNoEntity.length }}</b> เรื่อง —
@@ -2608,6 +2638,52 @@ textarea{font:inherit}
             <span class="hint">— ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน</span></p>
         </div>
 
+        <div class="card" v-if="foDouble.length">
+          <h2>ตรวจด้วยตา: คืนของไปแล้วมากกว่าหนึ่งเรื่อง — {{ foDouble.length }} คู่</h2>
+          <p class="hint" style="margin:0 0 8px">PO + รหัสเดียวกันมีหลายเรื่องที่กด <b>คืนแล้ว</b> ไปแล้ว — อาจตัดสต็อกซ้ำ ·
+            ถ้าคืนของจริงครั้งเดียว ให้กด <b>เอากลับ</b> ที่เรื่องที่เกินในตารางข้างล่าง (ติ๊ก "แสดงที่คืนแล้ว")
+            รายการส่งคืนจะถูกยกเลิก ยอดคงคลังกลับมา แล้วเรื่องนั้นจะขึ้นในรายการเรื่องซ้ำให้ยกเลิก</p>
+          <table>
+            <thead><tr><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th>เรื่องที่คืนแล้ว</th><th style="width:110px">คืนรวม</th></tr></thead>
+            <tbody><tr v-for="g in foDouble" :key="g.po + '|' + g.code">
+              <td class="mono">{{ g.po }}</td><td class="mono">{{ g.code }}</td><td class="hint">{{ catOf(g.code) || '—' }}</td>
+              <td class="hint"><span v-for="x in g.rows" :key="x.row.id" style="margin-right:12px">
+                ตั้ง {{ x.row.date }} · ยอด {{ x.row.qty }} · คืน {{ x.returned }}</span></td>
+              <td class="mono"><b>{{ g.total }}</b></td>
+            </tr></tbody>
+          </table>
+        </div>
+
+        <div class="card" v-if="dupLists.over.length">
+          <div class="row">
+            <h2 style="margin:0">เรื่องซ้ำที่ค้างอยู่ — {{ dupLists.over.length }} เรื่อง</h2>
+            <div class="grow"></div>
+            <label class="f" style="width:150px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <button class="btn" @click="dupShow.over = !dupShow.over">{{ dupShow.over ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
+            <button class="btn primary" :disabled="!dupPicked('over').length || starting.has('dupvoid|over')"
+                    @click="dupVoid('over')">ยกเลิกที่ติ๊ก {{ dupPicked('over').length }} เรื่อง</button>
+          </div>
+          <p class="hint" style="margin:6px 0 0">
+            PO + รหัสเดียวกัน ยอดเท่ากัน และยังไม่ได้ทำอะไรกับเรื่องนี้เลย — เกิดจากกดตั้งเรื่องซ้ำ หรือตั้งซ้ำหลังปิดไปแล้ว (ก่อนมีตัวกัน)<br>
+            เรื่องที่มีความคืบหน้าแล้วไม่อยู่ในนี้ · ยอดต่างกันไม่นับว่าซ้ำ · ติ๊กออกได้ถ้าไม่แน่ใจ · ยกเลิกแบบไม่ลบ ยอดคงคลังไม่เปลี่ยน</p>
+          <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.over">
+            <table>
+              <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
+                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th>ซ้ำกับ</th></tr></thead>
+              <tbody>
+                <tr v-for="d in dupLists.over" :key="d.row.id">
+                  <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
+                  <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
+                  <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
+                  <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
+                  <td class="hint">{{ d.why }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="card">
           <div class="row">
             <h2 style="margin:0">เรื่องที่ตั้งไว้แล้ว</h2>
@@ -2645,10 +2721,14 @@ textarea{font:inherit}
                     <template v-if="r.st==='done'">
                       <span class="hint">คืน {{ localDate(r.s.done_at) }}
                         {{ r.s.done_by }}</span>
+                      <button class="btn" style="padding:2px 8px;margin-left:5px" :disabled="starting.has('foreopen|' + r.s.id)"
+                              @click="foReopen(r.s)">เอากลับ</button>
                     </template>
                     <template v-else>
                       <button class="btn primary" style="padding:2px 9px"
                               @click="askReturn(r.s)">คืนแล้ว…</button>
+                      <button v-if="r.st==='partial'" class="btn" style="padding:2px 8px;margin-left:4px"
+                              :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
                       <button class="btn" style="padding:2px 8px;margin-left:4px"
                               @click="foVoid(r.s)">ยกเลิกเรื่อง</button>
                     </template>
@@ -2666,7 +2746,8 @@ textarea{font:inherit}
           <p class="hint" style="margin:8px 0 0">
             ยอดสามตัวที่แช่แข็งไว้คือค่า ณ วันที่ตั้งเรื่อง — ใบรับเข้าที่คีย์ทีหลังจะไม่ทำให้ยอดของเรื่องนี้ขยับเอง<br>
             กด <b>คืนแล้ว…</b> แล้วจะมีกล่องให้ยืนยัน เพราะปุ่มนี้<b>ตัดของออกจากคลังจริง</b>
-            และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า</p>
+            และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า<br>
+            กด <b>เอากลับ</b> (คืนผิด หรือคืนซ้ำ) = เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ — ยอดคงคลังกลับมา</p>
         </div>
 
         <div class="card" v-if="foBlocked.length">
