@@ -38,7 +38,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
-         startKey, startOnce, dupFollows, doubleReturns, reopenOver,
+         startKey, startOnce, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES } from './master/follow.js';
 
@@ -2597,13 +2597,14 @@ createApp({
     // ── ซื้อทดแทนที่คีย์เอง: คีย์ PO → กาง BOM ของ P/N → ติ๊กรหัสที่จะสั่ง (เจ้าของสั่ง 10 ต.ค. 2026) ──
     // ตรรกะอยู่ที่ master/follow.js buyFromBom · ที่นี่ต่อสายอย่างเดียว
     // extra = รหัสนอกสูตรที่คีย์เอง (เจ้าของสั่ง 10 ต.ค. 2026) — ของที่ต้องสั่งแต่ไม่อยู่ใน BOM ของ P/N นั้น
-    const fbm = reactive({ po: '', part_no: '', note: '', pick: {}, qty: {}, extra: [] });
+    // หมายเหตุรายรหัส (rnote ของแถวจากสูตร · note ของแถวนอกสูตร) — เดิมได้หมายเหตุเดียวทั้ง PO (เจ้าของสั่ง 10 ต.ค. 2026)
+    const fbm = reactive({ po: '', part_no: '', pick: {}, qty: {}, rnote: {}, extra: [] });
     const fbmHead = computed(() => poHeader(pos.value, fbm.po));
     function onFbmPo() {
       const h = fbmHead.value;
       if (h && h.pn) fbm.part_no = h.pn;
       checked.fbmPo = fbm.po;
-      fbm.pick = {}; fbm.qty = {}; fbm.extra = [];
+      fbm.pick = {}; fbm.qty = {}; fbm.rnote = {}; fbm.extra = [];
     }
     // ── รหัสนอกสูตร: พิมพ์บางส่วนแล้วมีตัวเลือก (codeSuggest ตัวเดียวกับหน้า BOM) · ชื่อ/หน่วยจากทะเบียน ──
     const fxSug = reactive({ i: -1, k: 0 });
@@ -2613,7 +2614,7 @@ createApp({
       return l && String(l.code || '').length >= 3 ? codeSuggest(materials.value, l.code).items : [];
     });
     function fxAdd() {
-      fbm.extra.push({ code: '', qty: null, unit: '' });
+      fbm.extra.push({ code: '', qty: null, unit: '', note: '' });
       const i = fbm.extra.length - 1;
       nextTick(() => { const el = document.querySelector(`[data-fx-code="${i}"]`); if (el) el.focus(); });
     }
@@ -2636,19 +2637,19 @@ createApp({
       if (!fbm.part_no) return [];
       const rows = activeBomRowsOf(bom.value, fbm.part_no);
       const order = fbmHead.value && fbmHead.value.pn === fbm.part_no ? fbmHead.value.order : null;
-      // หน่วยถอยไปเอาจากทะเบียนแบบเดียวกับชื่อ — แถว BOM ที่คีย์มือไม่บังคับหน่วย ติ๊กแล้วต้องตั้งเรื่องได้ (ผู้ตรวจ #129 ข้อ 1)
+      // หน่วยจากทะเบียนก่อน ไม่มีค่อยใช้ของ BOM (buyUnit · เจ้าของเคาะ 10 ต.ค. 2026) · bomUnit ไว้โชว์เมื่อไม่ตรงกัน
       return rows.map(r => ({ code: normCode(r.code), desc: r.desc || ((matIndex.value.get(normCode(r.code)) || {}).description || ''),
-                              unit: r.unit || ((matIndex.value.get(normCode(r.code)) || {}).unit || ''),
+                              unit: buyUnit((matIndex.value.get(normCode(r.code)) || {}).unit, r.unit), bomUnit: String(r.unit || '').trim(),
                               usage: r.usage, need: reqmtOf(rows, r.code, order) }))
         .sort((a, b) => a.code.localeCompare(b.code));
     });
     const fbmPlan = computed(() => entity.value ? buyFromBom({
-      entity: entity.value, po: fbm.po, part_no: fbm.part_no, note: fbm.note, person: fsBy.value, date: todayLocal(),
+      entity: entity.value, po: fbm.po, part_no: fbm.part_no, person: fsBy.value, date: todayLocal(),
       picks: [
-        ...fbmRows.value.filter(r => fbm.pick[r.code]).map(r => ({ code: r.code, qty: fbm.qty[r.code], unit: r.unit })),
+        ...fbmRows.value.filter(r => fbm.pick[r.code]).map(r => ({ code: r.code, qty: fbm.qty[r.code], unit: r.unit, note: fbm.rnote[r.code] })),
         // แถวนอกสูตรที่ว่างทั้งแถวข้ามไป · หน่วยจากทะเบียนก่อน ไม่มีค่อยใช้ที่คีย์
         ...fbm.extra.map((l, i) => ({ l, m: fxMats.value[i] })).filter(x => x.l.code || x.l.qty)
-          .map(({ l, m }) => ({ code: normCode(l.code), qty: l.qty, unit: (m && m.unit) || l.unit }))
+          .map(({ l, m }) => ({ code: normCode(l.code), qty: l.qty, unit: buyUnit(m && m.unit, l.unit), note: l.note }))
       ]
     }, shorts.value) : null);
     // ระหว่างบันทึกปุ่มจางและบอกว่ากำลังเพิ่ม — กดซ้ำไม่ได้อยู่แล้ว (startOnce) แต่จอต้องบอกด้วย (ผู้ตรวจ #128 ข้อ 3)
@@ -2663,7 +2664,7 @@ createApp({
           for (const rec of p.recs) await fsPut(rec);
           flash(`เพิ่มเรื่องซื้อ ${p.recs.length} รายการ ของ PO ${fbm.po} แล้ว`);
           // ล้างทุกช่อง ไม่ค้าง PO เดิม — กติกาเดียวกับหน้าของเสีย (เจ้าของเคาะ 2 ต.ค. 2026) · เลือกซ้ำได้จาก dropdown
-          Object.assign(fbm, { po: '', part_no: '', note: '', pick: {}, qty: {}, extra: [] });
+          Object.assign(fbm, { po: '', part_no: '', pick: {}, qty: {}, rnote: {}, extra: [] });
         });
       } catch (err) { flash(err.message, true); }
     }
