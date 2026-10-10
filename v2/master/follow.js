@@ -15,7 +15,7 @@
  * ไม่เขียนลงฐานข้อมูลเอง ไม่แตะหน้าจอ คืนอ็อบเจกต์ให้ผู้เรียกไปบันทึก
  * แบบเดียวกับ core/count.js — เพื่อให้เทสด้วย node ล้วนได้โดยไม่ต้องมีเบราว์เซอร์
  */
-import { round5, makeEntry } from '../core/ledger.js';
+import { round5, makeEntry, voidEntry } from '../core/ledger.js';
 import { resolveEntity, entityOfPo } from './entities.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
@@ -197,6 +197,47 @@ export function reopenFollow(row, { at } = {}) {
   if (!row) throw new Error('ไม่มีรายการให้เปิดใหม่');
   const now = txt(at) || new Date().toISOString();
   return { ...row, done: false, done_qty: 0, done_at: '', done_by: '', updated_at: now };
+}
+
+/**
+ * ของ short มาแล้ว — ปิดเรื่อง (ทั้งใบหรือบางส่วน) และรับเข้าคลังในก้าวเดียว (เจ้าของสั่ง 10 ต.ค. 2026)
+ * เดิมกด "มาแล้ว" แล้วต้องไปคีย์รับเข้าซ้ำที่หน้ารับเข้า = งานซ้ำ
+ *
+ * qty ว่าง = ปิดยอดที่ค้างทั้งหมด · เรื่องที่ไม่ระบุจำนวน (qty 0) + ไม่ใส่ยอด = ปิดเรื่องเฉย ๆ ไม่รับเข้า (ไม่รู้ว่ามาเท่าไหร่)
+ * receive = false = ปิดเรื่องอย่างเดียว (ของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ)
+ * ⚠️ รายการรับเข้าอ้าง PO ของเรื่อง short เดิม (เจ้าของเลือก) → ยอดขาดของ PO นั้นลดตามจริง การ์ดไม่ขึ้นให้ตั้งซ้ำ
+ * ⚠️ ล็อต = วันที่รับเข้า (กติกาเดียวกับหน้ารับเข้า) · วันหมดอายุเว้นไว้ เติมทีหลังได้ที่แท็บ Log
+ * ⚠️ นิติบุคคลมาจากเรื่องนั้นเอง ไม่ใช่หัวจอ (A3) · ผูกเลขที่รายการรับเข้าไว้ที่เรื่อง ให้ "เอากลับ" ยกเลิกตามได้
+ * คืน { rec, entry } · entry = null ถ้าไม่ได้รับเข้า
+ */
+export function arriveShort(row, { qty, receive = true, person = '', device = '', date = '', at = '' } = {}) {
+  if (!row || row.kind !== 'short') throw new Error('ใช้ได้กับเรื่อง short เท่านั้น');
+  const rec = closeFollow(row, { qty, by: person, at });
+  const added = round5((Number(rec.done_qty) || 0) - (Number(row.done_qty) || 0));
+  if (!receive || !(added > 0)) return { rec, entry: null };
+  if (!txt(row.entity)) throw new Error('เรื่องนี้ไม่มีนิติบุคคล — กด "ย้ายมาที่นี่" ก่อน (INVARIANTS A3)');
+  if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — รับเข้าคลังต้องมีชื่อคนรับ');
+  const day = txt(date) || txt(at).slice(0, 10);
+  const entry = makeEntry({
+    entity: row.entity, kind: 'receive', material_code: row.code, qty: added,
+    lot: day || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: txt(row.po), part_no: txt(row.part_no),
+    at: txt(at) || undefined, person, device, note: 'รับจากเรื่อง short (กด "มาแล้ว")'
+  });
+  rec.receive_entry_id = [txt(row.receive_entry_id), entry.id].filter(Boolean).join(' ');
+  return { rec, entry };
+}
+
+/**
+ * เอาเรื่อง short กลับ (กด "มาแล้ว" ผิด) — เปิดเรื่องใหม่ และยกเลิกรายการรับเข้าที่ปุ่มนั้นสร้าง (เจ้าของเลือก 10 ต.ค. 2026)
+ * ยกเลิกแบบไม่ลบ (B1) · คืน { rec, voids } — ผู้เรียกบันทึก voids ลงสมุดเอง
+ */
+export function reopenShort(row, entries = [], { by = '', at = '' } = {}) {
+  if (!row) throw new Error('ไม่มีรายการให้เปิดใหม่');
+  const ids = String(row.receive_entry_id || '').split(/\s+/).filter(Boolean);
+  const hit = (entries || []).filter(e => e && ids.includes(e.id) && !e.voided);
+  if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการรับเข้า');
+  const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง short กลับ — กด "มาแล้ว" ผิด' }));
+  return { rec: { ...reopenFollow(row, { at }), receive_entry_id: '' }, voids };
 }
 
 /** ยกเลิกเรื่อง — ไม่ลบทิ้ง (INVARIANTS B1) แบบเดียวกับ voidEntry ของสมุด */

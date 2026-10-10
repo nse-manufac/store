@@ -15,7 +15,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
-         cardShortOver, codeShortOver, startKey, startOnce, openPairFor }
+         cardShortOver, codeShortOver, startKey, startOnce, openPairFor , arriveShort, reopenShort }
   from '../v2/master/follow.js';
 import { receivedOfDoc } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1605,6 +1605,46 @@ console.log('\n=== U. ซื้อทดแทนจาก BOM ของ PO — 
   ok('จอ: กาง BOM ของ P/N ให้ติ๊ก · ช่องจำนวนเปิดเมื่อติ๊ก · ปุ่มเพิ่มกันกดซ้ำ (startOnce)',
      html.includes('v-for="r in fbmRows"') && html.includes(':disabled="!fbm.pick[r.code]"')
      && /startOnce\(starting, 'buybom\|'/.test(app) && /activeBomRowsOf\(bom\.value, fbm\.part_no\)/.test(app));
+}
+
+console.log('\n=== V. short "มาแล้ว" = รับเข้าคลังด้วย (เจ้าของสั่ง 10 ต.ค. 2026) ===');
+{
+  const E = 'TUE-H';
+  const sh = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H001', code: 'A1', part_no: 'PN1', qty: 8 });
+  const at = '2026-10-10T03:00:00.000Z';
+  const a = arriveShort(sh, { person: 'สมชาย', device: 'PC-T', date: '2026-10-10', at });
+  ok('เว้นยอด = ปิดทั้งเรื่อง + รับเข้า 8 · อ้าง PO ของเรื่อง · ล็อต = วันที่ · นิติบุคคลของเรื่อง · ผูกเลขที่ไว้',
+     statusOf(a.rec) === 'done' && a.entry && a.entry.kind === 'receive' && a.entry.qty === 8 && a.entry.doc_ref === 'TM9269H001'
+     && a.entry.doc_kind === 'po' && a.entry.part_no === 'PN1' && a.entry.lot === '2026-10-10' && a.entry.entity === E
+     && a.entry.material_code === 'A1' && a.rec.receive_entry_id === a.entry.id && a.entry.person === 'สมชาย', JSON.stringify(a.entry));
+  const b = arriveShort(sh, { qty: 3, person: 'สมชาย', date: '2026-10-10', at });
+  ok('ใส่ยอด 3 = มาบางส่วน รับเข้า 3 เหลือค้าง 5', statusOf(b.rec) === 'partial' && b.entry.qty === 3 && remainOf(b.rec) === 5);
+  const b2 = arriveShort(b.rec, { qty: 5, person: 'สมชาย', date: '2026-10-11', at: '2026-10-11T03:00:00.000Z' });
+  ok('รอบสองรับที่เหลือ — ผูกเลขที่ต่อท้าย ไม่ทับของเดิม', statusOf(b2.rec) === 'done' && b2.entry.qty === 5
+     && b2.rec.receive_entry_id === b.entry.id + ' ' + b2.entry.id);
+  const c = arriveShort(sh, { receive: false, person: 'สมชาย', at });
+  ok('ติ๊กออก = ปิดเรื่องอย่างเดียว ไม่รับเข้า (ของมากับ Kit List ที่คีย์ไปแล้ว)', statusOf(c.rec) === 'done' && c.entry === null && !c.rec.receive_entry_id);
+  // แถวที่แกะจากไฟล์ PO แล้วไม่บอกจำนวนมี qty 0 โดยการออกแบบ (makeFollow ไม่สร้างให้ จึงต่อเอง)
+  const z = { ...makeFollow({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H002', code: 'B1', qty: 1 }), qty: 0 };
+  const z1 = arriveShort(z, { person: 'สมชาย', at });
+  ok('เรื่องไม่ระบุจำนวน + เว้นยอด = ปิดเฉย ๆ ไม่รับเข้า (ไม่รู้ว่ามาเท่าไหร่)', statusOf(z1.rec) === 'done' && z1.entry === null);
+  const z2 = arriveShort(z, { qty: 12, person: 'สมชาย', date: '2026-10-10', at });
+  ok('เรื่องไม่ระบุจำนวน + ใส่ยอด 12 = ปิด + รับเข้า 12', statusOf(z2.rec) === 'done' && z2.entry && z2.entry.qty === 12);
+  throws('รับเข้าแต่ไม่มีชื่อผู้บันทึก = โยน บอกทางออก', () => arriveShort(sh, { at }), 'ผู้บันทึก');
+  throws('เรื่องไม่มีนิติบุคคล = ไม่รับเข้าให้ (A3)', () => arriveShort({ ...sh, entity: '' }, { person: 'ก', at }), 'A3');
+  throws('ใช้กับเรื่องชนิดอื่นไม่ได้', () => arriveShort({ ...sh, kind: 'over' }, { person: 'ก', at }), 'short');
+
+  const r = reopenShort(b2.rec, [b.entry, b2.entry, { ...a.entry }], { by: 'หัวหน้า' });
+  ok('เอากลับ = เปิดเรื่องใหม่ ล้างเลขที่ผูก · ยกเลิกรายการรับเข้าทั้งสองรอบแบบไม่ลบ (B1) · ไม่แตะรายการอื่น',
+     statusOf(r.rec) === 'open' && r.rec.receive_entry_id === '' && r.voids.length === 2
+     && r.voids.every(v => v.voided && v.void_by === 'หัวหน้า' && /short/.test(v.void_reason))
+     && r.voids.map(v => v.id).sort().join() === [b.entry.id, b2.entry.id].sort().join());
+  ok('รายการที่ยกเลิกไปแล้ว ไม่ยกเลิกซ้ำ', reopenShort(b2.rec, [{ ...b.entry, voided: true }, b2.entry], { by: 'ก' }).voids.length === 1);
+  throws('มีรายการให้ยกเลิกแต่ไม่มีชื่อผู้บันทึก = โยน', () => reopenShort(b2.rec, [b.entry], {}), 'ผู้บันทึก');
+  ok('เรื่องที่ปิดแบบไม่รับเข้า เอากลับได้โดยไม่ต้องมีชื่อ', reopenShort(c.rec, [], {}).voids.length === 0);
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
+     html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
