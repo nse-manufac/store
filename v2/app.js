@@ -37,7 +37,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
-         pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
+         pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
@@ -2723,6 +2723,29 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ── ของที่สั่งซื้อมาแล้ว (เจ้าของสั่ง 11 ต.ค. 2026) ── ตรรกะที่ master/follow.js arriveBuy
+     * ปิดเรื่องอย่างเดียว ไม่รับเข้าคลัง · เว้นยอด = มาครบ · ใส่ยอด = มาบางส่วน
+     * ⚠️ ปุ่ม "ไปรับของ" ถูกถอดจากจอ แต่ fbGo/linkBuy ยังอยู่ — เรื่องที่กดค้างไว้ก่อนอัปเดตยังปิดได้ตามทางเดิม */
+    const fbGot = reactive({});
+    async function fbClose(row) {
+      const raw = fbGot[row.id];
+      try {
+        await startOnce(starting, 'fbclose|' + row.id, async () => {
+          const rec = arriveBuy(plain(row), { qty: raw === '' || raw == null ? undefined : Number(raw), by: fsBy.value });
+          await fsPut(rec);
+          fbGot[row.id] = '';
+          flash(statusOf(rec) === 'done' ? `${rec.code} มาครบแล้ว — ปิดเรื่อง`
+                                         : `${rec.code} มาแล้ว ${rec.done_qty} · ยังค้าง ${remainOf(rec)}`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+    async function fbReopen(row) {
+      try {
+        await fsPut(reopenBuy(plain(row)));
+        flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง');
+      } catch (err) { flash(err.message, true); }
+    }
+
     /* เรื่องที่กด "ไปรับของ" ค้างไว้ · saveIn() จะผูกเลขที่รายการกลับมาให้
      * เก็บรหัสไว้ด้วย เพราะใบรับเข้าใบเดียวมีหลายบรรทัด ต้องรู้ว่าบรรทัดไหนคือของที่รอ
      *
@@ -3546,7 +3569,7 @@ createApp({
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
-      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo, fbGot, fbClose, fbReopen,
       buyWaits, cancelBuyWaits,
       foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,

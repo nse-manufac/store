@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-10.9">
+<meta name="app-version" content="2026-10-11.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2272,7 +2272,7 @@ textarea{font:inherit}
             <label class="f" style="width:150px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
             <label style="font-weight:600;font-size:12.5px">
-              <input type="checkbox" v-model="fbShowDone"> แสดงที่รับของแล้ว</label>
+              <input type="checkbox" v-model="fbShowDone"> แสดงที่มาครบแล้ว</label>
           </div>
 
           <div class="scroll" style="max-height:44vh;margin-top:10px">
@@ -2291,7 +2291,7 @@ textarea{font:inherit}
                   <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
                   <td class="mono">
                     <b v-if="r.st==='partial'">{{ r.remain }}</b>
-                    <span v-else-if="r.st==='done'" class="tag ok">รับของแล้ว</span>
+                    <span v-else-if="r.st==='done'" class="tag ok">มาครบแล้ว</span>
                     <span v-else class="hint">—</span></td>
                   <td class="mono">{{ r.s.po || '—' }}</td><td class="mono hint">{{ r.s.part_no || '—' }}</td>
                   <td class="hint">{{ r.s.note || '—' }}
@@ -2300,11 +2300,15 @@ textarea{font:inherit}
                        @click.prevent="fbReissue(r.s.pr_no)">ใบ {{ r.s.pr_no }}</a></td>
                   <td>
                     <template v-if="r.st==='done'">
-                      <span class="hint">รับ {{ localDate(r.s.done_at) }} {{ r.s.done_by }}</span>
+                      <span class="hint">มา {{ localDate(r.s.done_at) }} {{ r.s.done_by }}</span>
+                      <button v-if="!r.s.receive_entry_id" class="btn" style="padding:2px 8px;margin-left:5px"
+                              @click="fbReopen(r.s)">เอากลับ</button>
                     </template>
                     <template v-else>
-                      <button class="btn primary" style="padding:2px 9px"
-                              @click="fbGo(r.s)">ไปรับของ</button>
+                      <input v-model="fbGot[r.s.id]" type="number" step="any" class="mono" style="width:70px"
+                             placeholder="ทั้งใบ" @keyup.enter="fbClose(r.s)">
+                      <button class="btn primary" style="padding:2px 9px;margin-left:4px"
+                              :disabled="starting.has('fbclose|' + r.s.id)" @click="fbClose(r.s)">มาแล้ว</button>
                       <button class="btn" style="padding:2px 8px;margin-left:4px"
                               @click="fbVoid(r.s)">ยกเลิกเรื่อง</button>
                     </template>
@@ -2312,7 +2316,7 @@ textarea{font:inherit}
                 </tr>
                 <tr v-if="!fbRows.length"><td colspan="10" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
-                  <span v-if="!fbShowDone" class="hint">· ที่รับของแล้วดูได้จากช่องติ๊กด้านบน</span>
+                  <span v-if="!fbShowDone" class="hint">· ที่มาครบแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
               </tbody>
             </table>
@@ -2320,9 +2324,9 @@ textarea{font:inherit}
           <p class="hint" style="margin:8px 0 0" v-if="fbAll.length > fbRows.length">
             แสดง {{ fbRows.length }} จาก {{ fbAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
           <p class="hint" style="margin:8px 0 0">
-            กด <b>ไปรับของ</b> แล้วจะพาไปหน้ารับเข้าพร้อมกรอกรหัสกับจำนวนให้ —
-            <b>รับเข้าทางเดิมทางเดียว</b> หน้านี้ไม่มีทางบันทึกของเข้าคลังเอง<br>
-            บันทึกใบรับเข้าเสร็จแล้วเรื่องจะถูกปิดและผูกกับเลขที่รายการนั้นให้เอง</p>
+            เรื่องซื้อเป็นตัวเตือนให้ตามของที่ยังไม่มา — <b>ไม่รับเข้าคลัง</b> เพราะสั่งมาพอดีกับที่จะใช้<br>
+            เว้นช่องยอดแล้วกด <b>มาแล้ว</b> = มาครบ · ใส่ยอดก่อนกด (หรือ Enter ในช่อง) = มาบางส่วน เหลือค้างตามส่วนต่าง ·
+            กด <b>เอากลับ</b> = เปิดเรื่องใหม่</p>
         </div>
 
         <!-- ใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) -->

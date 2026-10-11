@@ -16,7 +16,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver, startKey, startOnce, openPairFor, arriveShort, reopenShort,
-         negAfterVoids, buyUnit, dupFollows, doubleReturns, reopenOver }
+         negAfterVoids, buyUnit, dupFollows, doubleReturns, reopenOver, arriveBuy, reopenBuy }
   from '../v2/master/follow.js';
 import { receivedOfDoc, balanceOf } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -1881,6 +1881,28 @@ console.log('\n=== X. ซื้อทดแทน — หน่วยจาก�
      && html.includes('(BOM {{ r.bomUnit }})'));
   ok('จอ: เปลี่ยน PO / P/N / บันทึกแล้ว ล้างหมายเหตุรายแถวด้วย',
      /fbm\.pick = \{\}; fbm\.qty = \{\}; fbm\.rnote = \{\}; fbm\.extra = \[\]/.test(app) && html.includes('fbm.pick = {}; fbm.qty = {}; fbm.rnote = {}'));
+}
+
+console.log('\n=== Y. ซื้อทดแทน — กด "มาแล้ว" ปิดเรื่องอย่างเดียว ไม่รับเข้าคลัง (เจ้าของสั่ง 11 ต.ค. 2026) ===');
+{
+  const b = fromManualBuy({ entity: 'TUE-H', code: 'A1', qty: 10, unit: 'MTR', po: 'PO-Y1', person: 'ก', at: '2026-10-11T03:00:00.000Z' });
+  const p1 = arriveBuy(b, { qty: 4, by: 'สมชาย' });
+  ok('ใส่ยอด 4 = มาบางส่วน เหลือค้าง 6 · ไม่มีรายการรับเข้า', statusOf(p1) === 'partial' && remainOf(p1) === 6 && !p1.receive_entry_id && p1.done_by === 'สมชาย');
+  const p2 = arriveBuy(p1, { by: 'สมชาย' });
+  ok('เว้นยอด = มาครบที่เหลือ', statusOf(p2) === 'done' && p2.done_qty === 10);
+  throws('มาเกินยอดที่ค้าง = โยน', () => arriveBuy(p1, { qty: 7, by: 'ก' }), 'ไม่เกิน');
+  throws('ไม่มีชื่อผู้บันทึก = โยน', () => arriveBuy(b, { qty: 1 }), 'ผู้บันทึก');
+  throws('ใช้กับ short ไม่ได้', () => arriveBuy({ ...b, kind: 'short' }, { by: 'ก' }), 'ซื้อทดแทน');
+  const r = reopenBuy(p2);
+  ok('เอากลับ = เปิดเรื่องใหม่ ล้างยอดที่ปิด', statusOf(r) === 'open' && r.done_qty === 0);
+  throws('เรื่องที่ผูกรายการรับเข้าแล้ว (ทางเดิม) เอากลับไม่ได้', () => reopenBuy({ ...p2, receive_entry_id: 'E-1' }), 'Log');
+  throws('เรื่องที่ยกเลิกแล้ว เอากลับไม่ได้', () => reopenBuy({ ...p2, voided: true }), 'ยกเลิก');
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ปุ่ม "มาแล้ว" + ช่องยอดแทน "ไปรับของ" · เอากลับเฉพาะเรื่องที่ไม่ได้ผูกรายการรับเข้า · ไม่ลงสมุด',
+     html.includes('@click="fbClose(r.s)">มาแล้ว</button>') && !html.includes('@click="fbGo(r.s)"')
+     && html.includes('v-if="!r.s.receive_entry_id"') && /async function fbClose[\s\S]{0,500}arriveBuy\(/.test(app)
+     && !/async function fbClose[\s\S]{0,600}(makeEntry|db\.put\('entries')/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
