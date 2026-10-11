@@ -1895,7 +1895,7 @@ console.log('\n=== Y. ซื้อทดแทน — กด "มาแล้ว
   throws('ใช้กับ short ไม่ได้', () => arriveBuy({ ...b, kind: 'short' }, { by: 'ก' }), 'ซื้อทดแทน');
   const r = reopenBuy(p2);
   ok('เอากลับ = เปิดเรื่องใหม่ ล้างยอดที่ปิด', statusOf(r) === 'open' && r.done_qty === 0);
-  throws('เรื่องที่ผูกรายการรับเข้าแล้ว (ทางเดิม) เอากลับไม่ได้', () => reopenBuy({ ...p2, receive_entry_id: 'E-1' }), 'Log');
+  throws('เรื่องที่ผูกรายการรับเข้าแล้ว (ทางเดิม) เอากลับไม่ได้', () => reopenBuy({ ...p2, receive_entry_id: 'E-1' }), 'ไปรับของ');
   throws('เรื่องที่ยกเลิกแล้ว เอากลับไม่ได้', () => reopenBuy({ ...p2, voided: true }), 'ยกเลิก');
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
