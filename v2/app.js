@@ -197,6 +197,7 @@ createApp({
         // ชื่อผู้บันทึกของหน้า Mat Follow up — ไม่จำไว้ = ต้องพิมพ์ใหม่ทุกรีเฟรช
         // แล้วช่อง "ใครปิดเรื่อง" จะว่างเป็นส่วนใหญ่ (ผู้ตรวจ #67 ทักไว้)
         fsBy.value = await db.getMeta('followBy', '') || '';
+        Object.assign(fold, await db.getMeta('fold', {}) || {});
         ready.value = true;
         // ประกาศ "มีอะไรใหม่" — ขึ้นครั้งแรกต่อเครื่อง (core/version.js)
         if (noticeDue(await db.getMeta('notice', ''))) openNotice();
@@ -3506,6 +3507,14 @@ createApp({
       } finally { expBusy.value = false; }
     }
 
+    /* พับส่วนต่าง ๆ ในหน้ายอดคงคลัง เหลือแค่หัวข้อ (เจ้าของสั่ง 11 ต.ค. 2026)
+     * fold[ชื่อส่วน] = true คือพับอยู่ · ค่าตั้งต้นกางทุกส่วน · จำแยกเครื่อง (db.setMeta) ไม่ซิงค์
+     * ⚠️ ส่วนที่พับยังพิมพ์ออกครบ (.fold-shut ใน @media print) — การ์ดที่พิมพ์ต้องไม่ขาดแถวเพราะมีคนพับไว้ */
+    const fold = reactive({});
+    function toggleFold(k) {
+      fold[k] = !fold[k];
+      db.setMeta('fold', { ...fold }).catch(() => {});
+    }
     const saveStore = () => db.setMeta('store', store.value)
       .catch(err => flash('เก็บค่าไม่สำเร็จ: ' + err.message, true));
 
@@ -3561,7 +3570,7 @@ createApp({
              balQ, balCat, balZero, balShown, balSum, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
-             expBusy, expMsg, store, saveStore, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
+             expBusy, expMsg, store, saveStore, fold, toggleFold, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
              homeTasks, homeAlerts, strangeKinds, homeIn, homeOut, homeToday,
              sync, pending, wiringGap, urlNote, onSyncUrl, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
              newVersion, verBusy, checkUpdate, reloadApp,
