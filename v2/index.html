@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-11.1">
+<meta name="app-version" content="2026-10-11.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -99,6 +99,10 @@ tr.late td{background:var(--badbg)}
 .big.bad{color:var(--bad)} .big.warn{color:var(--warn)}
 textarea{font:inherit}
 .printonly{display:none}
+.fold-btn{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.fold-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
+.fold-i{display:inline-block;width:1.1em}
+.fold-shut{display:none}
 .modal{position:fixed;inset:0;background:rgba(18,32,44,.45);display:flex;
   align-items:flex-start;justify-content:center;padding:60px 16px;z-index:40}
 .modal-box{background:var(--panel);border-radius:10px;padding:16px;width:min(760px,100%);
@@ -115,6 +119,8 @@ textarea{font:inherit}
   body{background:#fff}
   main{padding:0}
   .card{border:0;padding:0;margin:0}
+  .fold-shut{display:revert}
+  .fold-i{display:none}
   .printonly{display:flex;justify-content:space-between;align-items:baseline;
     margin-bottom:10px;font-size:13px}
   .scroll{max-height:none;overflow:visible}
@@ -1295,11 +1301,12 @@ textarea{font:inherit}
           <!-- ออกไฟล์ให้คนข้างนอก — ฟอร์มต้องเหมือน v1 ทุกช่อง -->
           <div class="card">
             <div class="row">
-              <h2 style="margin:0">ออก Bin Card</h2>
+              <h2 style="margin:0"><button class="fold-btn" @click="toggleFold('bincard')" :aria-expanded="!fold.bincard"><span class="fold-i">{{ fold.bincard ? '▸' : '▾' }}</span>ออก Bin Card</button></h2>
               <div class="grow"></div>
               <span class="hint">{{ cardPlan.cards }} การ์ด · {{ cardPlan.lines }} บรรทัด ·
                 {{ cardPlan.byCat.size }} ไฟล์ (แยกตามหมวด)</span>
             </div>
+            <div :class="{ 'fold-shut': fold.bincard }">
             <div class="row" style="margin-top:10px">
               <label class="f grow" style="min-width:220px">Store Location
                 <input v-model.trim="store" @change="saveStore"
@@ -1313,11 +1320,13 @@ textarea{font:inherit}
               ฟอร์มเหมือนของเดิมทุกช่อง — ของเสีย คืนของ ปรับยอด จะเขียนกำกับไว้ในช่อง Remark
               เพราะฟอร์มมีแค่ฝั่งรับกับฝั่งจ่าย
             </p>
+            </div>
           </div>
 
           <!-- ใช้แทนการนับรอบ ให้เครื่องชี้เป้าแทนคนเดินนับทั้งคลัง -->
           <div class="card" v-if="oddRows.length">
-            <h2>รายการที่ควรไปดู</h2>
+            <h2><button class="fold-btn" @click="toggleFold('odd')" :aria-expanded="!fold.odd"><span class="fold-i">{{ fold.odd ? '▸' : '▾' }}</span>รายการที่ควรไปดู <span class="hint">({{ oddRows.length }})</span></button></h2>
+            <div :class="{ 'fold-shut': fold.odd }">
             <p class="hint" style="margin:-4px 0 10px">
               คำนวณจากสมุดล้วน ไม่ต้องมีใครไปนับ — ยอดติดลบแปลว่ามีบางอย่างคีย์ไม่ครบแน่ ๆ
               ส่วนที่ไม่ขยับนานอาจเลิกใช้แล้วหรือมีคนลืมคีย์
@@ -1340,6 +1349,7 @@ textarea{font:inherit}
                   <td><button class="btn" style="padding:2px 9px" @click="openCard(o.code)">การ์ด</button></td>
                 </tr></tbody>
               </table>
+            </div>
             </div>
           </div>
 
@@ -1413,21 +1423,22 @@ textarea{font:inherit}
           </div>
 
           <div class="card" v-if="cardLots.length">
-            <h2>ล็อตที่ยังมีของ</h2>
-            <table><thead><tr><th style="width:180px">ล็อต</th><th style="width:110px">คงเหลือ</th>
+            <h2><button class="fold-btn" @click="toggleFold('lots')" :aria-expanded="!fold.lots"><span class="fold-i">{{ fold.lots ? '▸' : '▾' }}</span>ล็อตที่ยังมีของ <span class="hint">({{ cardLots.length }})</span></button></h2>
+            <table :class="{ 'fold-shut': fold.lots }"><thead><tr><th style="width:180px">ล็อต</th><th style="width:110px">คงเหลือ</th>
               <th style="width:130px">รับเข้าครั้งแรก</th><th></th></tr></thead>
               <tbody><tr v-for="l in cardLots" :key="l.lot">
                 <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต — ของก่อนเริ่มเก็บล็อต)' }}</td>
                 <td class="mono"><b>{{ l.qty }}</b></td>
                 <td class="mono hint">{{ localDate(l.first) }}</td>
                 <td class="noprint"><button class="btn" style="padding:2px 9px"
-                  @click="traceOf = (l.lot || '(ว่าง)')">ตามรอยล็อตนี้</button></td>
+                  @click="openTrace(l.lot || '(ว่าง)')">ตามรอยล็อตนี้</button></td>
               </tr></tbody></table>
           </div>
 
           <!-- Short / Over ราย PO ของรหัสนี้ (เจ้าของสั่ง 28 ก.ย. 2026) — ทุก PO ที่มีรหัสนี้ในสูตรและเริ่มรับแล้ว -->
           <div class="card" v-if="cardPoSO.length">
-            <h2>Short / Over ราย PO</h2>
+            <h2><button class="fold-btn" @click="toggleFold('poso')" :aria-expanded="!fold.poso"><span class="fold-i">{{ fold.poso ? '▸' : '▾' }}</span>Short / Over ราย PO <span class="hint">({{ cardPoSO.length }})</span></button></h2>
+            <div :class="{ 'fold-shut': fold.poso }">
             <p class="hint" style="margin:0 0 8px">ตามสูตร = ต่อชิ้น × จำนวนสั่ง · รับแล้ว = รับเข้า − ส่งคืน ·
               ตั้งเรื่องได้ที่ Mat Follow up</p>
             <div class="scroll" style="max-height:30vh">
@@ -1443,14 +1454,16 @@ textarea{font:inherit}
                     {{ p.follow.kind === 'short' ? 'short' : 'over' }} {{ p.follow.qty }}</span><span v-else>—</span></td>
                 </tr></tbody></table>
             </div>
+            </div>
           </div>
           <!-- ตามรอยย้อนกลับ — คำถามที่ลูกค้าถามตอนของมีปัญหา -->
           <div class="card" v-if="trace">
             <div class="row">
-              <h2 style="margin:0">ล็อต <span class="mono">{{ trace.lot || '(ไม่มีเลขล็อต)' }}</span> ไปอยู่ที่ไหนบ้าง</h2>
+              <h2 style="margin:0"><button class="fold-btn" @click="toggleFold('trace')" :aria-expanded="!fold.trace"><span class="fold-i">{{ fold.trace ? '▸' : '▾' }}</span>ล็อต <span class="mono">{{ trace.lot || '(ไม่มีเลขล็อต)' }}</span> ไปอยู่ที่ไหนบ้าง</button></h2>
               <div class="grow"></div>
               <button class="btn noprint" style="padding:2px 9px" @click="traceOf=''">ปิด</button>
             </div>
+            <div :class="{ 'fold-shut': fold.trace }">
             <div class="msg warn" v-if="trace.anyInferred" style="margin:10px 0">
               <b>คำตอบนี้มีส่วนที่มาจากการเดา</b> —
               <span class="hint">บรรทัดที่ติดป้าย "เดา" คือรายการที่ตอนจ่ายออกไม่ได้ระบุล็อต
@@ -1475,14 +1488,15 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
             <p v-else class="hint">ยังไม่มีการจ่ายออกจากล็อตนี้</p>
+            </div>
           </div>
 
           <div class="card">
             <div class="row" style="margin-bottom:8px">
-              <h2 style="margin:0">ความเคลื่อนไหว</h2>
+              <h2 style="margin:0"><button class="fold-btn" @click="toggleFold('moves')" :aria-expanded="!fold.moves"><span class="fold-i">{{ fold.moves ? '▸' : '▾' }}</span>ความเคลื่อนไหว <span class="hint">({{ card.length }})</span></button></h2>
               <span class="hint">ใหม่สุดอยู่บน · ช่อง "คงเหลือ" คือยอดสะสมถึงบรรทัดนั้น</span>
             </div>
-            <div class="scroll">
+            <div class="scroll" :class="{ 'fold-shut': fold.moves }">
               <table>
                 <thead><tr><th style="width:100px">วันที่</th><th style="width:85px">ประเภท</th>
                   <th style="width:90px">เข้า/ออก</th><th style="width:95px">คงเหลือ</th>
@@ -1501,7 +1515,7 @@ textarea{font:inherit}
                   <td class="mono" :style="r.over != null ? 'color:var(--warn)' : ''">{{ r.over != null ? r.over : '-' }}</td>
                   <!-- ล็อตที่ใช้หมดแล้วจะไม่อยู่ในตารางข้างบน แต่เป็นล็อตที่ลูกค้าถามถึงบ่อยที่สุด
                        จึงต้องกดตามรอยจากประวัติได้ด้วย -->
-                  <td class="mono"><a v-if="r.lot" href="#" @click.prevent="traceOf = r.lot"
+                  <td class="mono"><a v-if="r.lot" href="#" @click.prevent="openTrace(r.lot)"
                        style="color:var(--brand)">{{ r.lot }}</a><span v-else>—</span>
                     <span v-if="r.lot_inferred" class="tag warn">เดา</span></td>
                   <td class="mono">{{ r.part_no || '—' }}</td>
@@ -1518,7 +1532,8 @@ textarea{font:inherit}
 
           <!-- รายการที่ยกเลิกแล้วไม่นับเข้ายอด แต่ต้องเห็นได้ว่าเคยมี — INVARIANTS B -->
           <div class="card" v-if="cardVoided.length">
-            <h2>รายการที่ถูกยกเลิก</h2>
+            <h2><button class="fold-btn" @click="toggleFold('voided')" :aria-expanded="!fold.voided"><span class="fold-i">{{ fold.voided ? '▸' : '▾' }}</span>รายการที่ถูกยกเลิก <span class="hint">({{ cardVoided.length }})</span></button></h2>
+            <div :class="{ 'fold-shut': fold.voided }">
             <p class="hint" style="margin:-4px 0 10px">ไม่นับเข้ายอด เก็บไว้ให้ตรวจย้อนหลังได้</p>
             <table>
               <thead><tr><th style="width:100px">วันที่</th><th style="width:85px">ประเภท</th>
@@ -1535,6 +1550,7 @@ textarea{font:inherit}
                 <td class="mono hint">{{ localDate(v.void_at) }}</td>
               </tr></tbody>
             </table>
+            </div>
           </div>
         </template>
       </template>
