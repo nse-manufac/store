@@ -15,7 +15,7 @@
  * ไม่เขียนลงฐานข้อมูลเอง ไม่แตะหน้าจอ คืนอ็อบเจกต์ให้ผู้เรียกไปบันทึก
  * แบบเดียวกับ core/count.js — เพื่อให้เทสด้วย node ล้วนได้โดยไม่ต้องมีเบราว์เซอร์
  */
-import { round5, makeEntry } from '../core/ledger.js';
+import { round5, makeEntry, voidEntry } from '../core/ledger.js';
 import { resolveEntity, entityOfPo } from './entities.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
@@ -627,6 +627,10 @@ export function shortChecker(calcRows) {
 }
 export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow);
 
+/* หมายเหตุประจำที่ fromShortRow ติดให้ทุกแถวที่ระบบตั้ง — เหมือนกันเป๊ะทุกใบ
+ * ⚠️ ประกาศไว้ที่เดียว เพราะ enriched (บรรทัด ~705) ต้องไม่นับข้อความนี้ว่าเป็น "ข้อมูลเพิ่ม" */
+const SYS_SHORT_NOTE = 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)';
+
 /**
  * ตั้งเรื่องขาดจากแถวที่ระบบคำนวณได้ — ประเภท "ขาด" · ที่มา auto
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ แช่แข็งลงในเรื่องตรงนี้ เหมือน fromOverRow
@@ -643,7 +647,7 @@ export function fromShortRow(row, { entity, person = '', at = '', unit = '', dat
     code: row.code, po: row.po, part_no: row.pn, unit,
     qty: row.short,
     order_qty: row.order, bom_qty: row.need, recv_qty: row.have,
-    note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)',
+    note: SYS_SHORT_NOTE,
     by: person, now: at, date
   });
 }
@@ -676,6 +680,109 @@ export function openPairFor(follows, kind, entity, po, code) {
   const k = pairKey(po, code);
   return (follows || []).find(f => f && f.kind === kind && f.entity === entity
     && pairKey(f.po, f.code) === k && ['open', 'partial'].includes(statusOf(f))) || null;
+}
+
+/* ══════════ ล้างเรื่องซ้ำที่ค้างในข้อมูลเดิม (เจ้าของสั่ง 10 ต.ค. 2026) ══════════
+ * #123 กับ #125 กันได้แต่เรื่องใหม่ · ของที่ตั้งซ้ำไปก่อนหน้ายังค้างในชีต
+ * (วัด 7 ต.ค.: over เปิดซ้ำ 38 คู่ เกินมา 144 เรื่อง · short ที่ตั้งซ้ำหลังปิดไปแล้วอีกหลายร้อย)
+ *
+ * กติกา — เรื่อง "ซ้ำ" ต้องครบทุกข้อ:
+ *   1. ชนิดเดียวกัน · นิติบุคคลเดียวกัน · PO + รหัสเดียวกัน · ยังไม่ถูกยกเลิก
+ *   2. ตัวมันเองยังไม่มีความคืบหน้าเลย (ยังเปิด · ไม่มียอดปิด · ไม่ผูกรายการในสมุด)
+ *   3. มีอีกเรื่องในคู่เดียวกันที่ยอดเท่ากัน (ต่างไม่เกิน 5e-4 · เกณฑ์เดียวกับ shortPending)
+ *      - over ซ้ำได้กับเรื่องที่ยังไม่ปิดเท่านั้น (เจ้าของเคาะ 11 ต.ค. 2026 · ผู้ตรวจ #131 รอบ 6)
+ *        คืนครบไปแล้ว แล้วรับเข้าเพิ่มจนเกินอีกเท่าเดิมพอดี = ของเกินก้อนใหม่ ไม่ใช่เรื่องซ้ำ
+ *        short ไม่มีช่องนี้ เพราะ shortPending ไม่ให้ตั้งเรื่องที่ยอดเท่ากับเรื่องที่ปิดแล้วตั้งแต่แรก (#123)
+ *      - ลำดับที่เก็บไว้: มีความคืบหน้า → มีข้อมูลเพิ่ม (ETA · หมายเหตุที่ไฟล์ Delta เขียนมา) → ตั้งก่อน
+ *        ⚠️ ไฟล์ MAT'L FOLLOWING อัปเดต "ใบแรกที่เจอ" ซึ่งอาจเป็นใบที่ตั้งทีหลัง (ผู้ตรวจ #131 ข้อ 1)
+ *           เก็บตามวันที่ตั้งอย่างเดียว = เสนอยกเลิกใบที่มีวันนัดของ Delta แล้วเก็บใบเปล่าไว้
+ *      - ยอด 0 (รอส่ง ไม่บอกจำนวน) ซ้ำได้กับเรื่องที่ยังเปิดเท่านั้น — เรื่องปิดแล้วยอด 0 ไม่บอกว่าเป็นของก้อนเดียวกัน
+ * ⚠️ เรื่องที่มีความคืบหน้าไม่ถูกเสนอให้ยกเลิกเลย · ยอดต่างกัน = ขาด/เกินเพิ่มจริง ไม่นับว่าซ้ำ
+ * ⚠️ แค่เสนอรายการ · คนติ๊กและกดยืนยันเอง · ยกเลิกแบบไม่ลบ (B1)
+ */
+const SAME_QTY = (a, b) => Math.abs(a - b) < 5e-4;
+const idsOf = v => String(v || '').split(/\s+/).filter(Boolean);
+/* มีข้อมูลที่คนหรือไฟล์ Delta เติมให้จริง — ยกเลิกใบนี้แล้วข้อมูลนั้นหายจากจอ
+ * ⚠️ ห้ามใช้ updated_at > created_at เป็นสัญญาณ "ถูกแก้หลังตั้ง" — markSynced เขียน updated_at
+ *    ทับทุกแถวที่ส่งขึ้นสำเร็จตาม D4 (core/sync.js) ข้อมูลที่มาล้างซิงค์แล้วทั้งหมดโดยนิยาม
+ *    จึงไม่มีผลกับของจริง และทำให้สองเครื่องเสนอยกเลิกใบตรงข้ามกันของคู่เดียวกัน (ผู้ตรวจ #131 รอบ 3)
+ *    ดูแค่ข้อมูลที่มีอยู่จริง ซึ่งเท่ากันทุกเครื่องและเป็นคอลัมน์ที่คนเห็นบนจอ
+ * ⚠️ หมายเหตุที่ fromShortRow ใส่เองไม่นับว่า "ข้อมูลเพิ่ม" — ทุกใบที่ระบบตั้งมีข้อความนี้เหมือนกันหมด
+ *    นับด้วยแล้วคู่ที่ซ้ำจะ enriched เสมอกันทั้งคู่ แล้วกฎนี้ไม่มีผลกับหน้า short เลย (ผู้ตรวจ #131 รอบ 4) */
+const enriched = f => !!txt(f.eta) || (!!txt(f.note) && txt(f.note) !== SYS_SHORT_NOTE);
+const moved = f => statusOf(f) !== 'open' || idsOf(f.return_entry_id).length > 0
+                   || idsOf(f.receive_entry_id).length > 0;
+
+/** คืน [{ row, twin, why }] เรียงตาม PO · รหัส · วันที่ตั้ง — row = เรื่องที่เสนอให้ยกเลิก · twin = เรื่องที่เก็บไว้ */
+export function dupFollows(follows, { kind, entity } = {}) {
+  if (kind !== 'short' && kind !== 'over') throw new Error('หาเรื่องซ้ำได้เฉพาะ short กับ over');
+  if (!txt(entity)) return [];
+  const groups = new Map();
+  for (const f of follows || []) {
+    if (!f || f.kind !== kind || f.entity !== entity || f.voided) continue;
+    const k = pairKey(f.po, f.code);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(f);
+  }
+  const out = [];
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue;
+    /* ⚠️ ชั้นสุดท้ายต้องเป็น id (B3 ห้ามแก้หลังสร้าง) ไม่ใช่ลำดับในอาร์เรย์ — แถวเก่าที่ migrateFollow เติม created_at ให้
+     *    ละเอียดแค่ระดับวัน เสมอกันได้จริง · ลำดับในอาร์เรย์ต่างกันตามเครื่อง (ของที่ซิงค์มาต่อท้าย)
+     *    สองเครื่องเสนอใบตรงข้ามกัน แล้วกดทั้งคู่ = ยกเลิกทั้งสองใบ (ผู้ตรวจ #131 รอบ 5 ข้อ 1) */
+    const byTime = [...rows].sort((a, b) => (enriched(b) - enriched(a))
+      || txt(a.created_at).localeCompare(txt(b.created_at)) || txt(a.id).localeCompare(txt(b.id)));
+    const kept = byTime.filter(moved);
+    for (const f of byTime) {
+      if (moved(f)) continue;
+      const q = round5(Number(f.qty) || 0);
+      const twin = kept.find(k => SAME_QTY(round5(Number(k.qty) || 0), q)
+        && (statusOf(k) !== 'done' || (q > 0 && kind === 'short')));
+      if (!twin) { kept.push(f); continue; }
+      const st = statusOf(twin);
+      out.push({ row: f, twin, why: `ซ้ำกับเรื่อง${st === 'done' ? 'ที่ปิดแล้ว' : 'ที่ยังเปิดอยู่'} ตั้ง ${txt(twin.date) || '—'}` });
+    }
+  }
+  return out.sort((a, b) => txt(a.row.po).localeCompare(txt(b.row.po)) || txt(a.row.code).localeCompare(txt(b.row.code))
+                          || txt(a.row.created_at).localeCompare(txt(b.row.created_at)));
+}
+
+/**
+ * คู่ over ที่คืนของไปแล้วมากกว่าหนึ่งเรื่อง — อาจตัดสต็อกซ้ำ ต้องให้คนดูเอง ไม่ตัดสินแทน
+ * นับเฉพาะรายการส่งคืนในสมุดที่ยังไม่ถูกยกเลิก · คืน [{ po, code, rows: [{ row, returned }], total }]
+ */
+export function doubleReturns(follows, entries, { entity } = {}) {
+  if (!txt(entity)) return [];
+  const live = new Map();
+  for (const e of entries || []) if (e && e.kind === 'sendback' && !e.voided) live.set(e.id, Number(e.qty) || 0);
+  const groups = new Map();
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'over' || f.entity !== entity || f.voided) continue;
+    const returned = round5(idsOf(f.return_entry_id).reduce((s, id) => s + (live.get(id) || 0), 0));
+    if (!(returned > 0)) continue;
+    const k = pairKey(f.po, f.code);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push({ row: f, returned });
+  }
+  return [...groups.values()].filter(g => g.length > 1).map(g => ({
+    po: txt(g[0].row.po), code: txt(g[0].row.code), rows: g,
+    total: round5(g.reduce((s, x) => s + x.returned, 0))
+  }));
+}
+
+/**
+ * เอาเรื่อง over กลับ (กด "คืนแล้ว" ผิด หรือคืนซ้ำ) — เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ
+ * ยกเลิกแบบไม่ลบ (B1) · ยอดคงคลังกลับมาเท่าที่คืนไป · คืน { rec, voids } — ผู้เรียกบันทึก voids ลงสมุดเอง
+ * ⚠️ เดิมไม่มีทางย้อน · ยกเลิกรายการส่งคืนที่แท็บ Log แล้วเรื่องยังขึ้น "คืนครบแล้ว" ค้างไว้
+ */
+export function reopenOver(row, entries = [], { by = '', at = '' } = {}) {
+  if (!row || row.kind !== 'over') throw new Error('ใช้ได้กับเรื่อง over เท่านั้น');
+  if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว เอากลับไม่ได้');
+  const ids = idsOf(row.return_entry_id);
+  const hit = (entries || []).filter(e => e && ids.includes(e.id) && !e.voided);
+  if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการส่งคืน');
+  const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง over กลับ — กด "คืนแล้ว" ผิดหรือคืนซ้ำ' }));
+  return { rec: { ...reopenFollow(row, { at }), return_entry_id: '' }, voids };
 }
 
 /* ══════════ Short / Over บน Bin Card (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */
