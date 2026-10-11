@@ -37,7 +37,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
-         pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
+         pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
@@ -2561,8 +2561,8 @@ createApp({
      * ของเสียถูกตัดออกจากคลังไปแล้ว · ของที่หายไปต้องสั่งทดแทนผ่าน Delta
      * เรื่องผูกกับ "รายการของเสียใบนั้น" เสมอ จึงไล่ย้อนได้ว่าซื้อมาแทนของที่เสียครั้งไหน
      *
-     * ⚠️ ไม่มีเส้นทางรับเข้าของตัวเอง · ปุ่ม "ไปรับของ" พาไปหน้ารับเข้าหน้าเดิม
-     *    แล้วผูกเลขที่รายการกลับมาให้เมื่อบันทึกสำเร็จ — มีทางรับของทางเดียวเสมอ */
+     * ⚠️ เรื่องซื้อไม่รับเข้าคลัง (เจ้าของสั่ง 11 ต.ค. 2026) · ของสั่งมาพอดีกับที่จะใช้
+     *    ปุ่ม "มาแล้ว" ปิดเรื่องอย่างเดียว (fbClose ข้างล่าง) · เดิมปุ่ม "ไปรับของ" พาไปหน้ารับเข้า */
     const fbSearch = ref('');
     const fbShowDone = ref(false);
 
@@ -2720,6 +2720,42 @@ createApp({
       try {
         await fsPut(voidFollow(plain(row), { by: fsBy.value || 'ไม่ระบุ', reason: why.trim() }));
         flash('ยกเลิกเรื่องแล้ว — ยังอยู่ในระบบให้ตรวจย้อนหลังได้');
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /* ── ของที่สั่งซื้อมาแล้ว (เจ้าของสั่ง 11 ต.ค. 2026) ── ตรรกะที่ master/follow.js arriveBuy
+     * ปิดเรื่องอย่างเดียว ไม่รับเข้าคลัง · เว้นยอด = มาครบ · ใส่ยอด = มาบางส่วน
+     * ⚠️ ปุ่ม "ไปรับของ" ถูกถอดจากจอ · fbGo / buyWaits / linkBuy และส่วนของหน้ารับเข้าที่อ่าน buyWaits
+     *    เดินไปไม่ถึงแล้ว (buyWaits อยู่ในหน่วยความจำ โหลดหน้าใหม่ก็ว่าง) — เก็บไว้ในใบนี้ให้ diff เล็ก
+     *    ถอดทั้งชุดพร้อมเทสของมันได้ในใบแยก (ผู้ตรวจ #133 ข้อ 1) */
+    const fbGot = reactive({});
+    // วันที่ของมาจริง — กติกาเดียวกับหน้า short (fsDate) · จอเปิดค้างข้ามคืนแล้วช่องเลื่อนเป็นวันนี้เองถ้าไม่ได้แก้ (rollDay)
+    // ⚠️ ใช้กับ done_at เท่านั้น · updated_at ยังเป็นเวลาจริงตอนกด (closeFollow · D5)
+    let fbDateOn = todayLocal();
+    const fbDate = ref(fbDateOn);
+    function fbDayNow() {
+      const t = todayLocal();
+      if (fbDateOn !== t) { fbDate.value = rollDay(fbDate.value, fbDateOn, t); fbDateOn = t; }
+      return fbDate.value || t;
+    }
+    watch(tab, k => { if (k === 'fbuy') fbDayNow(); });
+    async function fbClose(row) {
+      const raw = fbGot[row.id];
+      try {
+        await startOnce(starting, 'fbclose|' + row.id, async () => {
+          const rec = arriveBuy(plain(row), { qty: raw === '' || raw == null ? undefined : Number(raw), by: fsBy.value,
+                                              doneAt: atFrom(fbDayNow()) });
+          await fsPut(rec);
+          fbGot[row.id] = '';
+          flash(statusOf(rec) === 'done' ? `${rec.code} มาครบแล้ว — ปิดเรื่อง`
+                                         : `${rec.code} มาแล้ว ${rec.done_qty} · ยังค้าง ${remainOf(rec)}`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+    async function fbReopen(row) {
+      try {
+        await fsPut(reopenBuy(plain(row)));
+        flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง');
       } catch (err) { flash(err.message, true); }
     }
 
@@ -3546,7 +3582,7 @@ createApp({
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
-      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo, fbGot, fbDate, fbClose, fbReopen,
       buyWaits, cancelBuyWaits,
       foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
