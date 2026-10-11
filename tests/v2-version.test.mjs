@@ -166,8 +166,11 @@ console.log('\n── พับส่วนต่าง ๆ ในหน้า�
      (bal.match(/<button class="fold-btn"/g) || []).length === want.length && (bal.match(/:aria-expanded="!fold\./g) || []).length === want.length);
   ok('จำไว้ในเครื่อง (db.setMeta) และอ่านกลับตอนเปิดโปรแกรม · ไม่ซิงค์',
      /db\.setMeta\('fold'/.test(js) && /Object\.assign\(fold, await db\.getMeta\('fold'/.test(js) && js.includes('fold, toggleFold'));
-  ok('กด "ตามรอยล็อตนี้" แล้วกางส่วนตามรอยให้เอง ถ้าพับค้างไว้',
-     /watch\(traceOf, v => \{ if \(v && fold\.trace\) toggleFold\('trace'\); \}\)/.test(js));
+  // ทุกทางที่ตั้งล็อตที่จะตามรอยต้องผ่าน openTrace — กดล็อตเดิมซ้ำตอนพับไว้ก็ต้องกาง (watch ทำไม่ได้)
+  // ⚠️ ห้ามตั้งชื่อ traceLot — ชนกับตัวที่ import จาก core/lots.js แล้วจอขาวทั้งหน้า
+  ok('กด "ตามรอยล็อตนี้" / เลขล็อต แล้วกางส่วนตามรอยให้เอง ถ้าพับค้างไว้',
+     /function openTrace\(lot\) \{[\s\S]{0,80}if \(fold\.trace\) toggleFold\('trace'\)/.test(js)
+     && (bal.match(/openTrace\(/g) || []).length === 2 && !/traceOf = (?!'')/.test(bal));
   const print = (html.match(/@media print\{\s*header[\s\S]{0,400}/) || [''])[0];
   ok('ส่วนที่พับไว้ยังพิมพ์ออกครบ', /\.fold-shut\{display:revert\}/.test(print));
 }

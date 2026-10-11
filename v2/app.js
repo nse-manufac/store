@@ -3515,8 +3515,12 @@ createApp({
       fold[k] = !fold[k];
       db.setMeta('fold', { ...fold }).catch(() => {});
     }
-    // กด "ตามรอยล็อตนี้" = ตั้งใจจะดู · ส่วนตามรอยที่พับค้างไว้ต้องกางเอง ไม่งั้นกดแล้วเห็นแค่หัวข้อ (ผู้ตรวจ #134 ข้อ 1)
-    watch(traceOf, v => { if (v && fold.trace) toggleFold('trace'); });
+    /* กด "ตามรอยล็อตนี้" = ตั้งใจจะดู · ส่วนตามรอยที่พับค้างไว้ต้องกางเอง ไม่งั้นกดแล้วเห็นแค่หัวข้อ (ผู้ตรวจ #134 ข้อ 1)
+     * ⚠️ ทำที่ตัวกด ไม่ใช่ watch(traceOf) — กดล็อตเดิมซ้ำค่าไม่เปลี่ยน watch ไม่ยิง (ผู้ตรวจ #134 รอบ 2 ข้อ 1) */
+    function openTrace(lot) {
+      traceOf.value = lot;
+      if (fold.trace) toggleFold('trace');
+    }
     const saveStore = () => db.setMeta('store', store.value)
       .catch(err => flash('เก็บค่าไม่สำเร็จ: ' + err.message, true));
 
@@ -3572,7 +3576,7 @@ createApp({
              balQ, balCat, balZero, balShown, balSum, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
-             expBusy, expMsg, store, saveStore, fold, toggleFold, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
+             expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
              homeTasks, homeAlerts, strangeKinds, homeIn, homeOut, homeToday,
              sync, pending, wiringGap, urlNote, onSyncUrl, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,
              newVersion, verBusy, checkUpdate, reloadApp,

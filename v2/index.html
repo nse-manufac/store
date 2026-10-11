@@ -1431,7 +1431,7 @@ textarea{font:inherit}
                 <td class="mono"><b>{{ l.qty }}</b></td>
                 <td class="mono hint">{{ localDate(l.first) }}</td>
                 <td class="noprint"><button class="btn" style="padding:2px 9px"
-                  @click="traceOf = (l.lot || '(ว่าง)')">ตามรอยล็อตนี้</button></td>
+                  @click="openTrace(l.lot || '(ว่าง)')">ตามรอยล็อตนี้</button></td>
               </tr></tbody></table>
           </div>
 
@@ -1515,7 +1515,7 @@ textarea{font:inherit}
                   <td class="mono" :style="r.over != null ? 'color:var(--warn)' : ''">{{ r.over != null ? r.over : '-' }}</td>
                   <!-- ล็อตที่ใช้หมดแล้วจะไม่อยู่ในตารางข้างบน แต่เป็นล็อตที่ลูกค้าถามถึงบ่อยที่สุด
                        จึงต้องกดตามรอยจากประวัติได้ด้วย -->
-                  <td class="mono"><a v-if="r.lot" href="#" @click.prevent="traceOf = r.lot"
+                  <td class="mono"><a v-if="r.lot" href="#" @click.prevent="openTrace(r.lot)"
                        style="color:var(--brand)">{{ r.lot }}</a><span v-else>—</span>
                     <span v-if="r.lot_inferred" class="tag warn">เดา</span></td>
                   <td class="mono">{{ r.part_no || '—' }}</td>
