@@ -1890,6 +1890,9 @@ console.log('\n=== Y. ซื้อทดแทน — กด "มาแล้ว
   ok('ใส่ยอด 4 = มาบางส่วน เหลือค้าง 6 · ไม่มีรายการรับเข้า', statusOf(p1) === 'partial' && remainOf(p1) === 6 && !p1.receive_entry_id && p1.done_by === 'สมชาย');
   const p2 = arriveBuy(p1, { by: 'สมชาย' });
   ok('เว้นยอด = มาครบที่เหลือ', statusOf(p2) === 'done' && p2.done_qty === 10);
+  const bk = arriveBuy(b, { by: 'ก', doneAt: '2026-10-09T03:00:00.000Z' });
+  ok('วันที่ของมาย้อนหลัง = done_at เป็นวันนั้น · updated_at เป็นเวลาจริง (D5)',
+     bk.done_at === '2026-10-09T03:00:00.000Z' && bk.updated_at > '2026-10-10');
   throws('มาเกินยอดที่ค้าง = โยน', () => arriveBuy(p1, { qty: 7, by: 'ก' }), 'ไม่เกิน');
   throws('ไม่มีชื่อผู้บันทึก = โยน', () => arriveBuy(b, { qty: 1 }), 'ผู้บันทึก');
   throws('ใช้กับ short ไม่ได้', () => arriveBuy({ ...b, kind: 'short' }, { by: 'ก' }), 'ซื้อทดแทน');
@@ -1903,6 +1906,9 @@ console.log('\n=== Y. ซื้อทดแทน — กด "มาแล้ว
      html.includes('@click="fbClose(r.s)">มาแล้ว</button>') && !html.includes('@click="fbGo(r.s)"')
      && html.includes('v-if="!r.s.receive_entry_id"') && /async function fbClose[\s\S]{0,500}arriveBuy\(/.test(app)
      && !/async function fbClose[\s\S]{0,600}(makeEntry|db\.put\('entries')/.test(app));
+  ok('จอ: ช่อง "วันที่ของมา" ผูก fbDate · ส่งเป็น doneAt · เลื่อนเป็นวันนี้เองเมื่อข้ามวัน',
+     html.includes('v-model="fbDate" type="date"') && /doneAt: atFrom\(fbDayNow\(\)\)/.test(app)
+     && /fbDateOn !== t\) \{ fbDate\.value = rollDay\(/.test(app) && /watch\(tab, k => \{ if \(k === 'fbuy'\) fbDayNow\(\); \}\)/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

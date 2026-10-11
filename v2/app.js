@@ -2729,11 +2729,22 @@ createApp({
      *    เดินไปไม่ถึงแล้ว (buyWaits อยู่ในหน่วยความจำ โหลดหน้าใหม่ก็ว่าง) — เก็บไว้ในใบนี้ให้ diff เล็ก
      *    ถอดทั้งชุดพร้อมเทสของมันได้ในใบแยก (ผู้ตรวจ #133 ข้อ 1) */
     const fbGot = reactive({});
+    // วันที่ของมาจริง — กติกาเดียวกับหน้า short (fsDate) · จอเปิดค้างข้ามคืนแล้วช่องเลื่อนเป็นวันนี้เองถ้าไม่ได้แก้ (rollDay)
+    // ⚠️ ใช้กับ done_at เท่านั้น · updated_at ยังเป็นเวลาจริงตอนกด (closeFollow · D5)
+    let fbDateOn = todayLocal();
+    const fbDate = ref(fbDateOn);
+    function fbDayNow() {
+      const t = todayLocal();
+      if (fbDateOn !== t) { fbDate.value = rollDay(fbDate.value, fbDateOn, t); fbDateOn = t; }
+      return fbDate.value || t;
+    }
+    watch(tab, k => { if (k === 'fbuy') fbDayNow(); });
     async function fbClose(row) {
       const raw = fbGot[row.id];
       try {
         await startOnce(starting, 'fbclose|' + row.id, async () => {
-          const rec = arriveBuy(plain(row), { qty: raw === '' || raw == null ? undefined : Number(raw), by: fsBy.value });
+          const rec = arriveBuy(plain(row), { qty: raw === '' || raw == null ? undefined : Number(raw), by: fsBy.value,
+                                              doneAt: atFrom(fbDayNow()) });
           await fsPut(rec);
           fbGot[row.id] = '';
           flash(statusOf(rec) === 'done' ? `${rec.code} มาครบแล้ว — ปิดเรื่อง`
@@ -3571,7 +3582,7 @@ createApp({
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
-      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo, fbGot, fbClose, fbReopen,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo, fbGot, fbDate, fbClose, fbReopen,
       buyWaits, cancelBuyWaits,
       foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,

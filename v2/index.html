@@ -2273,6 +2273,8 @@ textarea{font:inherit}
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
             <label style="font-weight:600;font-size:12.5px">
               <input type="checkbox" v-model="fbShowDone"> แสดงที่มาครบแล้ว</label>
+            <label class="f" style="width:145px" title="ของมาเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่ของมาจริง">วันที่ของมา
+              <input v-model="fbDate" type="date"></label>
           </div>
 
           <div class="scroll" style="max-height:44vh;margin-top:10px">
@@ -2325,7 +2327,7 @@ textarea{font:inherit}
             แสดง {{ fbRows.length }} จาก {{ fbAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
           <p class="hint" style="margin:8px 0 0">
             เรื่องซื้อเป็นตัวเตือนให้ตามของที่ยังไม่มา — <b>ไม่รับเข้าคลัง</b> เพราะสั่งมาพอดีกับที่จะใช้<br>
-            เว้นช่องยอดแล้วกด <b>มาแล้ว</b> = มาครบ · ใส่ยอดก่อนกด (หรือ Enter ในช่อง) = มาบางส่วน เหลือค้างตามส่วนต่าง ·
+            เว้นช่องยอดแล้วกด <b>มาแล้ว</b> = มาครบ (ลงวันที่ตามช่อง <b>วันที่ของมา</b> · ค่าตั้งต้นวันนี้) · ใส่ยอดก่อนกด (หรือ Enter ในช่อง) = มาบางส่วน เหลือค้างตามส่วนต่าง ·
             กด <b>เอากลับ</b> = เปิดเรื่องใหม่</p>
         </div>
 
