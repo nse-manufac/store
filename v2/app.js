@@ -3515,6 +3515,8 @@ createApp({
       fold[k] = !fold[k];
       db.setMeta('fold', { ...fold }).catch(() => {});
     }
+    // กด "ตามรอยล็อตนี้" = ตั้งใจจะดู · ส่วนตามรอยที่พับค้างไว้ต้องกางเอง ไม่งั้นกดแล้วเห็นแค่หัวข้อ (ผู้ตรวจ #134 ข้อ 1)
+    watch(traceOf, v => { if (v && fold.trace) toggleFold('trace'); });
     const saveStore = () => db.setMeta('store', store.value)
       .catch(err => flash('เก็บค่าไม่สำเร็จ: ' + err.message, true));
 
