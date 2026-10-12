@@ -157,6 +157,9 @@ function nowIso() { return new Date().toISOString(); }
  *    = เครื่องนั้นไม่ได้รับแถวนั้นอีกเลย (กติกาเดียวกับคอมเมนต์ของ doPullTable)
  * ⚠️ เผื่อ CHANGE_SLACK_MS — ตารางที่เปลี่ยนในหนึ่งนาทีก่อน since ยังอ่านเต็มอีกรอบ
  *    ราคาคืออ่านเกินหนึ่งรอบ · กันลำดับเหตุการณ์ที่คิดไม่ถึง
+ *    ทางลัดปลอดภัยเมื่อ stamp ของแถวช้ากว่าเวลาที่จดไม่เกินค่านี้ → doPushTable จดติดกับ stamp (ไม่มีงานอ่าน/เขียนคั่น)
+ *    pull ที่มาระหว่าง push ยังเขียนอยู่: ครั้งแรกที่ serverTime ใหม่กว่า stamp ต้องมี since ≤ stamp ≤ เวลาที่จด + slack
+ *    จึงไม่เข้าทางลัด → ไปรอ lock แล้วอ่านหลัง push เสร็จ ได้แถวครบ
  * ⚠️ ไม่เคยจด (เพิ่ง deploy) · since ว่าง · since อ่านไม่ออก = อ่านเต็มเสมอ — สงสัยเมื่อไหร่ให้อ่านเต็ม
  * ⚠️ แก้ชีตด้วยมือ onEdit จดให้ด้วย — ไม่งั้นแถวที่แก้มือจะไม่ถูกส่งอีกเลยหลัง deploy นี้ */
 var CHANGE_SLACK_MS = 60000;
@@ -315,7 +318,6 @@ function doPushTable(table, rows, device) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return { ok: false, error: 'มีเครื่องอื่นกำลังซิงค์อยู่ ลองใหม่อีกครั้ง' };
   try {
-    markChanged(table);   // ⚠️ ก่อนเขียนแถวแรก และก่อนประทับ stamp ของแถว (ดูหัวบล็อก markChanged)
     var sheet = sheetOf(table);
     var last = sheet.getLastRow();
     var head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
@@ -329,6 +331,10 @@ function doPushTable(table, rows, device) {
       for (var i = 0; i < keys.length; i++) index[String(keys[i][0])] = i + 2;
     }
 
+    /* ⚠️ จดเวลาเปลี่ยน "ติดกับ" stamp ของแถว — ก่อน stamp และหลังอ่านหัวตาราง/คอลัมน์กุญแจ (ดูหัวบล็อก markChanged)
+     *    ความปลอดภัยของทางลัดใน doPullTable ต้องการให้ stamp ไม่ช้ากว่าเวลาที่จดเกิน CHANGE_SLACK_MS
+     *    จดก่อนอ่านคอลัมน์กุญแจ = ช่องว่างเท่ากับเวลาอ่าน ซึ่งช่วงเซิร์ฟเวอร์ช้าอาจถึงหลายสิบวินาที (ผู้ตรวจ #136 ข้อ ก) */
+    markChanged(table);
     var stamp = nowIso();
     var appends = [];
     for (var k = 0; k < rows.length; k++) {

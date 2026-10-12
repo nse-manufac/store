@@ -416,6 +416,19 @@ console.log('\n=== I. ตารางไม่ได้เปลี่ยน = �
   ok('แก้ชีตด้วยมือ (onEdit) = จดเวลาเปลี่ยน · ดึงรอบถัดไปอ่านเต็ม', !s.call('pullTable', { table: 'Materials', since: since2 }).unchanged);
   s.onEdit({ range: { getSheet: () => ({ getName: () => 'ชีตอื่นของเจ้าของ' }) } });
   ok('แก้ชีตที่ไม่ใช่ตารางของระบบ ไม่จดอะไร', Object.keys(s.store).every(k => /^changed_(Materials)$/.test(k)), Object.keys(s.store).join());
+  {
+    // จดติดกับ stamp — การอ่านชีตก่อนหน้า (หัวตาราง · คอลัมน์กุญแจ) ต้องไม่อยู่คั่นระหว่างจดกับประทับแถว (ผู้ตรวจ #136 ข้อ ก)
+    let t = Date.parse('2026-10-12T05:00:00.000Z');
+    class Slow extends Date { constructor(...a) { super(...(a.length ? a : [t])); } static parse(x) { return Date.parse(x); } }
+    const sl = loadScript({ Date: Slow });
+    sl.call('pushTable', { table: 'Materials', rows: [row] });
+    for (const sh of sl.book.sheets.values()) sh.onRead = () => { t += 90000; };   // อ่านชีตครั้งละ 90 วินาที
+    sl.call('pushTable', { table: 'Materials', rows: [{ ...row, description: 'ช้า' }] });
+    t += 1000;
+    const at2 = sl.call('pullTable', { table: 'Materials', since: '' }).rows[0].updated_at;
+    ok('อ่านชีตช้าแค่ไหน เวลาที่จดก็ติดกับ updated_at ของแถว (ห่างไม่เกิน slack)',
+       Date.parse(at2) - Date.parse(sl.store.changed_Materials) < 60000, sl.store.changed_Materials + ' → ' + at2);
+  }
   ok('onEdit ไม่โยน error แม้ event แปลก', (() => { try { s.onEdit(undefined); s.onEdit({}); return true; } catch (e) { return false; } })());
 }
 
