@@ -48,6 +48,8 @@ class Sheet {
         return out;
       },
       setValues(vals) {
+        // การเขียนชีตจริงก็กินเวลาเหมือนการอ่าน — ใช้พิสูจน์ว่า markChanged จดก่อนเขียนแถว
+        if (s.onWrite) s.onWrite();
         vals.forEach((row, i) => {
           const ri = r + i - 1;
           if (!s.rows[ri]) s.rows[ri] = [];
@@ -431,7 +433,8 @@ console.log('\n=== I. ตารางไม่ได้เปลี่ยน = �
     class Slow extends Date { constructor(...a) { super(...(a.length ? a : [t])); } static parse(x) { return Date.parse(x); } }
     const sl = loadScript({ Date: Slow });
     sl.call('pushTable', { table: 'Materials', rows: [row] });
-    for (const sh of sl.book.sheets.values()) sh.onRead = () => { t += 90000; };   // อ่านชีตครั้งละ 90 วินาที
+    // อ่าน/เขียนชีตครั้งละ 90 วินาที — ต้องให้การ "เขียน" กินเวลาด้วย ไม่งั้นทิศ "ย้ายไปจดท้าย push" ไม่มีอะไรจับ
+    for (const sh of sl.book.sheets.values()) { sh.onRead = () => { t += 90000; }; sh.onWrite = () => { t += 90000; }; }
     sl.call('pushTable', { table: 'Materials', rows: [{ ...row, description: 'ช้า' }] });
     t += 1000;
     const at2 = sl.call('pullTable', { table: 'Materials', since: '' }).rows[0].updated_at;
