@@ -144,6 +144,39 @@ function json(obj) {
 function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
 function nowIso() { return new Date().toISOString(); }
 
+/* ═══════════ ตารางไหนเปลี่ยนล่าสุดเมื่อไหร่ (เจ้าของสั่ง 12 ต.ค. 2026) ═══════════
+ * เดิมดึงทุกครั้งต้องอ่านทั้งชีตใต้ lock แม้ไม่มีอะไรเปลี่ยน · 7 ตาราง × ทุกเครื่อง × ทุก 2 นาที
+ * คิวยาวจนบางครั้งเกิน ~30 วินาที แล้ว Google ตอบเป็นหน้า 404 ("ไม่สามารถเปิดไฟล์ได้ในเวลานี้")
+ * ซึ่งหน้าตาเหมือน URL ผิดทุกประการ (วัด 9 ต.ค. 2026: ดึงครั้งหนึ่ง 2–35 วินาที · ราว 34 วินาทีขึ้น 404)
+ *
+ * จดเวลาที่ตารางเปลี่ยนล่าสุดไว้ใน ScriptProperties → ดึงแล้วตารางไม่ได้เปลี่ยนตั้งแต่ since
+ * = ตอบว่างทันที ไม่อ่านชีต ไม่จับ lock · รูปแบบคำตอบเดิมทุกช่อง เครื่องรุ่นเก่าใช้ต่อได้
+ *
+ * ⚠️ push ต้องจด "ก่อน" ประทับ stamp ของแถว — ทุกแถวในชีตจึงมี updated_at ไม่เก่ากว่าเวลาที่จดไว้
+ *    กลับลำดับ = มีช่วงที่แถวใหม่อยู่ในชีตแต่เวลาที่จดยังเก่า แล้ว pull ตอบว่างไปพร้อม serverTime ที่ใหม่กว่าแถวนั้น
+ *    = เครื่องนั้นไม่ได้รับแถวนั้นอีกเลย (กติกาเดียวกับคอมเมนต์ของ doPullTable)
+ * ⚠️ เผื่อ CHANGE_SLACK_MS — ตารางที่เปลี่ยนในหนึ่งนาทีก่อน since ยังอ่านเต็มอีกรอบ
+ *    ราคาคืออ่านเกินหนึ่งรอบ · กันลำดับเหตุการณ์ที่คิดไม่ถึง
+ * ⚠️ ไม่เคยจด (เพิ่ง deploy) · since ว่าง · since อ่านไม่ออก = อ่านเต็มเสมอ — สงสัยเมื่อไหร่ให้อ่านเต็ม
+ * ⚠️ แก้ชีตด้วยมือ onEdit จดให้ด้วย — ไม่งั้นแถวที่แก้มือจะไม่ถูกส่งอีกเลยหลัง deploy นี้ */
+var CHANGE_SLACK_MS = 60000;
+function props() { return PropertiesService.getScriptProperties(); }
+function markChanged(table) { props().setProperty('changed_' + table, nowIso()); }
+function unchangedSince(table, since) {
+  if (!since) return false;
+  var c = props().getProperty('changed_' + table) || '';
+  if (!c) return false;
+  var t = Date.parse ? Date.parse(since) : NaN;
+  if (!isFinite(t)) return false;
+  return c < new Date(t - CHANGE_SLACK_MS).toISOString();
+}
+function onEdit(e) {
+  try {
+    var n = e && e.range && e.range.getSheet().getName();
+    if (n && TABLES[n]) markChanged(n);
+  } catch (err) {}
+}
+
 function sheetOf(name) {
   var def = TABLES[name];
   var s = ss().getSheetByName(name);
@@ -240,6 +273,8 @@ function doPullTable(table, since) {
   if (!def) return { ok: false, error: 'ไม่รู้จักตาราง: ' + table };
 
   var stamp = nowIso();
+  // ตารางไม่ได้เปลี่ยนตั้งแต่ since = ไม่มีอะไรให้ส่ง · ⚠️ ต้องอยู่หลังประทับ stamp (ดูหัวบล็อก markChanged)
+  if (unchangedSince(table, since)) return { ok: true, serverTime: stamp, rows: [], unchanged: true };
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return { ok: false, error: 'มีเครื่องอื่นกำลังซิงค์อยู่ ลองใหม่อีกครั้ง' };
   var rows;
@@ -280,6 +315,7 @@ function doPushTable(table, rows, device) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return { ok: false, error: 'มีเครื่องอื่นกำลังซิงค์อยู่ ลองใหม่อีกครั้ง' };
   try {
+    markChanged(table);   // ⚠️ ก่อนเขียนแถวแรก และก่อนประทับ stamp ของแถว (ดูหัวบล็อก markChanged)
     var sheet = sheetOf(table);
     var last = sheet.getLastRow();
     var head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
