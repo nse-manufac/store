@@ -406,6 +406,15 @@ console.log('\n=== I. ตารางไม่ได้เปลี่ยน = �
   const near = new Date(now + 30000).toISOString();
   ok('ตารางที่เปลี่ยนไม่ถึงหนึ่งนาทีก่อน since ยังอ่านเต็ม', !s.call('pullTable', { table: 'Materials', since: near }).unchanged);
   ok('since อ่านไม่ออก = อ่านเต็ม', !s.call('pullTable', { table: 'Materials', since: 'ไม่ใช่เวลา' }).unchanged);
+  {
+    // เวลาที่จดถูกแก้มือใน Script Properties เป็นค่าแปลก — "1" เรียงก่อนทุกเวลา ห้ามกลายเป็นทางลัดถาวร
+    const keep = s.store.changed_Materials;
+    for (const bad of ['1', 'hello', ' ']) {
+      s.store.changed_Materials = bad;
+      ok(`เวลาที่จดอ่านไม่ออก (${JSON.stringify(bad)}) = อ่านเต็ม`, !s.call('pullTable', { table: 'Materials', since }).unchanged);
+    }
+    s.store.changed_Materials = keep;
+  }
   ok('ตารางอื่นไม่ถูกจดตาม — จดแยกรายตาราง', !s.store.changed_Entries);
 
   // แก้ชีตด้วยมือ
@@ -427,7 +436,9 @@ console.log('\n=== I. ตารางไม่ได้เปลี่ยน = �
     t += 1000;
     const at2 = sl.call('pullTable', { table: 'Materials', since: '' }).rows[0].updated_at;
     ok('อ่านชีตช้าแค่ไหน เวลาที่จดก็ติดกับ updated_at ของแถว (ห่างไม่เกิน slack)',
-       Date.parse(at2) - Date.parse(sl.store.changed_Materials) < 60000, sl.store.changed_Materials + ' → ' + at2);
+       Date.parse(at2) - Date.parse(sl.store.changed_Materials) < 60000
+       // ทั้งสองทิศ — ย้ายไปจดท้าย push (หลังเขียนแถว) ก็ต้องแดง (ผู้ตรวจ #136 รอบ 2 ข้อ ก)
+       && sl.store.changed_Materials <= at2, sl.store.changed_Materials + ' → ' + at2);
   }
   ok('onEdit ไม่โยน error แม้ event แปลก', (() => { try { s.onEdit(undefined); s.onEdit({}); return true; } catch (e) { return false; } })());
 }

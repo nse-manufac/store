@@ -160,7 +160,8 @@ function nowIso() { return new Date().toISOString(); }
  *    ทางลัดปลอดภัยเมื่อ stamp ของแถวช้ากว่าเวลาที่จดไม่เกินค่านี้ → doPushTable จดติดกับ stamp (ไม่มีงานอ่าน/เขียนคั่น)
  *    pull ที่มาระหว่าง push ยังเขียนอยู่: ครั้งแรกที่ serverTime ใหม่กว่า stamp ต้องมี since ≤ stamp ≤ เวลาที่จด + slack
  *    จึงไม่เข้าทางลัด → ไปรอ lock แล้วอ่านหลัง push เสร็จ ได้แถวครบ
- * ⚠️ ไม่เคยจด (เพิ่ง deploy) · since ว่าง · since อ่านไม่ออก = อ่านเต็มเสมอ — สงสัยเมื่อไหร่ให้อ่านเต็ม
+ * ⚠️ ไม่เคยจด (เพิ่ง deploy) · since ว่าง · since หรือเวลาที่จดอ่านไม่ออก = อ่านเต็มเสมอ — สงสัยเมื่อไหร่ให้อ่านเต็ม
+ *    (เวลาที่จดถูกคนแก้มือเป็น "1" จะเรียงก่อนทุกเวลา แล้วตารางนั้นเข้าทางลัดตลอด · ผู้ตรวจ #136 รอบ 2 ข้อ ค)
  * ⚠️ แก้ชีตด้วยมือ onEdit จดให้ด้วย — ไม่งั้นแถวที่แก้มือจะไม่ถูกส่งอีกเลยหลัง deploy นี้ */
 var CHANGE_SLACK_MS = 60000;
 function props() { return PropertiesService.getScriptProperties(); }
@@ -168,7 +169,7 @@ function markChanged(table) { props().setProperty('changed_' + table, nowIso());
 function unchangedSince(table, since) {
   if (!since) return false;
   var c = props().getProperty('changed_' + table) || '';
-  if (!c) return false;
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(c)) return false;   // ต้องเป็น ISO ที่ nowIso เขียน · Date.parse('1') ยังได้ปี 2001
   var t = Date.parse ? Date.parse(since) : NaN;
   if (!isFinite(t)) return false;
   return c < new Date(t - CHANGE_SLACK_MS).toISOString();
