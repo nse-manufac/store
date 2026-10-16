@@ -15,7 +15,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
-         cardShortOver, codeShortOver, startKey, startOnce, openPairFor, arriveShort, reopenShort,
+         cardShortOver, codeShortOver, shortOverTotal, startKey, startOnce, openPairFor, arriveShort, reopenShort,
          negAfterVoids, buyUnit, dupFollows, doubleReturns, reopenOver, arriveBuy, reopenBuy }
   from '../v2/master/follow.js';
 import { receivedOfDoc, balanceOf } from '../v2/core/balance.js';
@@ -1909,6 +1909,16 @@ console.log('\n=== Y. ซื้อทดแทน — กด "มาแล้ว
   ok('จอ: ช่อง "วันที่ของมา" ผูก fbDate · ส่งเป็น doneAt · เลื่อนเป็นวันนี้เองเมื่อข้ามวัน',
      html.includes('v-model="fbDate" type="date"') && /doneAt: atFrom\(fbDayNow\(\)\)/.test(app)
      && /fbDateOn !== t\) \{ fbDate\.value = rollDay\(/.test(app) && /watch\(tab, k => \{ if \(k === 'fbuy'\) fbDayNow\(\); \}\)/.test(app));
+}
+
+console.log('\n=== Z. Short / Over รวมทุก PO ของรหัสเดียว (เจ้าของสั่ง 16 ต.ค. 2026) ===');
+{
+  const t = shortOverTotal([{ po: 'A', short: 0, over: 4 }, { po: 'B', short: 0, over: 2 }, { po: 'C', short: 1, over: 0 }]);
+  ok('รวมยอดปัจจุบันของแต่ละ PO: Short 1 · Over 6 · 3 ใบ', t.short === 1 && t.over === 6 && t.pos === 3, JSON.stringify(t));
+  const f = shortOverTotal([{ short: 0.1, over: 0.2 }, { short: 0.2, over: 0.1 }]);
+  ok('ปัดทศนิยม (A2) — ไม่ได้ 0.30000000000000004', f.short === 0.3 && f.over === 0.3, JSON.stringify(f));
+  ok('ไม่มี PO = ศูนย์ทั้งคู่ · pos 0 (ผู้เรียกโชว์ "-")', JSON.stringify(shortOverTotal([])) === '{"short":0,"over":0,"pos":0}'
+     && shortOverTotal(null).pos === 0);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

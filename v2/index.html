@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-11.3">
+<meta name="app-version" content="2026-10-16.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1452,7 +1452,14 @@ textarea{font:inherit}
                   <td class="mono" :style="p.over ? 'color:var(--warn)' : ''">{{ p.over || '-' }}</td>
                   <td class="hint"><span v-if="p.follow" class="tag" :class="p.follow.kind === 'short' ? 'bad' : 'warn'">
                     {{ p.follow.kind === 'short' ? 'short' : 'over' }} {{ p.follow.qty }}</span><span v-else>—</span></td>
-                </tr></tbody></table>
+                </tr></tbody>
+                <!-- ยอดรวมทุก PO — ไว้เทียบกับของจริงและข้อมูล Delta ก่อนจ่ายออก (เจ้าของสั่ง 16 ต.ค. 2026) -->
+                <tfoot><tr style="font-weight:700">
+                  <td colspan="5">รวมทุก PO ({{ cardSOTotal.pos }} ใบ)</td>
+                  <td class="mono" :style="cardSOTotal.short ? 'color:var(--bad)' : ''">{{ cardSOTotal.short || '-' }}</td>
+                  <td class="mono" :style="cardSOTotal.over ? 'color:var(--warn)' : ''">{{ cardSOTotal.over || '-' }}</td>
+                  <td class="hint" style="font-weight:400">ยอดเดียวกับแถวรวมในไฟล์ Bin Card</td>
+                </tr></tfoot></table>
             </div>
             </div>
           </div>

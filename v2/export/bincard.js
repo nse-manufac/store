@@ -169,6 +169,7 @@ export function writeBinCard(ws, info, lines) {
   writeCard(ws, info, lines);
   addShortOverCols(ws, lines);
   fitColWidths(ws, lines);
+  writeTotalRow(ws, lines, info.soTotal);
   const n = lines.filter(l => l.unknownKind).length;
   if (!n) return 0;
   const R = Math.max(lines.length, BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1);
@@ -244,6 +245,31 @@ export function addShortOverCols(ws, lines) {
    * scale ลดจาก 71 เหลือ 67 (11.19 / 16.50 = 67.8%) เป็นทางถอย ถ้าตัวอ่านไฟล์ไหนไม่สน fitToPage */
   ws.pageSetup = { ...(ws.pageSetup || {}), printArea: `A1:S${last}`,
                    fitToPage: true, fitToWidth: 1, fitToHeight: 0, scale: SO_SCALE };
+}
+
+/**
+ * แถวรวม (เจ้าของสั่ง 16 ต.ค. 2026) — ทำเป็นขั้นแยกหลัง addShortOverCols / fitColWidths
+ * ไม่แตะ writeCard (หมวด C) · แถวเดิมที่ writeCard เขียนรับรวม (G) กับจ่ายรวม (K) ไว้แล้ว
+ *   - ช่อง C = "รวม" · ตัวหนาทั้งแถว — เดิมเป็นตัวเลขลอย ๆ ใต้ตาราง คนไม่รู้ว่าคือยอดรวม
+ *   - Short / Over (N · O) = soTotal จาก shortOverTotal(codeShortOver(...)) ยอดเดียวกับบนจอการ์ด
+ *     ไว้เทียบกับของจริงและข้อมูล Delta ว่า over ที่ถืออยู่ยังเท่ากันไหม ก่อนจะเผลอจ่ายออก
+ *     ⚠️ ไม่ใช่ผลบวกคอลัมน์ในการ์ด — แถวเป็นยอดสะสมราย PO · PO รับสามรอบ บวกแล้วได้สามเท่า
+ *     ไม่มี PO ไหนคิดได้ = "-" · ไม่ส่ง soTotal มา = เว้นว่างแบบเดิม
+ * ตำแหน่งแถวรวมเดิม: ใต้บรรทัดสุดท้าย หรือใต้แถวที่ 18 ถ้าการ์ดสั้นกว่านั้น (เจ้าของเลือกคงไว้)
+ */
+export function writeTotalRow(ws, lines, soTotal) {
+  const T = BINCARD_TPL;
+  const totalRow = T.firstRow + Math.max(lines.length, T.lastRow - T.firstRow + 1);
+  ws.getCell('C' + totalRow).value = 'รวม';
+  if (soTotal) {
+    ws.getCell('N' + totalRow).value = soTotal.pos ? soTotal.short : '-';
+    ws.getCell('O' + totalRow).value = soTotal.pos ? soTotal.over : '-';
+  }
+  for (const col of ['C', 'G', 'K', 'N', 'O']) {
+    const c = ws.getCell(col + totalRow);
+    c.font = { ...(c.font || { name: 'Tahoma', size: 11 }), bold: true };
+  }
+  return totalRow;
 }
 
 /** ความกว้างคอลัมน์ A–S ของฟอร์มหลังเพิ่ม Short · Over — คอลัมน์ที่ฟอร์มไม่ได้ตั้ง = undefined (Excel ใช้ค่าปริยาย) */
