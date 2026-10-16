@@ -348,6 +348,22 @@ console.log('\n=== H. แถวรวม: ป้าย "รวม" · ตัว�
   ok('แถวรวมเป็นขั้นแยกหลัง fitColWidths — ไม่แตะ writeCard (หมวด C)',
      /fitColWidths\(ws, lines\);\s*writeTotalRow\(ws, lines, info\.soTotal\);/.test(src)
      && !/function writeCard[\s\S]{0,1600}'รวม'/.test(src));
+  ok('Remark ของแถวรวมบอกที่มา "รวมทุก PO (2 ใบ)" · ไม่มี PO คิดได้ / ไม่ส่งยอด = ไม่เขียน (ผู้ตรวจ #137 ข้อ 2)',
+     /รวมทุก PO \(2 ใบ\)/.test(String(ws.getCell('R' + t).value)) && ws2.getCell('R36').value == null && ws3.getCell('R29').value == null,
+     String(ws.getCell('R' + t).value));
+  {
+    // เลขยาวในแถวรวมต้องไม่ขึ้น ##### — ขยายเองหลัง fitColWidths · ขยายอย่างเดียว ไม่หด (ผู้ตรวจ #137 ข้อ 1)
+    const wsL = fakeWs();
+    writeBinCard(wsL, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 12345.67891, over: 123456.78901, pos: 1 } }, lines);
+    const wN = wsL.getColumn('N').width, wO = wsL.getColumn('O').width;
+    ok('Short / Over รวมที่ยาวเกินคอลัมน์ ถูกขยายให้พอ',
+       wN >= textWidth(12345.67891) && wO >= textWidth(123456.78901), `${wN} / ${wO}`);
+    const wsS = fakeWs();
+    writeBinCard(wsS, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 0, over: 4, pos: 1 } }, lines);
+    ok('เลขสั้นไม่ทำให้คอลัมน์หด', wsS.getColumn('N').width === soWidths().N && wsS.getColumn('O').width === soWidths().O,
+       `${wsS.getColumn('N').width} vs ${soWidths().N}`);
+    ok('ขยายแล้ว scale ยังพอดีหน้า (ไม่เกิน SO_SCALE)', (wsL.pageSetup || {}).scale <= SO_SCALE, String((wsL.pageSetup || {}).scale));
+  }
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('ทั้งการ์ดเดียวและ .zip ส่ง soTotal จากตัวคิดเดียวกับบนจอ',
      /soTotal: cardSOTotal\.value/.test(app) && /soTotal: soTotalOf\(code\)/.test(app)

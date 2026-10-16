@@ -1917,6 +1917,11 @@ console.log('\n=== Z. Short / Over รวมทุก PO ของรหัส�
   ok('รวมยอดปัจจุบันของแต่ละ PO: Short 1 · Over 6 · 3 ใบ', t.short === 1 && t.over === 6 && t.pos === 3, JSON.stringify(t));
   const f = shortOverTotal([{ short: 0.1, over: 0.2 }, { short: 0.2, over: 0.1 }]);
   ok('ปัดทศนิยม (A2) — ไม่ได้ 0.30000000000000004', f.short === 0.3 && f.over === 0.3, JSON.stringify(f));
+  // คอมเมนต์หัวของ codeShortOver ต้องติดกับตัวมันเอง ไม่ถูกฟังก์ชันอื่นแทรกกลาง (ผู้ตรวจ #137 ข้อ 3)
+  ok('คอมเมนต์ของ codeShortOver อยู่ติดฟังก์ชัน',
+     /ทุก PO ที่มีรหัสนี้ในสูตรและเริ่มรับแล้ว[^]*?\*\/\nexport function codeShortOver\(/.test(
+       fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n'))
+     && !/\*\/\n\/\*\*\n \* ยอด Short \/ Over รวมทุก PO/.test(fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')));
   ok('ไม่มี PO = ศูนย์ทั้งคู่ · pos 0 (ผู้เรียกโชว์ "-")', JSON.stringify(shortOverTotal([])) === '{"short":0,"over":0,"pos":0}'
      && shortOverTotal(null).pos === 0);
 }

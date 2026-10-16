@@ -256,6 +256,10 @@ export function addShortOverCols(ws, lines) {
  *     ⚠️ ไม่ใช่ผลบวกคอลัมน์ในการ์ด — แถวเป็นยอดสะสมราย PO · PO รับสามรอบ บวกแล้วได้สามเท่า
  *     ไม่มี PO ไหนคิดได้ = "-" · ไม่ส่ง soTotal มา = เว้นว่างแบบเดิม
  * ตำแหน่งแถวรวมเดิม: ใต้บรรทัดสุดท้าย หรือใต้แถวที่ 18 ถ้าการ์ดสั้นกว่านั้น (เจ้าของเลือกคงไว้)
+ * ช่อง Remark (R) ของแถวรวมบอกที่มา "รวมทุก PO (n ใบ)" — PO ที่ยังไม่รับรหัสนี้เลยไม่มีแถวในการ์ด
+ *   คนที่ได้ไฟล์ไม่เห็นตาราง "Short / Over ราย PO" บนจอ จะหาที่มาของยอดไม่เจอ (เจ้าของเลือก · ผู้ตรวจ #137 ข้อ 2)
+ * ⚠️ ขยายคอลัมน์เองหลังเขียน — ขั้นนี้อยู่หลัง fitColWidths ซึ่งวัดตอนแถวรวมยังว่าง
+ *    เลขยาวอย่าง 1234.56789 จะขึ้น ##### ถ้าไม่ขยาย (ผู้ตรวจ #137 ข้อ 1) · ขยายอย่างเดียว ไม่หด · เพดาน FIT_MAX เดียวกัน
  */
 export function writeTotalRow(ws, lines, soTotal) {
   const T = BINCARD_TPL;
@@ -264,11 +268,29 @@ export function writeTotalRow(ws, lines, soTotal) {
   if (soTotal) {
     ws.getCell('N' + totalRow).value = soTotal.pos ? soTotal.short : '-';
     ws.getCell('O' + totalRow).value = soTotal.pos ? soTotal.over : '-';
+    if (soTotal.pos) ws.getCell('R' + totalRow).value = `Short / Over รวมทุก PO (${soTotal.pos} ใบ) · ดูราย PO ในโปรแกรม`;
   }
   for (const col of ['C', 'G', 'K', 'N', 'O']) {
     const c = ws.getCell(col + totalRow);
     c.font = { ...(c.font || { name: 'Tahoma', size: 11 }), bold: true };
   }
+  const W = soWidths();
+  for (const col of Object.keys(W)) {
+    const w = ws.getColumn(col).width;
+    if (w !== undefined) W[col] = w;
+  }
+  let grew = false;
+  for (const col of ['C', 'G', 'K', 'N', 'O', 'R']) {
+    const c = ws.getCell(col + totalRow);
+    const need = textWidth(c.value, c.font && c.font.size);
+    const base = W[col] === undefined ? XL_DEFAULT_W : W[col];
+    if (need > base) {
+      W[col] = Math.max(base, Math.min(FIT_MAX, Math.ceil(need * 100) / 100));
+      ws.getColumn(col).width = W[col];
+      grew = true;
+    }
+  }
+  if (grew) ws.pageSetup = { ...(ws.pageSetup || {}), scale: Math.min(SO_SCALE, fitScale(W)) };
   return totalRow;
 }
 

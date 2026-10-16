@@ -902,24 +902,6 @@ export function cardShortOver(rows, { headerOf, usageOf } = {}) {
  * calcAll = shortAll(..., { all: true }) · เจ้าของเคาะ: ทุก PO ที่มีรหัสนี้ในสูตรและเริ่มรับแล้ว (รวมที่ครบพอดี)
  * follows = เรื่องตามงาน — แนบเรื่องขาด/เกินที่ยังเปิดอยู่ของคู่นั้นไว้ให้เห็น
  */
-/**
- * ยอด Short / Over รวมทุก PO ของรหัสเดียว (เจ้าของสั่ง 16 ต.ค. 2026)
- * ไว้เทียบกับของจริงและข้อมูลของ Delta ว่า over ที่ถืออยู่ยังเท่ากันไหม — เผลอจ่ายของ over ออกไปแล้วมีปัญหาตามมา
- * poRows = codeShortOver(...) · ⚠️ ห้ามบวกคอลัมน์ Short/Over ของแถวในการ์ด — แถวพวกนั้นเป็นยอดสะสมราย PO
- *    PO เดียวรับสามรอบ = สามแถวที่ซ้ำยอดเดิม บวกกันแล้วได้สามเท่า
- * คืน { short, over, pos } · pos = จำนวน PO ที่คิดได้ (0 = ไม่มี PO ไหนคิดได้ ให้ผู้เรียกโชว์ "-")
- */
-export function shortOverTotal(poRows) {
-  let short = 0, over = 0, pos = 0;
-  for (const p of poRows || []) {
-    if (!p) continue;
-    pos++;
-    short += Number(p.short) || 0;
-    over += Number(p.over) || 0;
-  }
-  return { short: round5(short), over: round5(over), pos };
-}
-
 export function codeShortOver(calcAll, code, follows = []) {
   const c = txt(code).toUpperCase();
   if (!c) return [];
@@ -937,6 +919,24 @@ export function codeShortOver(calcAll, code, follows = []) {
                short: r.short > 0 ? r.short : 0, over,
                follow: open.get(pairKey(r.po, c) + '|short') || open.get(pairKey(r.po, c) + '|over') || null };
     });
+}
+
+/**
+ * ยอด Short / Over รวมทุก PO ของรหัสเดียว (เจ้าของสั่ง 16 ต.ค. 2026)
+ * ไว้เทียบกับของจริงและข้อมูลของ Delta ว่า over ที่ถืออยู่ยังเท่ากันไหม — เผลอจ่ายของ over ออกไปแล้วมีปัญหาตามมา
+ * poRows = codeShortOver(...) · ⚠️ ห้ามบวกคอลัมน์ Short/Over ของแถวในการ์ด — แถวพวกนั้นเป็นยอดสะสมราย PO
+ *    PO เดียวรับสามรอบ = สามแถวที่ซ้ำยอดเดิม บวกกันแล้วได้สามเท่า
+ * คืน { short, over, pos } · pos = จำนวน PO ที่คิดได้ (0 = ไม่มี PO ไหนคิดได้ ให้ผู้เรียกโชว์ "-")
+ */
+export function shortOverTotal(poRows) {
+  let short = 0, over = 0, pos = 0;
+  for (const p of poRows || []) {
+    if (!p) continue;
+    pos++;
+    short += Number(p.short) || 0;
+    over += Number(p.over) || 0;
+  }
+  return { short: round5(short), over: round5(over), pos };
 }
 
 /**
