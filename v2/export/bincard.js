@@ -274,8 +274,12 @@ export function writeTotalRow(ws, lines, soTotal) {
     const c = ws.getCell(col + totalRow);
     c.font = { ...(c.font || { name: 'Tahoma', size: 11 }), bold: true };
   }
+  /* ⚠️ ฐานต้องเป็นความกว้างที่อยู่บนชีตจริง ไล่ให้ครบ A–S (ผู้ตรวจ #137 รอบ 2)
+   * เดิมไล่แค่ Object.keys(soWidths()) ซึ่งไม่มี F–K (ฟอร์มไม่ได้ตั้งความกว้างไว้)
+   * ฐานของ G / K จึงตกไปใช้ XL_DEFAULT_W ทั้งที่ fitColWidths เพิ่งขยายตามแถวข้อมูลไปแล้ว
+   * แล้วบรรทัดเขียนความกว้างข้างล่างก็ทับของที่ขยายไว้ด้วยค่าที่เล็กกว่า → แถวข้อมูลขึ้น ##### */
   const W = soWidths();
-  for (const col of Object.keys(W)) {
+  for (const col of 'ABCDEFGHIJKLMNOPQRS') {
     const w = ws.getColumn(col).width;
     if (w !== undefined) W[col] = w;
   }

@@ -363,6 +363,19 @@ console.log('\n=== H. แถวรวม: ป้าย "รวม" · ตัว�
     ok('เลขสั้นไม่ทำให้คอลัมน์หด', wsS.getColumn('N').width === soWidths().N && wsS.getColumn('O').width === soWidths().O,
        `${wsS.getColumn('N').width} vs ${soWidths().N}`);
     ok('ขยายแล้ว scale ยังพอดีหน้า (ไม่เกิน SO_SCALE)', (wsL.pageSetup || {}).scale <= SO_SCALE, String((wsL.pageSetup || {}).scale));
+    // คอลัมน์จำนวน (G รับ / K จ่าย) ฟอร์มไม่ได้ตั้งความกว้างไว้ — ขั้นแถวรวมต้องไม่หดของที่ fitColWidths ขยายไว้
+    // ผลรวมลงท้าย .60 สตริงจึงสั้นกว่าแถวข้อมูล เคสนี้เคยทำให้ตัวเลขในแถวข้อมูลขึ้น ##### (ผู้ตรวจ #137 รอบ 2)
+    const wsQ = fakeWs();
+    const qLines = toCardLines([
+      { kind: 'receive', at, moved: 43205.93, balance: 43205.93, person: 'ก', doc_ref: 'PO1' },
+      { kind: 'receive', at, moved: 43290.67, balance: 86496.6, person: 'ก', doc_ref: 'PO1' },
+      { kind: 'issue', at, moved: -43205.93, balance: 43290.67, person: 'ก', doc_ref: 'PO1' },
+      { kind: 'issue', at, moved: -43290.67, balance: 0, person: 'ก', doc_ref: 'PO1' }
+    ], 'PCS');
+    writeBinCard(wsQ, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 0, over: 4, pos: 1 } }, qLines);
+    ok('แถวรวมไม่หดคอลัมน์จำนวนรับ/จ่าย (G / K) ที่ขยายไว้ตามแถวข้อมูล',
+       wsQ.getColumn('G').width >= textWidth(43205.93) && wsQ.getColumn('K').width >= textWidth(43205.93),
+       `G ${wsQ.getColumn('G').width} · K ${wsQ.getColumn('K').width} vs ${textWidth(43205.93)}`);
   }
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('ทั้งการ์ดเดียวและ .zip ส่ง soTotal จากตัวคิดเดียวกับบนจอ',
