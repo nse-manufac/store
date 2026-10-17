@@ -48,6 +48,17 @@ export function balances(entries, entity) {
 }
 
 /**
+ * ยอดคงเหลือทุกรหัส ณ เวลา at (รวมรายการที่เวลาเท่ากับ at) — Map<code, number>
+ * ใช้กับการนับที่ Delta ทำตอนที่ยังมีของเข้าออกอยู่ (เจ้าของสั่ง 17 ต.ค. 2026)
+ * เทียบยอดนับกับยอด ณ ตอนนับ ไม่ใช่ยอดตอนกดนำเข้า — ไม่งั้นของที่เข้าออกหลังนับจะถูกปรับทิ้ง
+ */
+export function balancesAt(entries, entity, at) {
+  need(entity);
+  const cut = String(at || '');
+  return balances((entries || []).filter(e => cut && String(e.at || '') <= cut), entity);
+}
+
+/**
  * ยอดของชนิดหนึ่งที่อ้าง PO ใบนี้ แยกตามรหัส — Map<code, { qty, times, ats }>
  *
  * qty เป็นยอดดิบ (บวกเสมอ) ไม่ใช่ signedQty — ผู้เรียกรู้อยู่แล้วว่าถามชนิดไหน

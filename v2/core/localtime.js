@@ -56,6 +56,20 @@ export function rollDay(value, setOn, today) {
   return value === setOn ? today : value;
 }
 
+/**
+ * วันที่ + เวลาที่คนเลือก (YYYY-MM-DD · HH:MM) ตามเวลาเครื่อง → ISO — ใช้กับ "เวลาที่ Delta นับ" (เจ้าของสั่ง 17 ต.ค. 2026)
+ * ต่างจาก atFrom ที่ยืมเวลาในวันจากนาฬิกา — ตรงนี้คนบอกเวลาเอง · รูปแบบผิด = '' (ผู้เรียกบอกให้แก้)
+ * ⚠️ สร้างผ่าน new Date(ปี, เดือน, วัน, ชม, นาที) ตามเวลาเครื่อง ห้ามต่อสตริง (กติกาเดียวกับ atFrom)
+ */
+export function atFromDateTime(dateStr, timeStr) {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
+  const t = /^(\d{1,2}):(\d{2})$/.exec(String(timeStr || '').trim());
+  if (!d || !t || +t[1] > 23 || +t[2] > 59) return '';
+  const x = new Date(+d[1], +d[2] - 1, +d[3], +t[1], +t[2], 0, 0);
+  if (x.getFullYear() !== +d[1] || x.getMonth() !== +d[2] - 1 || x.getDate() !== +d[3]) return '';
+  return x.toISOString();
+}
+
 export function atFrom(dateStr, now = new Date()) {
   if (!dateStr) return now.toISOString();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr).trim());

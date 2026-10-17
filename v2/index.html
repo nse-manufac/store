@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-16.1">
+<meta name="app-version" content="2026-10-17.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -889,15 +889,74 @@ textarea{font:inherit}
                 <span class="hint"> · คนนับ {{ cs.person }}</span></div>
               <div class="grow"></div>
               <span class="tag" :class="cs.status==='posted'?'ok':'warn'">{{ STATUS[cs.status] }}</span>
+              <button class="btn" v-if="cs.status!=='posted'" @click="ciOpen">📥 นำเข้ายอดนับจากไฟล์ Delta</button>
               <button class="btn" @click="printSheet">🖨 พิมพ์ใบนับ</button>
               <button class="btn" @click="cs=null">ปิด</button>
             </div>
+            <div class="msg ok" style="margin:12px 0 0" v-if="cs.count_at">
+              <b>เทียบกับยอดในระบบ ณ เวลานับ {{ localDateTime(cs.count_at) }}</b> · ปรับยอดจะลงไว้ ณ เวลานั้น
+              <span class="hint">· {{ cs.count_source }}</span></div>
             <div class="msg warn" style="margin:12px 0 0" v-if="cs.status!=='posted'">
               <b>ใบนับไม่มีตัวเลขของระบบอยู่ในนั้น — ตั้งใจให้เป็นแบบนั้น</b><br>
               <span class="hint">ถ้าคนนับเห็นว่าระบบบอกเท่าไหร่ เขาจะนับได้เท่านั้น
                 ไม่ใช่เพราะขี้โกงแต่เพราะสมองทำแบบนั้นเอง แล้วการนับทั้งรอบจะเสียเปล่า
                 — ส่วนต่างค่อยดูตอนคีย์ผลเข้ามาแล้ว</span>
             </div>
+          </div>
+
+          <!-- ── นำเข้ายอดนับจากไฟล์ Excel ของ Delta (เจ้าของสั่ง 17 ต.ค. 2026) ── -->
+          <div class="card noprint" v-if="ci.open && cs.status!=='posted'">
+            <div class="row">
+              <h2 style="margin:0">นำเข้ายอดนับจากไฟล์ Delta</h2>
+              <div class="grow"></div>
+              <span class="tag warn" style="font-size:14px;padding:4px 10px">ลงกับนิติบุคคล <b>{{ cs.entity }}</b></span>
+              <button class="btn" @click="ci.open=false">ปิด</button>
+            </div>
+            <p class="hint" style="margin:6px 0 0">ไฟล์สรุปยอดสุดท้ายจาก inventory check ของ Delta — <b>หนึ่งไฟล์ต่อหนึ่งนิติบุคคล</b> ·
+              อ่านจากหัวคอลัมน์ MATERIAL NO กับ QTY · ยอดต้องเป็นหน่วยเดียวกับทะเบียน</p>
+            <div class="row" style="margin-top:10px;align-items:flex-end">
+              <label class="f">ไฟล์ Excel ของ Delta
+                <input type="file" accept=".xlsx,.xls" @change="ciFile" :disabled="ci.busy"></label>
+              <label class="f" v-if="ci.sheets.length">ชีต
+                <select v-model="ci.sheet"><option v-for="s in ci.sheets" :key="s.name" :value="s.name">{{ s.name }}</option></select></label>
+              <label class="f" style="width:150px">วันที่ Delta นับ<input type="date" v-model="ci.date"></label>
+              <label class="f" style="width:110px">เวลา<input type="time" v-model="ci.time"></label>
+            </div>
+            <p class="hint" style="margin:6px 0 0">เวลาที่นับใช้คิดยอดในระบบ <b>ณ ตอนนั้น</b> และรายการปรับยอดจะลงไว้ ณ เวลานั้น —
+              ของที่รับเข้า/จ่ายออกหลังนับยังนับต่อถูก · ⚠️ คีย์ของที่ค้างก่อนเวลานับให้ครบก่อนลงบัญชี</p>
+            <p class="msg bad" style="margin:10px 0 0" v-if="ciErr">{{ ciErr }}</p>
+            <template v-if="ciPlan && !ciErr">
+              <div class="row" style="gap:26px;margin-top:12px;align-items:flex-start">
+                <div><div class="hint">จับคู่กับทะเบียนได้</div><div class="big">{{ ciPlan.matched.length }}</div>
+                  <div class="hint" v-if="ciPlan.padded.length">เติม 0 ข้างหน้า {{ ciPlan.padded.length }}</div></div>
+                <div><div class="hint">ยอดต่างจากระบบ ณ เวลานับ</div><div class="big warn">{{ ciPlan.diff }}</div></div>
+                <div v-if="ciPlan.unknown.length"><div class="hint">ไม่มีในทะเบียน (ไม่ลง)</div><div class="big bad">{{ ciPlan.unknown.length }}</div></div>
+                <div v-if="ciPlan.parsed.errors.length"><div class="hint">แถวที่อ่านไม่ได้</div><div class="big bad">{{ ciPlan.parsed.errors.length }}</div></div>
+                <div v-if="ciPlan.parsed.dups.length"><div class="hint">รหัสซ้ำในไฟล์ (รวมยอดให้)</div><div class="big warn">{{ ciPlan.parsed.dups.length }}</div></div>
+                <div><div class="hint">ระบบมีของ แต่ไม่อยู่ในไฟล์</div><div class="big">{{ ciPlan.missing.length }}</div></div>
+              </div>
+              <details v-if="ciPlan.unknown.length" style="margin-top:10px"><summary>รหัสในไฟล์ที่ไม่มีในทะเบียน — {{ ciPlan.unknown.length }} รหัส (เพิ่มเข้าทะเบียนก่อน แล้วนำเข้าใหม่)</summary>
+                <div class="scroll" style="max-height:30vh"><table><thead><tr><th style="width:90px">แถวในไฟล์</th><th style="width:140px">รหัส</th><th>ชื่อในไฟล์</th><th style="width:110px">ยอด</th></tr></thead>
+                  <tbody><tr v-for="u in ciPlan.unknown" :key="u.code"><td class="mono hint">{{ u.line }}</td><td class="mono">{{ u.code }}</td><td>{{ u.desc || '—' }}</td><td class="mono">{{ u.qty }}</td></tr></tbody></table></div></details>
+              <details v-if="ciPlan.parsed.errors.length" style="margin-top:6px"><summary>แถวที่อ่านไม่ได้ — {{ ciPlan.parsed.errors.length }} แถว (ไม่ลง)</summary>
+                <div v-for="e in ciPlan.parsed.errors" :key="e.line" class="hint">แถว {{ e.line }} {{ e.code || '' }} — {{ e.why }}</div></details>
+              <details v-if="ciPlan.parsed.dups.length" style="margin-top:6px"><summary>รหัสซ้ำในไฟล์ — {{ ciPlan.parsed.dups.length }} รหัส (รวมยอดทุกแถวให้)</summary>
+                <div v-for="d in ciPlan.parsed.dups" :key="d.code" class="hint mono">{{ d.code }} · แถว {{ d.lines.join(', ') }} · รวม {{ d.qty }}</div></details>
+              <details v-if="ciPlan.padded.length" style="margin-top:6px"><summary>จับคู่ด้วยการเติม 0 ข้างหน้า — {{ ciPlan.padded.length }} รหัส (Excel ตัด 0 ตัวแรกทิ้ง)</summary>
+                <div v-for="m in ciPlan.padded" :key="m.code" class="hint mono">{{ m.fileCode }} → {{ m.code }}</div></details>
+              <details v-if="ciPlan.missing.length" style="margin-top:6px" open><summary>ระบบมีของ ณ เวลานับ แต่ไม่อยู่ในไฟล์ — {{ ciPlan.missing.length }} รหัส · ติ๊กตัวที่ให้นับเป็น 0 (ไม่ติ๊ก = ไม่แตะ)</summary>
+                <div class="row" style="margin:6px 0"><button class="btn" @click="ciTickAll(true)">ติ๊กทั้งหมด</button>
+                  <button class="btn" @click="ciTickAll(false)">เอาออกทั้งหมด</button><span class="hint">ติ๊กไว้ {{ ciTicked }}</span></div>
+                <div class="scroll" style="max-height:34vh"><table><thead><tr><th style="width:34px"></th><th style="width:140px">รหัส</th><th>ชื่อ</th><th style="width:120px">ยอดในระบบ</th></tr></thead>
+                  <tbody><tr v-for="m in ciPlan.missing" :key="m.code">
+                    <td><input type="checkbox" v-model="ci.tick[m.code]"></td><td class="mono">{{ m.code }}</td>
+                    <td>{{ (matOf(m.code) || {}).description || '—' }}</td><td class="mono">{{ m.book }} {{ (matOf(m.code) || {}).unit || '' }}</td></tr></tbody></table></div></details>
+              <div class="row" style="margin-top:12px">
+                <span class="hint">{{ ci.file }} · ชีต {{ ci.sheet }} · นับเมื่อ {{ localDateTime(ciAt) }}</span>
+                <div class="grow"></div>
+                <button class="btn primary" @click="ciApply">ใส่ยอดนับ {{ ciPlan.matched.length }} รหัส{{ ciTicked ? ' + นับเป็น 0 อีก ' + ciTicked : '' }} ลงรอบนี้</button>
+              </div>
+            </template>
           </div>
 
           <!-- ใบนับ (แสดงตอนพิมพ์) -->
