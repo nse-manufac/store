@@ -99,9 +99,11 @@ export function planSummary(rows) {
   };
 }
 
-/** สร้างรายการลงสมุดจากแผน — ไม่เขียนอะไรเอง คืนของให้ผู้เรียกไปบันทึก */
+/** สร้างรายการลงสมุดจากแผน — ไม่เขียนอะไรเอง คืนของให้ผู้เรียกไปบันทึก
+ *  รอบที่ระบุเวลานับ (session.count_at · นำเข้าไฟล์ Delta) ลงรายการ ณ เวลานั้น
+ *  ของที่เข้าออกหลังนับจึงต่อท้ายถูกที่ ยอดปัจจุบันไม่เพี้ยน */
 export function postCount(session, rows, { device = '' } = {}) {
-  const at = new Date().toISOString();
+  const at = session.count_at || new Date().toISOString();
   return rows.filter(r => r.kind).map(r => {
     const base = { entity: session.entity, material_code: r.code, person: session.person,
                    device, at, doc_kind: 'count', doc_ref: session.id,
@@ -112,4 +114,91 @@ export function postCount(session, rows, { device = '' } = {}) {
     return makeEntry({ ...base, kind: 'adjust', reason_code: 'count',
                        counted_qty: r.counted, book_qty: r.book });
   });
+}
+
+/* ══════════ นำเข้ายอดนับจากไฟล์ Excel ของ Delta (เจ้าของสั่ง 17 ต.ค. 2026) ══════════
+ * Delta มาทำ inventory check แล้วส่งไฟล์สรุปยอดสุดท้ายมา (แยกไฟล์ต่อนิติบุคคล)
+ * ชีตหน้าตา: ITEM · MATERIAL NO · MATERIAL DESCRIPTION · QTY · REMARK · ท้ายชีตมี "GRAND TOTAL AMOUNT"
+ * ไม่มีคอลัมน์หน่วย / นิติบุคคล / ล็อต — หน่วยเดียวกับทะเบียน (เจ้าของยืนยัน) · นิติบุคคล = ที่เลือกบนหัวจอ
+ */
+const cellText = v => String(v == null ? '' : v).trim();
+const headKey = v => cellText(v).toUpperCase().replace(/[\s._]+/g, '');
+
+/**
+ * อ่านชีต (array of arrays) → { rows: [{ line, code, qty, desc }], errors: [{ line, why }], dups: [{ code, lines, qty }], header }
+ * ⚠️ หาคอลัมน์จากหัว (MATERIAL NO · QTY) ไม่ยึดตำแหน่ง — ไฟล์รอบจริงสลับคอลัมน์ได้
+ * ⚠️ รหัสซ้ำในไฟล์ = รวมยอดให้ แล้วรายงานไว้ (นับสองที่ = สองแถว) · ห้ามเงียบ
+ * ⚠️ หยุดที่แถว GRAND TOTAL · แถวว่างข้าม · ยอดว่าง/ไม่ใช่ตัวเลข/ติดลบ = รายงานเป็นข้อผิด ไม่เดาเป็นศูนย์
+ */
+export function parseCountSheet(aoa) {
+  const rows = aoa || [];
+  let header = -1, cCode = -1, cQty = -1, cDesc = -1;
+  for (let i = 0; i < Math.min(rows.length, 40) && header < 0; i++) {
+    const keys = (rows[i] || []).map(headKey);
+    const code = keys.findIndex(k => k === 'MATERIALNO' || k === 'MATERIAL' || k === 'MATERIALCODE' || k === 'MATNO');
+    const qty = keys.findIndex(k => k === 'QTY' || k === 'QUANTITY');
+    if (code >= 0 && qty >= 0) {
+      header = i; cCode = code; cQty = qty;
+      cDesc = keys.findIndex(k => k.startsWith('MATERIALDESC') || k === 'DESCRIPTION');
+    }
+  }
+  if (header < 0) return { rows: [], errors: [{ line: 0, why: 'หาหัวคอลัมน์ "MATERIAL NO" กับ "QTY" ไม่เจอ — เลือกชีตผิดหรือเปล่า' }], dups: [], header: -1 };
+  const out = new Map(), errors = [], lines = new Map();
+  for (let i = header + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    if (r.some(v => /GRAND\s*TOTAL/i.test(cellText(v)))) break;
+    const raw = r[cCode];
+    const code = cellText(typeof raw === 'number' ? String(raw) : raw).toUpperCase();
+    const q = r[cQty];
+    if (!code && (q === '' || q == null)) continue;
+    const line = i + 1;
+    // เส้นคั่นอย่าง "=====" ใต้ตารางไม่ใช่รายการ · ไม่มีรหัสแต่มีตัวเลข = รายงาน
+    if (!code) { if (typeof q === 'number' || /^-?[\d.,]+$/.test(cellText(q))) errors.push({ line, why: 'มียอดแต่ไม่มีรหัส' }); continue; }
+    const n = typeof q === 'number' ? q : (cellText(q) === '' ? NaN : Number(cellText(q).replace(/,/g, '')));
+    if (!isFinite(n)) { errors.push({ line, code, why: 'ยอดว่างหรือไม่ใช่ตัวเลข' }); continue; }
+    if (n < 0) { errors.push({ line, code, why: 'ยอดติดลบ' }); continue; }
+    const prev = out.get(code);
+    out.set(code, { line: prev ? prev.line : line, code, qty: round5((prev ? prev.qty : 0) + n),
+                    desc: prev ? prev.desc : (cDesc >= 0 ? cellText(r[cDesc]) : '') });
+    lines.set(code, [...(lines.get(code) || []), line]);
+  }
+  const dups = [...lines].filter(([, l]) => l.length > 1).map(([code, l]) => ({ code, lines: l, qty: out.get(code).qty }));
+  return { rows: [...out.values()], errors, dups, header: header + 1 };
+}
+
+/**
+ * จับคู่รหัสในไฟล์กับทะเบียน — known = Set ของรหัสในทะเบียน (ตัวพิมพ์ใหญ่)
+ * ตรงเป๊ะก่อน · ไม่เจอและเป็นตัวเลข 9 หลัก → ลองเติม 0 ข้างหน้า (Excel ตัด 0 ตัวแรกของรหัสที่เป็นตัวเลขทิ้ง)
+ * ⚠️ ไม่เดาอย่างอื่น — รหัสที่ลงท้ายตัวอักษรหรือไม่มีในทะเบียน ขึ้นเป็น unknown ให้คนดู
+ * คืน { matched: [{ code, qty, fileCode, padded, desc }], unknown: [{ code, qty, desc, line }] }
+ */
+export function matchCountRows(rows, known) {
+  const matched = [], unknown = [], taken = new Map();
+  for (const r of rows || []) {
+    let code = r.code, padded = false;
+    if (!known.has(code) && /^\d{9}$/.test(code) && known.has('0' + code)) { code = '0' + code; padded = true; }
+    if (!known.has(code)) { unknown.push({ code: r.code, qty: r.qty, desc: r.desc, line: r.line }); continue; }
+    // เติม 0 แล้วไปชนรหัสที่มีอยู่แล้วในไฟล์ = รวมยอด (ของชิ้นเดียวกัน)
+    if (taken.has(code)) { const m = taken.get(code); m.qty = round5(m.qty + r.qty); continue; }
+    const m = { code, qty: r.qty, fileCode: r.code, padded, desc: r.desc };
+    taken.set(code, m); matched.push(m);
+  }
+  return { matched, unknown };
+}
+
+/**
+ * รหัสที่ระบบมีของ (ยอด ≠ 0 ณ เวลานับ) แต่ไม่อยู่ในไฟล์ — เจ้าของเลือก: ไม่แตะเอง ขึ้นให้คนติ๊กว่าตัวไหนนับเป็น 0
+ * book = Map<code, number> · match = ผลจาก matchCountRows() · คืน [{ code, book }] เรียงตามรหัส
+ *
+ * ⚠️ รับผลจาก matchCountRows() ทั้งก้อน ไม่ใช่ Set ที่ผู้เรียกทำเอง
+ * เพราะ "อยู่ในไฟล์" = matched + unknown · รหัสที่อยู่ในไฟล์แต่ยังไม่มีในทะเบียน (unknown)
+ * ก็คือรหัสที่ Delta นับมาให้แล้ว ถ้านับแค่ matched มันจะไปโผล่ในรายการ "ไม่อยู่ในไฟล์"
+ * แล้วคนกด "ติ๊กทั้งหมด" จะล้างยอดจริงทิ้งเป็น 0
+ */
+export function missingFromFile(book, match) {
+  const inFile = new Set([...((match && match.matched) || []).map(m => m.code),
+                          ...((match && match.unknown) || []).map(u => u.code)]);
+  const out = [];
+  for (const [code, qty] of book || []) if (qty !== 0 && !inFile.has(code)) out.push({ code, book: qty });
+  return out.sort((a, b) => a.code.localeCompare(b.code));
 }

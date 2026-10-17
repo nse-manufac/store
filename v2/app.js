@@ -12,13 +12,14 @@ import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf, manualBomPlan,
          bomId, activeBomRowsOf, reqmtOf } from './master/bom.js';
-import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from './core/count.js';
+import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
+         parseCountSheet, matchCountRows, missingFromFile } from './core/count.js';
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
-import { balances, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
-import { localDate, localTime, atFrom, todayLocal, rollDay } from './core/localtime.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
+import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
@@ -727,11 +728,88 @@ createApp({
     const bookBalances = computed(() =>
       entity.value ? balances(entries.value, entity.value) : new Map());
 
+    /* รอบที่ระบุเวลานับ (นำเข้าไฟล์ Delta) เทียบกับยอด ณ เวลานับ ไม่ใช่ยอดตอนนี้ (เจ้าของสั่ง 17 ต.ค. 2026)
+     * ระหว่าง Delta นับยังมีของเข้าออก — เทียบยอดตอนนี้ = ของที่เข้าออกหลังนับถูกปรับทิ้ง */
+    const csAtBook = computed(() => (cs.value && cs.value.count_at)
+      ? balancesAt(entries.value, cs.value.entity, cs.value.count_at) : null);
+    const csAtHistory = computed(() => {
+      if (!cs.value || !cs.value.count_at) return null;
+      const s = new Set();
+      for (const e of entries.value) {
+        if (e.entity === cs.value.entity && String(e.at || '') <= cs.value.count_at) s.add(String(e.material_code));
+      }
+      return s;
+    });
     const csPlanRows = computed(() => cs.value
-      ? planCount(cs.value, { balances: bookBalances.value,
-                              codesWithHistory: codesWithHistory.value,
+      ? planCount(cs.value, { balances: csAtBook.value || bookBalances.value,
+                              codesWithHistory: csAtHistory.value || codesWithHistory.value,
                               reference: csRef.value.size ? csRef.value : null })
       : []);
+
+    /* ── นำเข้ายอดนับจากไฟล์ Excel ของ Delta (เจ้าของสั่ง 17 ต.ค. 2026) ── ตรรกะอยู่ที่ core/count.js
+     * ไฟล์ → ยอดนับในรอบนี้ แล้วใช้ "จะลงบัญชีแบบนี้ → ลงบัญชี" ตัวเดิม · ระหว่างนั้นแก้มือได้
+     * ⚠️ นิติบุคคล = ของรอบนับ (cs.entity) — ไฟล์ไม่มีคอลัมน์นิติบุคคล Delta แยกไฟล์ให้ (A3)
+     * ⚠️ รหัสที่ระบบมีของแต่ไม่อยู่ในไฟล์ ไม่แตะเอง — คนติ๊กว่าตัวไหนนับเป็น 0 (เจ้าของเลือก) */
+    const ci = reactive({ open: false, file: '', sheets: [], sheet: '', date: '', time: '', tick: {}, busy: false });
+    function ciOpen() {
+      Object.assign(ci, { open: true, file: '', sheets: [], sheet: '', date: todayLocal(), time: '', tick: {} });
+    }
+    async function ciFile(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      ci.busy = true;
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+        ci.sheets = wb.SheetNames.map(n => ({ name: n,
+          aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true }) }));
+        ci.file = file.name;
+        ci.sheet = wb.SheetNames[wb.SheetNames.length - 1] || '';   // ไฟล์ของ Delta ยอดอยู่ชีตสุดท้าย
+        ci.tick = {};
+      } catch (err) { flash('อ่านไฟล์ไม่ได้: ' + err.message, true); }
+      finally { ci.busy = false; ev.target.value = ''; }
+    }
+    const ciAt = computed(() => atFromDateTime(ci.date, ci.time));
+    const ciPlan = computed(() => {
+      if (!cs.value || !ci.sheet) return null;
+      const sh = ci.sheets.find(s => s.name === ci.sheet);
+      if (!sh) return null;
+      const parsed = parseCountSheet(sh.aoa);
+      const known = new Set(materials.value.map(m => normCode(m.material_code)));
+      const match = matchCountRows(parsed.rows, known);
+      const { matched, unknown } = match;
+      const book = ciAt.value ? balancesAt(entries.value, cs.value.entity, ciAt.value) : null;
+      const missing = book ? missingFromFile(book, match) : [];
+      const diff = book ? matched.filter(m => round5(m.qty) !== round5(book.get(m.code) || 0)).length : 0;
+      return { parsed, matched, unknown, missing, diff, padded: matched.filter(m => m.padded) };
+    });
+    const ciErr = computed(() => {
+      if (!ci.sheet) return '';
+      if (!ci.date || !ci.time) return 'ใส่วันที่และเวลาที่ Delta นับ — ใช้คิดยอดในระบบ ณ ตอนนั้น';
+      if (!ciAt.value) return 'วันที่หรือเวลาไม่ถูกต้อง';
+      if (ciAt.value > new Date().toISOString()) return 'เวลาที่นับต้องไม่อยู่ในอนาคต';
+      if (ciPlan.value && ciPlan.value.parsed.header < 0) return ciPlan.value.parsed.errors[0].why;
+      if (ciPlan.value && !ciPlan.value.matched.length) return 'ไม่มีรหัสในไฟล์ที่ตรงกับทะเบียนเลย — ตรวจว่าเลือกชีตถูก';
+      return '';
+    });
+    const ciTicked = computed(() => ciPlan.value ? ciPlan.value.missing.filter(m => ci.tick[m.code]).length : 0);
+    function ciTickAll(on) { for (const m of (ciPlan.value ? ciPlan.value.missing : [])) ci.tick[m.code] = on; }
+    function ciApply() {
+      const p = ciPlan.value;
+      if (!cs.value || !p || ciErr.value) return;
+      const keyed = Object.entries(cs.value.counted || {})
+        .filter(([, v]) => v && v.qty !== null && v.qty !== undefined && v.qty !== '').length;
+      if (keyed && !confirm(`รอบนี้คีย์ยอดไว้แล้ว ${keyed} รหัส — ยอดจากไฟล์จะทับรหัสที่ซ้ำกัน · ทำต่อไหม`)) return;
+      const note = `ไฟล์ Delta ${ci.file} · ชีต ${ci.sheet}`;
+      for (const m of p.matched) cs.value.counted[m.code] = { qty: m.qty, note: note + (m.padded ? ' (รหัสในไฟล์ ' + m.fileCode + ')' : '') };
+      for (const m of p.missing) if (ci.tick[m.code]) cs.value.counted[m.code] = { qty: 0, note: 'ไม่อยู่ในไฟล์ Delta — นับเป็น 0' };
+      cs.value.count_at = ciAt.value;
+      cs.value.count_source = note;
+      saveCount();
+      flash(`ใส่ยอดนับจากไฟล์ ${p.matched.length} รหัส` + (ciTicked.value ? ` · นับเป็น 0 อีก ${ciTicked.value} รหัส` : '')
+            + ' — ตรวจที่ "จะลงบัญชีแบบนี้" แล้วกดลงบัญชี');
+      ci.open = false;
+    }
     const csSum = computed(() => planSummary(csPlanRows.value));
 
     function startCount() {
@@ -3563,7 +3641,7 @@ createApp({
              nbSug, nbSugList, nbTyping, nbMove, nbChoose, nbBlur, bomLive, nbMats, nbRemove, nbInHouse,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
-             csRows, csFilled, csPlanRows, csSum,
+             csRows, csFilled, csPlanRows, ci, ciOpen, ciFile, ciAt, ciPlan, ciErr, ciTicked, ciTickAll, ciApply, localDateTime, csSum,
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,

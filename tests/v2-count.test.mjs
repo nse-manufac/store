@@ -5,8 +5,11 @@
  * หมวด A คือข้อที่สำคัญที่สุด — ใบนับต้องไม่มีตัวเลขของระบบติดไปด้วย
  * ถ้าข้อนั้นตก การนับทั้งรอบจะกลายเป็นการยืนยันตัวเลขเดิม แล้วเสียแรงเปล่าทั้งหมด
  */
-import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS } from '../v2/core/count.js';
-import { balances } from '../v2/core/balance.js';
+import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
+         parseCountSheet, matchCountRows, missingFromFile } from '../v2/core/count.js';
+import { balances, balancesAt } from '../v2/core/balance.js';
+import { atFromDateTime, localDate, localTime } from '../v2/core/localtime.js';
+import fs from 'node:fs';
 import { makeEntry, signedQty } from '../v2/core/ledger.js';
 
 let pass = 0, fail = 0;
@@ -127,6 +130,87 @@ ok('จะลงยกยอดมากี่ตัว', sum.open === 2);
 ok('ตรงกันแล้วกี่ตัว', sum.same === 1);
 const sum2 = planSummary(rows2);
 ok('แยกปรับขึ้นกับปรับลง', sum2.down === 1 && sum2.up === 0);
+
+console.log('\n=== นำเข้ายอดนับจากไฟล์ Delta (เจ้าของสั่ง 17 ต.ค. 2026) ===');
+{
+  // ไฟล์สมมติหน้าตาเหมือนชีตของ Delta: ITEM · MATERIAL NO · MATERIAL DESCRIPTION · QTY · REMARK + เส้นคั่น + GRAND TOTAL
+  const aoa = [
+    ['ITEM', 'MATERIAL NO', 'MATERIAL DESCRIPTION', 'QTY', 'REMARK'],
+    [1, 910000001, 'ของเลข 9 หลัก', 12, ''],          // Excel ตัด 0 ข้างหน้าของ 0910000001
+    [2, 9100000101, 'TAPE', 5.25, ''],
+    [3, '9100000102 ', 'BOBBIN', '1,200', ''],        // ข้อความ · เว้นวรรค · คอมมา
+    [4, 9100000101, 'TAPE อีกที่', 1, ''],            // ซ้ำ = รวมยอด
+    [5, '91000001R0', 'ลงท้ายตัวอักษร', 3, ''],       // ไม่มีในทะเบียน
+    [6, 9100000103, 'ยอดว่าง', null, ''],
+    [7, 9100000104, 'ติดลบ', -2, ''],
+    [null, null, null, null, null],
+    [null, null, null, '==========', null],
+    [null, null, null, 'GRAND TOTAL AMOUNT :', null],
+    [99, 9100000105, 'หลัง GRAND TOTAL ห้ามอ่าน', 7, '']
+  ];
+  const p = parseCountSheet(aoa);
+  ok('หาหัวคอลัมน์จากชื่อ · อ่านรหัสตัวเลข/ข้อความ/คอมมา', p.header === 1 && p.rows.some(r => r.code === '9100000102' && r.qty === 1200));
+  ok('รหัสซ้ำในไฟล์ = รวมยอด และรายงาน', p.rows.find(r => r.code === '9100000101').qty === 6.25
+     && p.dups.length === 1 && p.dups[0].lines.join() === '3,5');
+  ok('ยอดว่าง / ติดลบ = รายงานเป็นข้อผิด ไม่เดาเป็นศูนย์', p.errors.length === 2 && !p.rows.some(r => r.code === '9100000103' || r.code === '9100000104'),
+     JSON.stringify(p.errors));
+  ok('เส้นคั่น "=====" ไม่ใช่ข้อผิด · หยุดที่ GRAND TOTAL', !p.rows.some(r => r.code === '9100000105') && !p.errors.some(e => e.line === 10));
+  const swapped = parseCountSheet([['x'], ['QTY', 'remark', 'Material No'], [4, '', 'A1']]);
+  ok('สลับคอลัมน์ได้ · หัวตารางไม่ได้อยู่แถวแรก', swapped.rows.length === 1 && swapped.rows[0].code === 'A1' && swapped.rows[0].qty === 4);
+  ok('ชีตผิด (ไม่มีหัว) = บอกให้ตรวจชีต', parseCountSheet([['Plant', 'P/N']]).header === -1
+     && /เลือกชีตผิด/.test(parseCountSheet([['Plant']]).errors[0].why));
+
+  const known = new Set(['0910000001', '9100000101', '9100000102']);
+  const m = matchCountRows(p.rows, known);
+  ok('รหัส 9 หลักที่ไม่มีในทะเบียน แต่เติม 0 แล้วมี = จับคู่ และบอกว่าเติม', m.matched.some(x => x.code === '0910000001' && x.padded && x.fileCode === '910000001'));
+  ok('ลงท้ายตัวอักษร / ไม่มีในทะเบียน = unknown ไม่เดา', m.unknown.length === 1 && m.unknown[0].code === '91000001R0');
+  ok('รหัสที่มีในทะเบียนตรงเป๊ะ ไม่เติม 0', !m.matched.find(x => x.code === '9100000101').padded);
+
+  const book = new Map([['9100000101', 6], ['9100000199', 3], ['9100000198', 0], ['9100000197', -1],
+                        ['91000001R0', 8]]);
+  const miss = missingFromFile(book, m);
+  ok('ระบบมีของ (ยอด ≠ 0) แต่ไม่อยู่ในไฟล์ = ขึ้นรายการ · ยอด 0 ไม่ขึ้น', miss.map(x => x.code).join() === '9100000197,9100000199');
+  // รหัสที่อยู่ในไฟล์แต่ยังไม่มีในทะเบียน (unknown) ก็คือ Delta นับมาให้แล้ว
+  // ถ้าหลุดไปอยู่ในตาราง "ไม่อยู่ในไฟล์" คนกด "ติ๊กทั้งหมด" จะล้างยอดจริง 8 ทิ้งเป็น 0
+  ok('รหัสที่อยู่ในไฟล์แต่ไม่มีในทะเบียน (unknown) ไม่โผล่ในรายการ "ไม่อยู่ในไฟล์"',
+     !miss.some(x => x.code === '91000001R0'), JSON.stringify(miss));
+
+  // ยอด ณ เวลานับ — ของที่เข้าออกหลังนับต้องไม่ถูกปรับทิ้ง
+  const E = 'TUE-H';
+  const t = h => `2026-10-17T0${h}:00:00.000Z`;
+  const es = [
+    makeEntry({ entity: E, kind: 'receive', material_code: 'A1', qty: 100, lot: 'L', doc_kind: 'po', doc_ref: 'PO1', person: 'ก', at: t(1) }),
+    makeEntry({ entity: E, kind: 'issue', material_code: 'A1', qty: 20, doc_kind: 'po', doc_ref: 'PO1', person: 'ก', at: t(5) })
+  ];
+  const countAt = t(3);
+  ok('ยอด ณ เวลานับไม่รวมรายการหลังเวลานั้น', balancesAt(es, E, countAt).get('A1') === 100 && balances(es, E).get('A1') === 80);
+  ok('ไม่มีเวลา = ว่าง (ไม่ใช่ยอดทั้งหมด)', balancesAt(es, E, '').size === 0);
+  const s1 = makeSession({ entity: E, person: 'ก' });
+  s1.counted.A1 = { qty: 95, note: '' };
+  s1.count_at = countAt;
+  const plan = planCount(s1, { balances: balancesAt(es, E, countAt), codesWithHistory: new Set(['A1']) });
+  ok('เทียบกับยอด ณ เวลานับ: 100 → 95 = ปรับ −5 (ไม่ใช่ 80 → 95)', plan[0].kind === 'adjust' && plan[0].delta === -5, JSON.stringify(plan[0]));
+  const posted = postCount(s1, plan, { device: 'X' });
+  const after = balances([...es, ...posted], E).get('A1');
+  ok('ลงรายการปรับยอด ณ เวลานับ · ยอดตอนนี้ = 95 − 20 = 75', posted[0].at === countAt && after === 75, `${posted[0].at} · ${after}`);
+  const s2 = makeSession({ entity: E, person: 'ก' });
+  ok('รอบนับแบบเดิม (ไม่มีเวลานับ) ลง ณ ตอนนี้เหมือนเดิม', postCount(s2, [{ code: 'A1', kind: 'adjust', counted: 1, book: 0, delta: 1, note: '' }])[0].at.slice(0, 16) === new Date().toISOString().slice(0, 16));
+
+  const iso = atFromDateTime('2026-10-17', '09:30');
+  ok('วันที่ + เวลาที่คนเลือก → ISO ที่แปลงกลับได้วัน/เวลาเดิม', localDate(iso) === '2026-10-17' && localTime(iso).startsWith('09:30'), iso);
+  ok('วันหรือเวลาผิด = ว่าง', atFromDateTime('2026-02-30', '09:00') === '' && atFromDateTime('2026-10-17', '25:00') === ''
+     && atFromDateTime('', '09:00') === '' && atFromDateTime('2026-10-17', '') === '');
+
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: แผนลงบัญชีใช้ยอด ณ เวลานับเมื่อรอบมีเวลานับ · นิติบุคคลมาจากรอบนับ (A3)',
+     /balancesAt\(entries\.value, cs\.value\.entity, cs\.value\.count_at\)/.test(app) && /csAtBook\.value \|\| bookBalances\.value/.test(app));
+  ok('จอ: ส่งผลจับคู่ทั้งก้อนเข้า missingFromFile (ไม่ใช่ Set ของ matched อย่างเดียว)',
+     /missingFromFile\(book, match\)/.test(app) && !/missingFromFile\([^)]*matched\.map/.test(app));
+  ok('จอ: ปุ่มนำเข้า · ป้ายนิติบุคคล · รายการไม่อยู่ในไฟล์ไม่ติ๊กเป็นค่าตั้งต้น · ต้องใส่เวลานับ',
+     html.includes('@click="ciOpen"') && html.includes('ลงกับนิติบุคคล <b>{{ cs.entity }}</b>') && html.includes('v-model="ci.tick[m.code]"')
+     && /tick: \{\}/.test(app) && /ใส่วันที่และเวลาที่ Delta นับ/.test(app));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
