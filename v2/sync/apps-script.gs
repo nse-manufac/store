@@ -144,6 +144,43 @@ function json(obj) {
 function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
 function nowIso() { return new Date().toISOString(); }
 
+/* ═══════════ ตารางไหนเปลี่ยนล่าสุดเมื่อไหร่ (เจ้าของสั่ง 12 ต.ค. 2026) ═══════════
+ * เดิมดึงทุกครั้งต้องอ่านทั้งชีตใต้ lock แม้ไม่มีอะไรเปลี่ยน · 7 ตาราง × ทุกเครื่อง × ทุก 2 นาที
+ * คิวยาวจนบางครั้งเกิน ~30 วินาที แล้ว Google ตอบเป็นหน้า 404 ("ไม่สามารถเปิดไฟล์ได้ในเวลานี้")
+ * ซึ่งหน้าตาเหมือน URL ผิดทุกประการ (วัด 9 ต.ค. 2026: ดึงครั้งหนึ่ง 2–35 วินาที · ราว 34 วินาทีขึ้น 404)
+ *
+ * จดเวลาที่ตารางเปลี่ยนล่าสุดไว้ใน ScriptProperties → ดึงแล้วตารางไม่ได้เปลี่ยนตั้งแต่ since
+ * = ตอบว่างทันที ไม่อ่านชีต ไม่จับ lock · รูปแบบคำตอบเดิมทุกช่อง เครื่องรุ่นเก่าใช้ต่อได้
+ *
+ * ⚠️ push ต้องจด "ก่อน" ประทับ stamp ของแถว — ทุกแถวในชีตจึงมี updated_at ไม่เก่ากว่าเวลาที่จดไว้
+ *    กลับลำดับ = มีช่วงที่แถวใหม่อยู่ในชีตแต่เวลาที่จดยังเก่า แล้ว pull ตอบว่างไปพร้อม serverTime ที่ใหม่กว่าแถวนั้น
+ *    = เครื่องนั้นไม่ได้รับแถวนั้นอีกเลย (กติกาเดียวกับคอมเมนต์ของ doPullTable)
+ * ⚠️ เผื่อ CHANGE_SLACK_MS — ตารางที่เปลี่ยนในหนึ่งนาทีก่อน since ยังอ่านเต็มอีกรอบ
+ *    ราคาคืออ่านเกินหนึ่งรอบ · กันลำดับเหตุการณ์ที่คิดไม่ถึง
+ *    ทางลัดปลอดภัยเมื่อ stamp ของแถวช้ากว่าเวลาที่จดไม่เกินค่านี้ → doPushTable จดติดกับ stamp (ไม่มีงานอ่าน/เขียนคั่น)
+ *    pull ที่มาระหว่าง push ยังเขียนอยู่: ครั้งแรกที่ serverTime ใหม่กว่า stamp ต้องมี since ≤ stamp ≤ เวลาที่จด + slack
+ *    จึงไม่เข้าทางลัด → ไปรอ lock แล้วอ่านหลัง push เสร็จ ได้แถวครบ
+ * ⚠️ ไม่เคยจด (เพิ่ง deploy) · since ว่าง · since หรือเวลาที่จดอ่านไม่ออก = อ่านเต็มเสมอ — สงสัยเมื่อไหร่ให้อ่านเต็ม
+ *    (เวลาที่จดถูกคนแก้มือเป็น "1" จะเรียงก่อนทุกเวลา แล้วตารางนั้นเข้าทางลัดตลอด · ผู้ตรวจ #136 รอบ 2 ข้อ ค)
+ * ⚠️ แก้ชีตด้วยมือ onEdit จดให้ด้วย — ไม่งั้นแถวที่แก้มือจะไม่ถูกส่งอีกเลยหลัง deploy นี้ */
+var CHANGE_SLACK_MS = 60000;
+function props() { return PropertiesService.getScriptProperties(); }
+function markChanged(table) { props().setProperty('changed_' + table, nowIso()); }
+function unchangedSince(table, since) {
+  if (!since) return false;
+  var c = props().getProperty('changed_' + table) || '';
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(c)) return false;   // ต้องเป็น ISO ที่ nowIso เขียน · Date.parse('1') ยังได้ปี 2001
+  var t = Date.parse ? Date.parse(since) : NaN;
+  if (!isFinite(t)) return false;
+  return c < new Date(t - CHANGE_SLACK_MS).toISOString();
+}
+function onEdit(e) {
+  try {
+    var n = e && e.range && e.range.getSheet().getName();
+    if (n && TABLES[n]) markChanged(n);
+  } catch (err) {}
+}
+
 function sheetOf(name) {
   var def = TABLES[name];
   var s = ss().getSheetByName(name);
@@ -240,6 +277,8 @@ function doPullTable(table, since) {
   if (!def) return { ok: false, error: 'ไม่รู้จักตาราง: ' + table };
 
   var stamp = nowIso();
+  // ตารางไม่ได้เปลี่ยนตั้งแต่ since = ไม่มีอะไรให้ส่ง · ⚠️ ต้องอยู่หลังประทับ stamp (ดูหัวบล็อก markChanged)
+  if (unchangedSince(table, since)) return { ok: true, serverTime: stamp, rows: [], unchanged: true };
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return { ok: false, error: 'มีเครื่องอื่นกำลังซิงค์อยู่ ลองใหม่อีกครั้ง' };
   var rows;
@@ -293,6 +332,10 @@ function doPushTable(table, rows, device) {
       for (var i = 0; i < keys.length; i++) index[String(keys[i][0])] = i + 2;
     }
 
+    /* ⚠️ จดเวลาเปลี่ยน "ติดกับ" stamp ของแถว — ก่อน stamp และหลังอ่านหัวตาราง/คอลัมน์กุญแจ (ดูหัวบล็อก markChanged)
+     *    ความปลอดภัยของทางลัดใน doPullTable ต้องการให้ stamp ไม่ช้ากว่าเวลาที่จดเกิน CHANGE_SLACK_MS
+     *    จดก่อนอ่านคอลัมน์กุญแจ = ช่องว่างเท่ากับเวลาอ่าน ซึ่งช่วงเซิร์ฟเวอร์ช้าอาจถึงหลายสิบวินาที (ผู้ตรวจ #136 ข้อ ก) */
+    markChanged(table);
     var stamp = nowIso();
     var appends = [];
     for (var k = 0; k < rows.length; k++) {
