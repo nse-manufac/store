@@ -38,7 +38,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys, arriveBuy, reopenBuy,
-         startKey, startOnce, dupFollows, doubleReturns, reopenOver, buyUnit,
+         startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
 
@@ -1647,6 +1647,9 @@ createApp({
     const card = computed(() => (cardCode.value && entity.value)
       ? withSO(cardRows(entries.value, entity.value, normCode(cardCode.value))).reverse() : []);
     const cardPoSO = computed(() => cardCode.value ? codeShortOver(fsCalc.value, normCode(cardCode.value), shorts.value) : []);
+    // ยอดรวมทุก PO ของรหัสนี้ — บนจอกับในไฟล์ Bin Card ใช้ตัวคิดเดียวกัน (เจ้าของสั่ง 16 ต.ค. 2026)
+    const cardSOTotal = computed(() => shortOverTotal(cardPoSO.value));
+    const soTotalOf = code => shortOverTotal(codeShortOver(fsCalc.value, normCode(code), shorts.value));
     const cardLots = computed(() => (cardCode.value && entity.value)
       ? lotsOf(entries.value, entity.value, normCode(cardCode.value)) : []);
     const trace = computed(() => (traceOf.value !== '' && cardCode.value && entity.value)
@@ -3429,7 +3432,7 @@ createApp({
       expBusy.value = true;
       try {
         await loadLib('lib/exceljs.min.js', 'ExcelJS');
-        const info = cardInfo(cardCode.value);
+        const info = { ...cardInfo(cardCode.value), soTotal: cardSOTotal.value };
         // card เรียงใหม่สุดขึ้นก่อนเพื่อดูบนจอ แต่เอกสารต้องเรียงเก่าไปใหม่
         const rows = toCardLines([...card.value].reverse(), info.unit);
         const wb = new ExcelJS.Workbook();
@@ -3482,7 +3485,7 @@ createApp({
           const wb = new ExcelJS.Workbook();
           wb.creator = 'ระบบ Bin Card';
           for (const code of codes) {
-            const info = cardInfo(code);
+            const info = { ...cardInfo(code), soTotal: soTotalOf(code) };
             const rows = toCardLines(withSO(cardRows(entries.value, entity.value, code)), info.unit);
             const nm = sheetNameFor(code);
             wb.addWorksheet(nm);
@@ -3591,7 +3594,7 @@ createApp({
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
-      fsNew, fsBlocked, fsCheck, fsStart, cardPoSO, isStarting,
+      fsNew, fsBlocked, fsCheck, fsStart, cardPoSO, cardSOTotal, isStarting,
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,

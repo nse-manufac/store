@@ -922,6 +922,24 @@ export function codeShortOver(calcAll, code, follows = []) {
 }
 
 /**
+ * ยอด Short / Over รวมทุก PO ของรหัสเดียว (เจ้าของสั่ง 16 ต.ค. 2026)
+ * ไว้เทียบกับของจริงและข้อมูลของ Delta ว่า over ที่ถืออยู่ยังเท่ากันไหม — เผลอจ่ายของ over ออกไปแล้วมีปัญหาตามมา
+ * poRows = codeShortOver(...) · ⚠️ ห้ามบวกคอลัมน์ Short/Over ของแถวในการ์ด — แถวพวกนั้นเป็นยอดสะสมราย PO
+ *    PO เดียวรับสามรอบ = สามแถวที่ซ้ำยอดเดิม บวกกันแล้วได้สามเท่า
+ * คืน { short, over, pos } · pos = จำนวน PO ที่คิดได้ (0 = ไม่มี PO ไหนคิดได้ ให้ผู้เรียกโชว์ "-")
+ */
+export function shortOverTotal(poRows) {
+  let short = 0, over = 0, pos = 0;
+  for (const p of poRows || []) {
+    if (!p) continue;
+    pos++;
+    short += Number(p.short) || 0;
+    over += Number(p.over) || 0;
+  }
+  return { short: round5(short), over: round5(over), pos };
+}
+
+/**
  * ตั้งเรื่องคืนจากแถวที่ระบบคำนวณได้
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้
  *    ใบรับเข้าที่คีย์ทีหลังจะทำให้ยอดของเรื่องที่ตั้งไปแล้วขยับเองถ้าไม่แช่แข็ง

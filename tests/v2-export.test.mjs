@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { localDate, localTime, atFrom, todayLocal } from '../v2/core/localtime.js';
 import { BINCARD_TPL, toCardLines, sheetNameFor, safeFileName,
-         writeBinCard, UNKNOWN_KIND_NOTE, SO_HEAD, SO_SCALE,
+         writeBinCard, writeTotalRow, UNKNOWN_KIND_NOTE, SO_HEAD, SO_SCALE,
          soWidths, textWidth, fitScale, FIT_MAX, writeBuyPo, BUYPO } from '../v2/export/bincard.js';
 
 let pass = 0, fail = 0;
@@ -316,6 +316,71 @@ console.log('\n=== G. ใบสั่งซื้อทดแทน FM-PU-02 (�
   const src = fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8');
   ok('ไม่มีชื่อบริษัทเขียนตายตัวในตัวเขียนใบสั่งซื้อ (repo สาธารณะ)',
      !/Thai Union|ทีพีพี|Co\.,Ltd/i.test(src.slice(src.indexOf('ใบสั่งซื้อทดแทน FM-PU-02'))));
+}
+
+console.log('\n=== H. แถวรวม: ป้าย "รวม" · ตัวหนา · Short / Over รวมทุก PO (เจ้าของสั่ง 16 ต.ค. 2026) ===');
+{
+  const lines = toCardLines([
+    { kind: 'receive', at, moved: 100, balance: 100, person: 'ก', doc_ref: 'PO1', short: null, over: 4 },
+    { kind: 'issue', at, moved: -30, balance: 70, person: 'ก', doc_ref: 'PO1' },
+    { kind: 'receive', at, moved: 20, balance: 90, person: 'ก', doc_ref: 'PO1', short: null, over: 6 }
+  ], 'PCS');
+  const ws = fakeWs();
+  writeBinCard(ws, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 1, over: 6, pos: 2 } }, lines);
+  const t = BINCARD_TPL.firstRow + (BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1);   // การ์ดสั้น = ใต้แถวที่ 18
+  ok('การ์ดสั้นกว่า 18 บรรทัด แถวรวมยังอยู่ใต้แถวที่ 18 (เจ้าของเลือกคงไว้)', t === 29 && ws.getCell('C' + t).value === 'รวม',
+     String(ws.getCell('C' + t).value));
+  ok('Short / Over รวมมาจาก soTotal (รวมทุก PO) ไม่ใช่ผลบวกคอลัมน์ในการ์ด (4 + 6 = 10 ผิด)',
+     ws.getCell('N' + t).value === 1 && ws.getCell('O' + t).value === 6, `${ws.getCell('N' + t).value} / ${ws.getCell('O' + t).value}`);
+  ok('รับรวม / จ่ายรวมเดิมยังอยู่', ws.getCell('G' + t).value === 120 && ws.getCell('K' + t).value === 30);
+  ok('ทั้งแถวรวมเป็นตัวหนา', ['C', 'G', 'K', 'N', 'O'].every(c => ws.getCell(c + t).font && ws.getCell(c + t).font.bold));
+  const long = toCardLines(Array.from({ length: 25 }, (_, i) => ({ kind: 'receive', at, moved: 1, balance: i + 1, person: 'ก', doc_ref: 'PO1' })), 'PCS');
+  const ws2 = fakeWs();
+  writeBinCard(ws2, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 0, over: 0, pos: 0 } }, long);
+  ok('การ์ดยาวเกิน 18 บรรทัด แถวรวมอยู่ใต้บรรทัดสุดท้ายพอดี · ไม่มี PO คิดได้ = "-"',
+     ws2.getCell('C36').value === 'รวม' && ws2.getCell('N36').value === '-' && ws2.getCell('O36').value === '-'
+     && ws2.getCell('B35').value === 25, String(ws2.getCell('C36').value));
+  const ws3 = fakeWs();
+  writeBinCard(ws3, { code: 'C1', unit: 'PCS', entity: 'NSE' }, lines);
+  ok('ไม่ส่ง soTotal มา = เว้น Short / Over ของแถวรวมว่างแบบเดิม (ป้าย "รวม" ยังขึ้น)',
+     ws3.getCell('C29').value === 'รวม' && (ws3.getCell('N29').value == null));
+  const src = fs.readFileSync(new URL('../v2/export/bincard.js', import.meta.url), 'utf8');
+  ok('แถวรวมเป็นขั้นแยกหลัง fitColWidths — ไม่แตะ writeCard (หมวด C)',
+     /fitColWidths\(ws, lines\);\s*writeTotalRow\(ws, lines, info\.soTotal\);/.test(src)
+     && !/function writeCard[\s\S]{0,1600}'รวม'/.test(src));
+  ok('Remark ของแถวรวมบอกที่มา "รวมทุก PO (2 ใบ)" · ไม่มี PO คิดได้ / ไม่ส่งยอด = ไม่เขียน (ผู้ตรวจ #137 ข้อ 2)',
+     /รวมทุก PO \(2 ใบ\)/.test(String(ws.getCell('R' + t).value)) && ws2.getCell('R36').value == null && ws3.getCell('R29').value == null,
+     String(ws.getCell('R' + t).value));
+  {
+    // เลขยาวในแถวรวมต้องไม่ขึ้น ##### — ขยายเองหลัง fitColWidths · ขยายอย่างเดียว ไม่หด (ผู้ตรวจ #137 ข้อ 1)
+    const wsL = fakeWs();
+    writeBinCard(wsL, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 12345.67891, over: 123456.78901, pos: 1 } }, lines);
+    const wN = wsL.getColumn('N').width, wO = wsL.getColumn('O').width;
+    ok('Short / Over รวมที่ยาวเกินคอลัมน์ ถูกขยายให้พอ',
+       wN >= textWidth(12345.67891) && wO >= textWidth(123456.78901), `${wN} / ${wO}`);
+    const wsS = fakeWs();
+    writeBinCard(wsS, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 0, over: 4, pos: 1 } }, lines);
+    ok('เลขสั้นไม่ทำให้คอลัมน์หด', wsS.getColumn('N').width === soWidths().N && wsS.getColumn('O').width === soWidths().O,
+       `${wsS.getColumn('N').width} vs ${soWidths().N}`);
+    ok('ขยายแล้ว scale ยังพอดีหน้า (ไม่เกิน SO_SCALE)', (wsL.pageSetup || {}).scale <= SO_SCALE, String((wsL.pageSetup || {}).scale));
+    // คอลัมน์จำนวน (G รับ / K จ่าย) ฟอร์มไม่ได้ตั้งความกว้างไว้ — ขั้นแถวรวมต้องไม่หดของที่ fitColWidths ขยายไว้
+    // ผลรวมลงท้าย .60 สตริงจึงสั้นกว่าแถวข้อมูล เคสนี้เคยทำให้ตัวเลขในแถวข้อมูลขึ้น ##### (ผู้ตรวจ #137 รอบ 2)
+    const wsQ = fakeWs();
+    const qLines = toCardLines([
+      { kind: 'receive', at, moved: 43205.93, balance: 43205.93, person: 'ก', doc_ref: 'PO1' },
+      { kind: 'receive', at, moved: 43290.67, balance: 86496.6, person: 'ก', doc_ref: 'PO1' },
+      { kind: 'issue', at, moved: -43205.93, balance: 43290.67, person: 'ก', doc_ref: 'PO1' },
+      { kind: 'issue', at, moved: -43290.67, balance: 0, person: 'ก', doc_ref: 'PO1' }
+    ], 'PCS');
+    writeBinCard(wsQ, { code: 'C1', unit: 'PCS', entity: 'NSE', soTotal: { short: 0, over: 4, pos: 1 } }, qLines);
+    ok('แถวรวมไม่หดคอลัมน์จำนวนรับ/จ่าย (G / K) ที่ขยายไว้ตามแถวข้อมูล',
+       wsQ.getColumn('G').width >= textWidth(43205.93) && wsQ.getColumn('K').width >= textWidth(43205.93),
+       `G ${wsQ.getColumn('G').width} · K ${wsQ.getColumn('K').width} vs ${textWidth(43205.93)}`);
+  }
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('ทั้งการ์ดเดียวและ .zip ส่ง soTotal จากตัวคิดเดียวกับบนจอ',
+     /soTotal: cardSOTotal\.value/.test(app) && /soTotal: soTotalOf\(code\)/.test(app)
+     && /cardSOTotal = computed\(\(\) => shortOverTotal\(cardPoSO\.value\)\)/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

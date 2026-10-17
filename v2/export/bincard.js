@@ -169,6 +169,7 @@ export function writeBinCard(ws, info, lines) {
   writeCard(ws, info, lines);
   addShortOverCols(ws, lines);
   fitColWidths(ws, lines);
+  writeTotalRow(ws, lines, info.soTotal);
   const n = lines.filter(l => l.unknownKind).length;
   if (!n) return 0;
   const R = Math.max(lines.length, BINCARD_TPL.lastRow - BINCARD_TPL.firstRow + 1);
@@ -244,6 +245,57 @@ export function addShortOverCols(ws, lines) {
    * scale ลดจาก 71 เหลือ 67 (11.19 / 16.50 = 67.8%) เป็นทางถอย ถ้าตัวอ่านไฟล์ไหนไม่สน fitToPage */
   ws.pageSetup = { ...(ws.pageSetup || {}), printArea: `A1:S${last}`,
                    fitToPage: true, fitToWidth: 1, fitToHeight: 0, scale: SO_SCALE };
+}
+
+/**
+ * แถวรวม (เจ้าของสั่ง 16 ต.ค. 2026) — ทำเป็นขั้นแยกหลัง addShortOverCols / fitColWidths
+ * ไม่แตะ writeCard (หมวด C) · แถวเดิมที่ writeCard เขียนรับรวม (G) กับจ่ายรวม (K) ไว้แล้ว
+ *   - ช่อง C = "รวม" · ตัวหนาทั้งแถว — เดิมเป็นตัวเลขลอย ๆ ใต้ตาราง คนไม่รู้ว่าคือยอดรวม
+ *   - Short / Over (N · O) = soTotal จาก shortOverTotal(codeShortOver(...)) ยอดเดียวกับบนจอการ์ด
+ *     ไว้เทียบกับของจริงและข้อมูล Delta ว่า over ที่ถืออยู่ยังเท่ากันไหม ก่อนจะเผลอจ่ายออก
+ *     ⚠️ ไม่ใช่ผลบวกคอลัมน์ในการ์ด — แถวเป็นยอดสะสมราย PO · PO รับสามรอบ บวกแล้วได้สามเท่า
+ *     ไม่มี PO ไหนคิดได้ = "-" · ไม่ส่ง soTotal มา = เว้นว่างแบบเดิม
+ * ตำแหน่งแถวรวมเดิม: ใต้บรรทัดสุดท้าย หรือใต้แถวที่ 18 ถ้าการ์ดสั้นกว่านั้น (เจ้าของเลือกคงไว้)
+ * ช่อง Remark (R) ของแถวรวมบอกที่มา "รวมทุก PO (n ใบ)" — PO ที่ยังไม่รับรหัสนี้เลยไม่มีแถวในการ์ด
+ *   คนที่ได้ไฟล์ไม่เห็นตาราง "Short / Over ราย PO" บนจอ จะหาที่มาของยอดไม่เจอ (เจ้าของเลือก · ผู้ตรวจ #137 ข้อ 2)
+ * ⚠️ ขยายคอลัมน์เองหลังเขียน — ขั้นนี้อยู่หลัง fitColWidths ซึ่งวัดตอนแถวรวมยังว่าง
+ *    เลขยาวอย่าง 1234.56789 จะขึ้น ##### ถ้าไม่ขยาย (ผู้ตรวจ #137 ข้อ 1) · ขยายอย่างเดียว ไม่หด · เพดาน FIT_MAX เดียวกัน
+ */
+export function writeTotalRow(ws, lines, soTotal) {
+  const T = BINCARD_TPL;
+  const totalRow = T.firstRow + Math.max(lines.length, T.lastRow - T.firstRow + 1);
+  ws.getCell('C' + totalRow).value = 'รวม';
+  if (soTotal) {
+    ws.getCell('N' + totalRow).value = soTotal.pos ? soTotal.short : '-';
+    ws.getCell('O' + totalRow).value = soTotal.pos ? soTotal.over : '-';
+    if (soTotal.pos) ws.getCell('R' + totalRow).value = `Short / Over รวมทุก PO (${soTotal.pos} ใบ) · ดูราย PO ในโปรแกรม`;
+  }
+  for (const col of ['C', 'G', 'K', 'N', 'O']) {
+    const c = ws.getCell(col + totalRow);
+    c.font = { ...(c.font || { name: 'Tahoma', size: 11 }), bold: true };
+  }
+  /* ⚠️ ฐานต้องเป็นความกว้างที่อยู่บนชีตจริง ไล่ให้ครบ A–S (ผู้ตรวจ #137 รอบ 2)
+   * เดิมไล่แค่ Object.keys(soWidths()) ซึ่งไม่มี F–K (ฟอร์มไม่ได้ตั้งความกว้างไว้)
+   * ฐานของ G / K จึงตกไปใช้ XL_DEFAULT_W ทั้งที่ fitColWidths เพิ่งขยายตามแถวข้อมูลไปแล้ว
+   * แล้วบรรทัดเขียนความกว้างข้างล่างก็ทับของที่ขยายไว้ด้วยค่าที่เล็กกว่า → แถวข้อมูลขึ้น ##### */
+  const W = soWidths();
+  for (const col of 'ABCDEFGHIJKLMNOPQRS') {
+    const w = ws.getColumn(col).width;
+    if (w !== undefined) W[col] = w;
+  }
+  let grew = false;
+  for (const col of ['C', 'G', 'K', 'N', 'O', 'R']) {
+    const c = ws.getCell(col + totalRow);
+    const need = textWidth(c.value, c.font && c.font.size);
+    const base = W[col] === undefined ? XL_DEFAULT_W : W[col];
+    if (need > base) {
+      W[col] = Math.max(base, Math.min(FIT_MAX, Math.ceil(need * 100) / 100));
+      ws.getColumn(col).width = W[col];
+      grew = true;
+    }
+  }
+  if (grew) ws.pageSetup = { ...(ws.pageSetup || {}), scale: Math.min(SO_SCALE, fitScale(W)) };
+  return totalRow;
 }
 
 /** ความกว้างคอลัมน์ A–S ของฟอร์มหลังเพิ่ม Short · Over — คอลัมน์ที่ฟอร์มไม่ได้ตั้ง = undefined (Excel ใช้ค่าปริยาย) */
