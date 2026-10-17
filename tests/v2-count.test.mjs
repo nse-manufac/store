@@ -166,9 +166,14 @@ console.log('\n=== นำเข้ายอดนับจากไฟล์ Del
   ok('ลงท้ายตัวอักษร / ไม่มีในทะเบียน = unknown ไม่เดา', m.unknown.length === 1 && m.unknown[0].code === '91000001R0');
   ok('รหัสที่มีในทะเบียนตรงเป๊ะ ไม่เติม 0', !m.matched.find(x => x.code === '9100000101').padded);
 
-  const book = new Map([['9100000101', 6], ['9100000199', 3], ['9100000198', 0], ['9100000197', -1]]);
-  const miss = missingFromFile(book, new Set(m.matched.map(x => x.code)));
+  const book = new Map([['9100000101', 6], ['9100000199', 3], ['9100000198', 0], ['9100000197', -1],
+                        ['91000001R0', 8]]);
+  const miss = missingFromFile(book, m);
   ok('ระบบมีของ (ยอด ≠ 0) แต่ไม่อยู่ในไฟล์ = ขึ้นรายการ · ยอด 0 ไม่ขึ้น', miss.map(x => x.code).join() === '9100000197,9100000199');
+  // รหัสที่อยู่ในไฟล์แต่ยังไม่มีในทะเบียน (unknown) ก็คือ Delta นับมาให้แล้ว
+  // ถ้าหลุดไปอยู่ในตาราง "ไม่อยู่ในไฟล์" คนกด "ติ๊กทั้งหมด" จะล้างยอดจริง 8 ทิ้งเป็น 0
+  ok('รหัสที่อยู่ในไฟล์แต่ไม่มีในทะเบียน (unknown) ไม่โผล่ในรายการ "ไม่อยู่ในไฟล์"',
+     !miss.some(x => x.code === '91000001R0'), JSON.stringify(miss));
 
   // ยอด ณ เวลานับ — ของที่เข้าออกหลังนับต้องไม่ถูกปรับทิ้ง
   const E = 'TUE-H';
@@ -200,6 +205,8 @@ console.log('\n=== นำเข้ายอดนับจากไฟล์ Del
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: แผนลงบัญชีใช้ยอด ณ เวลานับเมื่อรอบมีเวลานับ · นิติบุคคลมาจากรอบนับ (A3)',
      /balancesAt\(entries\.value, cs\.value\.entity, cs\.value\.count_at\)/.test(app) && /csAtBook\.value \|\| bookBalances\.value/.test(app));
+  ok('จอ: ส่งผลจับคู่ทั้งก้อนเข้า missingFromFile (ไม่ใช่ Set ของ matched อย่างเดียว)',
+     /missingFromFile\(book, match\)/.test(app) && !/missingFromFile\([^)]*matched\.map/.test(app));
   ok('จอ: ปุ่มนำเข้า · ป้ายนิติบุคคล · รายการไม่อยู่ในไฟล์ไม่ติ๊กเป็นค่าตั้งต้น · ต้องใส่เวลานับ',
      html.includes('@click="ciOpen"') && html.includes('ลงกับนิติบุคคล <b>{{ cs.entity }}</b>') && html.includes('v-model="ci.tick[m.code]"')
      && /tick: \{\}/.test(app) && /ใส่วันที่และเวลาที่ Delta นับ/.test(app));

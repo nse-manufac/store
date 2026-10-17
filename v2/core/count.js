@@ -188,10 +188,17 @@ export function matchCountRows(rows, known) {
 
 /**
  * รหัสที่ระบบมีของ (ยอด ≠ 0 ณ เวลานับ) แต่ไม่อยู่ในไฟล์ — เจ้าของเลือก: ไม่แตะเอง ขึ้นให้คนติ๊กว่าตัวไหนนับเป็น 0
- * book = Map<code, number> · fileCodes = Set ของรหัสที่จับคู่ได้ · คืน [{ code, book }] เรียงตามรหัส
+ * book = Map<code, number> · match = ผลจาก matchCountRows() · คืน [{ code, book }] เรียงตามรหัส
+ *
+ * ⚠️ รับผลจาก matchCountRows() ทั้งก้อน ไม่ใช่ Set ที่ผู้เรียกทำเอง
+ * เพราะ "อยู่ในไฟล์" = matched + unknown · รหัสที่อยู่ในไฟล์แต่ยังไม่มีในทะเบียน (unknown)
+ * ก็คือรหัสที่ Delta นับมาให้แล้ว ถ้านับแค่ matched มันจะไปโผล่ในรายการ "ไม่อยู่ในไฟล์"
+ * แล้วคนกด "ติ๊กทั้งหมด" จะล้างยอดจริงทิ้งเป็น 0
  */
-export function missingFromFile(book, fileCodes) {
+export function missingFromFile(book, match) {
+  const inFile = new Set([...((match && match.matched) || []).map(m => m.code),
+                          ...((match && match.unknown) || []).map(u => u.code)]);
   const out = [];
-  for (const [code, qty] of book || []) if (qty !== 0 && !fileCodes.has(code)) out.push({ code, book: qty });
+  for (const [code, qty] of book || []) if (qty !== 0 && !inFile.has(code)) out.push({ code, book: qty });
   return out.sort((a, b) => a.code.localeCompare(b.code));
 }

@@ -776,9 +776,10 @@ createApp({
       if (!sh) return null;
       const parsed = parseCountSheet(sh.aoa);
       const known = new Set(materials.value.map(m => normCode(m.material_code)));
-      const { matched, unknown } = matchCountRows(parsed.rows, known);
+      const match = matchCountRows(parsed.rows, known);
+      const { matched, unknown } = match;
       const book = ciAt.value ? balancesAt(entries.value, cs.value.entity, ciAt.value) : null;
-      const missing = book ? missingFromFile(book, new Set(matched.map(m => m.code))) : [];
+      const missing = book ? missingFromFile(book, match) : [];
       const diff = book ? matched.filter(m => round5(m.qty) !== round5(book.get(m.code) || 0)).length : 0;
       return { parsed, matched, unknown, missing, diff, padded: matched.filter(m => m.padded) };
     });
