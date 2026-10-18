@@ -750,9 +750,10 @@ createApp({
      * ไฟล์ → ยอดนับในรอบนี้ แล้วใช้ "จะลงบัญชีแบบนี้ → ลงบัญชี" ตัวเดิม · ระหว่างนั้นแก้มือได้
      * ⚠️ นิติบุคคล = ของรอบนับ (cs.entity) — ไฟล์ไม่มีคอลัมน์นิติบุคคล Delta แยกไฟล์ให้ (A3)
      * ⚠️ รหัสที่ระบบมีของแต่ไม่อยู่ในไฟล์ ไม่แตะเอง — คนติ๊กว่าตัวไหนนับเป็น 0 (เจ้าของเลือก) */
-    const ci = reactive({ open: false, file: '', sheets: [], sheet: '', date: '', time: '', tick: {}, busy: false });
+    // source = ใช้ยอดจากคอลัมน์ไหนในฟอร์ม WIP — QTY ตามที่โรงงานแจ้ง · Vendor Stk เป็นทางสำรอง (เจ้าของสั่ง 18 ต.ค. 2026)
+    const ci = reactive({ open: false, file: '', sheets: [], sheet: '', date: '', time: '', tick: {}, busy: false, source: 'qty' });
     function ciOpen() {
-      Object.assign(ci, { open: true, file: '', sheets: [], sheet: '', date: todayLocal(), time: '', tick: {} });
+      Object.assign(ci, { open: true, file: '', sheets: [], sheet: '', date: todayLocal(), time: '', tick: {}, source: 'qty' });
     }
     async function ciFile(ev) {
       const file = ev.target.files && ev.target.files[0];
@@ -764,7 +765,8 @@ createApp({
         ci.sheets = wb.SheetNames.map(n => ({ name: n,
           aoa: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: true }) }));
         ci.file = file.name;
-        ci.sheet = wb.SheetNames[wb.SheetNames.length - 1] || '';   // ไฟล์ของ Delta ยอดอยู่ชีตสุดท้าย
+        // ฟอร์มใหม่ยอดอยู่ชีต WIP · ฟอร์มเดิม (WK 40) อยู่ชีตสุดท้าย
+        ci.sheet = wb.SheetNames.find(n => n.trim().toUpperCase() === 'WIP') || wb.SheetNames[wb.SheetNames.length - 1] || '';
         ci.tick = {};
       } catch (err) { flash('อ่านไฟล์ไม่ได้: ' + err.message, true); }
       finally { ci.busy = false; ev.target.value = ''; }
@@ -774,21 +776,26 @@ createApp({
       if (!cs.value || !ci.sheet) return null;
       const sh = ci.sheets.find(s => s.name === ci.sheet);
       if (!sh) return null;
-      const parsed = parseCountSheet(sh.aoa);
+      // ฟอร์ม WIP มีหลายนิติบุคคลในไฟล์เดียว — รับเฉพาะแถวของนิติบุคคลของรอบนับ (A3)
+      const parsed = parseCountSheet(sh.aoa, { entity: cs.value.entity, entityOf: entityOfPo, source: ci.source });
       const known = new Set(materials.value.map(m => normCode(m.material_code)));
       const match = matchCountRows(parsed.rows, known);
       const { matched, unknown } = match;
       const book = ciAt.value ? balancesAt(entries.value, cs.value.entity, ciAt.value) : null;
-      const missing = book ? missingFromFile(book, match) : [];
+      const missing = book ? missingFromFile(book, match, parsed) : [];
       const diff = book ? matched.filter(m => round5(m.qty) !== round5(book.get(m.code) || 0)).length : 0;
       return { parsed, matched, unknown, missing, diff, padded: matched.filter(m => m.padded) };
     });
     const ciErr = computed(() => {
       if (!ci.sheet) return '';
+      // ชีตผิดบอกก่อน — ไม่ให้คนใส่วัน/เวลาเสร็จแล้วค่อยรู้ (ผู้ตรวจ #138 ข้อสังเกต 4)
+      if (ciPlan.value && ciPlan.value.parsed.header < 0) return ciPlan.value.parsed.errors[0].why;
+      if (ciPlan.value && ciPlan.value.parsed.layout === 'wip'
+          && !ciPlan.value.parsed.entities.some(e => e.entity === cs.value.entity))
+        return `ไฟล์นี้ไม่มีแถวของนิติบุคคล ${cs.value.entity} — ตรวจว่าเปิดรอบนับถูกนิติบุคคล`;
       if (!ci.date || !ci.time) return 'ใส่วันที่และเวลาที่ Delta นับ — ใช้คิดยอดในระบบ ณ ตอนนั้น';
       if (!ciAt.value) return 'วันที่หรือเวลาไม่ถูกต้อง';
       if (ciAt.value > new Date().toISOString()) return 'เวลาที่นับต้องไม่อยู่ในอนาคต';
-      if (ciPlan.value && ciPlan.value.parsed.header < 0) return ciPlan.value.parsed.errors[0].why;
       if (ciPlan.value && !ciPlan.value.matched.length) return 'ไม่มีรหัสในไฟล์ที่ตรงกับทะเบียนเลย — ตรวจว่าเลือกชีตถูก';
       return '';
     });
@@ -800,7 +807,7 @@ createApp({
       const keyed = Object.entries(cs.value.counted || {})
         .filter(([, v]) => v && v.qty !== null && v.qty !== undefined && v.qty !== '').length;
       if (keyed && !confirm(`รอบนี้คีย์ยอดไว้แล้ว ${keyed} รหัส — ยอดจากไฟล์จะทับรหัสที่ซ้ำกัน · ทำต่อไหม`)) return;
-      const note = `ไฟล์ Delta ${ci.file} · ชีต ${ci.sheet}`;
+      const note = `ไฟล์ Delta ${ci.file} · ชีต ${ci.sheet}` + (p.parsed.layout === 'wip' ? ` · ${p.parsed.label}` : '');
       for (const m of p.matched) cs.value.counted[m.code] = { qty: m.qty, note: note + (m.padded ? ' (รหัสในไฟล์ ' + m.fileCode + ')' : '') };
       for (const m of p.missing) if (ci.tick[m.code]) cs.value.counted[m.code] = { qty: 0, note: 'ไม่อยู่ในไฟล์ Delta — นับเป็น 0' };
       cs.value.count_at = ciAt.value;

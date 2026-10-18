@@ -10,6 +10,7 @@ import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
 import { balances, balancesAt } from '../v2/core/balance.js';
 import { atFromDateTime, localDate, localTime } from '../v2/core/localtime.js';
 import fs from 'node:fs';
+import { entityOfPo } from '../v2/master/entities.js';
 import { makeEntry, signedQty } from '../v2/core/ledger.js';
 
 let pass = 0, fail = 0;
@@ -206,10 +207,72 @@ console.log('\n=== นำเข้ายอดนับจากไฟล์ Del
   ok('จอ: แผนลงบัญชีใช้ยอด ณ เวลานับเมื่อรอบมีเวลานับ · นิติบุคคลมาจากรอบนับ (A3)',
      /balancesAt\(entries\.value, cs\.value\.entity, cs\.value\.count_at\)/.test(app) && /csAtBook\.value \|\| bookBalances\.value/.test(app));
   ok('จอ: ส่งผลจับคู่ทั้งก้อนเข้า missingFromFile (ไม่ใช่ Set ของ matched อย่างเดียว)',
-     /missingFromFile\(book, match\)/.test(app) && !/missingFromFile\([^)]*matched\.map/.test(app));
+     /missingFromFile\(book, match, parsed\)/.test(app) && !/missingFromFile\([^)]*matched\.map/.test(app));
   ok('จอ: ปุ่มนำเข้า · ป้ายนิติบุคคล · รายการไม่อยู่ในไฟล์ไม่ติ๊กเป็นค่าตั้งต้น · ต้องใส่เวลานับ',
      html.includes('@click="ciOpen"') && html.includes('ลงกับนิติบุคคล <b>{{ cs.entity }}</b>') && html.includes('v-model="ci.tick[m.code]"')
      && /tick: \{\}/.test(app) && /ใส่วันที่และเวลาที่ Delta นับ/.test(app));
+}
+
+console.log('\n=== ฟอร์ม WIP: หลายนิติบุคคลในไฟล์เดียว · QTY หรือ Vendor Stk (เจ้าของสั่ง 18 ต.ค. 2026) ===');
+{
+  // ชีตสมมติหน้าตาเหมือน WIP: หนึ่งรหัสหลายแถว (แถวละ PO) · Vendor Stk แถวแรก · ตัวอักษรนิติบุคคลคอลัมน์ท้ายไม่มีหัว
+  const H = ['Material', 'Description', 'UOM', 'Vendor', 'Vendor Stk', 'PO No.', 'SB Part', 'Req. Date', 'QTY', 'ACT', 'REMARK ', 'PO', null];
+  const row = (code, desc, stk, po, qty, letter) => [code, desc, 'PCE', 900001, stk, po, 1, 46300, qty, 0, null, 'TM5', letter];
+  const aoa = [H,
+    row(9100000201, 'ของ H ล้วน', 50, 'TM0001H001', 12, 'H'),
+    row(9100000201, null, null, 'TM0001H002', 8, 'H'),
+    [],
+    row(9100000202, 'ปน A กับ H', 30, 'TM0001A001', 5, 'A'),
+    row(9100000202, null, null, 'TM0001H003', 7, 'H'),
+    [],
+    row(9100000203, 'ของ A ล้วน', 9, 'TM0001A002', 4, 'A'),
+    [],
+    row(9100000204, 'QTY ว่างทุกแถวของ H', 6, 'TM0001H004', null, 'H'),
+    [],
+    row(9100000205, 'มีแถวว่างปน', 10, 'TM0001H005', null, 'H'),
+    row(9100000205, null, null, 'TM0001H006', 3, 'H'),
+    [],
+    row(910000206, 'Excel ตัด 0', 2, 'TM0001H007', 1, 'H'),
+    [],
+    row(9100000207, 'ตัวอักษรไม่ตรง PO', 5, 'TM0001H008', 2, 'A')
+  ];
+  const q = parseCountSheet(aoa, { entity: 'TUE-H', entityOf: entityOfPo, source: 'qty' });
+  const qOf = c => (q.rows.find(r => r.code === c) || {}).qty;
+  ok('มีคอลัมน์ PO = ฟอร์ม WIP · ตั้งต้นใช้ QTY', q.layout === 'wip' && q.source === 'qty' && q.label === 'QTY');
+  ok('QTY = รวมทุก PO ของนิติบุคคลของรอบนับ (12 + 8)', qOf('9100000201') === 20);
+  ok('รหัสที่ปนนิติบุคคล: QTY รับเฉพาะแถวของ H (7 ไม่ใช่ 12)', qOf('9100000202') === 7);
+  ok('รหัสของนิติบุคคลอื่นล้วน ไม่อยู่ในไฟล์ของรอบนี้', qOf('9100000203') === undefined && !q.held.some(h => h.code === '9100000203'));
+  ok('QTY ว่าง = ข้ามแถว ไม่เดาเป็น 0 · ว่างทุกแถว = อยู่ในไฟล์แต่ไม่ลง', qOf('9100000205') === 3 && qOf('9100000204') === undefined
+     && q.held.some(h => h.code === '9100000204' && /ว่างทุกแถว/.test(h.why)) && q.skippedBlank === 2);
+  ok('ตัวอักษรท้ายแถวไม่ตรงกับเลข PO = แถวที่อ่านไม่ได้ และรหัสนั้นไม่ลง',
+     q.errors.some(e => e.code === '9100000207' && /ไม่ตรงกับเลข PO/.test(e.why)) && qOf('9100000207') === undefined
+     && q.held.some(h => h.code === '9100000207'));
+  ok('สรุปนิติบุคคลในไฟล์', q.entities.map(e => e.entity + ':' + e.codes).join() === 'TUE-A:2,TUE-H:5');
+  ok('แถวราย PO ของรหัสเดียวกันไม่นับเป็นรหัสซ้ำ', q.dups.length === 0);
+
+  const st = parseCountSheet(aoa, { entity: 'TUE-H', entityOf: entityOfPo, source: 'stk' });
+  const sOf = c => (st.rows.find(r => r.code === c) || {}).qty;
+  ok('ทางสำรอง Vendor Stk: ใช้ยอดแถวแรกของรหัสที่เป็น H ล้วน', st.source === 'stk' && st.label === 'Vendor Stk' && sOf('9100000201') === 50);
+  ok('Vendor Stk ของรหัสที่มี PO หลายนิติบุคคล = ไม่ลง ขึ้นรายการพร้อมยอด',
+     sOf('9100000202') === undefined && st.held.some(h => h.code === '9100000202' && h.stk === 30 && h.ents.join() === 'TUE-A,TUE-H'));
+  ok('Vendor Stk ไม่สน QTY ว่าง', sOf('9100000204') === 6);
+
+  const known = new Set(['9100000201', '9100000202', '9100000204', '0910000206', '9100000207']);
+  const m = matchCountRows(q.rows, known);
+  ok('ฟอร์ม WIP เติม 0 ให้รหัสที่ Excel ตัดได้เหมือนเดิม', m.matched.some(x => x.code === '0910000206' && x.padded));
+  const book = new Map([['9100000204', 4], ['9100000207', 5], ['9100000203', 9], ['9100000299', 1]]);
+  const miss = missingFromFile(book, m, q).map(x => x.code);
+  ok('รหัสที่อยู่ในไฟล์แต่ไม่ลง / แถวอ่านไม่ได้ ไม่โผล่ใน "ไม่อยู่ในไฟล์" (กดติ๊กทั้งหมดแล้วไม่ล้างเป็น 0)',
+     !miss.includes('9100000204') && !miss.includes('9100000207'), miss.join());
+  ok('รหัสของนิติบุคคลอื่นล้วน = ไม่อยู่ในไฟล์ของรอบนี้ (ขึ้นให้ติ๊ก ไม่ติ๊กเป็นค่าตั้งต้น)', miss.includes('9100000203') && miss.includes('9100000299'));
+
+  ok('ไม่บอกนิติบุคคล = ไม่อ่าน (ไม่เดา)', parseCountSheet(aoa, {}).header === -1);
+  ok('ไฟล์แบบเดิม (ไม่มีคอลัมน์ PO) ยังอ่านแบบเดิม', parseCountSheet([['MATERIAL NO', 'QTY'], ['A1', 3]]).layout === 'simple');
+
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: ส่งนิติบุคคลของรอบนับ + entityOfPo + คอลัมน์ที่เลือก · ชีตตั้งต้น = WIP',
+     /parseCountSheet\(sh\.aoa, \{ entity: cs\.value\.entity, entityOf: entityOfPo, source: ci\.source \}\)/.test(app)
+     && /=== 'WIP'/.test(app) && /source: 'qty'/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
