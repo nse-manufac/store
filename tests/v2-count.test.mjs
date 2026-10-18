@@ -266,6 +266,43 @@ console.log('\n=== ฟอร์ม WIP: หลายนิติบุคคล�
      !miss.includes('9100000204') && !miss.includes('9100000207'), miss.join());
   ok('รหัสของนิติบุคคลอื่นล้วน = ไม่อยู่ในไฟล์ของรอบนี้ (ขึ้นให้ติ๊ก ไม่ติ๊กเป็นค่าตั้งต้น)', miss.includes('9100000203') && miss.includes('9100000299'));
 
+  // Vendor Stk เขียนซ้ำทุกแถวของรหัส — คนทำ Excel เติมค่าเดิมลงมาทุกแถวเป็นเรื่องปกติ
+  // ⚠️ บวกรวมแล้วยอดนับพุ่งเป็นหลายเท่า แล้วลงรายการ "ปรับยอด" ผิดลงสมุด (ผู้ตรวจ #140 ข้อ 1)
+  const rep = [H,
+    row(9100000211, 'Vendor Stk ซ้ำ ค่าเท่ากัน', 200, 'TM0001H101', 60, 'H'),
+    row(9100000211, null, 200, 'TM0001H102', 40, 'H'),
+    [],
+    row(9100000212, 'Vendor Stk ซ้ำ ค่าไม่เท่ากัน', 200, 'TM0001H103', 10, 'H'),
+    row(9100000212, null, 170, 'TM0001H104', 5, 'H'),
+    [],
+    row(9100000213, 'ปน A กับ H · Vendor Stk ซ้ำ', 90, 'TM0001A101', 3, 'A'),
+    row(9100000213, null, 90, 'TM0001H105', 4, 'H')
+  ];
+  const rs = parseCountSheet(rep, { entity: 'TUE-H', entityOf: entityOfPo, source: 'stk' });
+  const rOf = c => (rs.rows.find(r => r.code === c) || {}).qty;
+  ok('Vendor Stk เขียนซ้ำทุกแถว ค่าเท่ากัน = ใช้ค่าเดียว ห้ามบวกรวม (200 ไม่ใช่ 400)',
+     rOf('9100000211') === 200, String(rOf('9100000211')));
+  ok('Vendor Stk หลายแถวค่าไม่เท่ากัน = ไม่ลง ขึ้นรายการพร้อมค่าที่เจอและทางออก',
+     rOf('9100000212') === undefined
+     && rs.held.some(h => h.code === '9100000212' && /ไม่เท่ากัน/.test(h.why) && /200/.test(h.why) && /170/.test(h.why) && /คีย์ยอดเอง/.test(h.why)),
+     JSON.stringify(rs.held));
+  ok('Vendor Stk ซ้ำที่ค่าเท่ากัน ไม่ขึ้นเป็น "รหัสซ้ำในไฟล์ (รวมยอดให้)"', rs.dups.length === 0, JSON.stringify(rs.dups));
+  ok('รหัสที่มี PO หลายนิติบุคคล: โชว์ Vendor Stk ค่าเดียว ไม่ใช่ผลบวก (90 ไม่ใช่ 180)',
+     rs.held.some(h => h.code === '9100000213' && h.stk === 90), JSON.stringify(rs.held));
+  ok('ทาง QTY ของชีตเดียวกันยังรวมทุก PO ของนิติบุคคลนั้น (60 + 40)',
+     (parseCountSheet(rep, { entity: 'TUE-H', entityOf: entityOfPo, source: 'qty' })
+       .rows.find(r => r.code === '9100000211') || {}).qty === 100);
+
+  // หัวคอลัมน์ PO สะกดอื่น แต่ชีตเป็นฟอร์ม WIP (มี Vendor Stk) — ห้ามถอยไปอ่านแบบตารางยอดนับธรรมดา
+  // ไม่งั้น QTY ของทุก PO ทุกนิติบุคคลถูกบวกรวมกันเงียบ ๆ (A3 · ผู้ตรวจ #140 ข้อ 2)
+  const otherHead = [H.map(h => h === 'PO No.' ? 'P/O' : h),
+    row(9100000201, 'ของ H', 50, 'TM0001H001', 10, 'H'),
+    row(9100000201, null, null, 'TM0001A001', 500, 'A')];
+  const oh = parseCountSheet(otherHead, { entity: 'TUE-H', entityOf: entityOfPo, source: 'qty' });
+  ok('ฟอร์ม WIP ที่หัวคอลัมน์ PO สะกดอื่น = ไม่อ่านเลย บอกให้ตรวจหัวคอลัมน์ (ไม่ลงยอดปนนิติบุคคล)',
+     oh.header === -1 && oh.layout !== 'simple' && !oh.rows.length && /PO No\./.test(oh.errors[0].why),
+     JSON.stringify({ header: oh.header, layout: oh.layout, rows: oh.rows, errors: oh.errors }));
+
   ok('ไม่บอกนิติบุคคล = ไม่อ่าน (ไม่เดา)', parseCountSheet(aoa, {}).header === -1);
   ok('ไฟล์แบบเดิม (ไม่มีคอลัมน์ PO) ยังอ่านแบบเดิม', parseCountSheet([['MATERIAL NO', 'QTY'], ['A1', 3]]).layout === 'simple');
 

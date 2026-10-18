@@ -123,7 +123,7 @@ export function postCount(session, rows, { device = '' } = {}) {
  *
  * ฟอร์มใหม่ (ชีต WIP · เจ้าของสั่ง 18 ต.ค. 2026 — โรงงานจะใช้แบบนี้):
  * Material · Description · UOM · Vendor · Vendor Stk · PO No. · … · QTY · ACT · … · ตัวอักษรนิติบุคคล (คอลัมน์ท้าย ไม่มีหัว)
- * - หนึ่งรหัสหลายแถว แถวละ PO · Vendor Stk อยู่แถวแรกของรหัสเท่านั้น · ACT = Vendor Stk − QTY สะสม
+ * - หนึ่งรหัสหลายแถว แถวละ PO · Vendor Stk อยู่แถวแรกของรหัส (บางไฟล์เติมค่าเดิมซ้ำทุกแถว = ใช้ค่าเดียว ห้ามบวกรวม) · ACT = Vendor Stk − QTY สะสม
  * - **ไฟล์เดียวมีหลายนิติบุคคล** — รับเฉพาะแถวของนิติบุคคลของรอบนับ (นิติบุคคลของแถว = จากเลข PO · ตัวอักษรท้ายแถวต้องตรงกัน)
  * - ยอดนับ = QTY รวมของแถวนิติบุคคลนั้น (โรงงานแจ้ง) · ทางสำรอง = Vendor Stk (เจ้าของขอเผื่อไว้)
  *   Vendor Stk มีตัวเดียวต่อรหัส → รหัสที่มี PO ของหลายนิติบุคคล ไม่ลง (แบ่งเองไม่ได้ว่าส่วนไหนของใคร)
@@ -155,6 +155,9 @@ export function parseCountSheet(aoa, opts = {}) {
   if (header < 0) return { ...empty, errors: [{ line: 0, why: 'หาหัวคอลัมน์ "MATERIAL NO" กับ "QTY" ไม่เจอ — เลือกชีตผิดหรือเปล่า' }] };
   // มีคอลัมน์ PO = ยอดราย PO (ฟอร์ม WIP) — ห้ามอ่านแบบตารางยอดนับธรรมดา ไม่งั้น QTY ทุก PO ถูกบวกรวมกันเงียบ ๆ
   if (cPo >= 0) return parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty);
+  // ชีตมีคอลัมน์ Vendor Stk = ฟอร์ม WIP แน่ ๆ (ฟอร์มเดิมไม่มีคอลัมน์นี้) — หาหัวคอลัมน์ PO ไม่เจอแล้ว
+  // ห้ามถอยไปอ่านแบบตารางยอดนับธรรมดา ไม่งั้น QTY ของทุก PO ทุกนิติบุคคลถูกบวกรวมกันเงียบ ๆ (A3)
+  if (cStk >= 0) return { ...empty, errors: [{ line: 0, why: 'ชีตนี้เป็นฟอร์ม WIP (มีคอลัมน์ Vendor Stk) แต่หาหัวคอลัมน์ "PO No." ไม่เจอ — เลือกชีตถูกไหม หรือแจ้งเจ้าของว่าหัวคอลัมน์ในไฟล์เปลี่ยน' }] };
   if (cQty < 0) return { ...empty, errors: [{ line: 0, why: 'หาหัวคอลัมน์ "QTY" ไม่เจอ — เลือกชีตผิดหรือเปล่า' }] };
   const out = new Map(), errors = [], lines = new Map();
   for (let i = header + 1; i < rows.length; i++) {
@@ -240,7 +243,11 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
     for (const e of g.ents) count.set(e, (count.get(e) || 0) + 1);
     if (!g.ents.has(entity) && !g.unsure) continue;        // รหัสของนิติบุคคลอื่นล้วน = ไม่อยู่ในไฟล์ของรอบนี้
     const base = { code: g.code, line: g.line, desc: g.desc, ents: [...g.ents].sort() };
-    const stkSum = round5(g.stk.reduce((a, x) => a + (isFinite(x.n) ? x.n : 0), 0));
+    // Vendor Stk มีตัวเดียวต่อรหัส — ฟอร์มจริงเขียนไว้แถวแรก แต่คนทำ Excel เติมค่าเดิมลงมาทุกแถวได้
+    // ⚠️ ห้ามบวกรวมเด็ดขาด (จะได้ยอดเป็นหลายเท่า) · ค่าเท่ากันทุกแถว = ค่านั้น · ไม่เท่ากัน = ตัดสินให้ไม่ได้
+    const stkVals = g.stk.map(x => x.n);
+    const stkOne = stkVals.length ? round5(stkVals[0]) : null;
+    const stkSame = stkVals.every(n => n === stkVals[0]);
     if (g.unsure) { held.push({ ...base, why: 'มีแถวที่ตัดสินนิติบุคคลไม่ได้' }); continue; }
     if (source === 'qty') {
       if (g.badQty) held.push({ ...base, why: 'มีแถว QTY ที่อ่านไม่ได้' });
@@ -248,11 +255,12 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
       else out.push({ line: g.line, code: g.code, qty: g.qty, desc: g.desc });
       continue;
     }
-    if (g.ents.size > 1) { held.push({ ...base, stk: stkSum, why: 'มี PO ของหลายนิติบุคคล — Vendor Stk แบ่งไม่ได้' }); continue; }
+    if (g.ents.size > 1) { held.push({ ...base, stk: stkSame ? stkOne : null, why: 'มี PO ของหลายนิติบุคคล — Vendor Stk แบ่งไม่ได้' }); continue; }
     if (!g.stk.length) { held.push({ ...base, why: 'ไม่มี Vendor Stk' }); continue; }
     if (g.stk.some(x => !isFinite(x.n) || x.n < 0)) { held.push({ ...base, why: 'Vendor Stk อ่านไม่ได้หรือติดลบ' }); continue; }
-    if (g.stk.length > 1) dups.push({ code: g.code, lines: g.stk.map(x => x.line), qty: stkSum });
-    out.push({ line: g.line, code: g.code, qty: stkSum, desc: g.desc });
+    if (!stkSame) { held.push({ ...base, stks: stkVals,
+      why: `Vendor Stk ไม่เท่ากันหลายแถว (${stkVals.join(' / ')}) — คีย์ยอดเองในตารางนับ` }); continue; }
+    out.push({ line: g.line, code: g.code, qty: stkOne, desc: g.desc });
   }
   const entities = [...count].map(([e, codes]) => ({ entity: e, codes })).sort((a, b) => a.entity.localeCompare(b.entity));
   return { rows: out, errors, dups, header: header + 1, layout: 'wip', source, held, entities, skippedBlank,
