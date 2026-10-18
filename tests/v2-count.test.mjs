@@ -306,10 +306,39 @@ console.log('\n=== ฟอร์ม WIP: หลายนิติบุคคล�
   ok('ไม่บอกนิติบุคคล = ไม่อ่าน (ไม่เดา)', parseCountSheet(aoa, {}).header === -1);
   ok('ไฟล์แบบเดิม (ไม่มีคอลัมน์ PO) ยังอ่านแบบเดิม', parseCountSheet([['MATERIAL NO', 'QTY'], ['A1', 3]]).layout === 'simple');
 
+  // รหัสเดียวกันที่ไฟล์เขียนสองแบบ (บางแถว Excel ตัด 0 หน้า บางแถวไม่ตัด) → ชนกันตอนจับคู่ทะเบียน
+  // ⚠️ Vendor Stk เป็นยอดคงเหลือ บวกรวมแล้วได้ยอดเป็นสองเท่าแบบเงียบ (ผู้ตรวจ #140 รอบ 2 ข้อ 1)
+  const two = [H,
+    row(910000206, 'เขียนสองแบบ · Vendor Stk เท่ากัน', 80, 'TM0001H201', 10, 'H'),
+    [],
+    row('0910000206', null, 80, 'TM0001H202', 15, 'H'),
+    [],
+    row(910000306, 'เขียนสองแบบ · Vendor Stk ไม่เท่ากัน', 70, 'TM0001H203', 2, 'H'),
+    [],
+    row('0910000306', null, 55, 'TM0001H204', 3, 'H')
+  ];
+  const kn2 = new Set(['0910000206', '0910000306']);
+  const ms = matchCountRows(parseCountSheet(two, { entity: 'TUE-H', entityOf: entityOfPo, source: 'stk' }).rows,
+                            kn2, { sum: false });
+  ok('Vendor Stk: ไฟล์เขียนรหัสเดียวกันสองแบบ ค่าเท่ากัน = ค่าเดียว ห้ามบวกรวม (80 ไม่ใช่ 160)',
+     (ms.matched.find(x => x.code === '0910000206') || {}).qty === 80, JSON.stringify(ms.matched));
+  ok('Vendor Stk: เขียนสองแบบแล้วค่าไม่เท่ากัน = ไม่ลง ขึ้นรายการพร้อมค่าที่เจอและทางออก',
+     !ms.matched.some(x => x.code === '0910000306')
+     && ms.held.some(h => h.code === '0910000306' && /910000306/.test(h.why) && /70/.test(h.why) && /55/.test(h.why)
+                          && /คีย์ยอดเอง/.test(h.why)), JSON.stringify(ms.held));
+  ok('รหัสที่ชนกันแล้วไม่ลง ยังนับว่า "อยู่ในไฟล์" (กดติ๊กทั้งหมดแล้วไม่ล้างยอดจริงเป็น 0)',
+     !missingFromFile(new Map([['0910000306', 12]]), ms).some(x => x.code === '0910000306'));
+  const mq = matchCountRows(parseCountSheet(two, { entity: 'TUE-H', entityOf: entityOfPo, source: 'qty' }).rows, kn2);
+  ok('ทาง QTY ยังบวกรวมรหัสที่เขียนสองแบบเหมือนเดิม (10 + 15) · ไม่มีรหัสไหนถูกกัน',
+     (mq.matched.find(x => x.code === '0910000206') || {}).qty === 25 && !mq.held.length, JSON.stringify(mq.matched));
+
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('จอ: ส่งนิติบุคคลของรอบนับ + entityOfPo + คอลัมน์ที่เลือก · ชีตตั้งต้น = WIP',
      /parseCountSheet\(sh\.aoa, \{ entity: cs\.value\.entity, entityOf: entityOfPo, source: ci\.source \}\)/.test(app)
      && /=== 'WIP'/.test(app) && /source: 'qty'/.test(app));
+  ok('จอ: โหมด Vendor Stk สั่งห้ามบวกรวมตอนจับคู่ · รหัสที่ชนกันไปโผล่กล่อง "อยู่ในไฟล์แต่ไม่ลง"',
+     /matchCountRows\([^)]*\{ sum: raw\.source !== 'stk' \}\)/.test(app)
+     && /held: \[\.\.\.raw\.held, \.\.\.match\.held\]/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

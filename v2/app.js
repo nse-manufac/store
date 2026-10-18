@@ -777,10 +777,13 @@ createApp({
       const sh = ci.sheets.find(s => s.name === ci.sheet);
       if (!sh) return null;
       // ฟอร์ม WIP มีหลายนิติบุคคลในไฟล์เดียว — รับเฉพาะแถวของนิติบุคคลของรอบนับ (A3)
-      const parsed = parseCountSheet(sh.aoa, { entity: cs.value.entity, entityOf: entityOfPo, source: ci.source });
+      const raw = parseCountSheet(sh.aoa, { entity: cs.value.entity, entityOf: entityOfPo, source: ci.source });
       const known = new Set(materials.value.map(m => normCode(m.material_code)));
-      const match = matchCountRows(parsed.rows, known);
+      // Vendor Stk เป็นยอดคงเหลือ — รหัสเดียวกันที่ไฟล์เขียนสองแบบห้ามบวกรวมตอนจับคู่ (QTY บวกเหมือนเดิม)
+      const match = matchCountRows(raw.rows, known, { sum: raw.source !== 'stk' });
       const { matched, unknown } = match;
+      // ที่ชนกันแล้วไม่ลง ไปรวมกล่องเดียวกับ "อยู่ในไฟล์แต่ไม่ลง" บนจอ
+      const parsed = match.held.length ? { ...raw, held: [...raw.held, ...match.held] } : raw;
       const book = ciAt.value ? balancesAt(entries.value, cs.value.entity, ciAt.value) : null;
       const missing = book ? missingFromFile(book, match, parsed) : [];
       const diff = book ? matched.filter(m => round5(m.qty) !== round5(book.get(m.code) || 0)).length : 0;

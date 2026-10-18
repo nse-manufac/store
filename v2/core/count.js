@@ -271,20 +271,39 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
  * จับคู่รหัสในไฟล์กับทะเบียน — known = Set ของรหัสในทะเบียน (ตัวพิมพ์ใหญ่)
  * ตรงเป๊ะก่อน · ไม่เจอและเป็นตัวเลข 9 หลัก → ลองเติม 0 ข้างหน้า (Excel ตัด 0 ตัวแรกของรหัสที่เป็นตัวเลขทิ้ง)
  * ⚠️ ไม่เดาอย่างอื่น — รหัสที่ลงท้ายตัวอักษรหรือไม่มีในทะเบียน ขึ้นเป็น unknown ให้คนดู
- * คืน { matched: [{ code, qty, fileCode, padded, desc }], unknown: [{ code, qty, desc, line }] }
+ *
+ * sum = รหัสเดียวกันที่ไฟล์เขียนสองแบบ (เติม 0 แล้วชนกัน) รวมยอดได้ไหม
+ *   true  (ค่าตั้งต้น) ยอดเคลื่อนไหวอย่าง QTY = บวกรวม ของชิ้นเดียวกันนับมาสองแถว
+ *   false ยอดคงเหลืออย่าง Vendor Stk = บวกกันไม่ได้ · ค่าเท่ากันใช้ค่าเดียว · ไม่เท่ากันไม่ลง เข้า held
+ * คืน { matched: [{ code, qty, fileCode, padded, desc }], unknown: [{ code, qty, desc, line }],
+ *       held: [{ code, line, desc, why }] }
  */
-export function matchCountRows(rows, known) {
+export function matchCountRows(rows, known, { sum = true } = {}) {
   const matched = [], unknown = [], taken = new Map();
   for (const r of rows || []) {
     let code = r.code, padded = false;
     if (!known.has(code) && /^\d{9}$/.test(code) && known.has('0' + code)) { code = '0' + code; padded = true; }
     if (!known.has(code)) { unknown.push({ code: r.code, qty: r.qty, desc: r.desc, line: r.line }); continue; }
-    // เติม 0 แล้วไปชนรหัสที่มีอยู่แล้วในไฟล์ = รวมยอด (ของชิ้นเดียวกัน)
-    if (taken.has(code)) { const m = taken.get(code); m.qty = round5(m.qty + r.qty); continue; }
+    // เติม 0 แล้วไปชนรหัสที่มีอยู่แล้วในไฟล์ = ของชิ้นเดียวกัน
+    const t = taken.get(code);
+    if (t) {
+      t.codes.push(r.code);
+      if (sum) t.m.qty = round5(t.m.qty + r.qty);
+      else if (round5(r.qty) !== round5(t.m.qty)) t.clash.push(round5(r.qty));
+      continue;
+    }
     const m = { code, qty: r.qty, fileCode: r.code, padded, desc: r.desc };
-    taken.set(code, m); matched.push(m);
+    taken.set(code, { m, line: r.line, codes: [r.code], clash: [] }); matched.push(m);
   }
-  return { matched, unknown };
+  const held = [];
+  for (const t of taken.values()) {
+    if (!t.clash.length) continue;
+    held.push({ code: t.m.code, line: t.line, desc: t.m.desc,
+                why: `ไฟล์เขียนรหัสนี้สองแบบ (${t.codes.join(' / ')}) และยอดไม่เท่ากัน `
+                     + `(${[round5(t.m.qty), ...t.clash].join(' / ')}) — คีย์ยอดเองในตารางนับ` });
+  }
+  const bad = new Set(held.map(h => h.code));
+  return { matched: bad.size ? matched.filter(m => !bad.has(m.code)) : matched, unknown, held };
 }
 
 /**
@@ -297,10 +316,12 @@ export function matchCountRows(rows, known) {
  * แล้วคนกด "ติ๊กทั้งหมด" จะล้างยอดจริงทิ้งเป็น 0
  * parsed (ไม่บังคับ) = ผลจาก parseCountSheet() — รหัสในแถวที่อ่านไม่ได้ และรหัสที่อยู่ในไฟล์แต่ไม่ลง (held)
  * ก็อยู่ในไฟล์เหมือนกัน · ยังไม่ผ่านการเติม 0 จึงนับทั้งรหัสเดิมและรหัสที่เติม 0 แล้ว
+ * match.held (รหัสที่จับคู่แล้วชนกันเองจนไม่ลง) ก็อยู่ในไฟล์ ต้องไม่ไปโผล่ในรายการให้ติ๊กเป็น 0
  */
 export function missingFromFile(book, match, parsed = null) {
   const inFile = new Set([...((match && match.matched) || []).map(m => m.code),
-                          ...((match && match.unknown) || []).map(u => u.code)]);
+                          ...((match && match.unknown) || []).map(u => u.code),
+                          ...((match && match.held) || []).map(h => h.code)]);
   for (const x of [...((parsed && parsed.errors) || []), ...((parsed && parsed.held) || [])]) {
     if (!x.code) continue;
     inFile.add(x.code);
