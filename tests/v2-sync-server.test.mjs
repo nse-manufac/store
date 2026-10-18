@@ -48,6 +48,8 @@ class Sheet {
         return out;
       },
       setValues(vals) {
+        // การเขียนชีตจริงก็กินเวลาเหมือนการอ่าน — ใช้พิสูจน์ว่า markChanged จดก่อนเขียนแถว
+        if (s.onWrite) s.onWrite();
         vals.forEach((row, i) => {
           const ri = r + i - 1;
           if (!s.rows[ri]) s.rows[ri] = [];
@@ -92,7 +94,10 @@ function loadScript(opts = {}) {
   }
   const book = new SS();
   const locks = { taken: 0, available: opts.lockAvailable !== false };
+  const store = opts.props || {};
   const env = {
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: k => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = String(v); } }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => book, flush() {} },
     LockService: { getScriptLock: () => ({
       tryLock: () => { locks.taken++; return locks.available; }, releaseLock() {} }) },
@@ -102,13 +107,13 @@ function loadScript(opts = {}) {
   // นาฬิกาฉีดเข้าไปในสโคปของสคริปต์ — ปล่อยว่างไว้จะใช้ Date ตัวจริง
   const DateImpl = opts.Date || Date;
   // คืน handle ออกมาเพื่อยิงคำสั่งเหมือนของจริง
-  const fn = new Function('SpreadsheetApp', 'LockService', 'ContentService', 'Date',
-    src + '\n;return { handle: handle, book: null };');
-  const api = fn(env.SpreadsheetApp, env.LockService, env.ContentService, DateImpl);
+  const fn = new Function('SpreadsheetApp', 'LockService', 'ContentService', 'Date', 'PropertiesService',
+    src + '\n;return { handle: handle, onEdit: onEdit, book: null };');
+  const api = fn(env.SpreadsheetApp, env.LockService, env.ContentService, DateImpl, env.PropertiesService);
   const call = (action, body = {}) =>
     JSON.parse(api.handle({ parameter: {} },
       Object.assign({ action, token: opts.token || TEST_TOKEN }, body)).body);
-  return { call, book, locks };
+  return { call, book, locks, store, onEdit: api.onEdit };
 }
 
 const { call, book } = loadScript();
@@ -362,6 +367,83 @@ console.log('\n=== H. ตารางตามงานวัตถุดิบ 
    *    ถ้าอ่านกลับมาเป็นค่าว่างแทน false ตัวกรอง "ยังไม่ยกเลิก" จะกรองไม่ตรงทั้งชีต */
   ok('แถวเดิมที่ไม่เคยมีช่อง voided ต้องอ่านกลับเป็น false ไม่ใช่ค่าว่าง',
      old && old.voided === false, JSON.stringify(old && old.voided));
+}
+
+console.log('\n=== I. ตารางไม่ได้เปลี่ยน = ตอบว่างทันที ไม่อ่านชีต ไม่จับ lock (เจ้าของสั่ง 12 ต.ค. 2026) ===');
+{
+  // นาฬิกาจริงแต่เลื่อนได้ — Date ต้องมี parse/constructor(arg) เหมือนของจริง
+  let now = Date.parse('2026-10-12T03:00:00.000Z');
+  class Clock extends Date { constructor(...a) { super(...(a.length ? a : [now])); } static parse(x) { return Date.parse(x); } }
+  const s = loadScript({ Date: Clock });
+  const row = { material_code: '4010600100', description: 'WIRE', unit: 'KGM', category: 'WIRE',
+                active: true, needs_review: false, requires_expiry: false };
+  const fresh = s.call('pullTable', { table: 'Materials', since: '2026-10-12T02:00:00.000Z' });
+  ok('ยังไม่เคยจดเวลาเปลี่ยน (เพิ่ง deploy) = อ่านเต็มตามเดิม', fresh.ok && !fresh.unchanged, JSON.stringify(fresh));
+  s.call('pushTable', { table: 'Materials', rows: [row] });
+  const rowAt = s.call('pullTable', { table: 'Materials', since: '' }).rows[0].updated_at;
+  ok('push จดเวลาเปลี่ยนไว้ ไม่ใหม่กว่า updated_at ของแถวที่เขียน', !!s.store.changed_Materials && s.store.changed_Materials <= rowAt,
+     s.store.changed_Materials + ' vs ' + rowAt);
+
+  now += 5 * 60000;                                   // ผ่านไป 5 นาที ไม่มีใครส่งอะไร
+  const since = new Clock().toISOString();
+  now += 2 * 60000;
+  let reads = 0;
+  for (const sh of s.book.sheets.values()) sh.onRead = () => { reads++; };
+  const taken = s.locks.taken;
+  const quiet = s.call('pullTable', { table: 'Materials', since });
+  ok('ไม่เปลี่ยนตั้งแต่ since = ตอบว่าง ok · serverTime ใหม่ · ไม่อ่านชีต · ไม่จับ lock',
+     quiet.ok && quiet.rows.length === 0 && quiet.unchanged === true && quiet.serverTime > since
+     && reads === 0 && s.locks.taken === taken, JSON.stringify({ quiet, reads, lk: s.locks.taken - taken }));
+  const busy = loadScript({ Date: Clock, lockAvailable: false, props: s.store });
+  ok('ตอบว่างได้แม้ lock ไม่ว่าง — คิวไม่ยาวเพราะการดึงที่ไม่มีอะไรใหม่',
+     busy.call('pullTable', { table: 'Materials', since }).ok === true);
+
+  now += 60000;
+  s.call('pushTable', { table: 'Materials', rows: [{ ...row, description: 'WIRE ใหม่' }] });
+  const moved = s.call('pullTable', { table: 'Materials', since });
+  ok('มีเครื่องส่งขึ้นหลัง since = อ่านเต็ม ได้แถวที่เปลี่ยน', !moved.unchanged && moved.rows.some(r => r.description === 'WIRE ใหม่'),
+     JSON.stringify(moved));
+
+  // เปลี่ยนในหนึ่งนาทีก่อน since ยังต้องอ่านเต็ม (เผื่อไว้)
+  const near = new Date(now + 30000).toISOString();
+  ok('ตารางที่เปลี่ยนไม่ถึงหนึ่งนาทีก่อน since ยังอ่านเต็ม', !s.call('pullTable', { table: 'Materials', since: near }).unchanged);
+  ok('since อ่านไม่ออก = อ่านเต็ม', !s.call('pullTable', { table: 'Materials', since: 'ไม่ใช่เวลา' }).unchanged);
+  {
+    // เวลาที่จดถูกแก้มือใน Script Properties เป็นค่าแปลก — "1" เรียงก่อนทุกเวลา ห้ามกลายเป็นทางลัดถาวร
+    const keep = s.store.changed_Materials;
+    for (const bad of ['1', 'hello', ' ']) {
+      s.store.changed_Materials = bad;
+      ok(`เวลาที่จดอ่านไม่ออก (${JSON.stringify(bad)}) = อ่านเต็ม`, !s.call('pullTable', { table: 'Materials', since }).unchanged);
+    }
+    s.store.changed_Materials = keep;
+  }
+  ok('ตารางอื่นไม่ถูกจดตาม — จดแยกรายตาราง', !s.store.changed_Entries);
+
+  // แก้ชีตด้วยมือ
+  now += 10 * 60000;
+  const since2 = new Clock().toISOString();
+  now += 3 * 60000;
+  s.onEdit({ range: { getSheet: () => ({ getName: () => 'Materials' }) } });
+  ok('แก้ชีตด้วยมือ (onEdit) = จดเวลาเปลี่ยน · ดึงรอบถัดไปอ่านเต็ม', !s.call('pullTable', { table: 'Materials', since: since2 }).unchanged);
+  s.onEdit({ range: { getSheet: () => ({ getName: () => 'ชีตอื่นของเจ้าของ' }) } });
+  ok('แก้ชีตที่ไม่ใช่ตารางของระบบ ไม่จดอะไร', Object.keys(s.store).every(k => /^changed_(Materials)$/.test(k)), Object.keys(s.store).join());
+  {
+    // จดติดกับ stamp — การอ่านชีตก่อนหน้า (หัวตาราง · คอลัมน์กุญแจ) ต้องไม่อยู่คั่นระหว่างจดกับประทับแถว (ผู้ตรวจ #136 ข้อ ก)
+    let t = Date.parse('2026-10-12T05:00:00.000Z');
+    class Slow extends Date { constructor(...a) { super(...(a.length ? a : [t])); } static parse(x) { return Date.parse(x); } }
+    const sl = loadScript({ Date: Slow });
+    sl.call('pushTable', { table: 'Materials', rows: [row] });
+    // อ่าน/เขียนชีตครั้งละ 90 วินาที — ต้องให้การ "เขียน" กินเวลาด้วย ไม่งั้นทิศ "ย้ายไปจดท้าย push" ไม่มีอะไรจับ
+    for (const sh of sl.book.sheets.values()) { sh.onRead = () => { t += 90000; }; sh.onWrite = () => { t += 90000; }; }
+    sl.call('pushTable', { table: 'Materials', rows: [{ ...row, description: 'ช้า' }] });
+    t += 1000;
+    const at2 = sl.call('pullTable', { table: 'Materials', since: '' }).rows[0].updated_at;
+    ok('อ่านชีตช้าแค่ไหน เวลาที่จดก็ติดกับ updated_at ของแถว (ห่างไม่เกิน slack)',
+       Date.parse(at2) - Date.parse(sl.store.changed_Materials) < 60000
+       // ทั้งสองทิศ — ย้ายไปจดท้าย push (หลังเขียนแถว) ก็ต้องแดง (ผู้ตรวจ #136 รอบ 2 ข้อ ก)
+       && sl.store.changed_Materials <= at2, sl.store.changed_Materials + ' → ' + at2);
+  }
+  ok('onEdit ไม่โยน error แม้ event แปลก', (() => { try { s.onEdit(undefined); s.onEdit({}); return true; } catch (e) { return false; } })());
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
