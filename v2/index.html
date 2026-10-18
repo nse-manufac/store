@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-17.2">
+<meta name="app-version" content="2026-10-18.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -912,18 +912,26 @@ textarea{font:inherit}
               <span class="tag warn" style="font-size:14px;padding:4px 10px">ลงกับนิติบุคคล <b>{{ cs.entity }}</b></span>
               <button class="btn" @click="ci.open=false">ปิด</button>
             </div>
-            <p class="hint" style="margin:6px 0 0">ไฟล์สรุปยอดสุดท้ายจาก inventory check ของ Delta — <b>หนึ่งไฟล์ต่อหนึ่งนิติบุคคล</b> ·
-              อ่านจากหัวคอลัมน์ MATERIAL NO กับ QTY · ยอดต้องเป็นหน่วยเดียวกับทะเบียน</p>
+            <p class="hint" style="margin:6px 0 0">ไฟล์สรุปยอดจาก inventory check ของ Delta — อ่านได้ทั้ง<b>ชีต WIP</b> (หลายนิติบุคคลในไฟล์เดียว รับเฉพาะของ {{ cs.entity }})
+              และแบบเดิม (MATERIAL NO กับ QTY หนึ่งไฟล์ต่อหนึ่งนิติบุคคล) · ยอดต้องเป็นหน่วยเดียวกับทะเบียน</p>
             <div class="row" style="margin-top:10px;align-items:flex-end">
               <label class="f">ไฟล์ Excel ของ Delta
                 <input type="file" accept=".xlsx,.xls" @change="ciFile" :disabled="ci.busy"></label>
               <label class="f" v-if="ci.sheets.length">ชีต
                 <select v-model="ci.sheet"><option v-for="s in ci.sheets" :key="s.name" :value="s.name">{{ s.name }}</option></select></label>
+              <label class="f" v-if="ciPlan && ciPlan.parsed.layout==='wip'">ใช้ยอดจาก
+                <select v-model="ci.source"><option value="qty">QTY (รวมทุก PO ของ {{ cs.entity }})</option>
+                  <option value="stk">Vendor Stk (ทางสำรอง)</option></select></label>
               <label class="f" style="width:150px">วันที่ Delta นับ<input type="date" v-model="ci.date"></label>
               <label class="f" style="width:110px">เวลา<input type="time" v-model="ci.time"></label>
             </div>
             <p class="hint" style="margin:6px 0 0">เวลาที่นับใช้คิดยอดในระบบ <b>ณ ตอนนั้น</b> และรายการปรับยอดจะลงไว้ ณ เวลานั้น —
               ของที่รับเข้า/จ่ายออกหลังนับยังนับต่อถูก · ⚠️ คีย์ของที่ค้างก่อนเวลานับให้ครบก่อนลงบัญชี</p>
+            <p class="hint" style="margin:6px 0 0" v-if="ciPlan && ciPlan.parsed.layout==='wip'">
+              ไฟล์มีนิติบุคคล: <span v-for="e in ciPlan.parsed.entities" :key="e.entity" class="mono"
+                :style="e.entity===cs.entity ? 'font-weight:700' : ''">{{ e.entity }} {{ e.codes }} รหัส · </span>
+              รับเฉพาะ <b>{{ cs.entity }}</b><template v-if="ci.source==='qty'"> · แถว QTY ว่างข้ามไป {{ ciPlan.parsed.skippedBlank }} แถว (ไม่เดาเป็น 0)</template>
+              <template v-else> · รหัสที่มี PO ของหลายนิติบุคคล <b>ไม่ลง</b> (Vendor Stk มีตัวเดียว แบ่งไม่ได้)</template></p>
             <p class="msg bad" style="margin:10px 0 0" v-if="ciErr">{{ ciErr }}</p>
             <template v-if="ciPlan && !ciErr">
               <div class="row" style="gap:26px;margin-top:12px;align-items:flex-start">
@@ -931,6 +939,7 @@ textarea{font:inherit}
                   <div class="hint" v-if="ciPlan.padded.length">เติม 0 ข้างหน้า {{ ciPlan.padded.length }}</div></div>
                 <div><div class="hint">ยอดต่างจากระบบ ณ เวลานับ</div><div class="big warn">{{ ciPlan.diff }}</div></div>
                 <div v-if="ciPlan.unknown.length"><div class="hint">ไม่มีในทะเบียน (ไม่ลง)</div><div class="big bad">{{ ciPlan.unknown.length }}</div></div>
+                <div v-if="ciPlan.parsed.held.length"><div class="hint">อยู่ในไฟล์แต่ไม่ลง</div><div class="big bad">{{ ciPlan.parsed.held.length }}</div></div>
                 <div v-if="ciPlan.parsed.errors.length"><div class="hint">แถวที่อ่านไม่ได้</div><div class="big bad">{{ ciPlan.parsed.errors.length }}</div></div>
                 <div v-if="ciPlan.parsed.dups.length"><div class="hint">รหัสซ้ำในไฟล์ (รวมยอดให้)</div><div class="big warn">{{ ciPlan.parsed.dups.length }}</div></div>
                 <div><div class="hint">ระบบมีของ แต่ไม่อยู่ในไฟล์</div><div class="big">{{ ciPlan.missing.length }}</div></div>
@@ -938,6 +947,10 @@ textarea{font:inherit}
               <details v-if="ciPlan.unknown.length" style="margin-top:10px"><summary>รหัสในไฟล์ที่ไม่มีในทะเบียน — {{ ciPlan.unknown.length }} รหัส (เพิ่มเข้าทะเบียนก่อน แล้วนำเข้าใหม่)</summary>
                 <div class="scroll" style="max-height:30vh"><table><thead><tr><th style="width:90px">แถวในไฟล์</th><th style="width:140px">รหัส</th><th>ชื่อในไฟล์</th><th style="width:110px">ยอด</th></tr></thead>
                   <tbody><tr v-for="u in ciPlan.unknown" :key="u.code"><td class="mono hint">{{ u.line }}</td><td class="mono">{{ u.code }}</td><td>{{ u.desc || '—' }}</td><td class="mono">{{ u.qty }}</td></tr></tbody></table></div></details>
+              <details v-if="ciPlan.parsed.held.length" style="margin-top:6px"><summary>อยู่ในไฟล์แต่ไม่ลง — {{ ciPlan.parsed.held.length }} รหัส (คีย์ยอดเองในตารางนับ ถ้าต้องการ)</summary>
+                <div class="scroll" style="max-height:30vh"><table><thead><tr><th style="width:90px">แถวในไฟล์</th><th style="width:140px">รหัส</th><th>ชื่อในไฟล์</th><th>เหตุผล</th><th style="width:110px">Vendor Stk</th></tr></thead>
+                  <tbody><tr v-for="h in ciPlan.parsed.held" :key="h.code"><td class="mono hint">{{ h.line }}</td><td class="mono">{{ h.code }}</td><td>{{ h.desc || '—' }}</td>
+                    <td>{{ h.why }}<span class="hint" v-if="h.ents && h.ents.length > 1"> ({{ h.ents.join(' · ') }})</span></td><td class="mono">{{ h.stk == null ? '' : h.stk }}</td></tr></tbody></table></div></details>
               <details v-if="ciPlan.parsed.errors.length" style="margin-top:6px"><summary>แถวที่อ่านไม่ได้ — {{ ciPlan.parsed.errors.length }} แถว (ไม่ลง)</summary>
                 <div v-for="e in ciPlan.parsed.errors" :key="e.line" class="hint">แถว {{ e.line }} {{ e.code || '' }} — {{ e.why }}</div></details>
               <details v-if="ciPlan.parsed.dups.length" style="margin-top:6px"><summary>รหัสซ้ำในไฟล์ — {{ ciPlan.parsed.dups.length }} รหัส (รวมยอดทุกแถวให้)</summary>
@@ -952,7 +965,7 @@ textarea{font:inherit}
                     <td><input type="checkbox" v-model="ci.tick[m.code]"></td><td class="mono">{{ m.code }}</td>
                     <td>{{ (matOf(m.code) || {}).description || '—' }}</td><td class="mono">{{ m.book }} {{ (matOf(m.code) || {}).unit || '' }}</td></tr></tbody></table></div></details>
               <div class="row" style="margin-top:12px">
-                <span class="hint">{{ ci.file }} · ชีต {{ ci.sheet }} · นับเมื่อ {{ localDateTime(ciAt) }}</span>
+                <span class="hint">{{ ci.file }} · ชีต {{ ci.sheet }}<template v-if="ciPlan.parsed.layout==='wip'"> · ยอดนับจากคอลัมน์ <b>{{ ciPlan.parsed.label }}</b></template> · นับเมื่อ {{ localDateTime(ciAt) }}</span>
                 <div class="grow"></div>
                 <button class="btn primary" @click="ciApply">ใส่ยอดนับ {{ ciPlan.matched.length }} รหัส{{ ciTicked ? ' + นับเป็น 0 อีก ' + ciTicked : '' }} ลงรอบนี้</button>
               </div>
