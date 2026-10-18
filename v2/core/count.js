@@ -187,11 +187,15 @@ const numOf = v => typeof v === 'number' ? v : (cellText(v) === '' ? NaN : Numbe
 const blank = v => v == null || cellText(v) === '';
 
 /**
- * ฟอร์ม WIP — opts = { entity: นิติบุคคลของรอบนับ, entityOf: (เลข PO) => นิติบุคคล, source: 'qty' | 'stk' }
+ * ฟอร์ม WIP — opts = { entity: นิติบุคคลของรอบนับ, entityOf: (เลข PO) => นิติบุคคล, source: 'qty' | 'stk', known }
  * คืนแบบเดียวกับ parseCountSheet และเพิ่ม
  *   held      = รหัสที่มีแถวของนิติบุคคลนี้ (อยู่ในไฟล์) แต่ไม่ลง [{ code, line, desc, why, stk, ents }]
  *   entities  = นิติบุคคลในไฟล์ [{ entity, codes }] · skippedBlank = แถว QTY ว่างที่ข้าม (ไม่เดาเป็น 0)
  * ⚠️ entityOf มาจากผู้เรียก (master/entities.js · entityOfPo) — กฎเดียวกับที่ระบบตัดสินเจ้าของ PO ทุกที่
+ * ⚠️ known (Set รหัสในทะเบียน) = จัดกลุ่มแถวตามรหัสเดียวกันหลังเติม 0 ไม่ใช่ตามสตริงในไฟล์
+ *    รหัสที่ไฟล์เขียนสองแบบ (Excel ตัด 0 หน้าบางแถว) ต้องเป็นกลุ่มเดียว ไม่งั้นด่านรายรหัสข้างล่าง
+ *    (หลายนิติบุคคล · unsure · badQty · Vendor Stk ค่าเดียว) เห็นแค่ครึ่งเดียวแล้วลงยอดเงียบ ๆ (A3)
+ *    ไม่ส่ง known มา = กุญแจกลุ่มเป็นสตริงในไฟล์เหมือนเดิม
  */
 function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) {
   const source = opts.source === 'stk' ? 'stk' : 'qty';
@@ -212,6 +216,9 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
     if (seen && ok) cLetter = c;
   }
   const groups = new Map(), errors = [];
+  // กฎเติม 0 ต้องเป็นกฎเดียวกับ matchCountRows เป๊ะ ๆ ห้ามเดากฎใหม่ ไม่งั้นสองที่จัดกลุ่มคนละแบบ
+  const known = opts.known;
+  const canon = c => known && !known.has(c) && /^\d{9}$/.test(c) && known.has('0' + c) ? '0' + c : c;
   let skippedBlank = 0;
   for (let i = header + 1; i < rows.length; i++) {
     const r = rows[i] || [];
@@ -220,8 +227,10 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
     const code = cellText(typeof raw === 'number' ? String(raw) : raw).toUpperCase();
     if (!code) continue;                                   // แถวว่างคั่นระหว่างรหัส
     const line = i + 1;
-    let g = groups.get(code);
-    if (!g) groups.set(code, g = { code, line, desc: '', ents: new Set(), stk: [], qty: 0, qtyRows: 0, badQty: false, unsure: false });
+    const key = canon(code);
+    let g = groups.get(key);
+    // g.code = สตริงรหัสที่เจอในไฟล์ครั้งแรก (ไม่ใช่รหัสที่เติม 0 แล้ว) — matched[].padded / fileCode ต้องยังใช้ได้
+    if (!g) groups.set(key, g = { code, line, desc: '', ents: new Set(), stk: [], qty: 0, qtyRows: 0, badQty: false, unsure: false });
     if (!g.desc && cDesc >= 0) g.desc = cellText(r[cDesc]);
     const po = cellText(r[cPo]);
     const ent = String(opts.entityOf(po) || '').toUpperCase();

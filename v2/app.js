@@ -776,9 +776,10 @@ createApp({
       if (!cs.value || !ci.sheet) return null;
       const sh = ci.sheets.find(s => s.name === ci.sheet);
       if (!sh) return null;
-      // ฟอร์ม WIP มีหลายนิติบุคคลในไฟล์เดียว — รับเฉพาะแถวของนิติบุคคลของรอบนับ (A3)
-      const raw = parseCountSheet(sh.aoa, { entity: cs.value.entity, entityOf: entityOfPo, source: ci.source });
       const known = new Set(materials.value.map(m => normCode(m.material_code)));
+      // ฟอร์ม WIP มีหลายนิติบุคคลในไฟล์เดียว — รับเฉพาะแถวของนิติบุคคลของรอบนับ (A3)
+      // ส่งทะเบียนเข้าไปด้วย เพื่อให้รหัสที่ไฟล์เขียนสองแบบถูกตรวจเป็นรหัสเดียว (ไม่งั้นด่านรายรหัสถูกข้าม)
+      const raw = parseCountSheet(sh.aoa, { entity: cs.value.entity, entityOf: entityOfPo, source: ci.source, known });
       // Vendor Stk เป็นยอดคงเหลือ — รหัสเดียวกันที่ไฟล์เขียนสองแบบห้ามบวกรวมตอนจับคู่ (QTY บวกเหมือนเดิม)
       const match = matchCountRows(raw.rows, known, { sum: raw.source !== 'stk' });
       const { matched, unknown } = match;

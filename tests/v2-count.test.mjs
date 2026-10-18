@@ -332,9 +332,53 @@ console.log('\n=== ฟอร์ม WIP: หลายนิติบุคคล�
   ok('ทาง QTY ยังบวกรวมรหัสที่เขียนสองแบบเหมือนเดิม (10 + 15) · ไม่มีรหัสไหนถูกกัน',
      (mq.matched.find(x => x.code === '0910000206') || {}).qty === 25 && !mq.held.length, JSON.stringify(mq.matched));
 
+  // รหัสเดียวกันที่ไฟล์เขียนสองแบบ ต้องเป็น "กลุ่มเดียว" ตั้งแต่ตอนอ่าน
+  // ไม่งั้นด่านรายรหัสทุกด่าน (หลายนิติบุคคล · แถวอ่านไม่ได้ · QTY เสีย) เห็นแค่ครึ่งเดียวของรหัสนั้น
+  // แล้วลงยอดเข้านิติบุคคลของรอบนับเงียบ ๆ โดยไม่มีอะไรฟ้องบนจอ (A3 · ผู้ตรวจ #140 รอบ 3 ข้อ 1)
+  const kn3 = new Set(['0910000206', '0910000306', '0910000406', '0910000506']);
+  const split = [H,
+    row(910000206, 'สองสะกด คร่อม A กับ H', 80, 'TM0001A301', 10, 'A'),
+    row('0910000206', null, 80, 'TM0001H301', 15, 'H'),
+    [],
+    row(910000306, 'สองสะกด · QTY เสียอยู่คนละสะกด', 40, 'TM0001H302', 'x', 'H'),
+    row('0910000306', null, 40, 'TM0001H303', 15, 'H'),
+    [],
+    row(910000406, 'สองสะกด · แถวตัดสินนิติบุคคลไม่ได้', 30, 'XX', 5, null),
+    row('0910000406', null, 30, 'TM0001H304', 7, 'H'),
+    [],
+    row(910000506, 'สองสะกด · H ล้วน', 60, 'TM0001H305', 10, 'H'),
+    row('0910000506', null, 60, 'TM0001H306', 15, 'H')
+  ];
+  const wipK = (source) => parseCountSheet(split, { entity: 'TUE-H', entityOf: entityOfPo, source, known: kn3 });
+  const sk = wipK('stk'), qk = wipK('qty');
+  const skOf = c => (sk.rows.find(r => r.code === c) || {}).qty;
+  const qkOf = c => (qk.rows.find(r => r.code === c) || {}).qty;
+  const heldWhy = (p, c) => (p.held.find(h => h.code === c) || {}).why || '';
+  ok('สองสะกดคร่อมสองนิติบุคคล: Vendor Stk ไม่ลง ขึ้นรายการว่ามี PO หลายนิติบุคคล (ด่านต้องเห็นทั้งสองสะกด)',
+     skOf('910000206') === undefined && skOf('0910000206') === undefined
+     && /หลายนิติบุคคล/.test(heldWhy(sk, '910000206')),
+     JSON.stringify({ rows: sk.rows, held: sk.held }));
+  ok('สองสะกดคร่อมสองนิติบุคคล: QTY รับเฉพาะแถวของ H (15 ไม่ใช่ 25)', qkOf('910000206') === 15, String(qkOf('910000206')));
+  ok('สองสะกด · QTY เสียอยู่คนละสะกด = ไม่ลงทั้งรหัส',
+     qkOf('910000306') === undefined && qkOf('0910000306') === undefined && /QTY ที่อ่านไม่ได้/.test(heldWhy(qk, '910000306')),
+     JSON.stringify({ rows: qk.rows, held: qk.held }));
+  ok('สองสะกด · แถวที่ตัดสินนิติบุคคลไม่ได้อยู่คนละสะกด = ไม่ลงทั้งรหัส ทั้งสองโหมด',
+     qkOf('910000406') === undefined && qkOf('0910000406') === undefined
+     && skOf('910000406') === undefined && skOf('0910000406') === undefined
+     && /ตัดสินนิติบุคคลไม่ได้/.test(heldWhy(qk, '910000406')) && /ตัดสินนิติบุคคลไม่ได้/.test(heldWhy(sk, '910000406')));
+  ok('สองสะกดของนิติบุคคลเดียวกัน: QTY ยังรวม (10 + 15) · Vendor Stk ค่าเท่ากันใช้ค่าเดียว (60 ไม่ใช่ 120)',
+     qkOf('910000506') === 25 && skOf('910000506') === 60, JSON.stringify({ q: qkOf('910000506'), s: skOf('910000506') }));
+  ok('รหัสที่คืนออกมายังเป็นสตริงที่เจอในไฟล์ครั้งแรก → เติม 0 ตอนจับคู่ได้เหมือนเดิม',
+     (matchCountRows(qk.rows, kn3).matched.find(x => x.code === '0910000506') || {}).fileCode === '910000506');
+  ok('รหัสที่ด่านกันไว้ไม่ไปโผล่ใน "ไม่อยู่ในไฟล์" (กดติ๊กทั้งหมดแล้วไม่ล้างยอดจริงเป็น 0)',
+     !missingFromFile(new Map([['0910000206', 7], ['0910000306', 8], ['0910000406', 9]]),
+                      matchCountRows(sk.rows, kn3, { sum: false }), sk).length,
+     JSON.stringify(missingFromFile(new Map([['0910000206', 7], ['0910000306', 8], ['0910000406', 9]]),
+                                    matchCountRows(sk.rows, kn3, { sum: false }), sk)));
+
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  ok('จอ: ส่งนิติบุคคลของรอบนับ + entityOfPo + คอลัมน์ที่เลือก · ชีตตั้งต้น = WIP',
-     /parseCountSheet\(sh\.aoa, \{ entity: cs\.value\.entity, entityOf: entityOfPo, source: ci\.source \}\)/.test(app)
+  ok('จอ: ส่งนิติบุคคลของรอบนับ + entityOfPo + คอลัมน์ที่เลือก + ทะเบียน · ชีตตั้งต้น = WIP',
+     /parseCountSheet\(sh\.aoa, \{ entity: cs\.value\.entity, entityOf: entityOfPo, source: ci\.source, known \}\)/.test(app)
      && /=== 'WIP'/.test(app) && /source: 'qty'/.test(app));
   ok('จอ: โหมด Vendor Stk สั่งห้ามบวกรวมตอนจับคู่ · รหัสที่ชนกันไปโผล่กล่อง "อยู่ในไฟล์แต่ไม่ลง"',
      /matchCountRows\([^)]*\{ sum: raw\.source !== 'stk' \}\)/.test(app)
