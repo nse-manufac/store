@@ -1152,7 +1152,8 @@ export function buyDocGroups(rows, { qty = 'remain' } = {}) {
     const key = txt(f.part_no) + '|' + txt(f.po);
     if (!by.has(key)) by.set(key, { part_no: txt(f.part_no), po: txt(f.po), lines: [] });
     by.get(key).lines.push({ id: txt(f.id), code: txt(f.code), qty: qtyOf(f), unit: txt(f.unit),
-                             note: txt(f.note), voided: !!f.voided });
+                             // REMARK ของใบที่ส่งผู้ขาย — ตัดท่อนร่องรอย "เอากลับ" ภายในออก (ผู้ตรวจ #142 รอบ 2 ข้อสังเกต 1)
+                             note: splitNoteTrace(f.note).base, voided: !!f.voided });
   }
   const groups = [...by.values()].sort((a, b) =>
     a.part_no.localeCompare(b.part_no) || a.po.localeCompare(b.po));

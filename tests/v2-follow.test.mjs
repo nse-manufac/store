@@ -1981,5 +1981,15 @@ console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ
   ok('ไม่มี import reopenFollow ค้างใน app.js', !/reopenFollow/.test(appZ));
 }
 
+console.log('\n=== Z2. ใบสั่งซื้อทดแทนไม่พิมพ์ร่องรอย "เอากลับ" ไปให้ผู้ขาย ===');
+{
+  const b = arriveBuy(fromManualBuy({ entity: 'TUE-H', code: 'A1', qty: 3, unit: 'MTR', po: 'PO-Z3', person: 'ก',
+                                      note: 'ของเสียจากไลน์', at: '2026-10-23T03:00:00.000Z' }), { by: 'สมชาย' });
+  const r = reopenBuy(b, { by: 'หัวหน้า' });
+  const line = buyDocGroups([r])[0].lines[0];
+  ok('เรื่องมีร่องรอยในหมายเหตุ แต่ REMARK ของใบเหลือแค่หมายเหตุเดิม',
+     r.note.includes('เอากลับ') && line.note === 'ของเสียจากไลน์', JSON.stringify(line.note));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
