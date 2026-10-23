@@ -18,6 +18,7 @@
 import { round5, makeEntry, voidEntry, signedQty } from '../core/ledger.js';
 import { balanceOf } from '../core/balance.js';
 import { resolveEntity, entityOfPo } from './entities.js';
+import { localDate } from '../core/localtime.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
 export const FOLLOW_KINDS = {
@@ -188,16 +189,53 @@ export function closeFollow(row, { qty, by = '', at, doneAt } = {}) {
            done_at: txt(doneAt) || now, done_by: txt(by), updated_at: now };
 }
 
+/** ตัวคั่นท่อนในช่องหมายเหตุของเรื่อง */
+export const NOTE_SEP = ' · ';
+
+/**
+ * คำนำหน้าท่อนร่องรอย "เอากลับ" ที่ reopenFollow ต่อท้าย note
+ *
+ * ⚠️ เป็นค่าคงที่เพราะมีคนอ่านท่อนนี้กลับ — planMatFollow ใช้แยกว่าท่อนไหนมาจากไฟล์ Delta
+ *    (ไฟล์เขียนทับได้) ท่อนไหนเป็นร่องรอยที่คนทำไว้ (ห้ามทับ) · เขียนสตริงซ้ำสองที่แล้ว
+ *    แก้ข้อความที่เดียวจะทำให้การแยกท่อนพังเงียบ (ผู้ตรวจ #142 ข้อ 1)
+ */
+export const REOPEN_MARK = 'เอากลับ ';
+
+/**
+ * แยกหมายเหตุของเรื่องเป็น { base, trace }
+ *   base  = ท่อนที่มาจากไฟล์ / คนคีย์ไว้
+ *   trace = ท่อน "เอากลับ …" ทั้งหมดนับจากท่อนแรกที่เจอ (เอากลับหลายรอบได้หลายท่อน)
+ */
+export function splitNoteTrace(note) {
+  const s = txt(note);
+  if (!s) return { base: '', trace: '' };
+  const parts = s.split(NOTE_SEP);
+  const i = parts.findIndex(p => p.trimStart().startsWith(REOPEN_MARK));
+  if (i < 0) return { base: s, trace: '' };
+  return { base: parts.slice(0, i).join(NOTE_SEP).trim(), trace: parts.slice(i).join(NOTE_SEP).trim() };
+}
+
+/** ต่อท้ายหมายเหตุจากไฟล์ด้วยท่อนร่องรอยที่มีอยู่เดิม — ท่อนว่างไม่ทิ้งตัวคั่นค้าง */
+export function joinNote(...parts) {
+  return parts.map(txt).filter(Boolean).join(NOTE_SEP);
+}
+
 /**
  * เปิดเรื่องกลับมาใหม่ — ใช้ตอนกดผิดใบ
  *
  * ⚠️ ล้างยอดที่ปิดไปแล้วทิ้งทั้งหมด เพราะ "ยังไม่จบ" ที่มียอดปิดค้างครึ่งทาง
  *    อ่านแล้วไม่รู้ว่าตกลงของมาถึงเท่าไหร่แล้ว · อยากได้ครึ่งทางให้ปิดใหม่เป็นยอดที่ถูก
+ * ⚠️ ล้าง done_by / done_at แล้วร่องรอยหาย — จดไว้ที่หมายเหตุของเรื่องว่าใครเอากลับ และเดิมใครปิด
+ *    (ผู้ตรวจ #131 · เจ้าของเลือก 19 ต.ค. 2026 ให้ต่อท้าย note ไม่เพิ่มช่องใหม่ — ไม่ต้องแก้ชีต / Apps Script)
  */
-export function reopenFollow(row, { at } = {}) {
+export function reopenFollow(row, { at, by = '' } = {}) {
   if (!row) throw new Error('ไม่มีรายการให้เปิดใหม่');
   const now = txt(at) || new Date().toISOString();
-  return { ...row, done: false, done_qty: 0, done_at: '', done_by: '', updated_at: now };
+  const was = (txt(row.done_by) || txt(row.done_at))
+    ? ` (เดิมปิด ${localDate(row.done_at) || '—'} โดย ${txt(row.done_by) || 'ไม่ระบุชื่อ'})` : '';
+  const trace = `${REOPEN_MARK}${localDate(now)} โดย ${txt(by) || 'ไม่ระบุชื่อ'}${was}`;
+  return { ...row, done: false, done_qty: 0, done_at: '', done_by: '', updated_at: now,
+           note: joinNote(row.note, trace) };
 }
 
 /**
@@ -218,6 +256,8 @@ export function arriveShort(row, { qty, receive = true, person = '', device = ''
   const rec = closeFollow(row, { qty, by: person, at: now, doneAt: at });
   const added = round5((Number(rec.done_qty) || 0) - (Number(row.done_qty) || 0));
   if (!receive || !(added > 0)) return { rec, entry: null };
+  // เดิมไปโยนที่ makeEntry ว่า "รับเข้า ต้องอ้างอิงเอกสาร" — ไม่บอกว่าขาดอะไร และไม่บอกทางออก (G3)
+  if (!txt(row.po)) throw new Error('เรื่องนี้ไม่มีเลข PO — รับเข้าคลังไม่ได้ · เอาติ๊กช่อง กด "มาแล้ว" = รับเข้าคลังด้วย ออก แล้วกดใหม่ (ปิดเรื่องอย่างเดียว)');
   // G3 — ชื่อที่อ้างต้องมีอยู่บนจอจริง ห้ามบอกให้ไปกดปุ่มที่ไม่มี (ผู้ตรวจ #104 · #130 รอบ 4)
   if (!txt(row.entity)) throw new Error('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — เลือกนิติบุคคลที่หัวจอ '
     + 'แล้วกดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ที่หัวแท็บก่อน (INVARIANTS A3)');
@@ -242,7 +282,7 @@ export function reopenShort(row, entries = [], { by = '', at = '' } = {}) {
   const hit = (entries || []).filter(e => e && ids.includes(e.id) && !e.voided);
   if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการรับเข้า');
   const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง short กลับ — กด "มาแล้ว" ผิด' }));
-  return { rec: { ...reopenFollow(row, { at }), receive_entry_id: '' }, voids };
+  return { rec: { ...reopenFollow(row, { at, by }), receive_entry_id: '' }, voids };
 }
 
 /**
@@ -825,7 +865,8 @@ export function dupFollows(follows, { kind, entity } = {}) {
 export function doubleReturns(follows, entries, { entity } = {}) {
   if (!txt(entity)) return [];
   const live = new Map();
-  for (const e of entries || []) if (e && e.kind === 'sendback' && !e.voided) live.set(e.id, Number(e.qty) || 0);
+  // กรองนิติบุคคลอีกชั้น — เลขที่รายการไม่ชนข้ามนิติบุคคลอยู่แล้ว แต่ไม่ฝากความปลอดภัยไว้ที่ตรงนั้น (A3 · ผู้ตรวจ #131)
+  for (const e of entries || []) if (e && e.kind === 'sendback' && !e.voided && e.entity === entity) live.set(e.id, Number(e.qty) || 0);
   const groups = new Map();
   for (const f of follows || []) {
     if (!f || f.kind !== 'over' || f.entity !== entity || f.voided) continue;
@@ -853,7 +894,7 @@ export function reopenOver(row, entries = [], { by = '', at = '' } = {}) {
   const hit = (entries || []).filter(e => e && ids.includes(e.id) && !e.voided);
   if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการส่งคืน');
   const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง over กลับ — กด "คืนแล้ว" ผิดหรือคืนซ้ำ' }));
-  return { rec: { ...reopenFollow(row, { at }), return_entry_id: '' }, voids };
+  return { rec: { ...reopenFollow(row, { at, by }), return_entry_id: '' }, voids };
 }
 
 /* ══════════ Short / Over บน Bin Card (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */
@@ -1111,7 +1152,8 @@ export function buyDocGroups(rows, { qty = 'remain' } = {}) {
     const key = txt(f.part_no) + '|' + txt(f.po);
     if (!by.has(key)) by.set(key, { part_no: txt(f.part_no), po: txt(f.po), lines: [] });
     by.get(key).lines.push({ id: txt(f.id), code: txt(f.code), qty: qtyOf(f), unit: txt(f.unit),
-                             note: txt(f.note), voided: !!f.voided });
+                             // REMARK ของใบที่ส่งผู้ขาย — ตัดท่อนร่องรอย "เอากลับ" ภายในออก (ผู้ตรวจ #142 รอบ 2 ข้อสังเกต 1)
+                             note: splitNoteTrace(f.note).base, voided: !!f.voided });
   }
   const groups = [...by.values()].sort((a, b) =>
     a.part_no.localeCompare(b.part_no) || a.po.localeCompare(b.po));
@@ -1187,13 +1229,17 @@ export function buyFromBom({ entity, po = '', part_no = '', picks = [], note = '
   for (const p of picks || []) {
     const code = txt(p && p.code).toUpperCase();
     const q = Number(p && p.qty);
-    if (!(q > 0) || !isFinite(q)) { errors.push({ code, why: `${code} ใส่จำนวนที่จะสั่ง (มากกว่าศูนย์)` }); continue; }
+    // รหัสนอกสูตรที่ไม่มีในทะเบียน (known === false) ส่วนใหญ่คือพิมพ์ค้างครึ่งเดียว — บอกให้พิมพ์ให้ครบก่อน (ผู้ตรวจ #129)
+    const half = p && p.known === false ? ' · รหัสนี้ไม่มีในทะเบียน — พิมพ์ให้ครบหรือเลือกจากตัวเลือก' : '';
+    if (!(q > 0) || !isFinite(q)) { errors.push({ code, why: `${code} ใส่จำนวนที่จะสั่ง (มากกว่าศูนย์)${half}` }); continue; }
     if (!code) { errors.push({ code: '', why: 'มีแถวที่ไม่มีรหัสวัตถุดิบ — ตรวจสูตรของ P/N นี้ที่ ข้อมูลตั้งต้น → BOM' }); continue; }
     // รหัสนอกสูตรที่คีย์เอง (เจ้าของสั่ง 10 ต.ค. 2026) ซ้ำกับที่ติ๊กจากสูตรได้ — สองเรื่องรหัสเดียวกันในรอบเดียวคือคีย์พลาด
     if (seen.has(code)) { errors.push({ code, why: `${code} เลือกซ้ำ — อยู่ในสูตรแล้วหรือคีย์ซ้ำสองแถว ให้เหลือแถวเดียว` }); continue; }
     seen.add(code);
     // แถวที่มาจากสูตรไม่มีช่องหน่วยให้คีย์ ต้องบอกทางออกที่มีจริงด้วย (G3 · ผู้ตรวจ #129 ข้อ 1)
-    if (!txt(p.unit)) { errors.push({ code, why: `${code} ไม่มีหน่วย — ใส่หน่วยในช่องหน่วยของแถวนี้ หรือเติมหน่วยให้รหัสนี้ที่ ข้อมูลตั้งต้น → BOM / ทะเบียนวัตถุดิบ` }); continue; }
+    if (!txt(p.unit)) { errors.push({ code, why: half
+      ? `${code} ไม่มีในทะเบียนและไม่มีหน่วย — พิมพ์รหัสให้ครบหรือเลือกจากตัวเลือก · ถ้าเป็นรหัสใหม่จริง ใส่หน่วยในช่องหน่วยของแถวนี้`
+      : `${code} ไม่มีหน่วย — ใส่หน่วยในช่องหน่วยของแถวนี้ หรือเติมหน่วยให้รหัสนี้ที่ ข้อมูลตั้งต้น → BOM / ทะเบียนวัตถุดิบ` }); continue; }
     const open = (follows || []).some(f => f && f.kind === 'buy' && f.entity === entity && !f.voided
       && !txt(f.pr_no) && statusOf(f) !== 'done' && txt(f.po) === txt(po) && txt(f.code).toUpperCase() === code);
     if (open) dup.push(code);
@@ -1250,12 +1296,12 @@ export function arriveBuy(row, { qty, by = '', at, doneAt } = {}) {
  * ⚠️ เรื่องที่ผูกกับรายการรับเข้าแล้ว (ทางเดิม "ไปรับของ") เอากลับที่นี่ไม่ได้ — ของเข้าคลังไปแล้วจริง
  *    เปิดเรื่องใหม่เฉย ๆ = เรื่องกับสมุดขัดกัน
  */
-export function reopenBuy(row, { at } = {}) {
+export function reopenBuy(row, { at, by = '' } = {}) {
   if (!row || row.kind !== 'buy') throw new Error('ใช้ได้กับเรื่องซื้อทดแทนเท่านั้น');
   if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว เอากลับไม่ได้');
   // ปุ่มบนจอซ่อนไว้สำหรับเรื่องแบบนี้อยู่แล้ว · ไม่มีทางล้างเลขที่ผูก จึงไม่ชี้ทางออกที่ไม่มีจริง (ผู้ตรวจ #133 ข้อ 3)
   if (txt(row.receive_entry_id)) throw new Error('เรื่องนี้รับเข้าคลังทางเดิม ("ไปรับของ") ไปแล้ว — เอากลับที่นี่ไม่ได้');
-  return reopenFollow(row, { at });
+  return reopenFollow(row, { at, by });
 }
 
 /**

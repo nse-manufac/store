@@ -376,5 +376,18 @@ console.log('\n=== hard copy — ปุ่ม 🔍 เลือกรหัส�
      keepLine.desc === 'ของเดิม' && keepLine.unit === 'PCE', JSON.stringify(keepLine));
 }
 
+console.log('\n=== BOM hard copy — รหัสพิมพ์ค้างครึ่งเดียว (เจ้าของสั่ง 19 ต.ค. 2026) ===');
+{
+  const mats = [{ material_code: '9100000101', description: 'TAPE', unit: 'MTR' }];
+  const P = (lines) => manualBomPlan({ pn: 'Q', lines }, [], { materials: mats, now: '2026-10-19T03:00:00.000Z', today: '2026-10-19' });
+  const a = P([{ code: '0910', qty: 1 }]);
+  ok('ไม่มีในทะเบียน + ไม่มีหน่วย = บอกให้พิมพ์รหัสให้ครบ (ไม่ชวนใส่หน่วยอย่างเดียว)',
+     !a.ok && /พิมพ์รหัสให้ครบ/.test(a.errors[0].why) && /ไม่มีหน่วย/.test(a.errors[0].why), a.errors[0] && a.errors[0].why);
+  const b = P([{ code: '0910', qty: '' }]);
+  ok('ไม่มีในทะเบียน + ไม่มียอด = บอกด้วยว่ารหัสไม่มีในทะเบียน', !b.ok && /ไม่มีในทะเบียน/.test(b.errors[0].why));
+  const c = P([{ code: '9100000101', qty: '' }]);
+  ok('มีในทะเบียน + ไม่มียอด = ข้อความเดิม ไม่พูดเรื่องทะเบียน', !c.ok && !/ไม่มีในทะเบียน/.test(c.errors[0].why));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
