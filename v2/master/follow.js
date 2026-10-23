@@ -189,6 +189,37 @@ export function closeFollow(row, { qty, by = '', at, doneAt } = {}) {
            done_at: txt(doneAt) || now, done_by: txt(by), updated_at: now };
 }
 
+/** ตัวคั่นท่อนในช่องหมายเหตุของเรื่อง */
+export const NOTE_SEP = ' · ';
+
+/**
+ * คำนำหน้าท่อนร่องรอย "เอากลับ" ที่ reopenFollow ต่อท้าย note
+ *
+ * ⚠️ เป็นค่าคงที่เพราะมีคนอ่านท่อนนี้กลับ — planMatFollow ใช้แยกว่าท่อนไหนมาจากไฟล์ Delta
+ *    (ไฟล์เขียนทับได้) ท่อนไหนเป็นร่องรอยที่คนทำไว้ (ห้ามทับ) · เขียนสตริงซ้ำสองที่แล้ว
+ *    แก้ข้อความที่เดียวจะทำให้การแยกท่อนพังเงียบ (ผู้ตรวจ #142 ข้อ 1)
+ */
+export const REOPEN_MARK = 'เอากลับ ';
+
+/**
+ * แยกหมายเหตุของเรื่องเป็น { base, trace }
+ *   base  = ท่อนที่มาจากไฟล์ / คนคีย์ไว้
+ *   trace = ท่อน "เอากลับ …" ทั้งหมดนับจากท่อนแรกที่เจอ (เอากลับหลายรอบได้หลายท่อน)
+ */
+export function splitNoteTrace(note) {
+  const s = txt(note);
+  if (!s) return { base: '', trace: '' };
+  const parts = s.split(NOTE_SEP);
+  const i = parts.findIndex(p => p.trimStart().startsWith(REOPEN_MARK));
+  if (i < 0) return { base: s, trace: '' };
+  return { base: parts.slice(0, i).join(NOTE_SEP).trim(), trace: parts.slice(i).join(NOTE_SEP).trim() };
+}
+
+/** ต่อท้ายหมายเหตุจากไฟล์ด้วยท่อนร่องรอยที่มีอยู่เดิม — ท่อนว่างไม่ทิ้งตัวคั่นค้าง */
+export function joinNote(...parts) {
+  return parts.map(txt).filter(Boolean).join(NOTE_SEP);
+}
+
 /**
  * เปิดเรื่องกลับมาใหม่ — ใช้ตอนกดผิดใบ
  *
@@ -202,9 +233,9 @@ export function reopenFollow(row, { at, by = '' } = {}) {
   const now = txt(at) || new Date().toISOString();
   const was = (txt(row.done_by) || txt(row.done_at))
     ? ` (เดิมปิด ${localDate(row.done_at) || '—'} โดย ${txt(row.done_by) || 'ไม่ระบุชื่อ'})` : '';
-  const trace = `เอากลับ ${localDate(now)} โดย ${txt(by) || 'ไม่ระบุชื่อ'}${was}`;
+  const trace = `${REOPEN_MARK}${localDate(now)} โดย ${txt(by) || 'ไม่ระบุชื่อ'}${was}`;
   return { ...row, done: false, done_qty: 0, done_at: '', done_by: '', updated_at: now,
-           note: [txt(row.note), trace].filter(Boolean).join(' · ') };
+           note: joinNote(row.note, trace) };
 }
 
 /**

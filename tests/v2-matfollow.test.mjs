@@ -7,7 +7,8 @@
  */
 import { matDate, numOf, readNote, rowToFollow, parseMatFollow, planMatFollow, matKey, dedupeMatRows }
   from '../v2/master/matfollow.js';
-import { makeFollow, closeFollow, voidFollow, statusOf, remainOf } from '../v2/master/follow.js';
+import { makeFollow, closeFollow, voidFollow, reopenFollow, statusOf, remainOf,
+         splitNoteTrace, REOPEN_MARK } from '../v2/master/follow.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -277,6 +278,72 @@ console.log('\n=== F. ไฟล์แบบต่อท้าย · ไฟล์
      JSON.stringify(p.gone.map(g => g.cur.entity)));
   ok('บอกด้วยว่าไฟล์รอบนี้ครอบคลุมนิติบุคคลไหนบ้าง', p.entities.join(',') === 'TUE-H');
 }
+
+console.log('\n=== G. ร่องรอย "เอากลับ" ในหมายเหตุ ต้องไม่ถูกไฟล์ทับ ===');
+/* ⚠️ ไฟล์เป็นเจ้าของแค่ "หมายเหตุจาก Delta" — ท่อน "เอากลับ …" ที่ reopenFollow ต่อท้ายไว้
+ * ไม่ได้มาจากไฟล์ เอา p.note ทับทั้งช่องแล้วร่องรอยหายทุกรอบที่นำเข้าไฟล์ แบบไม่มีใครเห็น
+ * (การ์ดดูก่อนยืนยันโชว์แต่ค่าจากไฟล์) · เรื่องที่เอากลับยังเปิดอยู่ จึงอยู่ในไฟล์รอบถัดไปแน่นอน
+ * (ผู้ตรวจ #142 ข้อ 1) */
+{
+  const withNote = parseMatFollow({
+    'H-M5': [head, cols, line({ order: 100, actual: 80, note: 'TM7001A' })]
+  }).rows;
+  const born = planMatFollow(withNote, [], { now: '2026-10-20T03:00:00.000Z' }).create[0].rec;
+  const closed = closeFollow(born, { qty: 20, by: 'สมชาย', at: '2026-10-20T04:00:00.000Z' });
+  const back = reopenFollow(closed, { by: 'สมหญิง', at: '2026-10-23T03:00:00.000Z' });
+  ok('ตั้งต้น — เอากลับแล้วหมายเหตุมีทั้งของจากไฟล์และร่องรอย',
+     back.note.includes('TM7001A') && back.note.includes('เอากลับ') && back.note.includes('สมหญิง'),
+     JSON.stringify(back.note));
+
+  const again = planMatFollow(withNote, [back], { now: '2026-10-23T04:00:00.000Z' });
+  ok('**นำเข้าไฟล์เดิมซ้ำ ร่องรอยต้องยังอยู่ ไม่ถูกทับทิ้ง**',
+     !again.update.length && again.same.length === 1,
+     JSON.stringify({ u: again.update.length, note: again.update[0]?.rec.note }));
+
+  // ไฟล์รอบใหม่เปลี่ยนหมายเหตุจาก Delta — ของจากไฟล์ต้องเปลี่ยน แต่ร่องรอยต้องติดไปด้วย
+  const newNote = parseMatFollow({
+    'H-M5': [head, cols, line({ order: 100, actual: 80, note: 'TM7002B' })]
+  }).rows;
+  const p2 = planMatFollow(newNote, [back], { now: '2026-10-23T05:00:00.000Z' });
+  ok('ไฟล์เปลี่ยนหมายเหตุ — ได้ของใหม่จากไฟล์ และร่องรอยยังอยู่',
+     p2.update.length === 1 && p2.update[0].rec.note === 'TM7002B · ' + splitNoteTrace(back.note).trace,
+     JSON.stringify(p2.update[0]?.rec.note));
+  ok('หมายเหตุเก่าจากไฟล์ถูกทับจริง ไม่ค้างซ้อน',
+     !p2.update[0].rec.note.includes('TM7001A'), JSON.stringify(p2.update[0]?.rec.note));
+
+  // เอากลับหลายรอบ = หลายท่อน · ทุกท่อนต้องรอด และยอดที่เปลี่ยนยังอัปเดตได้
+  const twice = reopenFollow(closeFollow(back, { qty: 20, by: 'สมศรี', at: '2026-10-23T06:00:00.000Z' }),
+                             { by: 'สมปอง', at: '2026-10-23T07:00:00.000Z' });
+  const qtyMoved = parseMatFollow({
+    'H-M5': [head, cols, line({ order: 100, actual: 85, note: 'TM7001A' })]
+  }).rows;
+  const p3 = planMatFollow(qtyMoved, [twice], { now: '2026-10-23T08:00:00.000Z' });
+  ok('เอากลับสองรอบ ยอดเปลี่ยน — ร่องรอยทั้งสองท่อนยังอยู่',
+     p3.update.length === 1 && p3.update[0].rec.qty === 15
+     && (p3.update[0].rec.note.match(/เอากลับ /g) || []).length === 2
+     && p3.update[0].rec.note.includes('สมหญิง') && p3.update[0].rec.note.includes('สมปอง'),
+     JSON.stringify(p3.update[0]?.rec.note));
+
+  // เรื่องที่ไฟล์ไม่ได้ส่งหมายเหตุมาเลย — ต้องไม่เหลือตัวคั่นค้างหน้าร่องรอย
+  const noNote = parseMatFollow({ 'H-M5': [head, cols, line({ order: 100, actual: 80 })] }).rows;
+  const plain = planMatFollow(noNote, [], { now: '2026-10-20T03:00:00.000Z' }).create[0].rec;
+  const plainBack = reopenFollow(plain, { by: 'สมหญิง', at: '2026-10-23T03:00:00.000Z' });
+  ok('ไม่มีหมายเหตุจากไฟล์ ร่องรอยไม่ขึ้นต้นด้วยตัวคั่น',
+     plainBack.note.startsWith('เอากลับ '), JSON.stringify(plainBack.note));
+  const p4 = planMatFollow(noNote, [plainBack], { now: '2026-10-23T04:00:00.000Z' });
+  ok('ไฟล์ไม่มีหมายเหตุ นำเข้าซ้ำก็ไม่ขึ้นว่าอัปเดต และร่องรอยยังอยู่',
+     !p4.update.length && p4.same.length === 1, JSON.stringify({ u: p4.update.length }));
+}
+/* แยกท่อนด้วยคำนำหน้าคงที่ที่ follow.js export ออกมา — ห้ามเขียนสตริงซ้ำสองที่ */
+ok('คำนำหน้าร่องรอยเป็นค่าคงที่ที่ export ออกมาจาก follow.js', REOPEN_MARK === 'เอากลับ ');
+ok('แยกท่อน: ไม่มีร่องรอย → base คือหมายเหตุทั้งช่อง',
+   splitNoteTrace('TM7001A · Cut Return 5').base === 'TM7001A · Cut Return 5'
+   && splitNoteTrace('TM7001A · Cut Return 5').trace === '');
+ok('แยกท่อน: ช่องว่าง / null ไม่พัง',
+   splitNoteTrace('').base === '' && splitNoteTrace(null).trace === '');
+ok('แยกท่อน: มีแต่ร่องรอย → base ว่าง',
+   splitNoteTrace('เอากลับ 2026-10-23 โดย ก').base === ''
+   && splitNoteTrace('เอากลับ 2026-10-23 โดย ก').trace === 'เอากลับ 2026-10-23 โดย ก');
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
