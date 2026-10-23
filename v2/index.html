@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-19.1">
+<meta name="app-version" content="2026-10-23.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -933,7 +933,7 @@ textarea{font:inherit}
               รับเฉพาะ <b>{{ cs.entity }}</b><template v-if="ci.source==='qty'"> · แถว QTY ว่างข้ามไป {{ ciPlan.parsed.skippedBlank }} แถว (ไม่เดาเป็น 0)</template>
               <template v-else> · รหัสที่มี PO ของหลายนิติบุคคล <b>ไม่ลง</b> (Vendor Stk มีตัวเดียว แบ่งไม่ได้)</template></p>
             <p class="msg bad" style="margin:10px 0 0" v-if="ciErr">{{ ciErr }}</p>
-            <template v-if="ciPlan && !ciErr">
+            <template v-if="ciPlan && (!ciErr || ciNoMatch)">
               <div class="row" style="gap:26px;margin-top:12px;align-items:flex-start">
                 <div><div class="hint">จับคู่กับทะเบียนได้</div><div class="big">{{ ciPlan.matched.length }}</div>
                   <div class="hint" v-if="ciPlan.padded.length">เติม 0 ข้างหน้า {{ ciPlan.padded.length }}</div></div>
@@ -963,8 +963,8 @@ textarea{font:inherit}
                 <div class="scroll" style="max-height:34vh"><table><thead><tr><th style="width:34px"></th><th style="width:140px">รหัส</th><th>ชื่อ</th><th style="width:120px">ยอดในระบบ</th></tr></thead>
                   <tbody><tr v-for="m in ciPlan.missing" :key="m.code">
                     <td><input type="checkbox" v-model="ci.tick[m.code]"></td><td class="mono">{{ m.code }}</td>
-                    <td>{{ (matOf(m.code) || {}).description || '—' }}</td><td class="mono">{{ m.book }} {{ (matOf(m.code) || {}).unit || '' }}</td></tr></tbody></table></div></details>
-              <div class="row" style="margin-top:12px">
+                    <td>{{ (matOf(m.code) || {}).description || '—' }}<span class="hint" v-if="m.elsewhere"> · ในไฟล์เป็นของ {{ m.elsewhere.join(' · ') }}</span></td><td class="mono">{{ m.book }} {{ (matOf(m.code) || {}).unit || '' }}</td></tr></tbody></table></div></details>
+              <div class="row" style="margin-top:12px" v-if="!ciErr">
                 <span class="hint">{{ ci.file }} · ชีต {{ ci.sheet }}<template v-if="ciPlan.parsed.layout==='wip'"> · ยอดนับจากคอลัมน์ <b>{{ ciPlan.parsed.label }}</b></template> · นับเมื่อ {{ localDateTime(ciAt) }}</span>
                 <div class="grow"></div>
                 <button class="btn primary" @click="ciApply">ใส่ยอดนับ {{ ciPlan.matched.length }} รหัส{{ ciTicked ? ' + นับเป็น 0 อีก ' + ciTicked : '' }} ลงรอบนี้</button>
