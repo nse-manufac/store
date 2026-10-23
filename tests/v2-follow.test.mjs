@@ -1926,5 +1926,60 @@ console.log('\n=== Z. Short / Over รวมทุก PO ของรหัส�
      && shortOverTotal(null).pos === 0);
 }
 
+console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ้าของสั่ง 19 ต.ค. 2026) ===');
+{
+  const E = 'TUE-H';
+  const sh = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H101', code: 'A1', qty: 4 });
+  const at = '2026-10-19T03:00:00.000Z';
+  // short ไม่มีเลข PO + ติ๊กรับเข้า — เดิมโยน "รับเข้า ต้องอ้างอิงเอกสาร" ไม่บอกทางออก
+  throws('short ไม่มี PO + รับเข้า = บอกว่าไม่มีเลข PO และให้เอาติ๊กออก', () => arriveShort({ ...sh, po: '' }, { person: 'ก', at }), 'ไม่มีเลข PO');
+  ok('short ไม่มี PO + ไม่ติ๊กรับเข้า = ปิดเรื่องได้', arriveShort({ ...sh, po: '' }, { receive: false, person: 'ก', at }).entry === null);
+  const htmlZ = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const appZ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('ข้อความอ้างชื่อช่องติ๊กที่มีอยู่จริงบนจอ (G3)', htmlZ.includes('v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย'));
+
+  // เอากลับ — จดร่องรอยไว้ที่หมายเหตุ (ไม่เพิ่มช่องใหม่)
+  const closed = closeFollow({ ...sh, note: 'ตามกับผู้ขาย' }, { by: 'สมชาย', at: '2026-10-18T03:00:00.000Z' });
+  const re = reopenFollow(closed, { at, by: 'หัวหน้า' });
+  ok('เอากลับ = หมายเหตุเดิมยังอยู่ + ต่อท้ายว่าใครเอากลับ และเดิมใครปิด',
+     re.note.startsWith('ตามกับผู้ขาย · เอากลับ ') && re.note.includes('โดย หัวหน้า') && re.note.includes('เดิมปิด')
+     && re.note.includes('โดย สมชาย') && re.done_by === '' && statusOf(re) === 'open', re.note);
+  ok('เอากลับเรื่องที่ยังไม่เคยปิด = ไม่มีวงเล็บ "เดิมปิด"', !reopenFollow(sh, { at, by: 'ก' }).note.includes('เดิมปิด'));
+  ok('ไม่บอกชื่อ = จดว่าไม่ระบุชื่อ ไม่เว้นว่าง', reopenFollow(closed, { at }).note.includes('โดย ไม่ระบุชื่อ'));
+  ok('เอากลับ short ที่ไม่มีรายการรับเข้า = มีร่องรอยในหมายเหตุ', reopenShort(closed, [], { by: 'หัวหน้า', at }).rec.note.includes('โดย หัวหน้า'));
+  const ov = closeFollow(makeFollow({ kind: 'over', entity: E, po: 'TM9269H102', code: 'B1', qty: 2, part_no: 'PN1' }), { by: 'สมชาย', at });
+  ok('เอากลับ over ที่ไม่มีรายการส่งคืน = มีร่องรอยในหมายเหตุ', reopenOver(ov, [], { by: 'หัวหน้า', at }).rec.note.includes('โดย หัวหน้า'));
+  const bu = arriveBuy(fromManualBuy({ entity: E, code: 'A1', qty: 3, unit: 'MTR', po: 'PO-Z1', person: 'ก', at }), { by: 'สมชาย' });
+  ok('เอากลับเรื่องซื้อ = มีร่องรอยในหมายเหตุ', reopenBuy(bu, { by: 'หัวหน้า' }).note.includes('โดย หัวหน้า'));
+  ok('จอ: เอากลับเรื่องซื้อส่งชื่อผู้บันทึก', /reopenBuy\(plain\(row\), \{ by: fsBy\.value \}\)/.test(appZ));
+
+  // ตรวจคืนซ้ำ — กรองนิติบุคคลของรายการส่งคืนอีกชั้น
+  const o1 = { ...makeFollow({ kind: 'over', entity: E, po: 'TM9269H103', code: 'C1', qty: 2, part_no: 'PN1' }), return_entry_id: 'SB-1' };
+  const o2 = { ...makeFollow({ kind: 'over', entity: E, po: 'TM9269H103', code: 'C1', qty: 2, part_no: 'PN1' }), return_entry_id: 'SB-2' };
+  const sbs = [{ id: 'SB-1', kind: 'sendback', qty: 2, entity: E }, { id: 'SB-2', kind: 'sendback', qty: 2, entity: E }];
+  ok('คืนซ้ำสองเรื่องของนิติบุคคลเดียวกัน = ขึ้น', doubleReturns([o1, o2], sbs, { entity: E }).length === 1);
+  ok('รายการส่งคืนของนิติบุคคลอื่น (เลขที่ชนกัน) = ไม่นับ (A3)',
+     doubleReturns([o1, o2], [sbs[0], { ...sbs[1], entity: 'TUE-A' }], { entity: E }).length === 0);
+
+  // ซื้อทดแทน — รหัสนอกสูตรที่ไม่มีในทะเบียน (พิมพ์ค้างครึ่งเดียว)
+  const base = { entity: E, po: 'PO-Z2', part_no: 'PN-Z', person: 'ก', date: '2026-10-19', at };
+  const h1 = buyFromBom({ ...base, picks: [{ code: '0910', qty: 2, unit: '', known: false }] });
+  ok('รหัสนอกสูตรไม่มีในทะเบียน + ไม่มีหน่วย = บอกให้พิมพ์รหัสให้ครบก่อน', !h1.ok && /พิมพ์รหัสให้ครบ/.test(h1.errors[0].why), h1.errors[0].why);
+  const h2 = buyFromBom({ ...base, picks: [{ code: '0910', qty: '', unit: 'PCE', known: false }] });
+  ok('ไม่มีในทะเบียน + ไม่ใส่จำนวน = บอกด้วยว่ารหัสไม่มีในทะเบียน', !h2.ok && /ไม่มีในทะเบียน/.test(h2.errors[0].why));
+  const h3 = buyFromBom({ ...base, picks: [{ code: 'A1', qty: 2, unit: '' }] });
+  ok('แถวจากสูตร (ไม่บอก known) = ข้อความเดิม ชี้ไปเติมหน่วยที่ BOM / ทะเบียน', !h3.ok && /ข้อมูลตั้งต้น → BOM/.test(h3.errors[0].why));
+  ok('จอ: แถวนอกสูตรบอกว่ามีในทะเบียนไหม', /note: l\.note, known: !!m \}/.test(appZ));
+
+  // จอ
+  ok('จอ: ติ๊กรับเข้าไว้แต่ไม่ได้รับ = บอกว่าไม่ได้รับเข้าคลัง', appZ.includes("' · ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)'"));
+  ok('จอ: ปุ่ม "มาแล้ว" จางระหว่างบันทึก', htmlZ.includes(`:disabled="starting.has('fsclose|' + r.s.id)"`));
+  ok('จอ: เปลี่ยน P/N ล้างรหัสนอกสูตรด้วย', htmlZ.includes('fbm.rnote = {}; fbm.extra = []"'));
+  ok('จอ: ตารางเรื่องซ้ำแสดงทีละ SHOW_MAX และยกเลิกเฉพาะที่แสดง',
+     /dupShown = kind => dupLists\.value\[kind\]\.slice\(0, SHOW_MAX\)/.test(appZ) && /dupPicked = kind => dupShown\(kind\)/.test(appZ)
+     && (htmlZ.match(/v-for="d in dupShown\('(short|over)'\)"/g) || []).length === 2 && !/v-for="d in dupLists\./.test(htmlZ));
+  ok('ไม่มี import reopenFollow ค้างใน app.js', !/reopenFollow/.test(appZ));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

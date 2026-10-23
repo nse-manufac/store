@@ -34,7 +34,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
-import { migrateAll, makeFollow, statusOf, remainOf, closeFollow, reopenFollow,
+import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
@@ -2370,7 +2370,9 @@ createApp({
           if (entry) { await db.put('entries', [entry]); entries.value.push(entry); db.announce('entries'); }
           await fsPut(rec);
           fsGot[row.id] = '';
-          const recv = entry ? ` · รับเข้าคลัง ${entry.qty} แล้ว` : '';
+          // ติ๊กรับเข้าไว้แต่ไม่ได้รับ (เรื่องไม่ระบุจำนวน + เว้นช่องยอด) ต้องบอก — เดิมขึ้นแค่ "ปิดเรื่องแล้ว" เหมือนรับสำเร็จ
+          const recv = entry ? ` · รับเข้าคลัง ${entry.qty} แล้ว`
+            : fsRecv.value ? ' · ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)' : '';
           flash((statusOf(rec) === 'done'
             ? `ปิดเรื่อง ${rec.po || rec.code} แล้ว`
             : `รับมาแล้ว ${rec.done_qty} · ยังค้าง ${remainOf(rec)}`) + recv);
@@ -2622,7 +2624,9 @@ createApp({
       : { short: [], over: [] });
     const dupSkip = reactive({});
     const dupShow = reactive({ short: false, over: false });
-    const dupPicked = kind => dupLists.value[kind].filter(d => !dupSkip[d.row.id]);
+    // แสดงทีละ SHOW_MAX และยกเลิกเฉพาะที่แสดง — แถวที่เกินมองไม่เห็น ห้ามติดไปด้วย (ผู้ตรวจ #131)
+    const dupShown = kind => dupLists.value[kind].slice(0, SHOW_MAX);
+    const dupPicked = kind => dupShown(kind).filter(d => !dupSkip[d.row.id]);
     const foDouble = computed(() => doubleReturns(shorts.value, entries.value, { entity: entity.value }));
     async function dupVoid(kind) {
       const list = dupPicked(kind);
@@ -2774,7 +2778,7 @@ createApp({
         ...fbmRows.value.filter(r => fbm.pick[r.code]).map(r => ({ code: r.code, qty: fbm.qty[r.code], unit: r.unit, note: fbm.rnote[r.code] })),
         // แถวนอกสูตรที่ว่างทั้งแถวข้ามไป · หน่วยจากทะเบียนก่อน ไม่มีค่อยใช้ที่คีย์
         ...fbm.extra.map((l, i) => ({ l, m: fxMats.value[i] })).filter(x => x.l.code || x.l.qty)
-          .map(({ l, m }) => ({ code: normCode(l.code), qty: l.qty, unit: buyUnit(m && m.unit, l.unit), note: l.note }))
+          .map(({ l, m }) => ({ code: normCode(l.code), qty: l.qty, unit: buyUnit(m && m.unit, l.unit), note: l.note, known: !!m }))
       ]
     }, shorts.value) : null);
     // ระหว่างบันทึกปุ่มจางและบอกว่ากำลังเพิ่ม — กดซ้ำไม่ได้อยู่แล้ว (startOnce) แต่จอต้องบอกด้วย (ผู้ตรวจ #128 ข้อ 3)
@@ -2847,7 +2851,7 @@ createApp({
     }
     async function fbReopen(row) {
       try {
-        await fsPut(reopenBuy(plain(row)));
+        await fsPut(reopenBuy(plain(row), { by: fsBy.value }));
         flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง');
       } catch (err) { flash(err.message, true); }
     }
@@ -3691,7 +3695,7 @@ createApp({
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo, fbGot, fbDate, fbClose, fbReopen,
       buyWaits, cancelBuyWaits,
-      foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
+      foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
