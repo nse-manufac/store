@@ -751,6 +751,7 @@ createApp({
      * ⚠️ นิติบุคคล = ของรอบนับ (cs.entity) — ไฟล์ไม่มีคอลัมน์นิติบุคคล Delta แยกไฟล์ให้ (A3)
      * ⚠️ รหัสที่ระบบมีของแต่ไม่อยู่ในไฟล์ ไม่แตะเอง — คนติ๊กว่าตัวไหนนับเป็น 0 (เจ้าของเลือก) */
     // source = ใช้ยอดจากคอลัมน์ไหนในฟอร์ม WIP — QTY ตามที่โรงงานแจ้ง · Vendor Stk เป็นทางสำรอง (เจ้าของสั่ง 18 ต.ค. 2026)
+    const CI_NOMATCH = 'ไม่มีรหัสในไฟล์ที่ตรงกับทะเบียนเลย — ตรวจว่าเลือกชีตถูก · ดูกล่องข้างล่างว่าทำไม';
     const ci = reactive({ open: false, file: '', sheets: [], sheet: '', date: '', time: '', tick: {}, busy: false, source: 'qty' });
     function ciOpen() {
       Object.assign(ci, { open: true, file: '', sheets: [], sheet: '', date: todayLocal(), time: '', tick: {}, source: 'qty' });
@@ -800,9 +801,11 @@ createApp({
       if (!ci.date || !ci.time) return 'ใส่วันที่และเวลาที่ Delta นับ — ใช้คิดยอดในระบบ ณ ตอนนั้น';
       if (!ciAt.value) return 'วันที่หรือเวลาไม่ถูกต้อง';
       if (ciAt.value > new Date().toISOString()) return 'เวลาที่นับต้องไม่อยู่ในอนาคต';
-      if (ciPlan.value && !ciPlan.value.matched.length) return 'ไม่มีรหัสในไฟล์ที่ตรงกับทะเบียนเลย — ตรวจว่าเลือกชีตถูก';
+      if (ciPlan.value && !ciPlan.value.matched.length) return CI_NOMATCH;
       return '';
     });
+    // ข้อความนี้ยังโชว์สรุป (กล่องไม่มีในทะเบียน · อยู่ในไฟล์แต่ไม่ลง) ให้เห็นว่าทำไม — แต่ไม่มีปุ่มใส่ยอด
+    const ciNoMatch = computed(() => ciErr.value === CI_NOMATCH);
     const ciTicked = computed(() => ciPlan.value ? ciPlan.value.missing.filter(m => ci.tick[m.code]).length : 0);
     function ciTickAll(on) { for (const m of (ciPlan.value ? ciPlan.value.missing : [])) ci.tick[m.code] = on; }
     function ciApply() {
@@ -3652,7 +3655,7 @@ createApp({
              nbSug, nbSugList, nbTyping, nbMove, nbChoose, nbBlur, bomLive, nbMats, nbRemove, nbInHouse,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
-             csRows, csFilled, csPlanRows, ci, ciOpen, ciFile, ciAt, ciPlan, ciErr, ciTicked, ciTickAll, ciApply, localDateTime, csSum,
+             csRows, csFilled, csPlanRows, ci, ciOpen, ciFile, ciAt, ciPlan, ciErr, ciNoMatch, ciTicked, ciTickAll, ciApply, localDateTime, csSum,
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,

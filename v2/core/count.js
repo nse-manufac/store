@@ -130,6 +130,12 @@ export function postCount(session, rows, { device = '' } = {}) {
  */
 const cellText = v => String(v == null ? '' : v).trim();
 const headKey = v => cellText(v).toUpperCase().replace(/[\s._]+/g, '');
+// กฎเติม 0 ตัวเดียวกับ matchCountRows — รหัสที่ไฟล์เขียนสองแบบ (Excel ตัด 0 หน้าบางแถว) ต้องเป็นรหัสเดียว
+// ไม่ส่ง known มา = ใช้สตริงในไฟล์ตรง ๆ
+const canonOf = known => c => known && !known.has(c) && /^\d{9}$/.test(c) && known.has('0' + c) ? '0' + c : c;
+// หัวตารางซ้ำกลางชีต (ไฟล์ที่แบ่งหน้า) ไม่ใช่รายการ — ข้าม ไม่ขึ้นเป็นแถวที่อ่านไม่ได้
+const isHeadAgain = (r, header, cCode) => headKey((r || [])[cCode]) !== '' && headKey((r || [])[cCode]) === headKey((header || [])[cCode]);
+const HEAD_SCAN = 200;   // หาหัวตารางใน 200 แถวแรก (เดิม 40 — ไฟล์ที่ส่วนหัวยาวจะขึ้นว่าเลือกชีตผิด)
 
 /**
  * อ่านชีต (array of arrays) → { rows: [{ line, code, qty, desc }], errors: [{ line, why }], dups: [{ code, lines, qty }], header }
@@ -140,7 +146,7 @@ const headKey = v => cellText(v).toUpperCase().replace(/[\s._]+/g, '');
 export function parseCountSheet(aoa, opts = {}) {
   const rows = aoa || [];
   let header = -1, cCode = -1, cQty = -1, cDesc = -1, cStk = -1, cPo = -1;
-  for (let i = 0; i < Math.min(rows.length, 40) && header < 0; i++) {
+  for (let i = 0; i < Math.min(rows.length, HEAD_SCAN) && header < 0; i++) {
     const keys = (rows[i] || []).map(headKey);
     const code = keys.findIndex(k => k === 'MATERIALNO' || k === 'MATERIAL' || k === 'MATERIALCODE' || k === 'MATNO');
     const qty = keys.findIndex(k => k === 'QTY' || k === 'QUANTITY');
@@ -151,7 +157,7 @@ export function parseCountSheet(aoa, opts = {}) {
       cPo = keys.findIndex(k => k === 'PONO' || k === 'PONUMBER');
     }
   }
-  const empty = { rows: [], dups: [], header: -1, layout: '', source: '', held: [], entities: [], skippedBlank: 0 };
+  const empty = { rows: [], dups: [], header: -1, layout: '', source: '', held: [], entities: [], skippedBlank: 0, elsewhere: [] };
   if (header < 0) return { ...empty, errors: [{ line: 0, why: 'หาหัวคอลัมน์ "MATERIAL NO" กับ "QTY" ไม่เจอ — เลือกชีตผิดหรือเปล่า' }] };
   // มีคอลัมน์ PO = ยอดราย PO (ฟอร์ม WIP) — ห้ามอ่านแบบตารางยอดนับธรรมดา ไม่งั้น QTY ทุก PO ถูกบวกรวมกันเงียบ ๆ
   if (cPo >= 0) return parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty);
@@ -160,9 +166,11 @@ export function parseCountSheet(aoa, opts = {}) {
   if (cStk >= 0) return { ...empty, errors: [{ line: 0, why: 'ชีตนี้เป็นฟอร์ม WIP (มีคอลัมน์ Vendor Stk) แต่หาหัวคอลัมน์ "PO No." ไม่เจอ — เลือกชีตถูกไหม หรือแจ้งเจ้าของว่าหัวคอลัมน์ในไฟล์เปลี่ยน' }] };
   if (cQty < 0) return { ...empty, errors: [{ line: 0, why: 'หาหัวคอลัมน์ "QTY" ไม่เจอ — เลือกชีตผิดหรือเปล่า' }] };
   const out = new Map(), errors = [], lines = new Map();
+  const canon = canonOf(opts.known);
   for (let i = header + 1; i < rows.length; i++) {
     const r = rows[i] || [];
     if (r.some(v => /GRAND\s*TOTAL/i.test(cellText(v)))) break;
+    if (isHeadAgain(r, rows[header], cCode)) continue;
     const raw = r[cCode];
     const code = cellText(typeof raw === 'number' ? String(raw) : raw).toUpperCase();
     const q = r[cQty];
@@ -173,12 +181,15 @@ export function parseCountSheet(aoa, opts = {}) {
     const n = typeof q === 'number' ? q : (cellText(q) === '' ? NaN : Number(cellText(q).replace(/,/g, '')));
     if (!isFinite(n)) { errors.push({ line, code, why: 'ยอดว่างหรือไม่ใช่ตัวเลข' }); continue; }
     if (n < 0) { errors.push({ line, code, why: 'ยอดติดลบ' }); continue; }
-    const prev = out.get(code);
-    out.set(code, { line: prev ? prev.line : line, code, qty: round5((prev ? prev.qty : 0) + n),
-                    desc: prev ? prev.desc : (cDesc >= 0 ? cellText(r[cDesc]) : '') });
-    lines.set(code, [...(lines.get(code) || []), line]);
+    // กุญแจ = รหัสหลังเติม 0 — สองแบบในไฟล์เดียว (ผู้ตรวจ #138 ข้อสังเกต 2) ต้องรวมแล้วขึ้นในกล่องรหัสซ้ำ ไม่รวมเงียบที่ตอนจับคู่
+    // code ที่คืน = สตริงที่เจอครั้งแรก (matchCountRows เติม 0 ต่อเอง · padded / fileCode ยังใช้ได้)
+    const key = canon(code);
+    const prev = out.get(key);
+    out.set(key, { line: prev ? prev.line : line, code: prev ? prev.code : code, qty: round5((prev ? prev.qty : 0) + n),
+                   desc: prev ? prev.desc : (cDesc >= 0 ? cellText(r[cDesc]) : '') });
+    lines.set(key, [...(lines.get(key) || []), line]);
   }
-  const dups = [...lines].filter(([, l]) => l.length > 1).map(([code, l]) => ({ code, lines: l, qty: out.get(code).qty }));
+  const dups = [...lines].filter(([, l]) => l.length > 1).map(([key, l]) => ({ code: key, lines: l, qty: out.get(key).qty }));
   return { ...empty, rows: [...out.values()], errors, dups, header: header + 1, layout: 'simple', source: 'qty',
            label: cellText(rows[header][cQty]) };
 }
@@ -205,11 +216,15 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
   if (source === 'qty' && cQty < 0) return fail('หาหัวคอลัมน์ "QTY" ไม่เจอ');
   if (source === 'stk' && cStk < 0) return fail('หาหัวคอลัมน์ "Vendor Stk" ไม่เจอ');
   // คอลัมน์ตัวอักษรนิติบุคคลไม่มีหัว — คอลัมน์ขวาสุดที่ทุกช่องที่มีค่าเป็นตัวอักษรตัวเดียว
-  const width = Math.max(0, ...rows.map(r => (r || []).length));
+  // reduce ไม่ใช่ Math.max(...rows) — ชีตหลักแสนแถวแล้ว spread โยน RangeError
+  const width = rows.reduce((w, r) => Math.max(w, (r || []).length), 0);
   let cLetter = -1;
   for (let c = width - 1; c > cCode && cLetter < 0; c--) {
     let seen = 0, ok = true;
     for (let i = header + 1; i < rows.length && ok; i++) {
+      // หยุดที่ GRAND TOTAL และข้ามหัวซ้ำเหมือนลูปอ่านยอด — ข้อความใต้ตารางห้ามทำให้หาคอลัมน์ผิด
+      if ((rows[i] || []).some(v => /GRAND\s*TOTAL/i.test(cellText(v)))) break;
+      if (isHeadAgain(rows[i], rows[header], cCode)) continue;
       const v = cellText((rows[i] || [])[c]);
       if (v) { seen++; ok = /^[A-Z]$/i.test(v); }
     }
@@ -217,12 +232,12 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
   }
   const groups = new Map(), errors = [];
   // กฎเติม 0 ต้องเป็นกฎเดียวกับ matchCountRows เป๊ะ ๆ ห้ามเดากฎใหม่ ไม่งั้นสองที่จัดกลุ่มคนละแบบ
-  const known = opts.known;
-  const canon = c => known && !known.has(c) && /^\d{9}$/.test(c) && known.has('0' + c) ? '0' + c : c;
+  const canon = canonOf(opts.known);
   let skippedBlank = 0;
   for (let i = header + 1; i < rows.length; i++) {
     const r = rows[i] || [];
     if (r.some(v => /GRAND\s*TOTAL/i.test(cellText(v)))) break;
+    if (isHeadAgain(r, rows[header], cCode)) continue;
     const raw = r[cCode];
     const code = cellText(typeof raw === 'number' ? String(raw) : raw).toUpperCase();
     if (!code) continue;                                   // แถวว่างคั่นระหว่างรหัส
@@ -241,22 +256,24 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
     }
     g.ents.add(ent);
     if (cStk >= 0 && !blank(r[cStk])) g.stk.push({ line, n: numOf(r[cStk]) });
-    if (ent !== entity || cQty < 0) continue;
+    // โหมด Vendor Stk ไม่ใช้ QTY — ห้ามรายงาน QTY เสียเป็น "แถวที่อ่านไม่ได้ (ไม่ลง)" ทั้งที่รหัสนั้นลงจาก Vendor Stk
+    if (ent !== entity || cQty < 0 || source === 'stk') continue;
     if (blank(r[cQty])) { skippedBlank++; continue; }
     const n = numOf(r[cQty]);
     if (!isFinite(n) || n < 0) { errors.push({ line, code, why: n < 0 ? 'QTY ติดลบ' : 'QTY ไม่ใช่ตัวเลข' }); g.badQty = true; continue; }
     g.qty = round5(g.qty + n); g.qtyRows++;
   }
-  const out = [], held = [], dups = [], count = new Map();
-  for (const g of groups.values()) {
+  const out = [], held = [], dups = [], count = new Map(), elsewhere = [];
+  for (const [key, g] of groups) {
     for (const e of g.ents) count.set(e, (count.get(e) || 0) + 1);
-    if (!g.ents.has(entity) && !g.unsure) continue;        // รหัสของนิติบุคคลอื่นล้วน = ไม่อยู่ในไฟล์ของรอบนี้
+    // รหัสของนิติบุคคลอื่นล้วน = ไม่อยู่ในไฟล์ของรอบนี้ · จดไว้ให้จอบอกในรายการ "ไม่อยู่ในไฟล์" ว่าเป็นของใคร
+    if (!g.ents.has(entity) && !g.unsure) { elsewhere.push({ code: key, ents: [...g.ents].sort() }); continue; }
     const base = { code: g.code, line: g.line, desc: g.desc, ents: [...g.ents].sort() };
     // Vendor Stk มีตัวเดียวต่อรหัส — ฟอร์มจริงเขียนไว้แถวแรก แต่คนทำ Excel เติมค่าเดิมลงมาทุกแถวได้
     // ⚠️ ห้ามบวกรวมเด็ดขาด (จะได้ยอดเป็นหลายเท่า) · ค่าเท่ากันทุกแถว = ค่านั้น · ไม่เท่ากัน = ตัดสินให้ไม่ได้
     const stkVals = g.stk.map(x => x.n);
     const stkOne = stkVals.length ? round5(stkVals[0]) : null;
-    const stkSame = stkVals.every(n => n === stkVals[0]);
+    const stkSame = stkVals.every(n => round5(n) === round5(stkVals[0]));   // ปัดก่อนเทียบ — เศษ float ไม่ใช่ค่าต่างกัน
     if (g.unsure) { held.push({ ...base, why: 'มีแถวที่ตัดสินนิติบุคคลไม่ได้' }); continue; }
     if (source === 'qty') {
       if (g.badQty) held.push({ ...base, why: 'มีแถว QTY ที่อ่านไม่ได้' });
@@ -272,7 +289,7 @@ function parseWip(rows, header, { cCode, cQty, cDesc, cStk, cPo }, opts, empty) 
     out.push({ line: g.line, code: g.code, qty: stkOne, desc: g.desc });
   }
   const entities = [...count].map(([e, codes]) => ({ entity: e, codes })).sort((a, b) => a.entity.localeCompare(b.entity));
-  return { rows: out, errors, dups, header: header + 1, layout: 'wip', source, held, entities, skippedBlank,
+  return { rows: out, errors, dups, header: header + 1, layout: 'wip', source, held, entities, skippedBlank, elsewhere,
            label: source === 'stk' ? cellText(rows[header][cStk]) : cellText(rows[header][cQty]) };
 }
 
@@ -336,7 +353,12 @@ export function missingFromFile(book, match, parsed = null) {
     inFile.add(x.code);
     if (/^\d{9}$/.test(x.code)) inFile.add('0' + x.code);
   }
+  // ฟอร์ม WIP: รหัสที่ในไฟล์มีแต่ของนิติบุคคลอื่น — ยังนับว่า "ไม่อยู่ในไฟล์" ของรอบนี้ แต่บอกว่าเป็นของใคร (ไม่ติ๊กเป็นค่าตั้งต้นเหมือนเดิม)
+  const other = new Map();
+  for (const x of (parsed && parsed.elsewhere) || []) { other.set(x.code, x.ents); if (/^\d{9}$/.test(x.code)) other.set('0' + x.code, x.ents); }
   const out = [];
-  for (const [code, qty] of book || []) if (qty !== 0 && !inFile.has(code)) out.push({ code, book: qty });
+  for (const [code, qty] of book || []) {
+    if (qty !== 0 && !inFile.has(code)) out.push(other.has(code) ? { code, book: qty, elsewhere: other.get(code) } : { code, book: qty });
+  }
   return out.sort((a, b) => a.code.localeCompare(b.code));
 }
