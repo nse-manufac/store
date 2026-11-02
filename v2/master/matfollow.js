@@ -17,7 +17,7 @@
  */
 import { round5 } from '../core/ledger.js';
 import { entityOfPo } from './entities.js';
-import { makeFollow, statusOf, remainOf } from './follow.js';
+import { makeFollow, statusOf, remainOf, splitNoteTrace, joinNote } from './follow.js';
 
 const txt = v => String(v == null ? '' : v).trim();
 const pad = n => String(n).padStart(2, '0');
@@ -191,11 +191,16 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
     const k = matKey(p);
     seen.add(k);
     const cur = byKey.get(k);
+    /* ⚠️ ไฟล์เป็นเจ้าของแค่ "หมายเหตุจาก Delta" — ท่อนร่องรอย "เอากลับ" ที่ reopenFollow ต่อท้ายไว้
+     * ไม่ได้มาจากไฟล์ เอา p.note ทับทั้งช่องแล้วร่องรอย "ใครเอากลับ · เดิมใครปิด" หายทุกรอบ
+     * ที่นำเข้าไฟล์ แบบไม่มีใครเห็น (การ์ดดูก่อนยืนยันโชว์แต่ค่าจากไฟล์) — ผู้ตรวจ #142 ข้อ 1 */
+    const trace = cur ? splitNoteTrace(cur.note).trace : '';
     /* ⚠️ วันที่ว่างจากไฟล์แปลว่า "Delta ไม่ได้แจ้งวันที่มา" ไม่ใช่ "ให้ลบวันที่เดิม"
      * matDate() คืน '' ได้หลายทาง (เซลล์ว่าง · เซลล์ผสานที่ค่าอยู่แค่แถวบน · ข้อความที่อ่านไม่ออก)
      * เขียนทับด้วยค่าว่างแล้วแถวนั้นจะไม่มีวันที่บนจอถาวร (ผู้ตรวจ #96 รอบสอง) */
     const fields = {
-      qty: p.qty, date: txt(p.date) || txt(cur && cur.date), part_no: p.part_no, note: p.note,
+      qty: p.qty, date: txt(p.date) || txt(cur && cur.date), part_no: p.part_no,
+      note: joinNote(p.note, trace),
       order_qty: p.order, recv_qty: p.actual
     };
     if (!cur) {
@@ -225,7 +230,9 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
      *    ทั้งที่ไม่มีอะไรเปลี่ยน แล้วคนคีย์จะเลิกเชื่อการ์ดดูก่อนยืนยัน (ผู้ตรวจ #96 รอบสอง) */
     const changed = round5(Number(cur.qty) || 0) !== round5(p.qty)
       || (txt(p.date) && txt(cur.date) !== txt(p.date))
-      || txt(cur.note) !== txt(p.note)
+      /* ⚠️ เทียบเฉพาะท่อนที่มาจากไฟล์ · เทียบทั้งช่องแล้วแถวที่มีร่องรอย "เอากลับ"
+       * จะขึ้นว่า "อัปเดต" ทุกรอบทั้งที่ไฟล์ไม่เปลี่ยน แล้วคนคีย์จะเลิกเชื่อการ์ดดูก่อนยืนยัน */
+      || splitNoteTrace(cur.note).base !== txt(p.note)
       || (numOf(cur.order_qty) ?? null) !== (p.order ?? null)
       || (numOf(cur.recv_qty) ?? null) !== (p.actual ?? null);
     if (!changed) { same.push({ row: p, cur }); continue; }
