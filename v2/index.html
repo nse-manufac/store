@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-10-19.1">
+<meta name="app-version" content="2026-10-23.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2113,7 +2113,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
-                <tr v-for="d in dupLists.short" :key="d.row.id">
+                <tr v-for="d in dupShown('short')" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
                   <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
@@ -2124,6 +2124,7 @@ textarea{font:inherit}
               </tbody>
             </table>
           </div>
+          <p class="hint" style="margin:6px 0 0" v-if="dupShow.short && dupLists.short.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ dupLists.short.length }} เรื่อง — "ยกเลิกที่ติ๊ก" ทำเฉพาะที่แสดง · ยกเลิกชุดนี้แล้วชุดถัดไปจะขึ้นมา</p>
         </div>
 
 
@@ -2244,7 +2245,7 @@ textarea{font:inherit}
                              class="mono" style="width:76px" :placeholder="r.s.qty > 0 ? 'ทั้งใบ' : 'จำนวน'"
                              :title="r.s.qty > 0 ? '' : 'ไฟล์ PO ไม่ได้บอกจำนวน — ใส่จำนวนที่มา ถ้าอยากรับเข้าคลังด้วย'"
                              @keyup.enter="fsClose(r.s)">
-                      <button class="btn" style="padding:2px 8px;margin-left:4px"
+                      <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fsclose|' + r.s.id)"
                               @click="fsClose(r.s)">มาแล้ว</button>
                     </template>
                   </td>
@@ -2464,7 +2465,7 @@ textarea{font:inherit}
               <input v-model.trim="fbm.po" class="mono" placeholder="เลือกหรือพิมพ์" list="scrappolist" @change="onFbmPo">
               <span class="tag warn" style="margin-top:3px" :style="{ visibility: checked.fbmPo === fbm.po && poUnknown(fbm.po) ? 'visible' : 'hidden' }">ไม่มีในรายการ PO — ใส่ P/N เอง</span></label>
             <label class="f" style="width:150px">P/N
-              <input v-model.trim="fbm.part_no" class="mono" list="pnlist" @change="fbm.pick = {}; fbm.qty = {}; fbm.rnote = {}">
+              <input v-model.trim="fbm.part_no" class="mono" list="pnlist" @change="fbm.pick = {}; fbm.qty = {}; fbm.rnote = {}; fbm.extra = []">
               <span class="hint" style="margin-top:3px" :style="{ visibility: fbmHead && fbmHead.order ? 'visible' : 'hidden' }">
                 สั่ง {{ fbmHead && fbmHead.order }} ชิ้น</span></label>
           </div>
@@ -2780,7 +2781,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
-                <tr v-for="d in dupLists.over" :key="d.row.id">
+                <tr v-for="d in dupShown('over')" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
                   <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
@@ -2791,6 +2792,7 @@ textarea{font:inherit}
               </tbody>
             </table>
           </div>
+          <p class="hint" style="margin:6px 0 0" v-if="dupShow.over && dupLists.over.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ dupLists.over.length }} เรื่อง — "ยกเลิกที่ติ๊ก" ทำเฉพาะที่แสดง · ยกเลิกชุดนี้แล้วชุดถัดไปจะขึ้นมา</p>
         </div>
 
         <div class="card">
