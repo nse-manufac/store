@@ -252,7 +252,7 @@ console.log('\n=== ฟอร์ม WIP: หลายนิติบุคคล�
 
   const st = parseCountSheet(aoa, { entity: 'TUE-H', entityOf: entityOfPo, source: 'stk' });
   const sOf = c => (st.rows.find(r => r.code === c) || {}).qty;
-  ok('ทางสำรอง Vendor Stk: ใช้ยอดแถวแรกของรหัสที่เป็น H ล้วน', st.source === 'stk' && st.label === 'Vendor Stk' && sOf('9100000201') === 50);
+  ok('ทางสำรอง Vendor Stk: ค่าเท่ากันทุกแถว = ค่านั้น (ไฟล์นี้มีแถวแรกแถวเดียว) · รหัสที่เป็น H ล้วน', st.source === 'stk' && st.label === 'Vendor Stk' && sOf('9100000201') === 50);
   ok('Vendor Stk ของรหัสที่มี PO หลายนิติบุคคล = ไม่ลง ขึ้นรายการพร้อมยอด',
      sOf('9100000202') === undefined && st.held.some(h => h.code === '9100000202' && h.stk === 30 && h.ents.join() === 'TUE-A,TUE-H'));
   ok('Vendor Stk ไม่สน QTY ว่าง', sOf('9100000204') === 6);
@@ -383,6 +383,64 @@ console.log('\n=== ฟอร์ม WIP: หลายนิติบุคคล�
   ok('จอ: โหมด Vendor Stk สั่งห้ามบวกรวมตอนจับคู่ · รหัสที่ชนกันไปโผล่กล่อง "อยู่ในไฟล์แต่ไม่ลง"',
      /matchCountRows\([^)]*\{ sum: raw\.source !== 'stk' \}\)/.test(app)
      && /held: \[\.\.\.raw\.held, \.\.\.match\.held\]/.test(app));
+}
+
+console.log('\n=== นำเข้ายอดนับ — เรื่องจุกจิก (เจ้าของสั่ง 19 ต.ค. 2026) ===');
+{
+  const known = new Set(['0910000301', '9100000302']);
+  // ฟอร์มเดิม: รหัสเดียวกันสองแบบในไฟล์เดียว → รวม และขึ้นในกล่องรหัสซ้ำ (เดิมรวมเงียบที่ตอนจับคู่)
+  const s1 = parseCountSheet([['MATERIAL NO', 'QTY'], [910000301, 2], ['0910000301', 3], [9100000302, 1]], { known });
+  const m1 = matchCountRows(s1.rows, known);
+  ok('ฟอร์มเดิม: สองแบบ (ตัด 0 / ไม่ตัด) = รวมเป็นรหัสเดียว 5 และขึ้นในกล่องรหัสซ้ำ',
+     s1.dups.length === 1 && s1.dups[0].code === '0910000301' && s1.dups[0].lines.join() === '2,3'
+     && m1.matched.find(x => x.code === '0910000301').qty === 5, JSON.stringify(s1.dups));
+  // หัวตารางซ้ำกลางชีต
+  const s2 = parseCountSheet([['MATERIAL NO', 'QTY'], ['A1', 1], [], ['MATERIAL NO', 'QTY'], ['A2', 2]]);
+  ok('ฟอร์มเดิม: หัวตารางซ้ำกลางชีต = ข้าม ไม่ขึ้นเป็นแถวที่อ่านไม่ได้', s2.errors.length === 0 && s2.rows.length === 2);
+  // หาหัวตารางได้ลึกกว่า 40 แถว
+  const deep = [...Array(60).fill(['หัวกระดาษ']), ['MATERIAL NO', 'QTY'], ['A1', 1]];
+  ok('หัวตารางอยู่แถวที่ 61 ยังหาเจอ', parseCountSheet(deep).header === 61);
+
+  const H = ['Material', 'Description', 'UOM', 'Vendor', 'Vendor Stk', 'PO No.', 'SB Part', 'Req. Date', 'QTY', 'ACT', 'REMARK ', 'PO', null];
+  const row = (code, stk, po, qty, letter) => [code, 'x', 'PCE', 900001, stk, po, 1, 46300, qty, 0, null, 'TM5', letter];
+  const opt = source => ({ entity: 'TUE-H', entityOf: entityOfPo, source, known });
+  // โหมด Vendor Stk: QTY เสียไม่ใช่แถวที่อ่านไม่ได้
+  const w1 = [H, row(9100000302, 40, 'TM0001H301', 'n/a', 'H')];
+  const st1 = parseCountSheet(w1, opt('stk'));
+  ok('Vendor Stk: แถวที่ QTY เสีย ไม่ขึ้นเป็น "อ่านไม่ได้" · รหัสลงจาก Vendor Stk', st1.errors.length === 0 && st1.rows[0].qty === 40);
+  ok('QTY: แถวเดียวกันยังขึ้นเป็นอ่านไม่ได้ และไม่ลง', parseCountSheet(w1, opt('qty')).errors.length === 1);
+  // หัวซ้ำกลางชีต WIP + ข้อความใต้ GRAND TOTAL ในคอลัมน์ตัวอักษร
+  const w2 = [H, row(9100000302, 40, 'TM0001H301', 5, 'H'), [], H, row('0910000301', 9, 'TM0001H302', 4, 'H'),
+              [null, null, null, null, null, null, null, null, 'GRAND TOTAL'], [null, null, null, null, null, null, null, null, null, null, null, null, 'รวมทั้งสิ้น']];
+  const q2 = parseCountSheet(w2, opt('qty'));
+  ok('WIP: หัวซ้ำกลางชีตข้าม · ข้อความใต้ GRAND TOTAL ไม่ทำให้หาคอลัมน์ตัวอักษรผิด',
+     q2.errors.length === 0 && q2.held.length === 0 && q2.rows.length === 2, JSON.stringify(q2.errors));
+  ok('WIP: ตัวอักษรท้ายแถวยังถูกตรวจ (คอลัมน์ไม่หลุด)',
+     parseCountSheet([H, row(9100000302, 40, 'TM0001H301', 5, 'A'), [null, null, null, null, null, null, null, null, 'GRAND TOTAL'],
+                      [null, null, null, null, null, null, null, null, null, null, null, null, 'รวมทั้งสิ้น']], opt('qty'))
+       .errors.some(e => /ไม่ตรงกับเลข PO/.test(e.why)));
+  // Vendor Stk เศษ float
+  const st3 = parseCountSheet([H, row(9100000302, 0.1 + 0.2, 'TM0001H301', 1, 'H'), row(9100000302, 0.3, 'TM0001H303', 1, 'H')], opt('stk'));
+  ok('Vendor Stk: 0.1+0.2 กับ 0.3 = ค่าเดียวกัน (ปัดก่อนเทียบ)', st3.rows.length === 1 && st3.rows[0].qty === 0.3 && st3.held.length === 0);
+  // ชีตใหญ่ไม่พัง
+  const big = [H]; for (let i = 0; i < 200000; i++) big.push([]);
+  big.push(row(9100000302, 1, 'TM0001H301', 1, 'H'));
+  let thrown = '';
+  try { parseCountSheet(big, opt('qty')); } catch (e) { thrown = e.message; }
+  ok('ชีตสองแสนแถวไม่โยน RangeError', thrown === '', thrown);
+  // รหัสของนิติบุคคลอื่นล้วน: ในรายการ "ไม่อยู่ในไฟล์" บอกว่าเป็นของใคร
+  const w4 = [H, row(910000301, 9, 'TM0001A301', 4, 'A'), row(9100000302, 40, 'TM0001H301', 5, 'H')];
+  const q4 = parseCountSheet(w4, opt('qty'));
+  const miss4 = missingFromFile(new Map([['0910000301', 7], ['9100000399', 1]]), matchCountRows(q4.rows, known), q4);
+  ok('ไม่อยู่ในไฟล์: รหัสที่ในไฟล์เป็นของนิติบุคคลอื่น บอกว่าเป็นของใคร · ตัวที่ไม่มีเลยไม่บอก',
+     miss4.find(x => x.code === '0910000301').elsewhere.join() === 'TUE-A' && !miss4.find(x => x.code === '9100000399').elsewhere, JSON.stringify(miss4));
+
+  const appC = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlC = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: "ไม่มีรหัสที่ตรงกับทะเบียน" ยังโชว์สรุป แต่ไม่มีปุ่มใส่ยอด',
+     htmlC.includes('v-if="ciPlan && (!ciErr || ciNoMatch)"') && /<div class="row" style="margin-top:12px" v-if="!ciErr">\s*<span class="hint">\{\{ ci\.file \}\}/.test(htmlC)
+     && /ciNoMatch = computed\(\(\) => ciErr\.value === CI_NOMATCH\)/.test(appC));
+  ok('จอ: รายการไม่อยู่ในไฟล์บอกนิติบุคคลในไฟล์', htmlC.includes('ในไฟล์เป็นของ {{ m.elsewhere.join'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
