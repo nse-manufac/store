@@ -1703,6 +1703,10 @@ console.log('\n=== Z3. ทางเดิม "ไปรับของ" ถู�
   const appX = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlX = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('ไม่เหลือชื่อของทางเดิมในจอ', !/\b(fbGo|buyWaits|cancelBuyWaits|keepBuyLine|linkBuy|linkReceive)\b/.test(appX + htmlX));
+  // ครอบไฟล์ logic ด้วย — เอา linkReceive กลับเข้า follow.js อย่างเดียว เทสต้องแดง (ผู้ตรวจ #144 ข้อสังเกต 2)
+  const followX = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8');
+  ok('ไม่เหลือ linkReceive ในไฟล์ logic · ไม่มีใคร export ชื่อนี้', !/\blinkReceive\b/.test(followX)
+     && !('linkReceive' in await import('../v2/master/follow.js')));
   ok('บันทึกรับเข้าขึ้นข้อความยืนยันเหมือนเดิม', appX.includes('flash(`บันทึกรับเข้า ${posted.length} รายการ · ${where}`);'));
 }
 
