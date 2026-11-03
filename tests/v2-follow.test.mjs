@@ -579,7 +579,7 @@ ok('มีแผงรองรับจริง ไม่ใช่ปุ่ม
 
 // ⚠️ กับดักเดิมของตัวคิดยอดเกินรุ่นแรก — ส่งอ็อบเจกต์ทั้งแถวเข้าไปแล้วคูณได้ NaN เงียบ ๆ
 ok('หน้าจอส่ง usageOf ที่คืนตัวเลขต่อชิ้น ไม่ใช่ byPn ทั้งแถว',
-   /const bomUsageOf = \(pn, code\) => \{[\s\S]{0,220}Number\(hit\.usage\)/.test(appOver)
+   /const bomUsageOf = \(pn, code\) => bomIdx\.value\.usageOf\(pn, code\)/.test(appOver)   // ดัชนีคืนตัวเลข (มีเทสหมวด SP)
    && !/usageOf: byPn/.test(appOver));
 ok('ตัดคู่ที่ตั้งเรื่องไว้แล้วออกจากรายการที่ระบบคำนวณได้',
    /overPending\(foCalc\.value\.filter\(r => !r\.why\), shorts\.value\)/.test(appOver));
@@ -591,11 +591,11 @@ ok('การ์ด "คำนวณไม่ได้" มีจริง — �
  *    แล้วการ์ดขึ้นแถบแดงว่า "เรามีน้อยกว่า" ทั้งที่ยอดตรงกันเป๊ะ (ผู้ตรวจ #102 รอบ 1) */
 ok('การ์ดเทียบยอด Delta ตัด ใช้ของเกินที่ไม่มีเพดาน OVER_MIN ไม่ใช่ foNew',
    /pending: ocPending\.value/.test(appOver)
-   && /const ocPending = computed\([\s\S]{0,500}min: 0[\s\S]{0,200}overPending\(/.test(appOver)
+   && /const foCalc0 = computed\([\s\S]{0,300}min: 0/.test(appOver)
+   && /const ocPending = computed\(\(\) => overPending\(foCalc0\.value\.filter\(r => !r\.why\), shorts\.value\)\)/.test(appOver)
    && !/pending: foNew\.value/.test(appOver));
 ok('การ์ด "ของเกินที่ระบบคำนวณได้" ยังคงเพดาน 1 หน่วยไว้เหมือนเดิม',
-   /overAll\(entries\.value, entity\.value,\s*\{ headerOf: po => poHeader\(pos\.value, po\), usageOf: bomUsageOf \}\)/
-     .test(appOver)
+   /const foCalc = computed\(\(\) => foCalc0\.value\.filter\(r => r\.why \|\| r\.over >= OVER_MIN\)\)/.test(appOver)
    && htmlOver.includes('ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน'));
 
 ok('foStart ส่งวันที่ตามเวลาไทยเข้าไปเอง ไม่ปล่อยให้เป็น UTC',
@@ -1989,6 +1989,58 @@ console.log('\n=== Z2. ใบสั่งซื้อทดแทนไม่พ
   const line = buyDocGroups([r])[0].lines[0];
   ok('เรื่องมีร่องรอยในหมายเหตุ แต่ REMARK ของใบเหลือแค่หมายเหตุเดิม',
      r.note.includes('เอากลับ') && line.note === 'ของเสียจากไลน์', JSON.stringify(line.note));
+}
+
+console.log('\n=== SP. ความเร็วหน้า over / short — ดัชนีให้ผลเท่าของเดิม (เจ้าของแจ้ง 4 พ.ย. 2026) ===');
+{
+  const { poHeader, poHeaderIndex } = await import('../v2/master/po-kit.js');
+  const { bomIndex } = await import('../v2/master/bom.js');
+  // รายการ PO สมมติ: เลขซ้ำหลายวัน · วันเท่ากัน · เว้นวรรค · ตัวเลข · ไม่มีวันที่ · แถวว่าง
+  const pos = [
+    { po: 'TM0001H001', pn: 'PN-A', qty: 10, date: '2026-10-01' },
+    { po: 'TM0001H001', pn: 'PN-B', qty: 12, date: '2026-10-03' },
+    { po: 'TM0001H001', pn: 'PN-C', qty: 14, date: '2026-10-02' },
+    { po: ' TM0001H002 ', pn: 'PN-D', qty: 5, date: '2026-10-05' },
+    { po: 'TM0001H003', pn: 'PN-E', qty: 1, date: '2026-10-05' },
+    { po: 'TM0001H003', pn: 'PN-F', qty: 2, date: '2026-10-05' },
+    { po: 'TM0001H004', pn: 'PN-G', qty: 'x' },
+    null, { po: '', pn: 'PN-H', qty: 1 }
+  ];
+  const look = poHeaderIndex(pos);
+  const keys = ['TM0001H001', 'TM0001H002', ' TM0001H002', 'TM0001H003', 'TM0001H004', 'TM0001H009', '', null, undefined];
+  ok('poHeaderIndex = poHeader ทุกกรณี (ซ้ำ · วันเท่ากัน · เว้นวรรค · ไม่มีวันที่ · ไม่มีใบ)',
+     keys.every(k => JSON.stringify(look(k)) === JSON.stringify(poHeader(pos, k))),
+     JSON.stringify(keys.map(k => [k, look(k), poHeader(pos, k)])));
+  const bom = [
+    { pn: 'PN-A', code: '9100000101', usage: 0.5 }, { pn: 'PN-A', code: ' 9100000101 ', usage: 9 },
+    { pn: 'PN-A', code: '9100000102', usage: '2' }, { pn: 'PN-A', code: '9100000103', usage: 1, deleted: true },
+    { pn: 1234, code: '9100000104', usage: 3 }, { pn: 'PN-B', code: '9100000105', usage: 'abc' }
+  ];
+  const ix = bomIndex(bom);
+  const oldUse = (pn, code) => { const hit = activeBomRowsOf(bom, pn).find(r => normCode(r.code) === normCode(code)); return hit ? Number(hit.usage) || 0 : null; };
+  const q = [['PN-A', '9100000101'], ['PN-A', '9100000102'], ['PN-A', '9100000103'], ['1234', '9100000104'], [1234, '9100000104'], ['PN-B', '9100000105'], ['PN-Z', '9100000101']];
+  ok('bomIndex.usageOf = การค้นแบบเดิม (แถวแรกที่ตรง · ตัวเลข · ข้ามแถวที่ลบ · P/N ตัวเลข)',
+     q.every(([p, c]) => ix.usageOf(p, c) === oldUse(p, c)), JSON.stringify(q.map(([p, c]) => [ix.usageOf(p, c), oldUse(p, c)])));
+  ok('bomIndex.rowsOf = activeBomRowsOf (ลำดับเดิม)', ['PN-A', 'PN-B', 1234, 'PN-Z'].every(p => JSON.stringify(ix.rowsOf(p)) === JSON.stringify(activeBomRowsOf(bom, p))));
+
+  // overAll ไม่มีเพดาน แล้วกรอง = overAll เพดานเดิม · ทั้งแบบดัชนีและแบบเดิมได้ผลเท่ากัน
+  const E = 'TUE-H';
+  const ents = [];
+  for (const [po, code, qty] of [['TM0001H001', '9100000105', 30], ['TM0001H001', '9100000106', 12.4], ['TM0001H002', '9100000107', 5.3],
+                                 ['TM0001H003', '9100000108', 1], ['TM0001H009', '9100000109', 4], ['TM0001H004', '9100000110', 2]]) {
+    ents.push(makeEntry({ entity: E, kind: 'receive', material_code: code, qty, lot: 'L', doc_kind: 'po', doc_ref: po, person: 'ก' }));
+  }
+  const bom2 = [{ pn: 'PN-B', code: '9100000105', usage: 2 }, { pn: 'PN-B', code: '9100000106', usage: 1 }, { pn: 'PN-D', code: '9100000107', usage: 1 },
+                { pn: 'PN-F', code: '9100000108', usage: 0.5 }];
+  const ix2 = bomIndex(bom2);
+  const oldUse2 = (pn, code) => { const hit = activeBomRowsOf(bom2, pn).find(r => normCode(r.code) === normCode(code)); return hit ? Number(hit.usage) || 0 : null; };
+  const before = overAll(ents, E, { headerOf: po => poHeader(pos, po), usageOf: oldUse2 });
+  const all0 = overAll(ents, E, { headerOf: poHeaderIndex(pos), usageOf: ix2.usageOf, min: 0 });
+  ok('ของเกิน: ดัชนี + ไม่มีเพดานแล้วกรอง OVER_MIN = แบบเดิมเป๊ะ (รวมแถวที่คิดไม่ได้)',
+     JSON.stringify(all0.filter(r => r.why || r.over >= OVER_MIN)) === JSON.stringify(before) && before.some(r => r.why),
+     JSON.stringify({ before, all0 }));
+  ok('ใบตัดยอด: ไม่มีเพดาน = แบบเดิมที่ส่ง min: 0',
+     JSON.stringify(all0) === JSON.stringify(overAll(ents, E, { headerOf: po => poHeader(pos, po), usageOf: oldUse2, min: 0 })));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
