@@ -17,7 +17,7 @@
  */
 import { round5 } from '../core/ledger.js';
 import { entityOfPo } from './entities.js';
-import { makeFollow, statusOf, remainOf, splitNoteTrace, joinNote } from './follow.js';
+import { makeFollow, statusOf, remainOf, splitNoteTrace, joinNote, stopMarkOf } from './follow.js';
 
 const txt = v => String(v == null ? '' : v).trim();
 const pad = n => String(n).padStart(2, '0');
@@ -185,7 +185,17 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
     if (!byKey.has(k)) byKey.set(k, r);          // ถ้าซ้ำ ใช้ใบแรกที่เจอ ใบที่เหลือไปโผล่ในรายการซ้ำ
   }
 
-  const create = [], update = [], same = [], failed = [];
+  /* เรื่อง short ที่ยกเลิก / ไม่ติดตามไว้ (เจ้าของเลือกแบบ ก 4 พ.ย. 2026) — นำเข้าไฟล์ซ้ำแล้ว "ไม่สร้างใหม่"
+   * ถ้ายอดในไฟล์เท่าตอนยกเลิก · ยอดต่าง = Delta แจ้งยอดใหม่ สร้างเรื่องใหม่ตามปกติ
+   * ⚠️ เฉพาะ short — over ยังเหมือนเดิม (เจ้าของขอคุยเรื่อง over แยก) */
+  const stoppedBy = new Map();
+  for (const r of existing || []) {
+    if (!r || r.kind !== 'short' || !stopMarkOf(r)) continue;
+    const k = matKey(r);
+    if (!stoppedBy.has(k)) stoppedBy.set(k, []);
+    stoppedBy.get(k).push(r);
+  }
+  const create = [], update = [], same = [], failed = [], stopped = [];
   const seen = new Set();
   for (const p of parsed) {
     const k = matKey(p);
@@ -203,6 +213,8 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
       note: joinNote(p.note, trace),
       order_qty: p.order, recv_qty: p.actual
     };
+    const dead = !cur && (stoppedBy.get(k) || []).find(r => round5(Number(r.qty) || 0) === round5(p.qty));
+    if (dead) { stopped.push({ row: p, cur: dead }); continue; }
     if (!cur) {
       /* ⚠️ แถวเดียวที่ makeFollow ไม่รับ (ไม่มีนิติบุคคล · แถวเกินที่ไม่มี P/N)
        * ห้ามทำให้ทั้งไฟล์นำเข้าไม่ได้ และห้ามเงียบ — ต้องบอกว่าชีตไหน แถวไหน เพราะอะไร
@@ -253,5 +265,5 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
   const gone = live.filter(r => ents.has(txt(r.entity)) && !seen.has(matKey(r)) && statusOf(r) !== 'done')
                    .map(r => ({ cur: r, remain: remainOf(r), source: txt(r.source) || 'manual' }));
 
-  return { create, update, same, gone, failed, dropped, entities: [...ents].sort() };
+  return { create, update, same, gone, failed, dropped, stopped, entities: [...ents].sort() };
 }

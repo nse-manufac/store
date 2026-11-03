@@ -345,5 +345,22 @@ ok('แยกท่อน: มีแต่ร่องรอย → base ว่�
    splitNoteTrace('เอากลับ 2026-10-23 โดย ก').base === ''
    && splitNoteTrace('เอากลับ 2026-10-23 โดย ก').trace === 'เอากลับ 2026-10-23 โดย ก');
 
+console.log('\n=== นำเข้าไฟล์ซ้ำ: short ที่ยกเลิก / ไม่ติดตามไว้ ไม่สร้างใหม่ (เจ้าของเลือกแบบ ก 4 พ.ย. 2026) ===');
+{
+  const { cancelShort } = await import('../v2/master/follow.js');
+  const base = makeFollow({ kind: 'short', type: 'ขาด', entity: 'TUE-H', source: 'delta', po: 'TM0001H301', code: '9100000301', qty: 6, by: 'ก' });
+  const dead = cancelShort(base, { by: 'หัวหน้า', why: 'ยอดน้อย' });
+  const row = { kind: 'short', entity: 'TUE-H', po: 'TM0001H301', code: '9100000301', qty: 6, date: '', part_no: '', note: '' };
+  const p1 = planMatFollow([row], [dead], { now: '2026-11-04T03:00:00.000Z' });
+  ok('ยอดในไฟล์เท่าตอนยกเลิก = ไม่สร้างใหม่ ขึ้นใน stopped', p1.create.length === 0 && p1.stopped.length === 1 && p1.stopped[0].cur.id === dead.id,
+     JSON.stringify({ c: p1.create.length, s: p1.stopped.length }));
+  const p2 = planMatFollow([{ ...row, qty: 9 }], [dead], { now: '2026-11-04T03:00:00.000Z' });
+  ok('ยอดในไฟล์ต่างจากตอนยกเลิก = สร้างเรื่องใหม่ตามปกติ', p2.create.length === 1 && p2.stopped.length === 0);
+  const p3 = planMatFollow([row], [{ ...dead, void_reason: 'เรื่องซ้ำ — x' }], { now: '2026-11-04T03:00:00.000Z' });
+  ok('ยกเลิกแบบอื่น (ไม่ใช่สองปุ่มนี้) = ทำเหมือนเดิม (สร้างใหม่)', p3.create.length === 1);
+  const p4 = planMatFollow([{ ...row, kind: 'over', part_no: 'PN' }], [{ ...dead, kind: 'over' }], { now: '2026-11-04T03:00:00.000Z' });
+  ok('over ยังเหมือนเดิม (เจ้าของขอคุยแยก)', p4.stopped.length === 0);
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

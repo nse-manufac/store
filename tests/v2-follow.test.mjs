@@ -8,6 +8,7 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import fs from 'node:fs';
+import { cancelShort, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -1562,7 +1563,8 @@ console.log('\n=== T. กันกดตั้งเรื่องซ้ำ (�
      ["isStarting('short', r)", "isStarting('over', r)", "isStarting('buy', r)"].every(x => html.includes(x)));
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('ทั้งสามทางเดินผ่าน startOnce และส่ง follows ให้ด่านที่สอง',
-     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 3
+     // 4 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" (ใช้กุญแจเดียวกับตั้งเรื่อง short — กดอันหนึ่งแล้วอีกอันจาง)
+     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 4
      && /fromShortRow\(row, \{[^}]*follows: shorts\.value/.test(app) && /fromOverRow\(row, \{[^}]*follows: shorts\.value/.test(app));
 }
 
@@ -1989,6 +1991,57 @@ console.log('\n=== Z2. ใบสั่งซื้อทดแทนไม่พ
   const line = buyDocGroups([r])[0].lines[0];
   ok('เรื่องมีร่องรอยในหมายเหตุ แต่ REMARK ของใบเหลือแค่หมายเหตุเดิม',
      r.note.includes('เอากลับ') && line.note === 'ของเสียจากไลน์', JSON.stringify(line.note));
+}
+
+console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H', at = '2026-11-04T03:00:00.000Z';
+  const calc = { po: 'TM0001H201', pn: 'PN1', code: '9100000201', order: 100, need: 200, have: 195, short: 5, why: '' };
+  const sk = skipShort(calc, { entity: E, person: 'สมชาย', unit: 'PCE', date: '2026-11-04', at, why: 'ยอดน้อย' });
+  ok('ไม่ติดตาม = เรื่อง short ที่ยกเลิกไว้ · จดยอดขาดตอนกด · เหตุผลขึ้นต้นด้วยคำคงที่',
+     sk.kind === 'short' && sk.voided && sk.qty === 5 && sk.void_by === 'สมชาย' && sk.void_reason === SKIP_MARK + ' — ยอดน้อย'
+     && stopMarkOf(sk) === 'skip', JSON.stringify(sk));
+  throws('ไม่ติดตามแต่ไม่มีชื่อผู้บันทึก = โยน', () => skipShort(calc, { entity: E, at }), 'ผู้บันทึก');
+  ok('ยอดขาดเท่าเดิม = ไม่ขึ้นในการ์ดอีก', shortPending([calc], [sk]).length === 0);
+  ok('ยอดขาดลดลง = ไม่ขึ้น', shortPending([{ ...calc, short: 3 }], [sk]).length === 0);
+  ok('ยอดขาดเพิ่มขึ้น (เช่น ยกเลิกรับเข้า 20) = กลับมาขึ้น', shortPending([{ ...calc, have: 175, short: 25 }], [sk]).length === 1);
+  const dupVoided = { ...sk, void_reason: 'เรื่องซ้ำ — ยอดเท่ากัน' };
+  ok('ยกเลิกแบบอื่น (เรื่องซ้ำ) ไม่นับว่าไม่ติดตาม', !stopMarkOf(dupVoided) && shortPending([calc], [dupVoided]).length === 1);
+
+  const open = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H202', code: '9100000202', qty: 4, by: 'ก', now: at });
+  const cx = cancelShort(open, { by: 'หัวหน้า', why: 'ยอดน้อย ไม่ติดตาม' });
+  ok('ยกเลิกเรื่อง = ไม่ลบ · เหตุผลขึ้นต้นด้วยคำคงที่', cx.voided && cx.id === open.id && stopMarkOf(cx) === 'cancel'
+     && cx.void_reason === CANCEL_MARK + ' — ยอดน้อย ไม่ติดตาม');
+  ok('ยกเลิกเรื่องไม่ใส่เหตุผล = ยังมีคำคงที่', cancelShort(open, { by: 'ก' }).void_reason === CANCEL_MARK);
+  throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelShort(open, {}), 'ผู้บันทึก');
+  throws('ยกเลิกเรื่องที่ปิดแล้ว = โยน', () => cancelShort(closeFollow(open, { by: 'ก' }), { by: 'ก' }), 'ปิดไปแล้ว');
+  throws('ยกเลิกซ้ำ = โยน', () => cancelShort(cx, { by: 'ก' }), 'ยกเลิกไปแล้ว');
+  ok('ยกเลิกเรื่องแล้ว คู่นั้นไม่ขึ้นในการ์ดคิดได้ (ยอดไม่มากกว่าเดิม)',
+     shortPending([{ po: 'TM0001H202', code: '9100000202', short: 4 }], [cx]).length === 0);
+
+  // การ์ด "ยกเลิก / ไม่ติดตามแล้ว"
+  const other = { ...sk, id: 'X-OTHER', entity: 'TUE-A' };
+  const list = stoppedShorts([sk, cx, dupVoided, other], { entity: E });
+  ok('การ์ดรวมทั้งสองปุ่ม · เฉพาะนิติบุคคลนี้ (A3) · ไม่รวมยกเลิกแบบอื่น',
+     list.length === 2 && list.every(x => x.s.entity === E) && list.map(x => x.mark).sort().join() === 'cancel,skip', JSON.stringify(list.map(x => x.mark)));
+  ok('ไม่บอกนิติบุคคล = ว่าง', stoppedShorts([sk], {}).length === 0);
+
+  // กลับมาติดตาม
+  const back = restartShort(sk, { by: 'หัวหน้า', date: '2026-11-05', at: '2026-11-05T03:00:00.000Z' });
+  ok('กลับมาติดตาม = เรื่อง short ใหม่ ยอดเดิม · ของเดิมยังยกเลิก', back.id !== sk.id && !back.voided && back.qty === 5
+     && back.po === sk.po && back.code === sk.code && back.entity === E && statusOf(back) === 'open');
+  ok('กลับมาติดตามแล้ว หายจากการ์ด · คู่นั้นมีเรื่องเปิด (ไม่ขึ้นในการ์ดคิดได้)',
+     stoppedShorts([sk, back], { entity: E }).length === 0 && shortPending([calc], [sk, back]).length === 0);
+  throws('กลับมาติดตามซ้ำทั้งที่มีเรื่องเปิดอยู่ = โยน', () => restartShort(sk, { by: 'ก', follows: [back] }), 'เปิดอยู่แล้ว');
+  throws('เรื่องไม่ระบุจำนวน = บอกให้เพิ่มเอง', () => restartShort({ ...cx, qty: 0 }, { by: 'ก' }), 'เพิ่มเรื่องเอง');
+  throws('ใช้กับเรื่องที่ยกเลิกแบบอื่นไม่ได้', () => restartShort(dupVoided, { by: 'ก' }), 'ยกเลิก / ไม่ติดตาม');
+
+  const appS = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlS = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ปุ่มยกเลิกเรื่องในตาราง short · ไม่ติดตามในการ์ดคิดได้ · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม',
+     htmlS.includes('@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>') && htmlS.includes('@click="fsSkip(r)">ไม่ติดตาม</button>')
+     && htmlS.includes('ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }} เรื่อง') && htmlS.includes('@click="fsRestart(x.s)">กลับมาติดตาม</button>')
+     && /fsStopped = computed\(\(\) => stoppedShorts\(shorts\.value, \{ entity: entity\.value \}\)\)/.test(appS));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
