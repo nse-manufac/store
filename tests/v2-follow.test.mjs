@@ -2043,5 +2043,56 @@ console.log('\n=== SP. ความเร็วหน้า over / short — ด
      JSON.stringify(all0) === JSON.stringify(overAll(ents, E, { headerOf: po => poHeader(pos, po), usageOf: oldUse2, min: 0 })));
 }
 
+console.log('\n=== SP2. ความเร็ว — การ์ดยังรับไม่ครบตาม BOM และ Short / Over บนการ์ด ผ่านดัชนี = ของเดิม (ผู้ตรวจ #145 ข้อสังเกต 4) ===');
+{
+  const { poHeader, poHeaderIndex } = await import('../v2/master/po-kit.js');
+  const { bomIndex } = await import('../v2/master/bom.js');
+  // ข้อมูลสุ่มแบบกำหนดเมล็ด — ผลเหมือนเดิมทุกรอบที่รัน
+  let seed = 20261104;
+  const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const E = 'TUE-H', CODES = ['9100000401', '9100000402', '9100000403', '9100000404', '9100000405'];
+  const pos = [], bom = [], ents = [];
+  for (let i = 0; i < 40; i++) {
+    const po = 'TM0001H' + String(400 + rnd(25)).padStart(3, '0');             // เลข PO ซ้ำได้
+    pos.push({ po: rnd(5) ? po : ' ' + po + ' ', pn: rnd(9) ? 'PN' + rnd(6) : '', qty: rnd(7) ? 1 + rnd(20) : 0,
+               date: '2026-10-' + String(1 + rnd(4)).padStart(2, '0') });          // วันเท่ากันได้
+  }
+  for (let i = 0; i < 6; i++) for (const c of CODES) bom.push({ pn: 'PN' + i, code: c, usage: 1 + (i % 3) });   // ทุกสูตรมีครบทุกรหัส
+  for (let i = 0; i < 60; i++) {
+    bom.push({ pn: rnd(8) ? 'PN' + rnd(6) : 3, code: (rnd(6) ? '' : ' ') + CODES[rnd(CODES.length)], usage: rnd(5) ? (1 + rnd(4)) / 2 : 'x',
+               deleted: !rnd(10) });                                                // รหัสซ้ำในสูตร · แถวที่ลบ · usage ไม่ใช่ตัวเลข
+  }
+  for (let i = 0; i < 400; i++) {
+    const kind = ['receive', 'receive', 'receive', 'sendback', 'issue'][rnd(5)];
+    // แถวสมุดแบบย่อ — สองฟังก์ชันนี้อ่านแค่ entity / kind / รหัส / ยอด / PO / voided
+    const e = { id: 'SP2-' + i, entity: rnd(12) ? E : 'TUE-A', kind, material_code: CODES[rnd(CODES.length)], qty: 1 + rnd(15),
+                doc_kind: 'po', doc_ref: 'TM0001H' + String(400 + rnd(28)).padStart(3, '0'), voided: false };
+    ents.push(rnd(15) ? e : { ...e, voided: true });
+  }
+  const ix = bomIndex(bom), head = poHeaderIndex(pos);
+  const oldHead = po => poHeader(pos, po);
+  const oldRows = pn => activeBomRowsOf(bom, pn);
+  const oldUse = (pn, code) => { const hit = activeBomRowsOf(bom, pn).find(r => normCode(r.code) === normCode(code)); return hit ? Number(hit.usage) || 0 : null; };
+  for (const all of [true, false]) {
+    const a = shortAll(ents, E, { headerOf: oldHead, bomRowsOf: oldRows, all });
+    const b = shortAll(ents, E, { headerOf: head, bomRowsOf: ix.rowsOf, all });
+    const real = a.filter(r => !r.why).length;   // ต้องมีแถวที่คิดยอดได้จริง ไม่ใช่มีแต่แถวที่คิดไม่ได้
+    ok(`shortAll (all: ${all}) ผ่านดัชนี = ของเดิม · ${a.length} แถว (คิดยอดได้ ${real})`, real > 0 && JSON.stringify(a) === JSON.stringify(b));
+  }
+  let same = 0, rowsN = 0;
+  for (const code of CODES) {
+    const rows = ents.filter(e => e.entity === E && !e.voided && e.material_code === code);
+    rowsN += rows.length;
+    const a = cardShortOver(rows, { headerOf: oldHead, usageOf: oldUse });
+    const b = cardShortOver(rows, { headerOf: head, usageOf: ix.usageOf });
+    if (JSON.stringify(a) === JSON.stringify(b)) same++;
+  }
+  ok(`cardShortOver (Short / Over บนการ์ด) ผ่านดัชนี = ของเดิม ทุกรหัส · ${rowsN} บรรทัด`, same === CODES.length && rowsN > 0);
+  const appSP = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: การ์ดยังรับไม่ครบตาม BOM และ Short / Over บนการ์ด ใช้ดัชนีจริง',
+     /shortAll\(entries\.value, entity\.value, \{ headerOf: poIdx\.value,\s+bomRowsOf: bomIdx\.value\.rowsOf, all: true \}\)/.test(appSP)
+     && /cardShortOver\(rows, \{ headerOf: poIdx\.value, usageOf: bomUsageOf \}\)/.test(appSP));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
