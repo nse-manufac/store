@@ -1150,6 +1150,40 @@ export function sendbackEntry(row, { qty, person, device = '', at = '',
   });
 }
 
+/**
+ * คืนแล้ว ในก้าวเดียว (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ "มาแล้ว" ของ short ไม่ต้องเปิดกล่อง)
+ * qty ว่าง = คืนยอดที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน · เหตุผลตั้งต้น 'over' · ล็อตไม่บังคับ
+ * คืน { rec, entry } — ผู้เรียกบันทึก entry ลงสมุดก่อน แล้วค่อยบันทึก rec (ของออกจากคลังจริงแม้ปิดเรื่องไม่สำเร็จ)
+ * ⚠️ at = วันที่คืนจริง (แก้ย้อนหลังได้) → ใช้กับรายการส่งคืนและ done_at · updated_at ยังเป็นเวลาจริง (closeFollow · D5)
+ * ⚠️ ต่อท้ายเลขที่รายการส่งคืน ไม่ทับของเดิม — คืนบางส่วนหลายรอบได้ และ "เอากลับ" ยกเลิกตามได้ครบ
+ */
+export function returnOver(row, { qty, person = '', device = '', at = '', reason_code = 'over', lot = '', note = '' } = {}) {
+  if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครคืนของ');
+  const n = qty === '' || qty == null ? remainOf(row) : Number(qty);
+  const entry = sendbackEntry(row, { qty: n, person: txt(person), device, at, reason_code, lot, note });
+  const rec = closeFollow(row, { qty: n, by: txt(person), doneAt: at });
+  rec.return_entry_id = [txt(row.return_entry_id), entry.id].filter(Boolean).join(' ');
+  return { rec, entry };
+}
+
+/**
+ * คำเตือนก่อนคืนแบบกดทีเดียว — ข้อเดียวกับที่กล่องคืนของเดิมโชว์ · คืน '' ถ้าไม่ต้องเตือน
+ * ⚠️ เตือนได้ ห้ามบล็อก (INVARIANTS A4) · "ไม่มีคำเตือน" ต้องไม่แปลว่า "ตรวจแล้ว" — เทียบไม่ได้ก็ต้องบอก
+ * after = ยอดคงคลังหลังคืน · short = shortOfPo(...) · shortWhy = shortWhyOf(...) (ว่าง = เทียบได้)
+ */
+export function returnOverWarn({ after = 0, short = [], shortWhy = '' } = {}) {
+  const out = [];
+  if (Number(after) < 0) out.push(`ยอดคงคลังจะติดลบเป็น ${round5(Number(after))} — ตรวจก่อนว่ายอดรับเข้าครบหรือยัง`);
+  if ((short || []).length) {
+    out.push(`PO ใบนี้ยังรับมาไม่ครบตามสูตรอีก ${short.length} รหัส (`
+      + short.slice(0, 4).map(x => `${x.code} ขาด ${x.miss}`).join(', ') + (short.length > 4 ? ' …' : '')
+      + ') — ดูให้แน่ก่อนว่าไม่ได้คีย์รับเข้าผิดใบ');
+  } else if (txt(shortWhy)) {
+    out.push(`เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง — ${txt(shortWhy)}`);
+  }
+  return out.join('\n\n');
+}
+
 /* ══════════ ซื้อแมททดแทนของเสีย (Mat Follow up 7/8) ══════════
  * ของเสียตัดออกจากคลังไปแล้วด้วยรายการชนิด scrap · ของที่หายไปต้องซื้อทดแทนผ่าน Delta
  * เรื่องซื้อทดแทนจึงผูกกับ "รายการของเสียใบนั้น" เสมอ ไม่ใช่ผูกกับรหัสลอย ๆ
