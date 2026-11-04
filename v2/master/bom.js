@@ -141,6 +141,29 @@ export const activeBomRowsOf = (rows, pn) =>
   (rows || []).filter(r => String(r.pn) === String(pn) && !r.deleted);
 
 /**
+ * ดัชนีสูตรทำครั้งเดียว — { rowsOf(pn), usageOf(pn, code) }
+ *   rowsOf  = activeBomRowsOf(rows, pn) (ลำดับเดิม) · usageOf = ต่อชิ้นของแถวแรกที่รหัสตรง (normCode) · ไม่มี = null
+ * ⚠️ activeBomRowsOf กรองทั้งตารางทุกครั้งที่ถาม — หน้า over ถามทุกคู่ PO+รหัส จนค้างหลายวินาที (วัด 4 พ.ย. 2026)
+ * ⚠️ rowsOf คืนอาร์เรย์ที่ใช้ร่วมกัน — ห้ามผู้เรียกแก้ในที่
+ */
+export function bomIndex(rows) {
+  const byPn = new Map(), use = new Map();
+  for (const r of rows || []) {
+    if (!r || r.deleted) continue;
+    const pn = String(r.pn);
+    if (!byPn.has(pn)) byPn.set(pn, []);
+    byPn.get(pn).push(r);
+    const k = pn + '|' + normCode(r.code);
+    if (!use.has(k)) use.set(k, Number(r.usage) || 0);
+  }
+  const none = [];
+  return {
+    rowsOf: pn => byPn.get(String(pn)) || none,
+    usageOf: (pn, code) => { const k = String(pn) + '|' + normCode(code); return use.has(k) ? use.get(k) : null; }
+  };
+}
+
+/**
  * ยอดตามสูตรของรหัสหนึ่ง = ต่อชิ้น × จำนวนสั่ง — null ถ้าไม่มีในสูตร หรือยังไม่ได้ใส่จำนวนสั่ง
  *
  * ⚠️ Kit List ไม่ใช่ตัวกำหนดยอดตามสูตร (เจ้าของ 16 ก.ย. 2026)
