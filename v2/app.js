@@ -2675,7 +2675,7 @@ createApp({
     const fsStopShow = ref(false);
     async function fsRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่อง short ใหม่ ยอด ${row.qty}?`)) return;
+      if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่อง short ใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
       try {
         await startOnce(starting, 'fsrestart|' + row.id, async () => {
           const rec = restartShort(plain(row), { by: fsBy.value, date: todayLocal(), follows: shorts.value });
@@ -3736,7 +3736,7 @@ createApp({
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGo, fbGot, fbDate, fbClose, fbReopen,
       buyWaits, cancelBuyWaits,
-      fsVoid, fsSkip, fsStopped, fsStopShow, fsRestart, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
+      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,

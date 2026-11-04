@@ -2314,12 +2314,12 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="fsStopShow">
             <table>
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
-                <th style="width:105px">หมวดหมู่</th><th style="width:85px">ยอด</th><th>เหตุผล</th>
+                <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
               <tbody><tr v-for="x in fsStopped.slice(0, SHOW_MAX)" :key="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
                 <td class="mono">{{ x.s.po }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
-                <td class="mono">{{ x.s.qty }}</td><td class="hint">{{ x.s.void_reason }}</td>
+                <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td><td class="hint">{{ x.s.void_reason }}</td>
                 <td class="hint">{{ x.s.void_by }} · {{ localDate(x.s.void_at) }}</td>
                 <td><button class="btn" style="padding:2px 8px" :disabled="starting.has('fsrestart|' + x.s.id)"
                             @click="fsRestart(x.s)">กลับมาติดตาม</button></td>
