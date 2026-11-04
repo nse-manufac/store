@@ -741,6 +741,11 @@ export function cancelShort(row, { by = '', why = '' } = {}) {
   if (!row || row.kind !== 'short') throw new Error('ใช้ได้กับเรื่อง short เท่านั้น');
   if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
   if (statusOf(row) === 'done') throw new Error('เรื่องนี้ปิดไปแล้ว — ไม่ต้องยกเลิก');
+  /* ⚠️ แถวที่ยังไม่มี entity ขึ้นในตาราง short ของทุกนิติบุคคล (ดู sameEntity) ยกเลิกแล้วจะหายจากทุกจอ
+   *    แต่ยังกดทับการ์ด "ยังรับไม่ครบตาม BOM" อยู่ (pairKey ไม่มี entity) และการ์ด "ยกเลิก / ไม่ติดตามแล้ว"
+   *    ซึ่งกรองตาม entity ตรง ๆ (A3) จะไม่แสดงให้ กดกลับมาติดตามไม่ได้ → กันที่ทางเข้า (ผู้ตรวจ #146 รอบ 1 ข้อ 1) */
+  if (!txt(row.entity)) throw new Error('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — เลือกนิติบุคคลที่หัวจอ '
+    + 'แล้วกดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ที่หัวแท็บก่อน แล้วค่อยยกเลิก (INVARIANTS A3)');
   if (!txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิก');
   return voidFollow(row, { by, reason: stopReason(CANCEL_MARK, why) });
 }
