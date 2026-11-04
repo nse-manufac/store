@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-04.2">
+<meta name="app-version" content="2026-11-05.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2757,7 +2757,7 @@ textarea{font:inherit}
                 <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:95px">สั่ง</th>
                 <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
                 <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
-                <th style="width:130px"></th></tr></thead>
+                <th style="width:210px"></th></tr></thead>
               <tbody><tr v-for="r in foNew" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td>
                 <td class="mono hint">{{ r.pn }}</td>
@@ -2768,7 +2768,9 @@ textarea{font:inherit}
                 <td class="mono hint">{{ r.sentBack || '—' }}</td>
                 <td class="mono"><b>{{ r.over }}</b></td>
                 <td><button class="btn" style="padding:2px 9px" :disabled="!entity || isStarting('over', r)"
-                            @click="foStart(r)">ตั้งเรื่องคืน</button></td>
+                            @click="foStart(r)">ตั้งเรื่องคืน</button>
+                  <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="!entity || isStarting('over', r)"
+                          @click="foSkip(r)">ไม่ติดตาม</button></td>
               </tr></tbody>
             </table>
           </div>
@@ -2870,7 +2872,7 @@ textarea{font:inherit}
                               @click="askReturn(r.s)">คืนแล้ว…</button>
                       <button v-if="r.st==='partial'" class="btn" style="padding:2px 8px;margin-left:4px"
                               :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
-                      <button class="btn" style="padding:2px 8px;margin-left:4px"
+                      <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fovoid|' + r.s.id)"
                               @click="foVoid(r.s)">ยกเลิกเรื่อง</button>
                     </template>
                   </td>
@@ -2911,6 +2913,35 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
           </div>
+        </div>
+        <!-- ยกเลิก / ไม่ติดตามแล้ว (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ short) · พับไว้ -->
+        <div class="card" v-if="foStopped.length">
+          <div class="row">
+            <h2 style="margin:0">ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง</h2>
+            <div class="grow"></div>
+            <button class="btn" @click="foStopShow = !foStopShow">{{ foStopShow ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
+          </div>
+          <p class="hint" style="margin:6px 0 0">เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง · ของยังอยู่ในคลัง ·
+            ไม่ขึ้นในการ์ด "ของเกินที่ระบบคำนวณได้" จนกว่ายอดเกินจะมากกว่า <b>ยอดค้าง</b> ตอนกด (คอลัมน์ข้างล่าง) ·
+            กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · การ์ดเทียบใบตัดยอดของ Delta ยังนับของพวกนี้ ·
+            นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
+          <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="foStopShow">
+            <table>
+              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
+                <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
+                <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
+              <tbody><tr v-for="x in foStopped.slice(0, SHOW_MAX)" :key="x.s.id">
+                <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
+                <td class="mono">{{ x.s.po }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
+                <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td>
+                <td class="hint">{{ x.s.void_reason }}</td>
+                <td class="hint">{{ x.s.void_by }} · {{ localDate(x.s.void_at) }}</td>
+                <td><button class="btn" style="padding:2px 8px" :disabled="starting.has('forestart|' + x.s.id)"
+                            @click="foRestart(x.s)">กลับมาติดตาม</button></td>
+              </tr></tbody>
+            </table>
+          </div>
+          <p class="hint" style="margin:6px 0 0" v-if="foStopShow && foStopped.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ foStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
         </div>
       </template>
 

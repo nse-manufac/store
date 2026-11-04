@@ -359,7 +359,7 @@ console.log('\n=== นำเข้าไฟล์ซ้ำ: short ที่ย�
   const p3 = planMatFollow([row], [{ ...dead, void_reason: 'เรื่องซ้ำ — x' }], { now: '2026-11-04T03:00:00.000Z' });
   ok('ยกเลิกแบบอื่น (ไม่ใช่สองปุ่มนี้) = ทำเหมือนเดิม (สร้างใหม่)', p3.create.length === 1);
   const p4 = planMatFollow([{ ...row, kind: 'over', part_no: 'PN' }], [{ ...dead, kind: 'over' }], { now: '2026-11-04T03:00:00.000Z' });
-  ok('over ยังเหมือนเดิม (เจ้าของขอคุยแยก)', p4.stopped.length === 0);
+  ok('over ใช้กติกาเดียวกับ short (เจ้าของสั่ง 5 พ.ย. 2026) — ยอดเท่าเดิมไม่สร้างใหม่', p4.stopped.length === 1 && p4.create.length === 0);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

@@ -8,6 +8,7 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import fs from 'node:fs';
+import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -593,7 +594,8 @@ ok('การ์ด "คำนวณไม่ได้" มีจริง — �
 ok('การ์ดเทียบยอด Delta ตัด ใช้ของเกินที่ไม่มีเพดาน OVER_MIN ไม่ใช่ foNew',
    /pending: ocPending\.value/.test(appOver)
    && /const foCalc0 = computed\([\s\S]{0,300}min: 0/.test(appOver)
-   && /const ocPending = computed\(\(\) => overPending\(foCalc0\.value\.filter\(r => !r\.why\), shorts\.value\)\)/.test(appOver)
+   // stops: false — ใบตัดยอดนับของที่ไม่ติดตามด้วย (ของยังอยู่ในคลัง · เจ้าของเคาะ 5 พ.ย. 2026)
+   && /const ocPending = computed\(\(\) => overPending\(foCalc0\.value\.filter\(r => !r\.why\), shorts\.value, \{ stops: false \}\)\)/.test(appOver)
    && !/pending: foNew\.value/.test(appOver));
 ok('การ์ด "ของเกินที่ระบบคำนวณได้" ยังคงเพดาน 1 หน่วยไว้เหมือนเดิม',
    /const foCalc = computed\(\(\) => foCalc0\.value\.filter\(r => r\.why \|\| r\.over >= OVER_MIN\)\)/.test(appOver)
@@ -1270,8 +1272,8 @@ console.log('\n=== T. กันกดตั้งเรื่องซ้ำ (�
      ["isStarting('short', r)", "isStarting('over', r)", "isStarting('buy', r)"].every(x => html.includes(x)));
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('ทั้งสามทางเดินผ่าน startOnce และส่ง follows ให้ด่านที่สอง',
-     // 4 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" (ใช้กุญแจเดียวกับตั้งเรื่อง short — กดอันหนึ่งแล้วอีกอันจาง)
-     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 4
+     // 5 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" short / over (ใช้กุญแจเดียวกับตั้งเรื่องของแถวนั้น — กดอันหนึ่งแล้วอีกอันจาง)
+     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 5
      && /fromShortRow\(row, \{[^}]*follows: shorts\.value/.test(app) && /fromOverRow\(row, \{[^}]*follows: shorts\.value/.test(app));
 }
 
@@ -1958,6 +1960,53 @@ console.log('\n=== Z3. ทางเดิม "ไปรับของ" ถู�
   ok('ไม่เหลือ linkReceive ในไฟล์ logic · ไม่มีใคร export ชื่อนี้', !/\blinkReceive\b/.test(followX)
      && !('linkReceive' in await import('../v2/master/follow.js')));
   ok('บันทึกรับเข้าขึ้นข้อความยืนยันเหมือนเดิม', appX.includes('flash(`บันทึกรับเข้า ${posted.length} รายการ · ${where}`);'));
+}
+
+console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ติดตาม แบบเดียวกับ short (เจ้าของสั่ง 5 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H';
+  const t = h => `2026-11-0${h}T03:00:00.000Z`;
+  const calc = { po: 'TM0001H801', pn: 'PN8', code: '9100000801', order: 10, bom_qty: 20, recv: 23, sentBack: 0, over: 3, why: '' };
+  const sk = { ...skipOver(calc, { entity: E, person: 'สมชาย', unit: 'PCE', date: '2026-11-05', at: t(1), why: 'ยอดน้อย' }), void_at: t(2) };
+  ok('ไม่ติดตาม = เรื่อง over ที่ยกเลิกไว้ · จดยอดเกินตอนกด · คำนำหน้าเดียวกับ short',
+     sk.kind === 'over' && sk.voided && sk.qty === 3 && sk.void_reason === SKIP_MARK + ' — ยอดน้อย' && stopMarkOf(sk) === 'skip');
+  throws('ไม่ติดตามแต่ไม่มีชื่อ = โยน', () => skipOver(calc, { entity: E, at: t(1) }), 'ผู้บันทึก');
+  const pend = (over, all, opt) => overPending([{ ...calc, over }], all, opt).length;
+  ok('ยอดเกินเท่าเดิม / ลดลง = ไม่ขึ้น · เพิ่มขึ้น = กลับมาขึ้น', pend(3, [sk]) === 0 && pend(2, [sk]) === 0 && pend(4, [sk]) === 1);
+  ok('ใบตัดยอดของ Delta (stops: false) ยังนับของที่ไม่ติดตาม', pend(3, [sk], { stops: false }) === 1);
+
+  const ov = makeFollow({ kind: 'over', entity: E, po: 'TM0001H802', code: '9100000802', part_no: 'PN8', qty: 10, by: 'ก', now: t(1) });
+  const cx = { ...cancelOver(ov, { by: 'หัวหน้า', why: 'ยอดน้อย ไม่ติดตาม' }), void_at: t(2) };
+  ok('ยกเลิกเรื่อง over = ไม่ลบ · คำนำหน้า ยกเลิกเรื่อง', cx.voided && cx.id === ov.id && stopMarkOf(cx) === 'cancel');
+  throws('ยกเลิกเรื่องที่คืนครบแล้ว = โยน', () => cancelOver(closeFollow(ov, { by: 'ก' }), { by: 'ก' }), 'คืนครบแล้ว');
+  throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelOver(ov, {}), 'ผู้บันทึก');
+  throws('ยกเลิกเรื่องที่ไม่รู้นิติบุคคล = โยน (A3)', () => cancelOver({ ...ov, entity: '' }, { by: 'ก' }), 'A3');
+  throws('cancelOver ใช้กับ short ไม่ได้', () => cancelOver({ ...ov, kind: 'short' }, { by: 'ก' }), 'over');
+  const part = { ...cancelOver(closeFollow(ov, { qty: 6, by: 'ก' }), { by: 'ก' }), void_at: t(2) };
+  const pendB = over => overPending([{ ...calc, po: 'TM0001H802', code: '9100000802', over }], [part]).length;
+  ok('ยกเลิกเรื่องที่คืนไปบางส่วน: เพดาน = ยอดค้าง (4) ไม่ใช่ยอดเต็ม (10)', pendB(4) === 0 && pendB(5) === 1);
+
+  const w = cancelOverWarn(ov, 2);
+  ok('เตือน: ค้าง 10 · คิดได้ 2 = บอกเพดาน · ไม่ชวนกดคืนแล้ว (คืนแล้วตัดสต็อกจริง)',
+     w.includes('ค้าง 10') && w.includes('เกินจริง 2') && w.includes('เกิน 10') && !w.includes('คืนแล้ว'), w);
+  ok('เตือน: ตรงกัน / คิดไม่ได้ = ไม่เตือน', cancelOverWarn(ov, 10) === '' && cancelOverWarn(ov, null) === '');
+
+  const list = stoppedOvers([sk, cx, { ...sk, id: 'X', entity: 'TUE-A' }, { ...cx, void_reason: 'ตั้งผิด' }], { entity: E });
+  ok('การ์ดรวมสองปุ่ม · เฉพาะนิติบุคคลนี้ · ยกเลิกแบบอื่นไม่นับ', list.length === 2 && list.map(x => x.mark).sort().join() === 'cancel,skip');
+  ok('การ์ด short ไม่ปน over', stoppedShorts([sk, cx], { entity: E }).length === 0);
+  const back = { ...restartOver(part, { by: 'หัวหน้า', at: t(3) }), created_at: t(3) };
+  ok('กลับมาติดตาม = เรื่อง over ใหม่ด้วยยอดค้าง (4) · ของเดิมยังยกเลิก', back.kind === 'over' && back.qty === 4 && !back.voided
+     && back.id !== part.id && statusOf(back) === 'open');
+  ok('กลับมาติดตามแล้ว เพดานหมดอายุ · หายจากการ์ด', stoppedOvers([part, back], { entity: E }).length === 0
+     && overPending([{ ...calc, po: 'TM0001H802', code: '9100000802', over: 4 }], [part, closeFollow(back, { by: 'ก' })]).length === 1);
+  throws('กลับมาติดตามซ้ำทั้งที่มีเรื่องเปิด = โยน', () => restartOver(part, { by: 'ก', follows: [back] }), 'เปิดอยู่แล้ว');
+
+  const appO = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlO = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ไม่ติดตามในการ์ดคิดได้ · ยกเลิกเรื่องจาง · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม · เตือนก่อนยกเลิก',
+     htmlO.includes('@click="foSkip(r)">ไม่ติดตาม</button>') && htmlO.includes(`:disabled="starting.has('fovoid|' + r.s.id)"`)
+     && htmlO.includes('ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง') && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
+     && /const warn = cancelOverWarn\(row, calc\);\s*if \(warn && !confirm\(/.test(appO) && /cancelOver\(plain\(row\), \{ by: fsBy\.value, why \}\)/.test(appO));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
