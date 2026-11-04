@@ -9,6 +9,7 @@
  */
 import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
+import { returnOver, returnOverWarn } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -605,8 +606,10 @@ ok('foStart ส่งวันที่ตามเวลาไทยเข้�
    /fromOverRow\(row, \{[\s\S]{0,160}date: todayLocal\(\)/.test(appOver));
 
 // ปุ่มนี้ตัดของจริงออกจากคลัง ห้ามเป็นปุ่มติ๊กเดียวจบ
-ok('ปุ่มคืนเปิดกล่องให้ยืนยันก่อน ไม่ใช่ตัดสต็อกทันที',
-   /@click="askReturn\(r\.s\)"/.test(htmlOver) && /v-if="rb\.row"/.test(htmlOver));
+// เจ้าของสั่ง 5 พ.ย. 2026: คืนแล้วกดทีเดียวแบบ "มาแล้ว" ของ short · กล่องเดิมยังอยู่ที่ลิงก์ "รายละเอียด…"
+ok('ปุ่มคืนแล้วกดทีเดียว · ลิงก์รายละเอียดยังเปิดกล่องเดิมได้',
+   /@click="foReturn\(r\.s\)">คืนแล้ว<\/button>/.test(htmlOver) && /@click\.prevent="askReturn\(r\.s\)">รายละเอียด…<\/a>/.test(htmlOver)
+   && /v-if="rb\.row"/.test(htmlOver));
 ok('กล่องคืนของให้เลือกล็อตจากของที่มีจริง และไม่ใช้ datalist (issue #26)',
    /rbLots/.test(htmlOver) && /@click="rb\.lot = l\.lot"/.test(htmlOver)
    && !/id="rblots"/.test(htmlOver));
@@ -631,19 +634,28 @@ ok('เตือนเมื่อใบนั้นยังรับมาไ�
    /v-if="rbShort\.length"/.test(htmlOver)
    && /:disabled="!rbReady \|\| rb\.busy"/.test(htmlOver));
 ok('บันทึกลงสมุดก่อน แล้วค่อยปิดเรื่อง และผูกเลขที่รายการไว้ให้ไล่ย้อนได้',
-   /db\.put\('entries', e\)[\s\S]{0,800}rec\.return_entry_id =/.test(appOver));
+   /async function saveReturn\(rec, entry\) \{\s*await db\.put\('entries', \[entry\]\)[\s\S]{0,120}await fsPut\(rec\)/.test(appOver)
+   && /db\.put\('entries', e\)[\s\S]{0,200}await fsPut\(rec\)/.test(appOver) && /rec\.return_entry_id = /.test(fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8')));
 
 /* ── ข้อสังเกตหกข้อของผู้ตรวจ #90 (เจ้าของสั่งให้แก้ 20 ก.ย. 2026) ── */
 ok('จับค่าจาก rb.row ไว้ก่อน await — กล่องปิดกลางคันแล้วต้องไม่โยน TypeError',
    /const row = plain\(rb\.row\);[\s\S]{0,120}const qty = Number\(rb\.qty\);/.test(appOver)
    && !/flash\(`คืน \$\{rb\.row/.test(appOver));
-ok('คืนหลายรอบต้องต่อท้ายเลขที่รายการ ไม่ทับของเดิม',
-   /rec\.return_entry_id = \[String\(row\.return_entry_id[\s\S]{0,60}\.join\(' '\)/.test(appOver));
+{
+  // ย้ายไปอยู่ใน returnOver (ทั้งกล่องและปุ่มกดทีเดียวใช้ตัวเดียวกัน) — เทสพฤติกรรมแทนการอ่านซอร์ส
+  const ov = makeFollow({ kind: 'over', entity: 'TUE-H', po: 'TM0001H901', code: 'C9', part_no: 'PN', qty: 5 });
+  const a1 = returnOver(ov, { qty: 2, person: 'ก', at: '2026-11-05T03:00:00.000Z' });
+  const a2 = returnOver(a1.rec, { qty: 1, person: 'ก', at: '2026-11-05T04:00:00.000Z' });
+  ok('คืนหลายรอบต้องต่อท้ายเลขที่รายการ ไม่ทับของเดิม',
+     a2.rec.return_entry_id === a1.entry.id + ' ' + a2.entry.id && remainOf(a2.rec) === 2);
+}
 ok('กล่องคืนของมีช่องวันที่ และส่ง atFrom(rb.date) เข้าไป',
    /v-model="rb\.date" type="date"/.test(htmlOver) && /at: atFrom\(rb\.date\)/.test(appOver)
    && /rb\.date = todayLocal\(\)/.test(appOver));
-ok('กล่องส่งวันที่ที่คนคีย์ไปเป็นวันที่ปิดเรื่องด้วย',
-   /closeFollow\(row, \{ qty, by: rb\.person\.trim\(\), doneAt: atFrom\(rb\.date\) \}\)/.test(appOver));
+ok('กล่องส่งวันที่ที่คนคีย์ไปเป็นวันที่ปิดเรื่องด้วย (ผ่าน returnOver)',
+   /returnOver\(row, \{\s*qty, person: rb\.person\.trim\(\), device: device\.value, at: atFrom\(rb\.date\)/.test(appOver)
+   && returnOver(makeFollow({ kind: 'over', entity: 'TUE-H', po: 'P', code: 'C', part_no: 'PN', qty: 3 }),
+                 { person: 'ก', at: '2026-10-01T03:00:00.000Z' }).rec.done_at === '2026-10-01T03:00:00.000Z');
 ok('ยังไม่เลือกนิติบุคคล กล่องต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ (A3)',
    /if \(!entity\.value\) return 'ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';/.test(appOver)
    && /const rbShortWhy = computed/.test(appOver));
@@ -1272,8 +1284,8 @@ console.log('\n=== T. กันกดตั้งเรื่องซ้ำ (�
      ["isStarting('short', r)", "isStarting('over', r)", "isStarting('buy', r)"].every(x => html.includes(x)));
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('ทั้งสามทางเดินผ่าน startOnce และส่ง follows ให้ด่านที่สอง',
-     // 5 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" short / over (ใช้กุญแจเดียวกับตั้งเรื่องของแถวนั้น — กดอันหนึ่งแล้วอีกอันจาง)
-     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 5
+     // 6 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" short / over + "คืนแล้ว" การ์ดของเกิน (ใช้กุญแจเดียวกับตั้งเรื่องของแถวนั้น — กดอันหนึ่งแล้วอีกอันจาง)
+     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 6
      && /fromShortRow\(row, \{[^}]*follows: shorts\.value/.test(app) && /fromOverRow\(row, \{[^}]*follows: shorts\.value/.test(app));
 }
 
@@ -1960,6 +1972,39 @@ console.log('\n=== Z3. ทางเดิม "ไปรับของ" ถู�
   ok('ไม่เหลือ linkReceive ในไฟล์ logic · ไม่มีใคร export ชื่อนี้', !/\blinkReceive\b/.test(followX)
      && !('linkReceive' in await import('../v2/master/follow.js')));
   ok('บันทึกรับเข้าขึ้นข้อความยืนยันเหมือนเดิม', appX.includes('flash(`บันทึกรับเข้า ${posted.length} รายการ · ${where}`);'));
+}
+
+console.log('\n=== OR. over: คืนแล้วกดทีเดียว (เจ้าของสั่ง 5 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H', at = '2026-11-05T03:00:00.000Z';
+  const ov = makeFollow({ kind: 'over', entity: E, po: 'TM0001H902', code: '9100000902', part_no: 'PN', qty: 6 });
+  const all = returnOver(ov, { person: 'สมชาย', device: 'PC', at });
+  ok('เว้นยอด = คืนที่ค้างทั้งหมด · เรื่องปิด · รายการส่งคืนอ้าง PO · เหตุผล over · นิติบุคคลของเรื่อง',
+     all.entry.kind === 'sendback' && all.entry.qty === 6 && all.entry.doc_ref === 'TM0001H902' && all.entry.reason_code === 'over'
+     && all.entry.entity === E && statusOf(all.rec) === 'done' && all.rec.done_by === 'สมชาย' && all.rec.return_entry_id === all.entry.id);
+  const part = returnOver(ov, { qty: 2, person: 'สมชาย', at });
+  ok('ใส่ยอด 2 = คืนบางส่วน เรื่องยังค้าง 4', part.entry.qty === 2 && statusOf(part.rec) === 'partial' && remainOf(part.rec) === 4);
+  ok('ยอดจากช่องเป็นข้อความ "2" ก็ได้', returnOver(ov, { qty: '2', person: 'ก', at }).entry.qty === 2);
+  throws('ไม่มีชื่อผู้บันทึก = โยน', () => returnOver(ov, { at }), 'ผู้บันทึก');
+  throws('คืนเกินยอดที่ค้าง = โยน', () => returnOver(ov, { qty: 7, person: 'ก', at }), 'ไม่เกิน');
+  throws('ยอดศูนย์ = โยน', () => returnOver(ov, { qty: 0, person: 'ก', at }), 'มากกว่าศูนย์');
+  ok('เอากลับได้เหมือนเดิม (ยกเลิกรายการส่งคืนที่ผูกไว้)', reopenOver(all.rec, [all.entry], { by: 'หัวหน้า' }).voids.length === 1);
+
+  ok('เตือน: ยอดติดลบ', /ติดลบเป็น -1/.test(returnOverWarn({ after: -1 })));
+  ok('เตือน: ใบยังรับไม่ครบตามสูตร', /ไม่ครบตามสูตรอีก 1 รหัส/.test(returnOverWarn({ after: 3, short: [{ code: 'X1', miss: 2 }] })));
+  ok('เตือน: เทียบไม่ได้ ต้องบอก ไม่ใช่เงียบ', /เทียบไม่ได้/.test(returnOverWarn({ after: 3, shortWhy: 'ยังไม่รู้ P/N ของใบนี้' })));
+  ok('ไม่มีปัญหา = ไม่เตือน', returnOverWarn({ after: 0, short: [], shortWhy: '' }) === '');
+
+  const appR = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlR = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ตาราง over มีช่องยอด + คืนแล้ว · การ์ดคิดได้มีคืนแล้ว · ช่องวันที่คืนทั้งสองการ์ด',
+     htmlR.includes('v-model="foGot[r.s.id]"') && htmlR.includes('@click="foReturnNew(r)"')
+     && (htmlR.match(/v-model="foDate" type="date"/g) || []).length === 2);
+  ok('จอ: วันที่คืนเลื่อนเป็นวันใหม่เองเมื่อเปิดจอค้างข้ามคืน (กติกาเดียวกับ short)',
+     /foDateOn !== t\) \{ foDate\.value = rollDay\(/.test(appR) && /watch\(tab, k => \{ if \(k === 'fover'\) foDayNow\(\); \}\)/.test(appR));
+  ok('จอ: คำเตือนขึ้นก่อนบันทึก · ปุ่มกันกดซ้ำ · กล่องเดิมใช้ returnOver ตัวเดียวกัน',
+     /const warn = foReturnWarn\(row, qty\);\s*if \(warn && !confirm\(/.test(appR) && /startOnce\(starting, 'foreturn\|' \+ row\.id/.test(appR)
+     && /const \{ rec, entry: e \} = returnOver\(row, \{/.test(appR) && htmlR.includes(`:disabled="starting.has('foreturn|' + r.s.id)"`));
 }
 
 console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ติดตาม แบบเดียวกับ short (เจ้าของสั่ง 5 พ.ย. 2026) ===');

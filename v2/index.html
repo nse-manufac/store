@@ -2744,6 +2744,10 @@ textarea{font:inherit}
             <h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>
             <span class="hint">รับเข้าตามใบ − ที่คืนไปแล้ว − ยอดตามสูตรของใบนั้น</span>
             <div class="grow"></div>
+            <label class="f" style="width:150px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <label class="f" style="width:145px" title="คืนเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่คืนจริง">วันที่คืน
+              <input v-model="foDate" type="date"></label>
             <div><div class="hint">รอตั้งเรื่อง</div>
               <div class="big" :class="foNew.length ? 'warn' : ''">{{ foNew.length }}</div></div>
           </div>
@@ -2757,7 +2761,7 @@ textarea{font:inherit}
                 <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:95px">สั่ง</th>
                 <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
                 <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
-                <th style="width:210px"></th></tr></thead>
+                <th style="width:290px"></th></tr></thead>
               <tbody><tr v-for="r in foNew" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td>
                 <td class="mono hint">{{ r.pn }}</td>
@@ -2767,8 +2771,10 @@ textarea{font:inherit}
                 <td class="mono">{{ r.recv }}</td>
                 <td class="mono hint">{{ r.sentBack || '—' }}</td>
                 <td class="mono"><b>{{ r.over }}</b></td>
-                <td><button class="btn" style="padding:2px 9px" :disabled="!entity || isStarting('over', r)"
-                            @click="foStart(r)">ตั้งเรื่องคืน</button>
+                <td><button class="btn primary" style="padding:2px 9px" :disabled="!entity || isStarting('over', r)"
+                            @click="foReturnNew(r)" title="ตั้งเรื่องและคืนครบในก้าวเดียว">คืนแล้ว</button>
+                  <button class="btn" style="padding:2px 9px;margin-left:4px" :disabled="!entity || isStarting('over', r)"
+                          @click="foStart(r)" title="ยังไม่ได้คืนจริง — ตั้งเรื่องไว้ตาม">ตั้งเรื่องคืน</button>
                   <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="!entity || isStarting('over', r)"
                           @click="foSkip(r)">ไม่ติดตาม</button></td>
               </tr></tbody>
@@ -2835,6 +2841,8 @@ textarea{font:inherit}
               <input v-model="foSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
             <label class="f" style="width:150px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <label class="f" style="width:145px" title="คืนเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่คืนจริง">วันที่คืน
+              <input v-model="foDate" type="date"></label>
             <label style="font-weight:600;font-size:12.5px">
               <input type="checkbox" v-model="foShowDone"> แสดงที่คืนแล้ว</label>
           </div>
@@ -2846,7 +2854,7 @@ textarea{font:inherit}
                 <th style="width:80px">P/N</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องคืน</th><th style="width:100px">ยังค้าง</th>
                 <th>ยอดที่แช่แข็งไว้ตอนตั้งเรื่อง</th>
-                <th style="width:185px"></th></tr></thead>
+                <th style="width:330px"></th></tr></thead>
               <tbody>
                 <tr v-for="r in foRows" :key="r.s.id">
                   <td class="mono hint">{{ r.s.date }}</td>
@@ -2860,7 +2868,7 @@ textarea{font:inherit}
                     <span v-else class="hint">—</span></td>
                   <td class="hint mono">สั่ง {{ r.s.order_qty }} · ตามสูตร {{ r.s.bom_qty }} ·
                     รับมา {{ r.s.recv_qty }}</td>
-                  <td>
+                  <td style="white-space:nowrap">
                     <template v-if="r.st==='done'">
                       <span class="hint">คืน {{ localDate(r.s.done_at) }}
                         {{ r.s.done_by }}</span>
@@ -2868,8 +2876,12 @@ textarea{font:inherit}
                               @click="foReopen(r.s)">เอากลับ</button>
                     </template>
                     <template v-else>
-                      <button class="btn primary" style="padding:2px 9px"
-                              @click="askReturn(r.s)">คืนแล้ว…</button>
+                      <!-- คืนแล้วกดทีเดียว (เจ้าของสั่ง 5 พ.ย. 2026) · เว้นว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน -->
+                      <input v-model="foGot[r.s.id]" type="number" step="any" class="mono" style="width:76px"
+                             placeholder="ทั้งหมด" @keyup.enter="foReturn(r.s)">
+                      <button class="btn primary" style="padding:2px 9px;margin-left:4px" :disabled="starting.has('foreturn|' + r.s.id)"
+                              @click="foReturn(r.s)">คืนแล้ว</button>
+                      <a href="#" style="margin-left:6px;font-size:12px" @click.prevent="askReturn(r.s)">รายละเอียด…</a>
                       <button v-if="r.st==='partial'" class="btn" style="padding:2px 8px;margin-left:4px"
                               :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
                       <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fovoid|' + r.s.id)"
@@ -2888,7 +2900,8 @@ textarea{font:inherit}
             แสดง {{ foRows.length }} จาก {{ foAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
           <p class="hint" style="margin:8px 0 0">
             ยอดสามตัวที่แช่แข็งไว้คือค่า ณ วันที่ตั้งเรื่อง — ใบรับเข้าที่คีย์ทีหลังจะไม่ทำให้ยอดของเรื่องนี้ขยับเอง<br>
-            กด <b>คืนแล้ว…</b> แล้วจะมีกล่องให้ยืนยัน เพราะปุ่มนี้<b>ตัดของออกจากคลังจริง</b>
+            กด <b>คืนแล้ว</b> = <b>ตัดของออกจากคลังจริงทันที</b> (เว้นช่องว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน) ·
+            ถ้ายอดจะติดลบหรือใบยังรับไม่ครบตามสูตร จะมีกล่องเตือนก่อน · อยากใส่ล็อต / เหตุผลอื่น กด <b>รายละเอียด…</b>
             และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า<br>
             กด <b>เอากลับ</b> (คืนผิด หรือคืนซ้ำ) = เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ — ยอดคงคลังกลับมา</p>
         </div>
