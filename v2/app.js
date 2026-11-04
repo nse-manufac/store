@@ -36,7 +36,7 @@ import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/ent
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
-         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
@@ -2503,9 +2503,67 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
-    /* ── กล่องคืนของ ────────────────────────────────────────────────
-     * ⚠️ ต้องเป็นกล่อง ไม่ใช่ปุ่มติ๊กเดียวจบ · ปุ่มนี้ตัดสต็อกจริงและพิมพ์ลง Bin Card
-     *    คนกดต้องเห็นยอดหลังคืน เหตุผล และคำเตือนก่อน ไม่ใช่รู้ตอนยอดหายไปแล้ว */
+    /* ── คืนแล้ว กดทีเดียว (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ "มาแล้ว" ของ short) ──
+     * ตรรกะที่ master/follow.js returnOver · ชื่อจากช่อง "ผู้บันทึก" · วันที่จากช่อง "วันที่คืน" (แก้ย้อนหลังได้)
+     * ⚠️ เดิมบังคับเปิดกล่องทุกครั้ง เพราะปุ่มนี้ตัดสต็อกจริง — ตอนนี้คำเตือนเดิมขึ้นเป็นกล่องถามเฉพาะตอนมีปัญหา
+     *    (ยอดติดลบ · ใบยังรับไม่ครบตามสูตร · เทียบไม่ได้) และข้อความหลังคืนบอกยอดคงคลังที่เหลือ
+     *    กล่องเดิมยังอยู่ที่ลิงก์ "รายละเอียด…" สำหรับใส่ล็อต / เหตุผลอื่น / หมายเหตุ */
+    const foGot = reactive({});
+    let foDateOn = todayLocal();
+    const foDate = ref(foDateOn);
+    function foDayNow() {
+      const t = todayLocal();
+      if (foDateOn !== t) { foDate.value = rollDay(foDate.value, foDateOn, t); foDateOn = t; }
+      return foDate.value || t;
+    }
+    watch(tab, k => { if (k === 'fover') foDayNow(); });
+    const foBookOf = code => bookBalances.value.get(normCode(code)) || 0;
+    function foReturnWarn(row, qty) {
+      const opt = { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf };
+      const short = shortOfPo(entries.value, entity.value, row.po, opt);
+      return returnOverWarn({ after: round5(foBookOf(row.code) - (Number(qty) || 0)), short,
+                              shortWhy: short.length ? '' : shortWhyOf(row.po, opt) });
+    }
+    // ลงสมุดก่อน แล้วค่อยปิดเรื่อง — ปิดเรื่องไม่สำเร็จ ของก็ออกจากคลังตามจริงแล้ว
+    async function saveReturn(rec, entry) {
+      await db.put('entries', [entry]); entries.value.push(entry); db.announce('entries');
+      await fsPut(rec);
+    }
+    async function foReturn(row) {
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      const raw = foGot[row.id];
+      const qty = raw === '' || raw == null ? remainOf(row) : Number(raw);
+      try {
+        await startOnce(starting, 'foreturn|' + row.id, async () => {
+          const warn = foReturnWarn(row, qty);
+          if (warn && !confirm(warn + '\n\nคืนต่อไหม')) return;
+          const { rec, entry } = returnOver(plain(row), { qty, person: fsBy.value, device: device.value, at: atFrom(foDayNow()) });
+          await saveReturn(rec, entry);
+          foGot[row.id] = '';
+          flash(`คืน ${row.po} · ${row.code} จำนวน ${entry.qty} ให้ Delta แล้ว · คงคลังเหลือ ${foBookOf(row.code)}`
+                + (statusOf(rec) === 'done' ? '' : ` · เรื่องยังค้าง ${remainOf(rec)}`));
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+    /** การ์ดของเกินที่ระบบคำนวณได้ — ตั้งเรื่องและคืนครบในก้าวเดียว */
+    async function foReturnNew(r) {
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      try {
+        await startOnce(starting, startKey('over', r), async () => {
+          const warn = foReturnWarn(r, r.over);
+          if (warn && !confirm(warn + '\n\nคืนต่อไหม')) return;
+          const day = foDayNow();
+          const made = fromOverRow(r, { entity: entity.value, person: fsBy.value, unit: unitOf(r.code),
+                                        date: day, follows: shorts.value });
+          const { rec, entry } = returnOver(made, { person: fsBy.value, device: device.value, at: atFrom(day) });
+          await saveReturn(rec, entry);
+          flash(`คืน ${r.po} · ${r.code} จำนวน ${entry.qty} ให้ Delta แล้ว · คงคลังเหลือ ${foBookOf(r.code)}`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+
+    /* ── กล่องคืนของ (ลิงก์ "รายละเอียด…") ─────────────────────────────
+     * ใส่ล็อต / เหตุผลอื่น / หมายเหตุ · เห็นยอดหลังคืนและคำเตือนก่อนกด */
     const rb = reactive({ row: null, qty: null, reason: 'over', lot: '',
                           person: '', note: '', date: todayLocal(), busy: false });
 
@@ -2558,7 +2616,8 @@ createApp({
       const row = plain(rb.row);
       const qty = Number(rb.qty);
       try {
-        const e = sendbackEntry(row, {
+        // ตรรกะเดียวกับปุ่มคืนแล้วกดทีเดียว (returnOver) — สองทางต้องได้ผลเหมือนกันเป๊ะ
+        const { rec, entry: e } = returnOver(row, {
           qty, person: rb.person.trim(), device: device.value, at: atFrom(rb.date),
           reason_code: rb.reason, lot: rb.lot, note: rb.note.trim()
         });
@@ -2567,12 +2626,6 @@ createApp({
         await db.put('entries', e);
         entries.value.push(e);
         db.announce('entries');
-        // ปิดเรื่องตามยอดที่คืนจริง แล้วผูกเลขที่รายการในสมุดไว้ให้ไล่ย้อนได้
-        // วันที่ปิดเรื่องตามวันที่คนคีย์ · เวลาซิงค์ยังเป็นเวลาจริงใน closeFollow (D5)
-        const rec = closeFollow(row, { qty, by: rb.person.trim(), doneAt: atFrom(rb.date) });
-        /* ⚠️ ต่อท้าย ไม่ทับของเดิม · คืนบางส่วนหลายรอบแล้วทับ จะไล่ย้อนได้แค่รอบสุดท้าย
-         * เก็บเป็นข้อความเว้นวรรคในช่องเดิม ไม่เพิ่มช่องใหม่ จึงไม่ต้อง redeploy Apps Script */
-        rec.return_entry_id = [String(row.return_entry_id || '').trim(), e.id].filter(Boolean).join(' ');
         await fsPut(rec);
         flash(`คืน ${row.code} จำนวน ${qty} ให้ Delta แล้ว · ตัดสต็อกเรียบร้อย`);
         rb.row = null;
@@ -3584,7 +3637,7 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
+      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
