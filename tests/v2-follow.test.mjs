@@ -2036,6 +2036,15 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
      stoppedShorts([sk, back], { entity: E }).length === 0 && shortPending([calc], [sk, back]).length === 0);
   throws('กลับมาติดตามซ้ำทั้งที่มีเรื่องเปิดอยู่ = โยน', () => restartShort(sk, { by: 'ก', follows: [back] }), 'เปิดอยู่แล้ว');
   throws('เรื่องไม่ระบุจำนวน = บอกให้เพิ่มเอง', () => restartShort({ ...cx, qty: 0 }, { by: 'ก' }), 'เพิ่มเรื่องเอง');
+  // ของมาแล้วบางส่วน (รับเข้าคลังไปแล้ว) แล้วยกเลิก → กลับมาติดตามต้องถือแค่ยอดที่ยังค้าง
+  // ไม่งั้นกด "มาแล้ว" ทั้งใบรอบสองจะรับเข้าคลังซ้ำยอดที่มาแล้ว (ผู้ตรวจ #146 รอบ 2 ข้อ 1)
+  const half = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H203',
+                                        code: '9100000203', qty: 10, by: 'ก', now: at }), { qty: 4, by: 'ก' });
+  const halfBack = restartShort(cancelShort(half, { by: 'ก' }), { by: 'ก', at });
+  ok('กลับมาติดตามเรื่องที่ของมาแล้วบางส่วน = ตั้งยอดเท่าที่ยังค้าง ไม่ใช่ยอดเต็ม (กันรับเข้าคลังเกิน)',
+     halfBack.qty === 6 && remainOf(halfBack) === 6, JSON.stringify({ q: halfBack.qty, remain: remainOf(halfBack) }));
+  throws('เรื่องที่ของมาครบแล้วแต่ยกเลิกไว้ = ไม่มียอดค้าง บอกให้เพิ่มเอง',
+         () => restartShort({ ...cx, qty: 10, done_qty: 10 }, { by: 'ก' }), 'เพิ่มเรื่องเอง');
   throws('ใช้กับเรื่องที่ยกเลิกแบบอื่นไม่ได้', () => restartShort(dupVoided, { by: 'ก' }), 'ยกเลิก / ไม่ติดตาม');
 
   const appS = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');

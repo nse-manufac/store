@@ -776,13 +776,15 @@ export function stoppedShorts(follows, { entity } = {}) {
 export function restartShort(rec, { by = '', date = '', at = '', follows = null } = {}) {
   if (!rec || rec.kind !== 'short' || !stopMarkOf(rec)) throw new Error('ใช้ได้กับเรื่อง short ที่ยกเลิก / ไม่ติดตามไว้เท่านั้น');
   if (!txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน');
-  if (!(Number(rec.qty) > 0)) throw new Error('เรื่องนี้ไม่ได้ระบุจำนวน — เพิ่มเองที่แผง "เพิ่มเรื่องเอง" ด้านล่าง');
+  // ⚠️ ยอดที่ยังค้าง ไม่ใช่ qty เต็มของเรื่องเดิม — makeFollow ตั้ง done_qty เป็น 0 และล้าง receive_entry_id
+  //    ถ้าส่ง qty เต็มไป ยอดที่กด "มาแล้ว" รับเข้าคลังไปแล้วจะถูกนับใหม่ได้อีก = คงคลังเกินจริง (ผู้ตรวจ #146 รอบ 2 ข้อ 1)
+  if (!(remainOf(rec) > 0)) throw new Error('เรื่องนี้ไม่ได้ระบุจำนวน — เพิ่มเองที่แผง "เพิ่มเรื่องเอง" ด้านล่าง');
   if (follows && openPairFor(follows, 'short', rec.entity, rec.po, rec.code)) {
     throw new Error(`PO ${txt(rec.po)} · ${txt(rec.code)} มีเรื่อง short เปิดอยู่แล้ว`);
   }
   return makeFollow({
     kind: 'short', type: txt(rec.type) || 'ขาด', entity: rec.entity, source: txt(rec.source) || 'manual',
-    code: rec.code, po: rec.po, part_no: rec.part_no, unit: rec.unit, qty: rec.qty, eta: rec.eta,
+    code: rec.code, po: rec.po, part_no: rec.part_no, unit: rec.unit, qty: remainOf(rec), eta: rec.eta,
     order_qty: rec.order_qty, bom_qty: rec.bom_qty, recv_qty: rec.recv_qty,
     note: splitNoteTrace(rec.note).base, by, now: at, date
   });
