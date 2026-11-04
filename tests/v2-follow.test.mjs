@@ -1836,6 +1836,8 @@ console.log('\n=== ST4. เตือนก่อนยกเลิกเรื�
   ok('ตรงกัน = ไม่เตือน · คิดไม่ได้ = ไม่เตือน', cancelShortWarn(r, 10) === '' && cancelShortWarn(r, 10.0001) === ''
      && cancelShortWarn(r, null) === '' && cancelShortWarn(r, undefined) === '');
   ok('ใช้ยอดค้าง (มาแล้วบางส่วน) ไม่ใช่ยอดเต็ม', cancelShortWarn(closeFollow(r, { qty: 8, by: 'ก' }), 2) === '');
+  ok('ระบบคิดได้ว่ารับครบ (0) = บอกให้กดมาแล้วปิดเรื่อง ไม่ชวนไปยกเลิก',
+     cancelShortWarn(r, 0).includes('ไม่ต้องยกเลิก') && !cancelShortWarn(r, 0).includes('แล้วค่อยยกเลิก'));
   const appW = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlW = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: เตือนก่อนถามเหตุผล · กันกดซ้ำ · ปุ่มจาง',
