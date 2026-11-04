@@ -749,6 +749,21 @@ export function stopMarkOf(f) {
 }
 const stopReason = (mark, why) => txt(why) ? mark + MARK_SEP + txt(why) : mark;
 
+/**
+ * คำเตือนก่อน "ยกเลิกเรื่อง" — คืน '' ถ้าไม่ต้องเตือน (เจ้าของเลือกแบบ ก 4 พ.ย. 2026 · ผู้ตรวจ #146 รอบ 5)
+ * เพดาน "ไม่ขึ้นอีก" = ยอดที่ค้างในเรื่องตอนกด · ถ้าระบบคิดได้ว่าขาดไม่เท่านั้น (เช่น คีย์รับเข้าที่หน้ารับเข้า
+ * แต่ไม่ได้กด "มาแล้ว") เพดานจะไม่ใช่เลขที่คนกดเห็นว่าขาดจริง — บอกให้กด "มาแล้ว" ก่อน
+ * calc = ยอดขาดที่ระบบคิดได้ (null = คิดไม่ได้ ไม่เตือน)
+ */
+export function cancelShortWarn(row, calc) {
+  if (!row || calc == null || !isFinite(Number(calc))) return '';
+  const remain = remainOf(row), c = round5(Number(calc));
+  if (Math.abs(remain - c) < 5e-4) return '';
+  return `เรื่องนี้ยังค้าง ${remain} แต่ระบบคิดได้ว่าขาดจริง ${c}\n`
+    + `ยกเลิกแล้วจะไม่ขึ้นในการ์ด "ยังรับไม่ครบตาม BOM" อีก จนกว่ายอดขาดจะเกิน ${remain} (ยอดที่ค้างในเรื่อง)`
+    + (c < remain ? `\n\nถ้าของมาแล้วบางส่วน ให้กด "มาแล้ว" ใส่ยอดที่มาก่อน (ค้างจะเหลือ ${c}) แล้วค่อยยกเลิก` : '');
+}
+
 /** ยกเลิกเรื่อง short ที่ตั้งแล้ว — ไม่ลบ (B1) · ต้องมีชื่อคนกด */
 export function cancelShort(row, { by = '', why = '' } = {}) {
   if (!row || row.kind !== 'short') throw new Error('ใช้ได้กับเรื่อง short เท่านั้น');

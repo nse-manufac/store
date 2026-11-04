@@ -8,7 +8,7 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import fs from 'node:fs';
-import { cancelShort, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
+import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -2117,6 +2117,23 @@ console.log('\n=== ST3. หยุดแล้วกลับมาทำต่�
   ok('ไม่มีเรื่องตั้งหลังยกเลิก = เพดานยังอยู่', pend(10, [stop1]) === 0 && pend(4, [sk]) === 0);
   const older = closeFollow({ ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 3, by: 'ก', now: t(1) }), created_at: '2026-10-01T03:00:00.000Z' }, { by: 'ก' });
   ok('เรื่องที่ตั้งก่อนเวลายกเลิก ไม่ทำให้เพดานหมดอายุ', pend(8, [sk, older]) === 0);
+}
+
+console.log('\n=== ST4. เตือนก่อนยกเลิกเรื่อง เมื่อยอดค้างไม่ตรงกับที่ระบบคิดได้ (เจ้าของเลือกแบบ ก) ===');
+{
+  const r = makeFollow({ kind: 'short', type: 'ขาด', entity: 'TUE-H', po: 'TM0001H701', code: '9100000701', qty: 10, by: 'ก' });
+  const w = cancelShortWarn(r, 2);
+  ok('ค้าง 10 · คิดได้ 2 = เตือน บอกเพดาน และบอกให้กด "มาแล้ว" ก่อน',
+     w.includes('ค้าง 10') && w.includes('ขาดจริง 2') && w.includes('เกิน 10') && w.includes('กด "มาแล้ว"'), w);
+  ok('ค้าง 10 · คิดได้ 12 = เตือน แต่ไม่ชวนกดมาแล้ว', cancelShortWarn(r, 12) !== '' && !cancelShortWarn(r, 12).includes('กด "มาแล้ว"'));
+  ok('ตรงกัน = ไม่เตือน · คิดไม่ได้ = ไม่เตือน', cancelShortWarn(r, 10) === '' && cancelShortWarn(r, 10.0001) === ''
+     && cancelShortWarn(r, null) === '' && cancelShortWarn(r, undefined) === '');
+  ok('ใช้ยอดค้าง (มาแล้วบางส่วน) ไม่ใช่ยอดเต็ม', cancelShortWarn(closeFollow(r, { qty: 8, by: 'ก' }), 2) === '');
+  const appW = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlW = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: เตือนก่อนถามเหตุผล · กันกดซ้ำ · ปุ่มจาง',
+     /cancelShortWarn\(row, fsCheck\(row\)\.calc\)[\s\S]{0,120}confirm\(/.test(appW) && /startOnce\(starting, 'fsvoid\|' \+ row\.id/.test(appW)
+     && htmlW.includes(`:disabled="starting.has('fsvoid|' + r.s.id)"`));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

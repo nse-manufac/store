@@ -38,7 +38,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
-         cancelShort, skipShort, stoppedShorts, restartShort, cardShortOver, codeShortOver,
+         cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, linkReceive, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
@@ -2652,11 +2652,17 @@ createApp({
      * ทั้งสองปุ่มไปอยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายแท็บ · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ */
     async function fsVoid(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      // ที่ค้างในเรื่องไม่ตรงกับที่ระบบคิดได้ = เตือนก่อน (เพดาน "ไม่ขึ้นอีก" คือยอดที่ค้าง)
+      const warn = cancelShortWarn(row, fsCheck(row).calc);
+      if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
       const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)', 'ยอดน้อย ไม่ติดตาม');
       if (why === null) return;
       try {
-        await fsPut(cancelShort(plain(row), { by: fsBy.value, why }));
-        flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+        // กันกดซ้ำ — ทางเดียวกับปุ่มอื่นในหน้านี้
+        await startOnce(starting, 'fsvoid|' + row.id, async () => {
+          await fsPut(cancelShort(plain(row), { by: fsBy.value, why }));
+          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+        });
       } catch (err) { flash(err.message, true); }
     }
     async function fsSkip(row) {

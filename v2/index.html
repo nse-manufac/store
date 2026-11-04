@@ -2163,7 +2163,7 @@ textarea{font:inherit}
             · PO+รหัสที่มีเรื่องเปิดอยู่แล้ว (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ ·
             คู่ที่เพิ่งปิดเรื่องไปด้วยยอดเท่ากับยอดขาดตอนนี้ก็ไม่ขึ้น (ยอดต่างจากเดิมจะขึ้นให้ตั้งเรื่องได้) ·
             ถ้าต้องตั้งเรื่องคู่ที่ถูกซ่อน ใช้แผง <b>เพิ่มเรื่องเอง</b> ด้านล่าง · นับทุกยอดที่ขาด แม้ไม่ถึง 1 หน่วย ·
-            กด <b>ไม่ติดตาม</b> = ไม่ขึ้นอีกจนกว่ายอดขาดจะมากกว่าตอนกด
+            กด <b>ไม่ติดตาม</b> = ไม่ขึ้นอีกจนกว่ายอดขาดจะมากกว่ายอดในแถวตอนกด
             <span v-if="fsBlocked.length"> · คิดไม่ได้ {{ fsBlocked.length }} ใบ:
               {{ fsBlocked.slice(0, 3).map(r => r.po + ' (' + r.why + ')').join(' · ') }}{{ fsBlocked.length > 3 ? ' …' : '' }}</span></p>
           <div class="scroll" style="max-height:32vh;margin-top:8px" v-if="fsNew.length">
@@ -2250,7 +2250,8 @@ textarea{font:inherit}
                              @keyup.enter="fsClose(r.s)">
                       <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fsclose|' + r.s.id)"
                               @click="fsClose(r.s)">มาแล้ว</button>
-                      <button class="btn" style="padding:2px 8px;margin-left:4px" @click="fsVoid(r.s)">ยกเลิกเรื่อง</button>
+                      <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fsvoid|' + r.s.id)"
+                              @click="fsVoid(r.s)">ยกเลิกเรื่อง</button>
                     </template>
                   </td>
                 </tr>
@@ -2310,7 +2311,8 @@ textarea{font:inherit}
             <button class="btn" @click="fsStopShow = !fsStopShow">{{ fsStopShow ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
           </div>
           <p class="hint" style="margin:6px 0 0">เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง ·
-            ไม่ขึ้นในการ์ด "ยังรับไม่ครบตาม BOM" จนกว่ายอดขาดจะมากกว่าตอนกด · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
+            ไม่ขึ้นในการ์ด "ยังรับไม่ครบตาม BOM" จนกว่ายอดขาดจะมากกว่า <b>ยอดค้าง</b> ตอนกด (คอลัมน์ข้างล่าง) ·
+            กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="fsStopShow">
             <table>
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
