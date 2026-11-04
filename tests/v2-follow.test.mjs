@@ -2074,5 +2074,26 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
      && /fsStopped = computed\(\(\) => stoppedShorts\(shorts\.value, \{ entity: entity\.value \}\)\)/.test(appS));
 }
 
+console.log('\n=== ST2. คู่เดียวกันหยุดสองรอบ — เพดานใช้รอบล่าสุด (ผู้ตรวจ #146 รอบ 6) ===');
+{
+  const E = 'TUE-H';
+  const t = h => `2026-11-0${h}T03:00:00.000Z`;
+  const r1 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H501', code: '9100000501', qty: 10, by: 'ก', now: t(1) });
+  const stop1 = { ...cancelShort(r1, { by: 'ก' }), void_at: t(2) };                    // รอบ 1: ค้าง 10
+  const r2 = { ...restartShort(stop1, { by: 'ก', at: t(3) }), created_at: t(3) };
+  const got8 = closeFollow(r2, { qty: 8, by: 'ก' });                                     // มาแล้ว 8 → ค้าง 2
+  const stop2 = { ...cancelShort(got8, { by: 'ก' }), void_at: t(4) };                   // รอบ 2: ค้าง 2
+  const all = [stop1, stop2];
+  const pend = short => shortPending([{ po: 'TM0001H501', code: '9100000501', short }], all).length;
+  ok('หยุดสองรอบ (10 แล้ว 2): ขาด 2 = ไม่ขึ้น · ขาด 3 / 6 / 10 = ขึ้น',
+     pend(2) === 0 && pend(3) === 1 && pend(6) === 1 && pend(10) === 1, [2, 3, 6, 10].map(pend).join());
+  ok('ลำดับในรายการไม่มีผล (รอบล่าสุดดูจากเวลายกเลิก)',
+     shortPending([{ po: 'TM0001H501', code: '9100000501', short: 6 }], [stop2, stop1]).length === 1);
+  ok('การ์ดกับตัวกรองใช้รอบเดียวกัน', stoppedShorts(all, { entity: E }).length === 1
+     && remainOf(stoppedShorts(all, { entity: E })[0].s) === 2);
+  ok('หยุดรอบเดียวยังได้ผลเดิม', shortPending([{ po: 'TM0001H501', code: '9100000501', short: 10 }], [stop1]).length === 0
+     && shortPending([{ po: 'TM0001H501', code: '9100000501', short: 10.1 }], [stop1]).length === 1);
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

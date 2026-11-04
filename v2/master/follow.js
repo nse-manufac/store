@@ -697,9 +697,10 @@ export function shortPending(rows, follows) {
         /* ⚠️ เพดานคือ "ยอดที่ยังค้างตอนกด" ไม่ใช่ qty เต็มของเรื่อง — เรื่องที่ของมาแล้วบางส่วน
          *    (qty 10 · done_qty 4) ขาดจริงตอนกดคือ 6 · ถ้าจด 10 แล้วไปยกเลิกรายการรับเข้า 4 ในสมุด
          *    ของขาดโตกลับเป็น 10 ก็ยังไม่ทะลุเพดาน การ์ดจึงไม่กลับมาขึ้น (ผู้ตรวจ #146 รอบ 4 ข้อ 1) */
-        const k = pairKey(f.po, f.code);
-        if (!stopped.has(k)) stopped.set(k, []);
-        stopped.get(k).push(remainOf(f));
+        /* ⚠️ เก็บรอบล่าสุดรอบเดียวต่อคู่ — กฎเดียวกับ stoppedShorts · รอบเก่าถือยอดค้างของตอนนั้น
+         *    ซึ่งยังไม่หักของที่รอบหลังรับเข้าคลังไปแล้ว ใช้เป็นเพดานแล้วการ์ดไม่กลับมาขึ้นทั้งที่ของขาดโต (ผู้ตรวจ #146 รอบ 6) */
+        const k = pairKey(f.po, f.code), cur = stopped.get(k);
+        if (!cur || txt(f.void_at) > txt(cur.void_at)) stopped.set(k, f);
       }
       continue;
     }
@@ -714,8 +715,10 @@ export function shortPending(rows, follows) {
   const sameAsClosed = r => (closed.get(pairKey(r.po, r.code)) || [])
     .some(q => q > 0 && Math.abs(q - (Number(r.short) || 0)) < 5e-4);
   // ยอดขาดเท่าเดิมหรือน้อยกว่าตอนกด = ยังไม่ขึ้น · มากกว่า (ยกเลิกรับเข้า · ส่งคืน · แก้จำนวนสั่ง/BOM) = ขึ้นให้เห็นอีก
-  const stillStopped = r => (stopped.get(pairKey(r.po, r.code)) || [])
-    .some(q => (Number(r.short) || 0) <= q + 5e-4);
+  const stillStopped = r => {
+    const f = stopped.get(pairKey(r.po, r.code));
+    return !!f && (Number(r.short) || 0) <= remainOf(f) + 5e-4;
+  };
   return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !sameAsClosed(r) && !stillStopped(r));
 }
 
