@@ -688,7 +688,7 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN
  *    ยอดต่างจากเรื่องที่ปิด = ขาดเพิ่มจริง ยังขึ้นให้ตั้งเรื่องได้ · เรื่องที่ยกเลิกไม่กัน
  */
 export function shortPending(rows, follows) {
-  const busy = new Set(), closed = new Map(), stopped = new Map();
+  const busy = new Set(), closed = new Map(), stopped = new Map(), liveAt = new Map();
   for (const f of follows || []) {
     if (!f || f.kind !== 'short') continue;
     // ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) — ไม่ขึ้นอีก จนกว่ายอดขาดจะมากกว่าตอนที่ตัดสินใจ
@@ -705,6 +705,9 @@ export function shortPending(rows, follows) {
       continue;
     }
     const st = statusOf(f), k = pairKey(f.po, f.code);
+    // เวลาตั้งเรื่องล่าสุดของคู่นี้ที่ไม่ยกเลิก — ใช้ตัดสินว่าแถวที่หยุดไว้ "หมดอายุ" แล้วหรือยัง
+    const c = txt(f.created_at);
+    if (c > txt(liveAt.get(k) || '')) liveAt.set(k, c);
     if (st === 'open' || st === 'partial') busy.add(k);
     else if (st === 'done') {
       if (!closed.has(k)) closed.set(k, []);
@@ -716,8 +719,12 @@ export function shortPending(rows, follows) {
     .some(q => q > 0 && Math.abs(q - (Number(r.short) || 0)) < 5e-4);
   // ยอดขาดเท่าเดิมหรือน้อยกว่าตอนกด = ยังไม่ขึ้น · มากกว่า (ยกเลิกรับเข้า · ส่งคืน · แก้จำนวนสั่ง/BOM) = ขึ้นให้เห็นอีก
   const stillStopped = r => {
-    const f = stopped.get(pairKey(r.po, r.code));
-    return !!f && (Number(r.short) || 0) <= remainOf(f) + 5e-4;
+    const k = pairKey(r.po, r.code), f = stopped.get(k);
+    if (!f) return false;
+    /* ⚠️ คู่ที่มีเรื่องตั้งหลังเวลายกเลิก = กด "กลับมาติดตาม" (หรือตั้งเรื่องเอง) ไปแล้ว — การตัดสินใจหยุดหมดอายุ
+     *    กฎเดียวกับ stoppedShorts · ไม่งั้นการ์ดซ่อนแถวนั้นแล้วแต่ตัวกรองยังกดทับ ของขาดรอบใหม่หายเงียบ (ผู้ตรวจ #146 รอบ 7) */
+    if (txt(liveAt.get(k) || '') > txt(f.void_at)) return false;
+    return (Number(r.short) || 0) <= remainOf(f) + 5e-4;
   };
   return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !sameAsClosed(r) && !stillStopped(r));
 }

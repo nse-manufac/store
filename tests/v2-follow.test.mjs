@@ -2095,5 +2095,29 @@ console.log('\n=== ST2. คู่เดียวกันหยุดสอง�
      && shortPending([{ po: 'TM0001H501', code: '9100000501', short: 10.1 }], [stop1]).length === 1);
 }
 
+console.log('\n=== ST3. หยุดแล้วกลับมาทำต่อ = เพดานเก่าหมดอายุ (ผู้ตรวจ #146 รอบ 7) ===');
+{
+  const E = 'TUE-H';
+  const t = h => `2026-11-0${h}T03:00:00.000Z`;
+  const P = 'TM0001H601', C = '9100000601';
+  const pend = (short, all) => shortPending([{ po: P, code: C, short }], all).length;
+  // เส้นที่ 1: ยกเลิกตอนค้าง 10 → กลับมาติดตาม → มาครบ → ปิด
+  const r1 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 10, by: 'ก', now: t(1) });
+  const stop1 = { ...cancelShort(r1, { by: 'ก' }), void_at: t(2) };
+  const back = { ...restartShort(stop1, { by: 'ก', at: t(3) }), created_at: t(3) };
+  const closed = closeFollow(back, { by: 'ก' });
+  ok('กลับมาติดตามแล้วปิดเรื่อง → ของขาดใหม่ 5 = ขึ้น · 10 (เท่าเรื่องที่ปิด) = ไม่ขึ้นตามกฎเดิม',
+     pend(5, [stop1, closed]) === 1 && pend(10, [stop1, closed]) === 0);
+  // เส้นที่ 2: ไม่ติดตามตอนขาด 8 → ตั้งเรื่องเอง → ปิด
+  const sk = { ...skipShort({ po: P, code: C, pn: 'PN', short: 8, order: 1, need: 8, have: 0, why: '' },
+                              { entity: E, person: 'ก', at: t(1) }), void_at: t(2) };
+  const own = closeFollow({ ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 8, by: 'ก', now: t(4) }), created_at: t(4) }, { by: 'ก' });
+  ok('ไม่ติดตามแล้วไปตั้งเรื่องเองจนปิด → ของขาดใหม่ 4 = ขึ้น', pend(4, [sk, own]) === 1);
+  // ไม่มีเรื่องตั้งทีหลัง = ผลเดิม
+  ok('ไม่มีเรื่องตั้งหลังยกเลิก = เพดานยังอยู่', pend(10, [stop1]) === 0 && pend(4, [sk]) === 0);
+  const older = closeFollow({ ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 3, by: 'ก', now: t(1) }), created_at: '2026-10-01T03:00:00.000Z' }, { by: 'ก' });
+  ok('เรื่องที่ตั้งก่อนเวลายกเลิก ไม่ทำให้เพดานหมดอายุ', pend(8, [sk, older]) === 0);
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
