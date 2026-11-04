@@ -1127,9 +1127,6 @@ textarea{font:inherit}
             <button class="btn" tabindex="-1" @click="inManual = false">ซ่อนทางคีย์เอง</button>
           </div>
           <p class="hint" style="margin:9px 0 0" v-if="bomHint">{{ bomHint }}</p>
-          <p style="margin:8px 0 0" v-if="buyWaits.length">
-            <button class="btn" @click="cancelBuyWaits">ไม่รับของแล้ว — เลิกรอผูกเรื่องซื้อทดแทน</button>
-            <span class="hint" style="margin-left:8px">รอผูกอยู่ {{ buyWaits.length }} เรื่อง</span></p>
         </div>
 
         <!-- ของมาไม่ครบ — สลับทั้งใบ · โผล่เฉพาะตอนกางจากไฟล์ เพราะทางคีย์เองมีใบเดียวอยู่แล้ว -->
