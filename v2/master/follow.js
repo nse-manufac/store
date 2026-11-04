@@ -694,9 +694,12 @@ export function shortPending(rows, follows) {
     // ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) — ไม่ขึ้นอีก จนกว่ายอดขาดจะมากกว่าตอนที่ตัดสินใจ
     if (f.voided) {
       if (stopMarkOf(f)) {
+        /* ⚠️ เพดานคือ "ยอดที่ยังค้างตอนกด" ไม่ใช่ qty เต็มของเรื่อง — เรื่องที่ของมาแล้วบางส่วน
+         *    (qty 10 · done_qty 4) ขาดจริงตอนกดคือ 6 · ถ้าจด 10 แล้วไปยกเลิกรายการรับเข้า 4 ในสมุด
+         *    ของขาดโตกลับเป็น 10 ก็ยังไม่ทะลุเพดาน การ์ดจึงไม่กลับมาขึ้น (ผู้ตรวจ #146 รอบ 4 ข้อ 1) */
         const k = pairKey(f.po, f.code);
         if (!stopped.has(k)) stopped.set(k, []);
-        stopped.get(k).push(round5(Number(f.qty) || 0));
+        stopped.get(k).push(remainOf(f));
       }
       continue;
     }
