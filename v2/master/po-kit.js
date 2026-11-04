@@ -780,6 +780,30 @@ export function poHeader(poList, po) {
                  date: String(hit.date || '') } : null;
 }
 
+/**
+ * poHeader แบบทำดัชนีครั้งเดียว — คืนฟังก์ชัน (po) => หัวใบ ผลเท่ากับ poHeader(poList, po) ทุกกรณี
+ * ใช้ตอนต้องถามหลายพันครั้งต่อรอบ (ของเกิน · ของขาด · Short / Over บนการ์ด)
+ * ⚠️ poHeader กรองแล้วเรียงทั้งรายการทุกครั้งที่ถาม — หน้า over ถามทุกคู่ PO+รหัส จนค้างหลายวินาที
+ *    (วัด 4 พ.ย. 2026 ข้อมูลสมมติ 1,500 PO: 1.7 วินาทีต่อรอบ → 0.02 วินาที)
+ * กติกาเดียวกัน: เลขใบซ้ำ = เอาใบวันที่ล่าสุด · วันเท่ากัน = ใบที่อยู่หลังสุดในรายการ (เรียงแบบ stable แล้ว pop)
+ */
+export function poHeaderIndex(poList) {
+  const byPo = new Map();
+  const list = (poList || []).filter(Boolean)
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => String(a.p.date || '').localeCompare(String(b.p.date || '')) || a.i - b.i);
+  for (const { p } of list) {
+    const key = String(p.po == null ? '' : p.po).trim();
+    if (key) byPo.set(key, p);
+  }
+  return po => {
+    const key = String(po == null ? '' : po).trim();
+    const hit = key ? byPo.get(key) : null;
+    return hit ? { pn: String(hit.pn || ''), order: Number(hit.qty) || null,
+                   date: String(hit.date || '') } : null;
+  };
+}
+
 /** แผนการนำเข้า — บอกก่อนกดว่าอะไรใหม่ อะไรซ้ำ อะไรยังไม่รู้จัก */
 export function importPlan(rows, { existing = [], materials = [], poList = [] } = {}) {
   const have = new Set(existing.map(x => String(x.id)));

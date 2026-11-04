@@ -11,7 +11,7 @@ import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf, manualBomPlan,
-         bomId, activeBomRowsOf, reqmtOf } from './master/bom.js';
+         bomId, activeBomRowsOf, bomIndex, reqmtOf } from './master/bom.js';
 import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
          parseCountSheet, matchCountRows, missingFromFile } from './core/count.js';
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
@@ -25,7 +25,7 @@ import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl, syncBadge } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust, NOTICE_ID, noticeDue, noticeCanClose, atScrollEnd } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, poHeaderIndex, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -36,7 +36,7 @@ import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/ent
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
-         overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
@@ -1720,7 +1720,7 @@ createApp({
     // Short / Over สะสมราย PO ถัดจากคงเหลือ (เจ้าของสั่ง 28 ก.ย. 2026) · ตรรกะอยู่ที่ master/follow.js
     // คิดบนแถวที่เรียงเก่าไปใหม่ก่อน แล้วค่อยกลับด้านไว้ดูบนจอ — กลับก่อนคิด ยอดสะสมจะนับถอยหลัง
     const withSO = rows => {
-      const so = cardShortOver(rows, { headerOf: po => poHeader(pos.value, po), usageOf: bomUsageOf });
+      const so = cardShortOver(rows, { headerOf: poIdx.value, usageOf: bomUsageOf });
       return rows.map((r, i) => ({ ...r, short: so[i].short, over: so[i].over }));
     };
     const card = computed(() => (cardCode.value && entity.value)
@@ -2404,11 +2404,11 @@ createApp({
     /** ยอดต่อชิ้นจากสูตร — ⚠️ ต้องคืน "ตัวเลข" ไม่ใช่อ็อบเจกต์ทั้งแถว
      *  ส่ง byPn() ของ bom.js เข้าไปแล้วจะคูณได้ NaN เงียบ ๆ
      *  (กับดักเดิมของตัวคิดยอดเกินรุ่นแรก ซึ่งลบทิ้งไปแล้วในใบ 8) */
-    const bomUsageOf = (pn, code) => {
-      const hit = activeBomRowsOf(bom.value, pn)
-        .find(r => normCode(r.code) === normCode(code));
-      return hit ? Number(hit.usage) || 0 : null;
-    };
+    /* ดัชนี PO / สูตร ทำครั้งเดียวต่อการเปลี่ยนข้อมูล (เจ้าของแจ้ง 4 พ.ย. 2026 หน้า over โหลดนาน)
+     * เดิมถาม poHeader / activeBomRowsOf ทีละคู่ PO+รหัส — กรองและเรียงทั้งตารางทุกครั้ง · ผลเท่าเดิมทุกแถว (มีเทสคุม) */
+    const poIdx = computed(() => poHeaderIndex(pos.value));
+    const bomIdx = computed(() => bomIndex(bom.value));
+    const bomUsageOf = (pn, code) => bomIdx.value.usageOf(pn, code);
 
     /* ── ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ── ตรรกะอยู่ที่ master/follow.js shortAll
      * คิดครั้งเดียวแบบ all: true (ทุกรหัสในสูตรของ PO ที่รับแล้ว) แล้วแบ่งใช้สองทาง:
@@ -2417,8 +2417,8 @@ createApp({
     const fsCalc = computed(() => {
       if (!entity.value) return [];
       try {
-        return shortAll(entries.value, entity.value, { headerOf: po => poHeader(pos.value, po),
-                        bomRowsOf: pn => activeBomRowsOf(bom.value, pn), all: true });
+        return shortAll(entries.value, entity.value, { headerOf: poIdx.value,
+                        bomRowsOf: bomIdx.value.rowsOf, all: true });
       } catch (err) { console.error(err); return []; }
     });
     const fsNew = computed(() =>
@@ -2447,13 +2447,15 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
-    const foCalc = computed(() => {
+    /* คิดของเกินรอบเดียวแบบไม่มีเพดาน แล้วแบ่งใช้สองที่ — เดิมคิดสองรอบ (การ์ดของเกิน · ใบตัดยอด) */
+    const foCalc0 = computed(() => {
       if (!entity.value) return [];
       try {
-        return overAll(entries.value, entity.value,
-                       { headerOf: po => poHeader(pos.value, po), usageOf: bomUsageOf });
+        return overAll(entries.value, entity.value, { headerOf: poIdx.value, usageOf: bomUsageOf, min: 0 });
       } catch (err) { console.error(err); return []; }
     });
+    // = overAll เพดานเดิม (OVER_MIN): แถวที่คิดไม่ได้ขึ้นเสมอ · ที่คิดได้ขึ้นเมื่อเกินถึงเพดาน
+    const foCalc = computed(() => foCalc0.value.filter(r => r.why || r.over >= OVER_MIN));
     /** ที่ยังไม่มีใครตั้งเรื่อง — ตัดคู่ที่ตั้งไว้แล้วออก ไม่งั้นขึ้นซ้ำสองการ์ด */
     const foNew = computed(() =>
       overPending(foCalc.value.filter(r => !r.why), shorts.value));
@@ -2478,15 +2480,7 @@ createApp({
      * ⚠️ ห้ามแก้ foCalc/foNew ให้ไม่มีเพดานตาม · การ์ด "ของเกินที่ระบบคำนวณได้" ข้างล่าง
      *    บอกผู้ใช้ไว้ว่ายอดต่ำกว่า 1 หน่วยไม่นับว่าเกิน
      */
-    const ocPending = computed(() => {
-      if (!entity.value) return [];
-      try {
-        const all = overAll(entries.value, entity.value,
-                            { headerOf: po => poHeader(pos.value, po),
-                              usageOf: bomUsageOf, min: 0 });
-        return overPending(all.filter(r => !r.why), shorts.value);
-      } catch (err) { console.error(err); return []; }
-    });
+    const ocPending = computed(() => overPending(foCalc0.value.filter(r => !r.why), shorts.value));
     const ocMatch = computed(() => overCutMatch(ocCuts.value, {
       pending: ocPending.value, follows: shorts.value, entity: entity.value,
       date: ocDate.value, known: entCodes.value }));
