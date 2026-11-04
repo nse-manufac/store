@@ -2027,6 +2027,18 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   ok('การ์ดรวมทั้งสองปุ่ม · เฉพาะนิติบุคคลนี้ (A3) · ไม่รวมยกเลิกแบบอื่น',
      list.length === 2 && list.every(x => x.s.entity === E) && list.map(x => x.mark).sort().join() === 'cancel,skip', JSON.stringify(list.map(x => x.mark)));
   ok('ไม่บอกนิติบุคคล = ว่าง', stoppedShorts([sk], {}).length === 0);
+  // หยุด → กลับมา → หยุดอีก = การ์ดต้องเหลือรอบล่าสุดรอบเดียว ไม่งั้นกดรอบเก่าแล้วยอดที่รอบหลังรับเข้าคลัง
+  // ไปแล้วถูกนับใหม่ = คงคลังเกินจริง (ผู้ตรวจ #146 รอบ 3 ข้อ 1)
+  const c1 = { ...cancelShort(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H204',
+               code: '9100000204', qty: 10, by: 'ก', now: at }), { by: 'ก' }),
+               done_qty: 4, void_at: '2026-11-04T01:00:00.000Z' };
+  const c2 = { ...c1, id: 'ST-2', qty: 6, done_qty: 1, void_at: '2026-11-04T05:00:00.000Z' };
+  const card = stoppedShorts([c1, c2], { entity: E });
+  ok('คู่เดียวกันหยุดไว้สองรอบ = การ์ดเหลือรอบล่าสุดรอบเดียว (กันกดรอบเก่าแล้วรับเข้าคลังเกิน)',
+     card.length === 1 && card[0].s.id === 'ST-2' && restartShort(card[0].s, { by: 'ก' }).qty === 5,
+     JSON.stringify(card.map(x => x.s.id)));
+  ok('คู่ต่างกันที่หยุดไว้ยังขึ้นครบทุกคู่ (ไม่ถูกยุบรวม)',
+     stoppedShorts([c1, c2, sk, cx], { entity: E }).length === 3);
 
   // กลับมาติดตาม
   const back = restartShort(sk, { by: 'หัวหน้า', date: '2026-11-05', at: '2026-11-05T03:00:00.000Z' });

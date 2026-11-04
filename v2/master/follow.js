@@ -760,14 +760,24 @@ export function skipShort(calcRow, { entity, person = '', unit = '', date = '', 
 /**
  * การ์ด "ยกเลิก / ไม่ติดตามแล้ว" — เรื่อง short ที่หยุดด้วยสองปุ่มนี้ ของนิติบุคคลนี้ ใหม่สุดก่อน
  * คืน [{ s, mark }] · ซ่อนคู่ที่กด "กลับมาติดตาม" แล้ว (มีเรื่อง short ที่ไม่ยกเลิกของคู่นั้น ตั้งหลังเวลายกเลิก)
+ * คู่ PO+รหัสละแถวเดียว = รอบที่หยุดไว้ล่าสุด (รอบเก่ายังอยู่ในฐานข้อมูลเป็นประวัติ ไม่ได้ลบ · B1)
  */
 export function stoppedShorts(follows, { entity } = {}) {
   if (!txt(entity)) return [];
   const live = (follows || []).filter(f => f && f.kind === 'short' && !f.voided && f.entity === entity);
-  return (follows || [])
+  const rows = (follows || [])
     .filter(f => f && f.kind === 'short' && f.entity === entity && stopMarkOf(f))
     .filter(f => !live.some(l => pairKey(l.po, l.code) === pairKey(f.po, f.code)
-                                 && txt(l.created_at) > txt(f.void_at)))
+                                 && txt(l.created_at) > txt(f.void_at)));
+  /* ⚠️ คู่เดียวกันหยุดไว้หลายรอบ (หยุด → กลับมา → หยุดอีก) = เก็บรอบล่าสุดรอบเดียว
+   *    รอบเก่าถือยอดค้าง "ของตอนนั้น" ซึ่งยังไม่หักของที่รอบหลังกด "มาแล้ว" รับเข้าคลังไปแล้ว
+   *    กด "กลับมาติดตาม" ที่รอบเก่าแล้วยอดนั้นถูกนับใหม่ = คงคลังเกินจริง (ผู้ตรวจ #146 รอบ 3 ข้อ 1) */
+  const newest = new Map();
+  for (const f of rows) {
+    const k = pairKey(f.po, f.code), cur = newest.get(k);
+    if (!cur || txt(f.void_at) > txt(cur.void_at)) newest.set(k, f);
+  }
+  return [...newest.values()]
     .sort((a, b) => txt(b.void_at).localeCompare(txt(a.void_at)))
     .map(s => ({ s, mark: stopMarkOf(s) }));
 }
