@@ -688,10 +688,26 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN
  *    ยอดต่างจากเรื่องที่ปิด = ขาดเพิ่มจริง ยังขึ้นให้ตั้งเรื่องได้ · เรื่องที่ยกเลิกไม่กัน
  */
 export function shortPending(rows, follows) {
-  const busy = new Set(), closed = new Map();
+  const busy = new Set(), closed = new Map(), stopped = new Map(), liveAt = new Map();
   for (const f of follows || []) {
     if (!f || f.kind !== 'short') continue;
+    // ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) — ไม่ขึ้นอีก จนกว่ายอดขาดจะมากกว่าตอนที่ตัดสินใจ
+    if (f.voided) {
+      if (stopMarkOf(f)) {
+        /* ⚠️ เพดานคือ "ยอดที่ยังค้างตอนกด" ไม่ใช่ qty เต็มของเรื่อง — เรื่องที่ของมาแล้วบางส่วน
+         *    (qty 10 · done_qty 4) ขาดจริงตอนกดคือ 6 · ถ้าจด 10 แล้วไปยกเลิกรายการรับเข้า 4 ในสมุด
+         *    ของขาดโตกลับเป็น 10 ก็ยังไม่ทะลุเพดาน การ์ดจึงไม่กลับมาขึ้น (ผู้ตรวจ #146 รอบ 4 ข้อ 1) */
+        /* ⚠️ เก็บรอบล่าสุดรอบเดียวต่อคู่ — กฎเดียวกับ stoppedShorts · รอบเก่าถือยอดค้างของตอนนั้น
+         *    ซึ่งยังไม่หักของที่รอบหลังรับเข้าคลังไปแล้ว ใช้เป็นเพดานแล้วการ์ดไม่กลับมาขึ้นทั้งที่ของขาดโต (ผู้ตรวจ #146 รอบ 6) */
+        const k = pairKey(f.po, f.code), cur = stopped.get(k);
+        if (!cur || txt(f.void_at) > txt(cur.void_at)) stopped.set(k, f);
+      }
+      continue;
+    }
     const st = statusOf(f), k = pairKey(f.po, f.code);
+    // เวลาตั้งเรื่องล่าสุดของคู่นี้ที่ไม่ยกเลิก — ใช้ตัดสินว่าแถวที่หยุดไว้ "หมดอายุ" แล้วหรือยัง
+    const c = txt(f.created_at);
+    if (c > txt(liveAt.get(k) || '')) liveAt.set(k, c);
     if (st === 'open' || st === 'partial') busy.add(k);
     else if (st === 'done') {
       if (!closed.has(k)) closed.set(k, []);
@@ -701,7 +717,116 @@ export function shortPending(rows, follows) {
   // เกณฑ์ "ยอดเท่ากัน" เดียวกับ shortChecker — ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม
   const sameAsClosed = r => (closed.get(pairKey(r.po, r.code)) || [])
     .some(q => q > 0 && Math.abs(q - (Number(r.short) || 0)) < 5e-4);
-  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !sameAsClosed(r));
+  // ยอดขาดเท่าเดิมหรือน้อยกว่าตอนกด = ยังไม่ขึ้น · มากกว่า (ยกเลิกรับเข้า · ส่งคืน · แก้จำนวนสั่ง/BOM) = ขึ้นให้เห็นอีก
+  const stillStopped = r => {
+    const k = pairKey(r.po, r.code), f = stopped.get(k);
+    if (!f) return false;
+    /* ⚠️ คู่ที่มีเรื่องตั้งหลังเวลายกเลิก = กด "กลับมาติดตาม" (หรือตั้งเรื่องเอง) ไปแล้ว — การตัดสินใจหยุดหมดอายุ
+     *    กฎเดียวกับ stoppedShorts · ไม่งั้นการ์ดซ่อนแถวนั้นแล้วแต่ตัวกรองยังกดทับ ของขาดรอบใหม่หายเงียบ (ผู้ตรวจ #146 รอบ 7) */
+    if (txt(liveAt.get(k) || '') > txt(f.void_at)) return false;
+    return (Number(r.short) || 0) <= remainOf(f) + 5e-4;
+  };
+  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !sameAsClosed(r) && !stillStopped(r));
+}
+
+/* ══════════ short: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) ══════════
+ * ของบางตัวขาดนิดเดียว ไม่คุ้มตาม — ปุ่ม "ยกเลิกเรื่อง" ที่เรื่องที่ตั้งแล้ว · ปุ่ม "ไม่ติดตาม" ที่การ์ด "ยังรับไม่ครบตาม BOM"
+ * ทั้งสองเก็บเป็นเรื่อง short ที่ยกเลิกไว้ (voided) — ใช้ช่องที่มีอยู่ ไม่ต้องแก้ชีต / Apps Script
+ * เหตุผลขึ้นต้นด้วยคำคงที่ไว้แยกว่ามาจากปุ่มไหน · ยกเลิกแบบอื่น (เช่น เรื่องซ้ำ) ไม่นับ
+ * เจ้าของเคาะ: อยู่การ์ดเดียวกัน "ยกเลิก / ไม่ติดตามแล้ว" · ยอดขาดเพิ่มขึ้น = กลับมาขึ้น
+ *             นำเข้าไฟล์ Delta ซ้ำ = ไม่สร้างใหม่ ถ้ายอดในไฟล์เท่าตอนยกเลิก (matfollow.js)
+ */
+export const CANCEL_MARK = 'ยกเลิกเรื่อง';
+export const SKIP_MARK = 'ไม่ติดตาม';
+const MARK_SEP = ' — ';
+/** 'cancel' | 'skip' | '' — เรื่องนี้ถูกหยุดตามด้วยปุ่มไหน */
+export function stopMarkOf(f) {
+  if (!f || !f.voided) return '';
+  const s = txt(f.void_reason);
+  if (s === CANCEL_MARK || s.startsWith(CANCEL_MARK + MARK_SEP)) return 'cancel';
+  if (s === SKIP_MARK || s.startsWith(SKIP_MARK + MARK_SEP)) return 'skip';
+  return '';
+}
+const stopReason = (mark, why) => txt(why) ? mark + MARK_SEP + txt(why) : mark;
+
+/**
+ * คำเตือนก่อน "ยกเลิกเรื่อง" — คืน '' ถ้าไม่ต้องเตือน (เจ้าของเลือกแบบ ก 4 พ.ย. 2026 · ผู้ตรวจ #146 รอบ 5)
+ * เพดาน "ไม่ขึ้นอีก" = ยอดที่ค้างในเรื่องตอนกด · ถ้าระบบคิดได้ว่าขาดไม่เท่านั้น (เช่น คีย์รับเข้าที่หน้ารับเข้า
+ * แต่ไม่ได้กด "มาแล้ว") เพดานจะไม่ใช่เลขที่คนกดเห็นว่าขาดจริง — บอกให้กด "มาแล้ว" ก่อน
+ * calc = ยอดขาดที่ระบบคิดได้ (null = คิดไม่ได้ ไม่เตือน)
+ */
+export function cancelShortWarn(row, calc) {
+  if (!row || calc == null || !isFinite(Number(calc))) return '';
+  const remain = remainOf(row), c = round5(Number(calc));
+  if (Math.abs(remain - c) < 5e-4) return '';
+  return `เรื่องนี้ยังค้าง ${remain} แต่ระบบคิดได้ว่าขาดจริง ${c}\n`
+    + `ยกเลิกแล้วจะไม่ขึ้นในการ์ด "ยังรับไม่ครบตาม BOM" อีก จนกว่ายอดขาดจะเกิน ${remain} (ยอดที่ค้างในเรื่อง)`
+    + (c <= 0 ? `\n\nระบบคิดได้ว่ารับครบแล้ว — กด "มาแล้ว" ปิดเรื่องได้เลย ไม่ต้องยกเลิก`
+      : c < remain ? `\n\nถ้าของมาแล้วบางส่วน ให้กด "มาแล้ว" ใส่ยอดที่มาก่อน (ค้างจะเหลือ ${c}) แล้วค่อยยกเลิก` : '');
+}
+
+/** ยกเลิกเรื่อง short ที่ตั้งแล้ว — ไม่ลบ (B1) · ต้องมีชื่อคนกด */
+export function cancelShort(row, { by = '', why = '' } = {}) {
+  if (!row || row.kind !== 'short') throw new Error('ใช้ได้กับเรื่อง short เท่านั้น');
+  if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
+  if (statusOf(row) === 'done') throw new Error('เรื่องนี้ปิดไปแล้ว — ไม่ต้องยกเลิก');
+  /* ⚠️ แถวที่ยังไม่มี entity ขึ้นในตาราง short ของทุกนิติบุคคล (ดู sameEntity) ยกเลิกแล้วจะหายจากทุกจอ
+   *    แต่ยังกดทับการ์ด "ยังรับไม่ครบตาม BOM" อยู่ (pairKey ไม่มี entity) และการ์ด "ยกเลิก / ไม่ติดตามแล้ว"
+   *    ซึ่งกรองตาม entity ตรง ๆ (A3) จะไม่แสดงให้ กดกลับมาติดตามไม่ได้ → กันที่ทางเข้า (ผู้ตรวจ #146 รอบ 1 ข้อ 1) */
+  if (!txt(row.entity)) throw new Error('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — เลือกนิติบุคคลที่หัวจอ '
+    + 'แล้วกดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ที่หัวแท็บก่อน แล้วค่อยยกเลิก (INVARIANTS A3)');
+  if (!txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิก');
+  return voidFollow(row, { by, reason: stopReason(CANCEL_MARK, why) });
+}
+
+/** ไม่ติดตามแถวที่ระบบคิดได้ (ยังไม่มีเรื่อง) — ตั้งเรื่องแล้วยกเลิกทันที เก็บยอดขาด ณ ตอนกดไว้เทียบ */
+export function skipShort(calcRow, { entity, person = '', unit = '', date = '', at = '', why = '', follows = null } = {}) {
+  if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครตัดสินใจไม่ติดตาม');
+  const rec = fromShortRow(calcRow, { entity, person, unit, date, at, follows });
+  return voidFollow(rec, { by: person, reason: stopReason(SKIP_MARK, why) });
+}
+
+/**
+ * การ์ด "ยกเลิก / ไม่ติดตามแล้ว" — เรื่อง short ที่หยุดด้วยสองปุ่มนี้ ของนิติบุคคลนี้ ใหม่สุดก่อน
+ * คืน [{ s, mark }] · ซ่อนคู่ที่กด "กลับมาติดตาม" แล้ว (มีเรื่อง short ที่ไม่ยกเลิกของคู่นั้น ตั้งหลังเวลายกเลิก)
+ * คู่ PO+รหัสละแถวเดียว = รอบที่หยุดไว้ล่าสุด (รอบเก่ายังอยู่ในฐานข้อมูลเป็นประวัติ ไม่ได้ลบ · B1)
+ */
+export function stoppedShorts(follows, { entity } = {}) {
+  if (!txt(entity)) return [];
+  const live = (follows || []).filter(f => f && f.kind === 'short' && !f.voided && f.entity === entity);
+  const rows = (follows || [])
+    .filter(f => f && f.kind === 'short' && f.entity === entity && stopMarkOf(f))
+    .filter(f => !live.some(l => pairKey(l.po, l.code) === pairKey(f.po, f.code)
+                                 && txt(l.created_at) > txt(f.void_at)));
+  /* ⚠️ คู่เดียวกันหยุดไว้หลายรอบ (หยุด → กลับมา → หยุดอีก) = เก็บรอบล่าสุดรอบเดียว
+   *    รอบเก่าถือยอดค้าง "ของตอนนั้น" ซึ่งยังไม่หักของที่รอบหลังกด "มาแล้ว" รับเข้าคลังไปแล้ว
+   *    กด "กลับมาติดตาม" ที่รอบเก่าแล้วยอดนั้นถูกนับใหม่ = คงคลังเกินจริง (ผู้ตรวจ #146 รอบ 3 ข้อ 1) */
+  const newest = new Map();
+  for (const f of rows) {
+    const k = pairKey(f.po, f.code), cur = newest.get(k);
+    if (!cur || txt(f.void_at) > txt(cur.void_at)) newest.set(k, f);
+  }
+  return [...newest.values()]
+    .sort((a, b) => txt(b.void_at).localeCompare(txt(a.void_at)))
+    .map(s => ({ s, mark: stopMarkOf(s) }));
+}
+
+/** กลับมาติดตาม — ตั้งเรื่อง short ใหม่จากเรื่องที่หยุดไว้ (ของเดิมยังยกเลิกอยู่ เป็นประวัติ) */
+export function restartShort(rec, { by = '', date = '', at = '', follows = null } = {}) {
+  if (!rec || rec.kind !== 'short' || !stopMarkOf(rec)) throw new Error('ใช้ได้กับเรื่อง short ที่ยกเลิก / ไม่ติดตามไว้เท่านั้น');
+  if (!txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน');
+  // ⚠️ ยอดที่ยังค้าง ไม่ใช่ qty เต็มของเรื่องเดิม — makeFollow ตั้ง done_qty เป็น 0 และล้าง receive_entry_id
+  //    ถ้าส่ง qty เต็มไป ยอดที่กด "มาแล้ว" รับเข้าคลังไปแล้วจะถูกนับใหม่ได้อีก = คงคลังเกินจริง (ผู้ตรวจ #146 รอบ 2 ข้อ 1)
+  if (!(remainOf(rec) > 0)) throw new Error('เรื่องนี้ไม่ได้ระบุจำนวน — เพิ่มเองที่แผง "เพิ่มเรื่องเอง" ด้านล่าง');
+  if (follows && openPairFor(follows, 'short', rec.entity, rec.po, rec.code)) {
+    throw new Error(`PO ${txt(rec.po)} · ${txt(rec.code)} มีเรื่อง short เปิดอยู่แล้ว`);
+  }
+  return makeFollow({
+    kind: 'short', type: txt(rec.type) || 'ขาด', entity: rec.entity, source: txt(rec.source) || 'manual',
+    code: rec.code, po: rec.po, part_no: rec.part_no, unit: rec.unit, qty: remainOf(rec), eta: rec.eta,
+    order_qty: rec.order_qty, bom_qty: rec.bom_qty, recv_qty: rec.recv_qty,
+    note: splitNoteTrace(rec.note).base, by, now: at, date
+  });
 }
 
 /**

@@ -37,7 +37,8 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
-         shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN, cardShortOver, codeShortOver,
+         shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
+         cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
@@ -2627,6 +2628,51 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ── short: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) ── ตรรกะที่ master/follow.js
+     * ทั้งสองปุ่มไปอยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายแท็บ · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ */
+    async function fsVoid(row) {
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      // ด่านนิติบุคคลก่อนถามอะไร — ไม่ให้คนตอบสองกล่องฟรีแล้วค่อยรู้ว่ายกเลิกไม่ได้ (ผู้ตรวจ #146 รอบ 9)
+      if (!String(row.entity || '').trim()) { flash('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — กดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ก่อน', true); return; }
+      // ที่ค้างในเรื่องไม่ตรงกับที่ระบบคิดได้ = เตือนก่อน (เพดาน "ไม่ขึ้นอีก" คือยอดที่ค้าง)
+      const warn = cancelShortWarn(row, fsCheck(row).calc);
+      if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
+      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)', 'ยอดน้อย ไม่ติดตาม');
+      if (why === null) return;
+      try {
+        // กันกดซ้ำ — ทางเดียวกับปุ่มอื่นในหน้านี้
+        await startOnce(starting, 'fsvoid|' + row.id, async () => {
+          await fsPut(cancelShort(plain(row), { by: fsBy.value, why }));
+          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+    async function fsSkip(row) {
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      const why = prompt(`ไม่ติดตาม ${row.po} · ${row.code} (ขาด ${row.short}) เพราะอะไร`, 'ยอดน้อย');
+      if (why === null) return;
+      try {
+        await startOnce(starting, startKey('short', row), async () => {
+          await fsPut(skipShort(row, { entity: entity.value, person: fsBy.value, unit: unitOf(row.code),
+                                       date: todayLocal(), why, follows: shorts.value }));
+          flash(`ไม่ติดตาม ${row.po} · ${row.code} แล้ว — ถ้ายอดขาดเพิ่มขึ้นจะกลับมาขึ้นอีก`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+    const fsStopped = computed(() => stoppedShorts(shorts.value, { entity: entity.value }));
+    const fsStopShow = ref(false);
+    async function fsRestart(row) {
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่อง short ใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
+      try {
+        await startOnce(starting, 'fsrestart|' + row.id, async () => {
+          const rec = restartShort(plain(row), { by: fsBy.value, date: todayLocal(), follows: shorts.value });
+          await fsPut(rec);
+          flash(`ตั้งเรื่อง ${rec.po} · ${rec.code} ใหม่แล้ว`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+
     /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) */
     async function foVoid(row) {
       const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
@@ -3538,7 +3584,7 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
+      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
