@@ -1377,33 +1377,6 @@ export function buyFromBom({ entity, po = '', part_no = '', picks = [], note = '
 }
 
 /**
- * ของที่ซื้อทดแทนมาถึงแล้ว — ผูกเลขที่รายการรับเข้าไว้ แล้วปิดเรื่องตามจำนวนที่รับจริง
- *
- * ⚠️ รับมามากกว่าที่ตั้งเรื่องไว้ไม่ใช่ความผิดพลาด (Delta ส่งเผื่อ) · ปิดได้แค่ยอดที่ค้าง
- *    ไม่งั้น closeFollow จะโยนทิ้งทั้งที่ของมาถึงจริง แล้วเรื่องจะค้างอยู่ตลอดไป
- * ⚠️ ต่อท้ายเลขที่รายการ ไม่ทับของเดิม · ของทยอยมาหลายรอบได้ (กฎเดียวกับ return_entry_id ของใบ 6)
- */
-export function linkReceive(row, { entryId, qty, by = '', at = '', doneAt = '' } = {}) {
-  if (!row) throw new Error('ไม่มีเรื่องให้ผูกของที่รับมา');
-  if (row.kind !== 'buy') throw new Error('ผูกของที่รับมาได้เฉพาะเรื่องซื้อทดแทน');
-  if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
-  const id = txt(entryId);
-  if (!id) throw new Error('ต้องบอกเลขที่รายการรับเข้า');
-  /* ⚠️ ผูกใบเดิมซ้ำ = ปิดยอดซ้ำสองรอบจากของกองเดียว · ยอดที่ค้างจะหายไปทั้งที่ของยังไม่มา */
-  if (String(row.receive_entry_id || '').split(/\s+/).includes(id)) {
-    throw new Error('ผูกกับใบรับเข้าใบนี้ไปแล้ว');
-  }
-  const remain = remainOf(row);
-  if (remain <= 0) throw new Error('เรื่องนี้ปิดไปแล้ว');
-  const got = Number(qty);
-  if (!isFinite(got) || got <= 0) throw new Error('จำนวนที่รับต้องมากกว่าศูนย์');
-
-  const rec = closeFollow(row, { qty: Math.min(round5(got), remain), by, at, doneAt });
-  rec.receive_entry_id = [txt(row.receive_entry_id), id].filter(Boolean).join(' ');
-  return rec;
-}
-
-/**
  * ของที่สั่งซื้อทดแทนมาแล้ว — ปิดเรื่องอย่างเดียว ไม่รับเข้าคลัง (เจ้าของสั่ง 11 ต.ค. 2026)
  * ของสั่งมาพอดีกับที่จะใช้ จึงไม่ต้องผ่านสมุด · เรื่องซื้อเป็นแค่ตัวเตือนให้ตามของที่ยังไม่มา
  * qty ว่าง = มาครบทั้งที่ค้าง · ใส่ยอด = มาบางส่วน เหลือค้างตามส่วนต่าง (closeFollow ตัวเดิม)
