@@ -38,7 +38,8 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
-         cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, cardShortOver, codeShortOver,
+         cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort,
+         cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
@@ -2480,7 +2481,8 @@ createApp({
      * ⚠️ ห้ามแก้ foCalc/foNew ให้ไม่มีเพดานตาม · การ์ด "ของเกินที่ระบบคำนวณได้" ข้างล่าง
      *    บอกผู้ใช้ไว้ว่ายอดต่ำกว่า 1 หน่วยไม่นับว่าเกิน
      */
-    const ocPending = computed(() => overPending(foCalc0.value.filter(r => !r.why), shorts.value));
+    // ใบตัดยอดนับของที่ไม่ติดตามด้วย — ของยังอยู่ในคลังจริง (เจ้าของเคาะ 5 พ.ย. 2026)
+    const ocPending = computed(() => overPending(foCalc0.value.filter(r => !r.why), shorts.value, { stops: false }));
     const ocMatch = computed(() => overCutMatch(ocCuts.value, {
       pending: ocPending.value, follows: shorts.value, entity: entity.value,
       date: ocDate.value, known: entCodes.value }));
@@ -2726,13 +2728,53 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
-    /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) */
+    /* ── over: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ short) ── ตรรกะที่ master/follow.js
+     * ทั้งสองปุ่มไปอยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายแท็บ · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ด้วยยอดที่ยังค้าง */
+    const foCalcMap = computed(() => {
+      const m = new Map();
+      for (const r of foCalc0.value) if (!r.why) m.set(r.po + '|' + String(r.code).toUpperCase(), r.over);
+      return m;
+    });
     async function foVoid(row) {
-      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
-      if (!why || !why.trim()) return;
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      if (!String(row.entity || '').trim()) { flash('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — กดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ก่อน', true); return; }
+      // ระบบคิดไม่ได้ (ไม่มีแถวคิดได้) = ไม่เตือน · คิดได้แต่ไม่เกินแล้ว = 0
+      const calc = foCalcMap.value.has(row.po + '|' + String(row.code).toUpperCase())
+        ? foCalcMap.value.get(row.po + '|' + String(row.code).toUpperCase()) : null;
+      const warn = cancelOverWarn(row, calc);
+      if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
+      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)', 'ยอดน้อย ไม่ติดตาม');
+      if (why === null) return;
       try {
-        await fsPut(voidFollow(plain(row), { by: fsBy.value || 'ไม่ระบุ', reason: why.trim() }));
-        flash('ยกเลิกเรื่องแล้ว — ยังอยู่ในระบบให้ตรวจย้อนหลังได้');
+        await startOnce(starting, 'fovoid|' + row.id, async () => {
+          await fsPut(cancelOver(plain(row), { by: fsBy.value, why }));
+          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+    async function foSkip(row) {
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      const why = prompt(`ไม่ติดตาม ${row.po} · ${row.code} (เกิน ${row.over}) เพราะอะไร`, 'ยอดน้อย');
+      if (why === null) return;
+      try {
+        await startOnce(starting, startKey('over', row), async () => {
+          await fsPut(skipOver(row, { entity: entity.value, person: fsBy.value, unit: unitOf(row.code),
+                                      date: todayLocal(), why, follows: shorts.value }));
+          flash(`ไม่ติดตาม ${row.po} · ${row.code} แล้ว — ถ้ายอดเกินเพิ่มขึ้นจะกลับมาขึ้นอีก`);
+        });
+      } catch (err) { flash(err.message, true); }
+    }
+    const foStopped = computed(() => stoppedOvers(shorts.value, { entity: entity.value }));
+    const foStopShow = ref(false);
+    async function foRestart(row) {
+      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่องคืนใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
+      try {
+        await startOnce(starting, 'forestart|' + row.id, async () => {
+          const rec = restartOver(plain(row), { by: fsBy.value, date: todayLocal(), follows: shorts.value });
+          await fsPut(rec);
+          flash(`ตั้งเรื่องคืน ${rec.po} · ${rec.code} ใหม่แล้ว`);
+        });
       } catch (err) { flash(err.message, true); }
     }
 
@@ -3637,7 +3679,7 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
+      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShow, foRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,

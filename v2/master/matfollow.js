@@ -187,10 +187,10 @@ export function planMatFollow(input, existing = [], { now = '', by = '' } = {}) 
 
   /* เรื่อง short ที่ยกเลิก / ไม่ติดตามไว้ (เจ้าของเลือกแบบ ก 4 พ.ย. 2026) — นำเข้าไฟล์ซ้ำแล้ว "ไม่สร้างใหม่"
    * ถ้ายอดในไฟล์เท่าตอนยกเลิก · ยอดต่าง = Delta แจ้งยอดใหม่ สร้างเรื่องใหม่ตามปกติ
-   * ⚠️ เฉพาะ short — over ยังเหมือนเดิม (เจ้าของขอคุยเรื่อง over แยก) */
+   * over ใช้กติกาเดียวกัน (เจ้าของสั่ง 5 พ.ย. 2026) */
   const stoppedBy = new Map();
   for (const r of existing || []) {
-    if (!r || r.kind !== 'short' || !stopMarkOf(r)) continue;
+    if (!r || (r.kind !== 'short' && r.kind !== 'over') || !stopMarkOf(r)) continue;   // over เหมือน short (เจ้าของสั่ง 5 พ.ย. 2026)
     const k = matKey(r);
     if (!stoppedBy.has(k)) stoppedBy.set(k, []);
     stoppedBy.get(k).push(r);
