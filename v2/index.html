@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-05.2">
+<meta name="app-version" content="2026-11-05.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3489,6 +3489,9 @@ textarea{font:inherit}
               <div class="big" :class="rbAfter < 0 ? 'bad' : ''">{{ rbAfter }}</div></div>
           </div>
 
+          <div class="msg warn" v-if="rbExceed" style="margin:12px 0 0">
+            <b>คืนมากกว่ายอดเกินที่ระบบคิดได้</b> — <span class="hint">{{ rbExceed }}</span>
+          </div>
           <!-- ไม่มีคำเตือน ≠ ตรวจแล้วไม่มีปัญหา — ต้องบอกว่าเทียบไม่ได้เพราะอะไร -->
           <div class="msg warn" v-if="rbShortWhy" style="margin:12px 0 0">
             <b>เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง</b> —

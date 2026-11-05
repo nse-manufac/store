@@ -804,7 +804,7 @@ export function cancelOverWarn(row, calc) {
   if (!row || calc == null || !isFinite(Number(calc))) return '';
   const remain = remainOf(row), c = round5(Number(calc));
   if (Math.abs(remain - c) < 5e-4) return '';
-  return `เรื่องนี้ยังค้าง ${remain} แต่ระบบคิดได้ว่าเกินจริง ${c}\n`
+  return `เรื่องนี้ยังค้าง ${remain} แต่ระบบคิดได้ว่าเกินจริง ${overTxt(c)}\n`
     + `ยกเลิกแล้วจะไม่ขึ้นในการ์ด "ของเกินที่ระบบคำนวณได้" อีก จนกว่ายอดเกินจะเกิน ${remain} (ยอดที่ค้างในเรื่อง)`;
 }
 
@@ -1219,8 +1219,10 @@ export function returnOver(row, { qty, person = '', device = '', at = '', reason
  * ⚠️ เตือนได้ ห้ามบล็อก (INVARIANTS A4) · "ไม่มีคำเตือน" ต้องไม่แปลว่า "ตรวจแล้ว" — เทียบไม่ได้ก็ต้องบอก
  * after = ยอดคงคลังหลังคืน · short = shortOfPo(...) · shortWhy = shortWhyOf(...) (ว่าง = เทียบได้)
  */
-export function returnOverWarn({ after = 0, short = [], shortWhy = '' } = {}) {
+export function returnOverWarn({ after = 0, short = [], shortWhy = '', qty = 0, over = null } = {}) {
   const out = [];
+  const ex = overExceedWarn(qty, over);
+  if (ex) out.push(ex);
   if (Number(after) < 0) out.push(`ยอดคงคลังจะติดลบเป็น ${round5(Number(after))} — ตรวจก่อนว่ายอดรับเข้าครบหรือยัง`);
   if ((short || []).length) {
     out.push(`PO ใบนี้ยังรับมาไม่ครบตามสูตรอีก ${short.length} รหัส (`
@@ -1230,6 +1232,24 @@ export function returnOverWarn({ after = 0, short = [], shortWhy = '' } = {}) {
     out.push(`เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง — ${txt(shortWhy)}`);
   }
   return out.join('\n\n');
+}
+
+/** ยอดเกินที่ระบบคิดได้ เป็นข้อความ · ติดลบ = คืนไปเกินแล้ว (พูดให้คนอ่านเข้าใจ ไม่ใช่ "เกินจริง -2" เฉย ๆ) */
+function overTxt(o) {
+  const n = round5(Number(o));
+  return n < 0 ? `${n} (คืนไปเกินแล้ว ${round5(-n)})` : String(n);
+}
+
+/** จะคืนมากกว่ายอดเกินที่ระบบคิดได้ตอนนี้ — เตือนได้ ไม่บล็อก (A4) · เจ้าของเคาะ 5 พ.ย. 2026 (ข้อสังเกตผู้ตรวจ #148)
+ *  เกิดได้เมื่อยอดเกินจริงลดลงหลังตั้งเรื่อง/หยุดไว้ โดยไม่มีใครคืน เช่น ยกเลิกรับเข้าที่คีย์ผิด · นำเข้า PO/BOM ใหม่
+ *  แล้วกด "กลับมาติดตาม" → เรื่องใหม่ได้ยอดค้างเดิม → กด "คืนแล้ว" = ตัดสต็อกเกินของจริง
+ *  over = null (ระบบคิดไม่ได้) = ไม่พูด · ข้อ "เทียบไม่ได้" ของ returnOverWarn บอกอยู่แล้ว */
+export function overExceedWarn(qty, over) {
+  if (over == null || over === '' || !isFinite(Number(over))) return '';
+  const q = round5(Number(qty) || 0);
+  if (q - round5(Number(over)) < 5e-4) return '';
+  return `จะคืน ${q} แต่ระบบคิดได้ว่าเกินจริงแค่ ${overTxt(over)} — `
+    + 'ตรวจรายการรับเข้า / PO / BOM ก่อนว่าไม่ได้คืนเกินของจริง';
 }
 
 /* ══════════ ซื้อแมททดแทนของเสีย (Mat Follow up 7/8) ══════════
