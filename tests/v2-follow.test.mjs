@@ -9,7 +9,7 @@
  */
 import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
-import { returnOver, returnOverWarn } from '../v2/master/follow.js';
+import { returnOver, returnOverWarn, overExceedWarn } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -594,9 +594,10 @@ ok('การ์ด "คำนวณไม่ได้" มีจริง — �
  *    แล้วการ์ดขึ้นแถบแดงว่า "เรามีน้อยกว่า" ทั้งที่ยอดตรงกันเป๊ะ (ผู้ตรวจ #102 รอบ 1) */
 ok('การ์ดเทียบยอด Delta ตัด ใช้ของเกินที่ไม่มีเพดาน OVER_MIN ไม่ใช่ foNew',
    /pending: ocPending\.value/.test(appOver)
-   && /const foCalc0 = computed\([\s\S]{0,300}min: 0/.test(appOver)
+   && /const foCalc0 = computed\([\s\S]{0,400}min: -Infinity/.test(appOver)
    // stops: false — ใบตัดยอดนับของที่ไม่ติดตามด้วย (ของยังอยู่ในคลัง · เจ้าของเคาะ 5 พ.ย. 2026)
-   && /const ocPending = computed\(\(\) => overPending\(foCalc0\.value\.filter\(r => !r\.why\), shorts\.value, \{ stops: false \}\)\)/.test(appOver)
+   // r.over >= 0 — foCalc0 เก็บแถวติดลบไว้ให้คำเตือน · ใบตัดยอดได้แถวเท่าเดิม (= min: 0)
+   && /const ocPending = computed\(\(\) => overPending\(foCalc0\.value\.filter\(r => !r\.why && r\.over >= 0\), shorts\.value, \{ stops: false \}\)\)/.test(appOver)
    && !/pending: foNew\.value/.test(appOver));
 ok('การ์ด "ของเกินที่ระบบคำนวณได้" ยังคงเพดาน 1 หน่วยไว้เหมือนเดิม',
    /const foCalc = computed\(\(\) => foCalc0\.value\.filter\(r => r\.why \|\| r\.over >= OVER_MIN\)\)/.test(appOver)
@@ -2051,7 +2052,37 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   ok('จอ: ไม่ติดตามในการ์ดคิดได้ · ยกเลิกเรื่องจาง · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม · เตือนก่อนยกเลิก',
      htmlO.includes('@click="foSkip(r)">ไม่ติดตาม</button>') && htmlO.includes(`:disabled="starting.has('fovoid|' + r.s.id)"`)
      && htmlO.includes('ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง') && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
-     && /const warn = cancelOverWarn\(row, calc\);\s*if \(warn && !confirm\(/.test(appO) && /cancelOver\(plain\(row\), \{ by: fsBy\.value, why \}\)/.test(appO));
+     && /const warn = cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\);\s*if \(warn && !confirm\(/.test(appO) && /cancelOver\(plain\(row\), \{ by: fsBy\.value, why \}\)/.test(appO));
+}
+
+console.log('\n=== OX. over: เตือนเมื่อจะคืนมากกว่ายอดเกินที่ระบบคิดได้ตอนนี้ (เจ้าของเคาะ 5 พ.ย. 2026) ===');
+{
+  ok('คืน 6 · เกินจริง 2 = เตือน บอกทั้งสองยอด', /จะคืน 6 แต่ระบบคิดได้ว่าเกินจริงแค่ 2 —/.test(overExceedWarn(6, 2)));
+  ok('เกินจริงติดลบ = บอกว่าคืนไปเกินแล้วเท่าไหร่', overExceedWarn(1, -2).includes('-2 (คืนไปเกินแล้ว 2)'));
+  ok('เกินจริง 0 ก็เตือน (ไม่ใช่เงียบเพราะเป็น 0)', overExceedWarn(3, 0) !== '');
+  ok('คืนเท่า / น้อยกว่ายอดเกิน = ไม่เตือน · ต่างกันแค่เศษทศนิยม = ไม่เตือน',
+     overExceedWarn(2, 2) === '' && overExceedWarn(1, 2) === '' && overExceedWarn(0.30000000000000004, 0.3) === '');
+  ok('ระบบคิดไม่ได้ (null) = ไม่พูด (ข้อเทียบไม่ได้บอกอยู่แล้ว)', overExceedWarn(6, null) === '' && overExceedWarn(6, undefined) === '');
+  ok('returnOverWarn รวมข้อนี้ด้วย · ไม่ส่ง over มา = เหมือนเดิม',
+     returnOverWarn({ after: 3, qty: 6, over: 2 }).includes('เกินจริงแค่ 2') && returnOverWarn({ after: 3, qty: 6 }) === '');
+  const ov = makeFollow({ kind: 'over', entity: 'TUE-H', po: 'TM0001H903', code: '9100000903', part_no: 'PN', qty: 10 });
+  ok('ยกเลิกเรื่องตอนเกินจริงติดลบ = เตือน (เดิมเงียบ — ผู้ตรวจ #148 ข้อ 2)', cancelOverWarn(ov, -2).includes('-2 (คืนไปเกินแล้ว 2)'));
+
+  // overAll ไม่มีเพดาน = เก็บแถวติดลบ (ของที่ app ส่งให้ foCalc0)
+  const pos = [{ po: 'TM0001H903', pn: 'PN9', order: 10 }];
+  const ents = [{ id: 'r1', kind: 'receive', entity: 'TUE-H', doc_ref: 'TM0001H903', material_code: '9100000903', qty: 23 },
+                { id: 'b1', kind: 'sendback', entity: 'TUE-H', doc_ref: 'TM0001H903', material_code: '9100000903', qty: 5 }];
+  const use = (pn, code) => (pn === 'PN9' && code === '9100000903' ? 2 : null);
+  const rowsNeg = overAll(ents, 'TUE-H', { headerOf: po => pos.find(p => p.po === po), usageOf: use, min: -Infinity });
+  const rows0 = overAll(ents, 'TUE-H', { headerOf: po => pos.find(p => p.po === po), usageOf: use, min: 0 });
+  ok('overAll min -Infinity เก็บแถวเกินติดลบ (23 − 5 − 20 = -2) · min 0 ไม่มีแถว',
+     rowsNeg.length === 1 && rowsNeg[0].over === -2 && rows0.length === 0, JSON.stringify(rowsNeg));
+
+  const appX = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlX = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ปุ่มคืนแล้วส่งยอดเกินตอนนี้ให้คำเตือน · กล่องรายละเอียดมีช่องเตือน + ถามก่อนบันทึก · ยกเลิกเรื่องใช้ตัวเดียวกัน',
+     /qty, over: foCalcOf\(row\.po, row\.code\)/.test(appX) && htmlX.includes('v-if="rbExceed"')
+     && /if \(rbExceed\.value && !confirm\(/.test(appX) && /cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\)/.test(appX));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

@@ -36,7 +36,7 @@ import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/ent
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
-         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
@@ -2452,9 +2452,20 @@ createApp({
     const foCalc0 = computed(() => {
       if (!entity.value) return [];
       try {
-        return overAll(entries.value, entity.value, { headerOf: poIdx.value, usageOf: bomUsageOf, min: 0 });
+        // -Infinity = เก็บแถวที่เกินติดลบด้วย (คืนไปเกินแล้ว) ให้คำเตือนเห็น · การ์ดทุกใบกรองของตัวเองอีกชั้น
+        return overAll(entries.value, entity.value, { headerOf: poIdx.value, usageOf: bomUsageOf, min: -Infinity });
       } catch (err) { console.error(err); return []; }
     });
+    /** ยอดเกินที่ระบบคิดได้ตอนนี้ต่อ PO + รหัส · null = คิดไม่ได้ · ใช้เตือนตอนคืน / ยกเลิกเรื่อง */
+    const foCalcMap = computed(() => {
+      const m = new Map();
+      for (const r of foCalc0.value) if (!r.why) m.set(r.po + '|' + String(r.code).toUpperCase(), r.over);
+      return m;
+    });
+    const foCalcOf = (po, code) => {
+      const k = po + '|' + String(code).toUpperCase();
+      return foCalcMap.value.has(k) ? foCalcMap.value.get(k) : null;
+    };
     // = overAll เพดานเดิม (OVER_MIN): แถวที่คิดไม่ได้ขึ้นเสมอ · ที่คิดได้ขึ้นเมื่อเกินถึงเพดาน
     const foCalc = computed(() => foCalc0.value.filter(r => r.why || r.over >= OVER_MIN));
     /** ที่ยังไม่มีใครตั้งเรื่อง — ตัดคู่ที่ตั้งไว้แล้วออก ไม่งั้นขึ้นซ้ำสองการ์ด */
@@ -2482,7 +2493,7 @@ createApp({
      *    บอกผู้ใช้ไว้ว่ายอดต่ำกว่า 1 หน่วยไม่นับว่าเกิน
      */
     // ใบตัดยอดนับของที่ไม่ติดตามด้วย — ของยังอยู่ในคลังจริง (เจ้าของเคาะ 5 พ.ย. 2026)
-    const ocPending = computed(() => overPending(foCalc0.value.filter(r => !r.why), shorts.value, { stops: false }));
+    const ocPending = computed(() => overPending(foCalc0.value.filter(r => !r.why && r.over >= 0), shorts.value, { stops: false }));
     const ocMatch = computed(() => overCutMatch(ocCuts.value, {
       pending: ocPending.value, follows: shorts.value, entity: entity.value,
       date: ocDate.value, known: entCodes.value }));
@@ -2524,6 +2535,7 @@ createApp({
       const opt = { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf };
       const short = shortOfPo(entries.value, entity.value, row.po, opt);
       return returnOverWarn({ after: round5(foBookOf(row.code) - (Number(qty) || 0)), short,
+                              qty, over: foCalcOf(row.po, row.code),
                               shortWhy: short.length ? '' : shortWhyOf(row.po, opt) });
     }
     // ลงสมุดก่อน แล้วค่อยปิดเรื่อง — ปิดเรื่องไม่สำเร็จ ของก็ออกจากคลังตามจริงแล้ว
@@ -2605,6 +2617,8 @@ createApp({
         bomRowsOf: pn => activeBomRowsOf(bom.value, pn)
       });
     });
+    /** จะคืนมากกว่ายอดเกินที่ระบบคิดได้ตอนนี้ — ข้อเดียวกับปุ่ม "คืนแล้ว" (overExceedWarn) */
+    const rbExceed = computed(() => (rb.row ? overExceedWarn(rb.qty, foCalcOf(rb.row.po, rb.row.code)) : ''));
     const rbReasons = REASONS.sendback;
     const rbReady = computed(() => !!(rb.row && Number(rb.qty) > 0 && rb.person.trim()
       && rb.reason && (rb.reason !== 'other' || rb.note.trim())));
@@ -2623,6 +2637,7 @@ createApp({
           qty, person: rb.person.trim(), device: device.value, at: atFrom(rb.date),
           reason_code: rb.reason, lot: rb.lot, note: rb.note.trim()
         });
+        if (rbExceed.value && !confirm(`${rbExceed.value}\nยืนยันบันทึกไหม`)) { rb.busy = false; return; }
         if (rbAfter.value < 0 &&
             !confirm(`ยอดคงคลังจะติดลบเป็น ${rbAfter.value}\nยืนยันบันทึกไหม`)) { rb.busy = false; return; }
         await db.put('entries', e);
@@ -2730,18 +2745,11 @@ createApp({
 
     /* ── over: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ short) ── ตรรกะที่ master/follow.js
      * ทั้งสองปุ่มไปอยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายแท็บ · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ด้วยยอดที่ยังค้าง */
-    const foCalcMap = computed(() => {
-      const m = new Map();
-      for (const r of foCalc0.value) if (!r.why) m.set(r.po + '|' + String(r.code).toUpperCase(), r.over);
-      return m;
-    });
     async function foVoid(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       if (!String(row.entity || '').trim()) { flash('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — กดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ก่อน', true); return; }
-      // ระบบคิดไม่ได้ (ไม่มีแถวคิดได้) = ไม่เตือน · คิดได้แต่ไม่เกินแล้ว = 0
-      const calc = foCalcMap.value.has(row.po + '|' + String(row.code).toUpperCase())
-        ? foCalcMap.value.get(row.po + '|' + String(row.code).toUpperCase()) : null;
-      const warn = cancelOverWarn(row, calc);
+      // ระบบคิดไม่ได้ = ไม่เตือน · คิดได้ = ยอดเกินตอนนี้ (0 หรือติดลบก็เตือนได้ — foCalc0 ไม่มีเพดาน)
+      const warn = cancelOverWarn(row, foCalcOf(row.po, row.code));
       if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
       const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)', 'ยอดน้อย ไม่ติดตาม');
       if (why === null) return;
@@ -3679,7 +3687,7 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShow, foRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbReady,
+      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShow, foRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
