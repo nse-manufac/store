@@ -1770,7 +1770,9 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
      stoppedShorts([c1, c2, sk, cx], { entity: E }).length === 3);
 
   // กลับมาติดตาม
-  const back = restartShort(sk, { by: 'หัวหน้า', date: '2026-11-05', at: '2026-11-05T03:00:00.000Z' });
+  // ⚠️ void_at ของ sk มาจากนาฬิกาจริง (voidFollow) · เวลาตายตัวจะกลายเป็น "ก่อนหยุด" เมื่อรันข้ามวัน แล้วเพดานไม่หมดอายุ
+  //    (ตกตั้งแต่ 6 พ.ย. 2026) — ตั้งเวลากลับมาติดตามให้หลังเวลาหยุดเสมอ แบบที่เกิดในแอปจริง
+  const back = restartShort(sk, { by: 'หัวหน้า', date: '2026-11-05', at: new Date(Date.parse(sk.void_at) + 3600e3).toISOString() });
   ok('กลับมาติดตาม = เรื่อง short ใหม่ ยอดเดิม · ของเดิมยังยกเลิก', back.id !== sk.id && !back.voided && back.qty === 5
      && back.po === sk.po && back.code === sk.code && back.entity === E && statusOf(back) === 'open');
   ok('กลับมาติดตามแล้ว หายจากการ์ด · คู่นั้นมีเรื่องเปิด (ไม่ขึ้นในการ์ดคิดได้)',
