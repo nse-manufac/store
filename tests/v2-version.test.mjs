@@ -115,23 +115,31 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
      box.includes(':disabled="!noticeCanClose(notice)"') && box.includes(':disabled="!notice.atEnd"'));
   ok('ในกล่องประกาศต้องไม่มีเลขรุ่นตายตัว (F4 — เลขรุ่นอยู่ที่ <meta app-version> ที่เดียว)',
      box.length > 0 && !/\d{4}-\d{2}-\d{2}\.\d+/.test(box));
-  // ฉบับ 2026-10-05 · 2026-10-11 · 2026-10-17 · 2026-10-19 ไม่มี PDF (เจ้าของเคาะ) — ถ้าฉบับไหนกลับมามีลิงก์ ไฟล์ต้องมีอยู่จริงใน repo
+  // ฉบับ 2026-10-05 · 2026-10-11 · 2026-10-17 · 2026-10-19 · 2026-11-06 ไม่มี PDF (เจ้าของเคาะ) — ถ้าฉบับไหนกลับมามีลิงก์ ไฟล์ต้องมีอยู่จริงใน repo
   const links = [...box.matchAll(/href="(docs\/[^"]+)"/g)].map(m => m[1]);
   ok('ลิงก์เอกสารในประกาศ (ถ้ามี) ชี้ไปไฟล์ที่มีอยู่จริงใน repo',
      links.every(p => fs.existsSync(new URL('../v2/' + p, import.meta.url))), links.join(','));
-  // ฉบับ 19 ต.ค. แทนฉบับ 17 ต.ค. — เก็บเรื่อง Bin Card ไว้ (เจ้าของเลือกแบบ ก) · เรื่องนำเข้าไฟล์ Delta เป็นฟอร์ม WIP
-  ok('ประกาศฉบับนี้ (19 ต.ค.) พูดถึงแถวรวม Short / Over ใน Bin Card · นำเข้าไฟล์ Delta ชีต WIP + นิติบุคคล + QTY/Vendor Stk + เวลานับ + คำเตือนคีย์ของค้าง',
-     NOTICE_ID === '2026-10-19' && box.includes('Short / Over รวมทุก PO') && box.includes('ก่อนจ่ายออก')
-     && box.includes('ชีต <b>WIP</b>') && box.includes('ไฟล์มีนิติบุคคล') && box.includes('QTY (ตั้งต้น')
-     && box.includes('Vendor Stk เป็นทางสำรอง') && box.includes('อยู่ในไฟล์แต่ไม่ลง')
-     && box.includes('วันที่และเวลาที่ Delta นับ') && box.includes('ไม่ติ๊ก = ไม่แตะ')
-     && box.includes('ให้ครบก่อนกดลงบัญชี') && !box.includes('เรื่องซ้ำที่ค้างอยู่'));
+  // ฉบับ 6 พ.ย. แทนฉบับ 19 ต.ค. — ใส่เฉพาะเรื่องใหม่ (เจ้าของเลือกแบบ ก1) · short/over ไม่ติดตาม + ยกเลิกเรื่อง · over คืนแล้วกดทีเดียว
+  ok('ประกาศฉบับนี้ (6 พ.ย.) พูดถึงปุ่มไม่ติดตาม/ยกเลิกเรื่องของ short และ over · การ์ดยกเลิก/ไม่ติดตามแล้ว · คืนแล้วกดทีเดียว + วันที่คืน + คำเตือนสามข้อ · ใบตัดยอดยังนับ',
+     NOTICE_ID === '2026-11-06' && box.includes('short รอส่ง: ปุ่ม') && box.includes('over รอคืน: กด "คืนแล้ว" ทีเดียวจบ')
+     && box.includes('กด <b>กลับมาติดตาม</b>') && box.includes('เว้นช่องยอดแล้วกด <b>คืนแล้ว</b> = คืนที่ค้างทั้งหมด')
+     && box.includes('ช่อง <b>วันที่คืน</b>') && box.includes('ตัดของออกจากคลังจริงทันที')
+     && box.includes('สต็อกจะติดลบ') && box.includes('รับยังไม่ครบตามสูตร') && box.includes('คืนมากกว่ายอดเกินที่ระบบคิดได้')
+     && box.includes('ยังนับของที่ไม่ติดตาม')
+     // ก1: ตัดเรื่องของฉบับ 19 ต.ค. ออก
+     && !box.includes('ชีต <b>WIP</b>') && !box.includes('Short / Over รวมทุก PO'));
   // ชื่อปุ่ม/ช่องที่ประกาศอ้างถึง ต้องมีอยู่จริงบนจอ — ประกาศชี้ปุ่มที่ไม่มี = พนักงานหาไม่เจอ (G3)
-  // จุดยึดเจาะจง (ผู้ตรวจ #139 ข้อสังเกต 2) — 'ทุกหมวด' / 'ลงบัญชี' เฉย ๆ โผล่หลายที่บนจอ
-  const named = ['Short / Over ราย PO', 'รวมทุก PO', '<option value="">ทุกหมวด', '📥 นำเข้ายอดนับจากไฟล์ Delta',
-                 'จะลงบัญชีแบบนี้', "'กำลังลง...' : 'ลงบัญชี'", 'ใช้ยอดจาก', 'ไฟล์มีนิติบุคคล', 'อยู่ในไฟล์แต่ไม่ลง',
-                 'Vendor Stk (ทางสำรอง)'];
-  const rest = html.replace(box, '');
+  // จุดยึดเจาะจง (ผู้ตรวจ #139 ข้อสังเกต 2) — ชื่อปุ่มเฉย ๆ โผล่หลายที่บนจอ ให้ยึดทั้ง @click
+  const named = ["label: 'Mat Follow up'", "label: 'short รอส่ง'", "label: 'over รอคืน'", 'ผู้บันทึก',
+                 '<h2 style="margin:0">ยังรับไม่ครบตาม BOM</h2>', '@click="fsSkip(r)">ไม่ติดตาม</button>',
+                 '<h2>ของขาด / รอส่ง</h2>', '@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>',
+                 'ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }} เรื่อง', 'ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง',
+                 '@click="fsRestart(x.s)">กลับมาติดตาม</button>', '@click="foRestart(x.s)">กลับมาติดตาม</button>',
+                 '<h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>', '@click="foReturnNew(r)"', '@click="foSkip(r)">ไม่ติดตาม</button>',
+                 '@click="foVoid(r.s)">ยกเลิกเรื่อง</button>', '@click.prevent="askReturn(r.s)">รายละเอียด…</a>', '>วันที่คืน',
+                 'Delta ตัดจากยอด over — เทียบกับของที่เรามี', 'v-if="rbExceed"'];
+  const js0 = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const rest = html.replace(box, '') + js0;
   ok('ทุกชื่อปุ่ม/หัวข้อที่ประกาศอ้าง มีอยู่จริงบนจอ', named.every(n => rest.includes(n)),
      named.filter(n => !rest.includes(n)).join(', '));
 }
