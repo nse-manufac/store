@@ -386,8 +386,18 @@ const matchKind = (row, kind) => !kind || row.kind === kind;
  * ⚠️ ต้องกรอง kind ด้วย · ตารางนี้เก็บงานตามสามแบบในกองเดียว
  *    ไม่กรองแล้วเรื่องของเกิน/ซื้อทดแทนจะไหลมาโผล่ในหน้าของขาด
  */
+/** P/N ของเรื่อง — เรื่องที่ไม่ได้จด P/N (เพิ่มเองด้วยมือ · หมายเหตุไฟล์ PO) หาจากไฟล์ PO ที่นำเข้าไว้
+ *  fromPo = true ให้จอแสดงตัวจาง รู้ว่าไม่ได้มากับเรื่อง · หาไม่เจอ = '' (เจ้าของสั่ง 7 พ.ย. 2026) */
+export function partNoOf(s, headerOf = null) {
+  const own = txt(s && s.part_no);
+  if (own) return { pn: own, fromPo: false };
+  const head = s && typeof headerOf === 'function' ? headerOf(s.po) : null;
+  const pn = txt(head && head.pn);
+  return { pn, fromPo: !!pn };
+}
+
 export function listFollow(rows, { kind = '', entity = '', q = '',
-                                   showDone = false, today = '', limit = 0 } = {}) {
+                                   showDone = false, today = '', limit = 0, headerOf = null } = {}) {
   const needle = String(q || '').trim().toLowerCase();
   const out = (rows || []).filter(s => {
     if (!matchKind(s, kind)) return false;
@@ -396,7 +406,8 @@ export function listFollow(rows, { kind = '', entity = '', q = '',
     if (st === 'cancelled') return false;
     if (!showDone && st === 'done') return false;
     if (!needle) return true;
-    return [s.po, s.code, s.note].join(' ').toLowerCase().includes(needle);
+    // ค้นด้วย P/N ได้ด้วย — ตัวเดียวกับที่จอแสดง (partNoOf) · พิมพ์ที่เห็นแล้วต้องเจอ
+    return [s.po, s.code, partNoOf(s, headerOf).pn, s.note].join(' ').toLowerCase().includes(needle);
   }).map(s => ({ s, st: statusOf(s), late: overdue(s, today), remain: remainOf(s) }));
 
   out.sort((a, b) => (Number(b.late) - Number(a.late))
