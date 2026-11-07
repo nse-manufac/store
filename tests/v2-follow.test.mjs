@@ -9,7 +9,7 @@
  */
 import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
-import { returnOver, returnOverWarn, overExceedWarn } from '../v2/master/follow.js';
+import { returnOver, returnOverWarn, overExceedWarn, partNoOf } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -2085,6 +2085,37 @@ console.log('\n=== OX. over: เตือนเมื่อจะคืนมา
   ok('จอ: ปุ่มคืนแล้วส่งยอดเกินตอนนี้ให้คำเตือน · กล่องรายละเอียดมีช่องเตือน + ถามก่อนบันทึก · ยกเลิกเรื่องใช้ตัวเดียวกัน',
      /qty, over: foCalcOf\(row\.po, row\.code\)/.test(appX) && htmlX.includes('v-if="rbExceed"')
      && /if \(rbExceed\.value && !confirm\(/.test(appX) && /cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\)/.test(appX));
+}
+
+console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้วย P/N ได้ (เจ้าของสั่ง 7 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H';
+  const head = po => ({ TM0001H951: { po: 'TM0001H951', pn: 'PNA51' } })[po] || null;
+  const own = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H951', code: '9100000951', part_no: 'PNOWN', qty: 3 });
+  const bare = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H951', code: '9100000952', qty: 2 });
+  const lost = makeFollow({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM0001H959', code: '9100000953', qty: 1 });
+  ok('เรื่องที่จด P/N ไว้ = ใช้ของเรื่อง (ไม่ใช่ตัวจาง) แม้ไฟล์ PO บอกอีกค่า',
+     JSON.stringify(partNoOf(own, head)) === JSON.stringify({ pn: 'PNOWN', fromPo: false }));
+  ok('เรื่องที่ไม่ได้จด P/N = หาจากไฟล์ PO (ตัวจาง)', JSON.stringify(partNoOf(bare, head)) === JSON.stringify({ pn: 'PNA51', fromPo: true }));
+  ok('ไฟล์ PO ไม่มีใบนั้น / ไม่ส่งตัวหามา = ว่าง', partNoOf(lost, head).pn === '' && !partNoOf(lost, head).fromPo
+     && partNoOf(bare).pn === '' && partNoOf(null, head).pn === '');
+  const q = x => listFollow([own, bare, lost], { kind: 'short', entity: E, q: x, headerOf: head }).map(r => r.s.code).join();
+  ok('ค้นด้วย P/N ของเรื่องเจอ · P/N ที่ได้จากไฟล์ PO ก็เจอ · ตัวพิมพ์เล็กก็ได้',
+     q('PNOWN') === '9100000951' && q('pna51') === '9100000952', q('pna51'));
+  ok('ไม่ส่ง headerOf = ค้นแบบเดิม + P/N ของเรื่อง (ไม่พัง)',
+     listFollow([own, bare], { kind: 'short', entity: E, q: 'PNA51' }).length === 0
+     && listFollow([own, bare], { kind: 'short', entity: E, q: '9100000952' }).length === 1);
+
+  const appP = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlP = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const tbl = htmlP.slice(htmlP.indexOf('<h2>ของขาด / รอส่ง</h2>'), htmlP.indexOf('<h2>เพิ่มเรื่องเอง</h2>'));
+  const stop = htmlP.slice(htmlP.indexOf('ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }}'), htmlP.indexOf('ซื้อแมททดแทน (Mat Follow up 7/8)'));
+  ok('จอ: ตารางของขาด / รอส่ง มีคอลัมน์ P/N ต่อจาก PO · แถวว่างกินครบทุกคอลัมน์ · ช่องค้นบอกว่าค้น P/N ได้',
+     tbl.includes('<th style="width:120px">PO</th><th style="width:80px">P/N</th>') && tbl.includes("{{ fsPn(r.s).pn || '—' }}")
+     && tbl.includes(':class="{hint: fsPn(r.s).fromPo}"') && tbl.includes('colspan="12"') && tbl.includes('ค้นหา PO · P/N · รหัส')
+     && (tbl.match(/<th[\s>]/g) || []).length === 12);
+  ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N', stop.includes("{{ fsPn(x.s).pn || '—' }}") && stop.includes('<th style="width:80px">P/N</th>'));
+  ok('จอ: ตาราง short / over ส่งตัวหา PO ให้ช่องค้น', (appP.match(/showDone: [^\n]*headerOf: poIdx\.value/g) || []).length === 2);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

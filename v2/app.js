@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
-         listFollow, openFollow, orphanFollow, sumFollow, voidFollow,
+         listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort,
@@ -2307,8 +2307,10 @@ createApp({
        จะหายไปโดยไม่มีอะไรบอก (ผู้ตรวจ #67) · หน้าจอต้องรู้ยอดเต็มถึงจะบอกได้ว่าถูกตัด */
     const fsAll = computed(() => listFollow(shorts.value, {
       kind: 'short', entity: entity.value, q: fsSearch.value,
-      showDone: fsShowDone.value, today: todayLocal()
+      showDone: fsShowDone.value, today: todayLocal(), headerOf: poIdx.value
     }));
+    /** P/N ที่ตาราง short แสดง — ไม่มีในเรื่อง = หาจากไฟล์ PO (ตัวจาง) · ตรรกะอยู่ที่ partNoOf */
+    const fsPn = s => partNoOf(s, poIdx.value);
     const fsRows = computed(() => fsAll.value.slice(0, SHOW_MAX));
 
     const fsSum = computed(() => sumFollow(openShorts.value, { today: todayLocal() }));
@@ -2499,7 +2501,7 @@ createApp({
       date: ocDate.value, known: entCodes.value }));
 
     const foAll = computed(() => listFollow(shorts.value, {
-      kind: 'over', entity: entity.value, q: foSearch.value, showDone: foShowDone.value
+      kind: 'over', entity: entity.value, q: foSearch.value, showDone: foShowDone.value, headerOf: poIdx.value
     }));
     const foRows = computed(() => foAll.value.slice(0, SHOW_MAX));
     const foOpen = computed(() => openFollow(shorts.value, { kind: 'over', entity: entity.value }));
@@ -3680,7 +3682,7 @@ createApp({
              applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
-      fsNew, fsBlocked, fsCheck, fsStart, cardPoSO, cardSOTotal, isStarting,
+      fsNew, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
