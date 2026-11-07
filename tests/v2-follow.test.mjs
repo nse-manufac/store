@@ -2116,6 +2116,11 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
      && (tbl.match(/<th[\s>]/g) || []).length === 12);
   ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N', stop.includes("{{ fsPn(x.s).pn || '—' }}") && stop.includes('<th style="width:80px">P/N</th>'));
   ok('จอ: ตาราง short / over ส่งตัวหา PO ให้ช่องค้น', (appP.match(/showDone: [^\n]*headerOf: poIdx\.value/g) || []).length === 2);
+  ok('จอ: ป้ายช่องค้นของตาราง over บอกว่าค้น P/N ได้ด้วย (ผู้ตรวจ #151 ข้อ 2)',
+     (htmlP.match(/ค้นหา PO · P\/N · รหัส · ข้อความ/g) || []).length === 2 && !/ค้นหา PO · รหัส\r?\n/.test(htmlP));
+  const fsrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  ok('คำอธิบายของ listFollow อยู่ติดตัวมัน ไม่ไปค้างเหนือ partNoOf (ผู้ตรวจ #151 ข้อ 1)',
+     /ไม่กรองแล้วเรื่องของเกิน\/ซื้อทดแทนจะไหลมาโผล่ในหน้าของขาด\n \*\/\nexport function listFollow/.test(fsrc));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
