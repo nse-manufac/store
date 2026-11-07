@@ -67,17 +67,16 @@ ok('จำนวนสั่งอ่านถูก', po.pos[0].qty === 1000);
 ok('หมายเหตุอ่านจากคอลัมน์ท้ายสุด', po.pos[0].remark === 'ด่วน');
 ok('id ผูกวันที่กับ PO เข้าด้วยกัน', po.pos[0].id === 'P2026-07-27-PO-9001', po.pos[0].id);
 
-ok('จับของขาดจากข้อความอิสระได้', po.shorts.length === 2, String(po.shorts.length));
-const s1 = po.shorts[0];
-ok('แยกรหัสวัตถุดิบออกจากข้อความได้', s1.code === '4037010105', s1.code);
-ok('แยกจำนวนที่ขาดและหน่วยได้', s1.qty === 12.5 && s1.unit === 'KGM', s1.qty + ' ' + s1.unit);
-ok('แยก ETA ได้', s1.eta === '2026-07-29', s1.eta);
-ok('ไม่มีคำว่า Short ถือว่าแค่รอส่ง', po.shorts[1].type === 'รอส่ง' && po.shorts[1].qty === 0);
-// ของจริง หมายเหตุข้อความเดียวกันโผล่ได้หลาย PO ในวันเดียวกัน
-ok('หมายเหตุเดียวกันคนละ PO ต้องไม่ยุบรวมกัน',
-   po.shorts[0].id !== po.shorts[1].id && po.shorts[0].po === 'PO-9002'
-   && po.shorts[1].po === 'PO-9003',
-   JSON.stringify(po.shorts.map(s => s.po)));
+// เลิกแกะเรื่อง short จากคอลัมน์ L (เจ้าของสั่ง 7 พ.ย. 2026) — ซ้ำกับการ์ด "ยังรับไม่ครบตาม BOM" แล้วยอดผิด
+ok('หมายเหตุคอลัมน์ L มีรหัส + Short / ETA = ไม่สร้างเรื่อง short (อ่านแค่ PO)',
+   !('shorts' in po) && po.pos.length === 3 && po.pos[1].po === 'PO-9002', Object.keys(po).join());
+{
+  const appS = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlS = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: นำเข้าไฟล์ PO ไม่เขียนเรื่อง short · หน้าดูก่อนนำเข้าไม่นับ "ของขาด/รอส่ง" แล้ว',
+     !appS.includes('freshShorts') && !htmlS.includes('freshShorts') && !appS.includes('ของขาด ${')
+     && !htmlS.includes('ไม่ได้อยู่ในคอลัมน์หมายเหตุของไฟล์ PO'));
+}
 
 console.log('\n=== C. Kit List รายวัน (22-H) ===');
 const kitAoa = [

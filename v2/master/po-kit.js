@@ -81,13 +81,6 @@ const numOf = v => typeof v === 'number' ? v
 const codeOf = v => typeof v === 'number' ? String(Math.round(v))
                   : String(v == null ? '' : v).trim();
 
-/** ย่อข้อความยาวให้เป็นกุญแจสั้น ๆ ที่ไม่ชนกัน */
-function hash(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h).toString(36);
-}
-
 /**
  * PO รายวัน
  *
@@ -96,8 +89,8 @@ function hash(s) {
  * วันที่มาจากแถวหัวเรื่องภาษาไทยที่โผล่คั่นเป็นช่วง ๆ
  */
 export function parsePoFile(aoa) {
-  const pos = [], shorts = [];
-  let curDate = '', lastPo = '';
+  const pos = [];
+  let curDate = '';
   for (const row of aoa) {
     if (!row) continue;
     const a = row[0];
@@ -108,7 +101,6 @@ export function parsePoFile(aoa) {
     }
     if (typeof a === 'number' && row[3]) {
       const po = String(row[3]).trim();
-      lastPo = po;
       pos.push({
         id: 'P' + curDate + '-' + po,
         date: curDate,
@@ -122,26 +114,10 @@ export function parsePoFile(aoa) {
         remark: String(row[16] || '').trim()
       });
     }
-    // คอลัมน์ L เก็บหมายเหตุของขาด/ETA เป็นข้อความอิสระ ไม่มีโครงสร้าง
-    const note = row[11];
-    if (typeof note === 'string' && /\d{10}/.test(note)) {
-      const code = (note.match(/\b([345]\d{9})\b/) || [])[1] || '';
-      const sh = note.match(/[Ss]hort\s*([\d,.]+)\s*([A-Za-z]+)?/);
-      const eta = note.match(/ETA\s+(.+)$/i);
-      // ⚠️ id ต้องมี PO ด้วย เพราะหมายเหตุข้อความเดียวกันโผล่ได้หลาย PO ในวันเดียวกัน
-      // (ของจริง "4037010105 ETA 29 July 2026" โผล่ 3 PO) ถ้าไม่ใส่ PO จะยุบเหลือรายการเดียว
-      shorts.push({
-        id: 'S' + curDate + '-' + lastPo + '-' + code + '-' + hash(note),
-        date: curDate, po: lastPo, code,
-        type: sh ? 'ขาด' : 'รอส่ง',
-        qty: sh ? Number(String(sh[1]).replace(/[,.]$/, '').replace(/,/g, '')) || 0 : 0,
-        unit: sh && sh[2] ? sh[2].toUpperCase() : '',
-        eta: eta ? parseEnDate(eta[1]) : '',
-        note: note.trim(), done: false
-      });
-    }
+    // ⚠️ คอลัมน์ L (หมายเหตุของขาด / ETA) ไม่แกะเป็นเรื่อง short แล้ว — เจ้าของสั่ง 7 พ.ย. 2026
+    // ซ้ำกับการ์ด "ยังรับไม่ครบตาม BOM" · พนักงานตั้งเรื่องซ้ำแล้วยอดผิด · เรื่องเก่าที่แกะไว้แล้วยังอยู่ตามเดิม
   }
-  return { pos, shorts, dates: [...new Set(pos.map(p => p.date))].filter(Boolean) };
+  return { pos, dates: [...new Set(pos.map(p => p.date))].filter(Boolean) };
 }
 
 /**

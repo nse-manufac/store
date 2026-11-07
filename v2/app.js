@@ -2203,8 +2203,7 @@ createApp({
           : importPlanKit(rows, { existing: kits.value, materials: materials.value,
                                   poList: pos.value });
         if (p.kind === 'po') plan.dup = p.pos.length - plan.fresh.length;
-        imp.value = { fileName: file.name, ...p, plan,
-                      freshShorts: (p.shorts || []).filter(s => !shorts.value.some(x => x.id === s.id)) };
+        imp.value = { fileName: file.name, ...p, plan };
       } catch (err) {
         flash('อ่านไฟล์ไม่สำเร็จ: ' + err.message, true);
         imp.value = null;
@@ -2223,14 +2222,8 @@ createApp({
         if (p.kind === 'po') {
           await db.put('pos', p.plan.fresh.map(plain));
           pos.value.push(...p.plan.fresh);
-          if (p.freshShorts.length) {
-            // ซ่อมด้วยตัวเดียวกับตอนบูต — นิติบุคคลอ่านจากเลขที่ PO ของแถวเอง
-            // เติมได้เฉพาะรหัสที่มีในทะเบียน ที่เหลือปล่อยว่างให้คนมาเลือก
-            const rows = migrateAll(p.freshShorts, { known: entCodes.value }).rows;
-            await db.put('shorts', rows.map(plain));
-            shorts.value.push(...rows);
-          }
-          flash(`นำเข้า PO ${p.plan.fresh.length} รายการ · ของขาด ${p.freshShorts.length} รายการ`);
+          // ไม่สร้างเรื่อง short จากไฟล์ PO แล้ว (เจ้าของสั่ง 7 พ.ย. 2026) — ดู parsePoFile
+          flash(`นำเข้า PO ${p.plan.fresh.length} รายการ`);
         } else {
           await db.put('kits', p.plan.fresh.map(plain));
           kits.value.push(...p.plan.fresh);
