@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-06.1">
+<meta name="app-version" content="2026-11-07.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2191,7 +2191,7 @@ textarea{font:inherit}
             <div><div class="hint">เลย ETA แล้ว</div>
               <div class="big" :class="fsSum.late?'bad':''">{{ fsSum.late }}</div></div>
             <div class="grow"></div>
-            <label class="f" style="width:220px">ค้นหา PO · รหัส · ข้อความ
+            <label class="f" style="width:220px">ค้นหา PO · P/N · รหัส · ข้อความ
               <input v-model="fsSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
             <label class="f" style="width:150px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
@@ -2206,15 +2206,16 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:52vh;margin-top:10px">
             <table>
               <thead><tr>
-                <th style="width:105px">แจ้งวันที่</th><th style="width:120px">PO</th>
+                <th style="width:105px">แจ้งวันที่</th><th style="width:120px">PO</th><th style="width:80px">P/N</th>
                 <th style="width:120px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:80px">ประเภท</th>
                 <th style="width:100px">ที่แจ้งมา</th><th style="width:110px">ระบบคิดได้</th><th style="width:100px">ยังค้าง</th>
                 <th style="width:150px">ETA</th><th>ข้อความเต็ม</th>
-                <th style="width:200px"></th></tr></thead>
+                <th style="width:250px"></th></tr></thead>
               <tbody>
                 <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}">
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.po }}</td>
+                  <td class="mono" :class="{hint: fsPn(r.s).fromPo}" :title="fsPn(r.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(r.s).pn || '—' }}</td>
                   <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td><span class="tag" :class="r.s.type==='ขาด'?'bad':'warn'">{{ r.s.type }}</span></td>
                   <td class="mono">{{ r.s.qty || '—' }} {{ r.s.unit }}</td>
@@ -2232,7 +2233,7 @@ textarea{font:inherit}
                   <td class="mono hint">{{ r.s.eta || '—' }}
                     <span v-if="r.late" class="tag bad">เลยแล้ว</span></td>
                   <td class="hint">{{ r.s.note }}</td>
-                  <td>
+                  <td style="white-space:nowrap">
                     <template v-if="r.st==='done'">
                       <span class="hint">ปิด {{ localDate(r.s.done_at) }}
                         {{ r.s.done_by }}</span>
@@ -2252,7 +2253,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fsRows.length"><td colspan="11" class="empty">
+                <tr v-if="!fsRows.length"><td colspan="12" class="empty">
                   ไม่มีเรื่องค้าง 🎉<span v-if="fsSearch"> — หรือคำค้นไม่ตรงกับอะไรเลย</span>
                   <span v-else-if="!fsShowDone"> · ที่ปิดแล้วดูได้จากช่องติ๊กด้านบน</span></td></tr>
               </tbody>
@@ -2312,12 +2313,12 @@ textarea{font:inherit}
             กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="fsStopShow">
             <table>
-              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
+              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
               <tbody><tr v-for="x in fsStopped.slice(0, SHOW_MAX)" :key="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
-                <td class="mono">{{ x.s.po }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
+                <td class="mono">{{ x.s.po }}</td><td class="mono" :class="{hint: fsPn(x.s).fromPo}" :title="fsPn(x.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(x.s).pn || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td><td class="hint">{{ x.s.void_reason }}</td>
                 <td class="hint">{{ x.s.void_by }} · {{ localDate(x.s.void_at) }}</td>
                 <td><button class="btn" style="padding:2px 8px" :disabled="starting.has('fsrestart|' + x.s.id)"
@@ -2837,7 +2838,7 @@ textarea{font:inherit}
           <div class="row">
             <h2 style="margin:0">เรื่องที่ตั้งไว้แล้ว</h2>
             <div class="grow"></div>
-            <label class="f" style="width:200px">ค้นหา PO · รหัส
+            <label class="f" style="width:220px">ค้นหา PO · P/N · รหัส · ข้อความ
               <input v-model="foSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
             <label class="f" style="width:150px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
