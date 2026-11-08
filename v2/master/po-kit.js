@@ -32,8 +32,6 @@ const THAI_MONTH = { 'ม.ค': 1, 'ก.พ': 2, 'มี.': 3, 'เม.': 4, '�
                      'ก.ค': 7, 'ส.ค': 8, 'ก.ย': 9, 'ต.ค': 10, 'พ.ย': 11, 'ธ.ค': 12,
                      'มกร': 1, 'กุม': 2, 'มีน': 3, 'เมษ': 4, 'พฤษ': 5, 'มิถ': 6,
                      'กรก': 7, 'สิง': 8, 'กัน': 9, 'ตุล': 10, 'พฤศ': 11, 'ธัน': 12 };
-const EN_MONTH = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
-                   jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
 /** "ที่ 27 กรกฎาคม พ.ศ. 2569" → "2026-07-27" (พ.ศ. ลบ 543) */
 export function parseThaiDate(s) {
@@ -41,14 +39,6 @@ export function parseThaiDate(s) {
   if (!m) return '';
   const mo = THAI_MONTH[m[2].slice(0, 3)];
   return mo ? (+m[3] - 543) + '-' + pad(mo) + '-' + pad(+m[1]) : '';
-}
-
-/** "ETA 29 July 2026" → "2026-07-29" */
-export function parseEnDate(s) {
-  const m = String(s).match(/(\d{1,2})\s+([A-Za-z]{3,})\.?\s+(\d{4})/);
-  if (!m) return '';
-  const mo = EN_MONTH[m[2].slice(0, 3).toLowerCase()];
-  return mo ? m[3] + '-' + pad(mo) + '-' + pad(+m[1]) : '';
 }
 
 /** วันที่แบบ serial ของ Excel — ฐานคือ 30 ธ.ค. 1899 ไม่ใช่ 1 ม.ค. 1900 */

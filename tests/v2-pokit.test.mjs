@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitNameInfo, kitContentKind, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
-         parseThaiDate, parseEnDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
+         parseThaiDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
 import { makeSession, postCount } from '../v2/core/count.js';
@@ -28,7 +28,6 @@ ok('วันที่ไทย พ.ศ. แปลงเป็น ค.ศ.',
 ok('เดือนแบบย่อก็อ่านได้',
    parseThaiDate('subcontract ที่ 3 ธ.ค. พ.ศ. 2569') === '2026-12-03',
    parseThaiDate('subcontract ที่ 3 ธ.ค. พ.ศ. 2569'));
-ok('ETA ภาษาอังกฤษ', parseEnDate('ETA 29 July 2026') === '2026-07-29');
 // ฐานของ Excel คือ 30 ธ.ค. 1899 ไม่ใช่ 1 ม.ค. 1900 — พลาดตรงนี้วันที่จะเพี้ยนสองวัน
 ok('วันที่แบบ serial ของ Excel', excelDate(46231) === '2026-07-28', excelDate(46231));
 ok('ค่าที่ไม่ใช่วันที่ไม่ถูกเดามั่ว', excelDate(5) === '' && excelDate('abc') === '');
@@ -75,7 +74,10 @@ ok('หมายเหตุคอลัมน์ L มีรหัส + Short /
   const htmlS = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: นำเข้าไฟล์ PO ไม่เขียนเรื่อง short · หน้าดูก่อนนำเข้าไม่นับ "ของขาด/รอส่ง" แล้ว',
      !appS.includes('freshShorts') && !htmlS.includes('freshShorts') && !appS.includes('ของขาด ${')
-     && !htmlS.includes('ไม่ได้อยู่ในคอลัมน์หมายเหตุของไฟล์ PO'));
+     && !htmlS.includes('ไม่ได้อยู่ในคอลัมน์หมายเหตุของไฟล์ PO')
+     // ผู้ตรวจ #152: ตัวแปลง ETA ไม่มีใครใช้แล้ว · คอมเมนต์ฟอร์มเพิ่มเรื่องเองไม่บอกว่าไฟล์ PO เป็นทางเดียว
+     && !fs.readFileSync(new URL('../v2/master/po-kit.js', import.meta.url), 'utf8').includes('parseEnDate')
+     && !appS.includes('ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L'));
 }
 
 console.log('\n=== C. Kit List รายวัน (22-H) ===');
