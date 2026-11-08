@@ -2116,6 +2116,10 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
      && (tbl.match(/<th[\s>]/g) || []).length === 12);
   ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N', stop.includes("{{ fsPn(x.s).pn || '—' }}") && stop.includes('<th style="width:80px">P/N</th>'));
   ok('จอ: ตาราง short / over ส่งตัวหา PO ให้ช่องค้น', (appP.match(/showDone: [^\n]*headerOf: poIdx\.value/g) || []).length === 2);
+  // ตาราง buy แสดง part_no ของเรื่องเอง และ listFollow ค้น part_no · note อยู่แล้ว — ป้ายต้องบอก (ผู้ตรวจ #151 รอบ 2 ข้อ 1)
+  ok('จอ: ป้ายช่องค้นของตาราง ซื้อแมททดแทน บอกว่าค้น P/N · ข้อความได้',
+     htmlP.includes('ค้นหา รหัส · PO · P/N · ข้อความ\n              <input v-model="fbSearch"')
+     || htmlP.includes('ค้นหา รหัส · PO · P/N · ข้อความ\r\n              <input v-model="fbSearch"'));
   ok('จอ: ป้ายช่องค้นของตาราง over บอกว่าค้น P/N ได้ด้วย (ผู้ตรวจ #151 ข้อ 2)',
      (htmlP.match(/ค้นหา PO · P\/N · รหัส · ข้อความ/g) || []).length === 2 && !/ค้นหา PO · รหัส\r?\n/.test(htmlP));
   const fsrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
