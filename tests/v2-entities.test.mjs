@@ -125,7 +125,8 @@ ok('หน้าคีย์รับเข้ารวมรายสัปด�
 
 const calls = appSrc.match(/migrateAll\([^)]*\)/g) || [];
 ok('migrateAll ทุกที่ในหน้าจอส่งทะเบียนนิติบุคคลเข้าไป ไม่งั้นจะไม่เติมให้เลย',
-   calls.length >= 2 && calls.every(c => c.includes('known:')), calls.join(' | '));
+   // เหลือที่เดียว (ตอนบูต) — นำเข้าไฟล์ PO เลิกสร้างเรื่อง short แล้ว 7 พ.ย. 2026
+   calls.length >= 1 && calls.every(c => c.includes('known:')), calls.join(' | '));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
