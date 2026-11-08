@@ -368,16 +368,24 @@ export function fitScale(W) {
 
 /* ═══════════ ใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) ═══════════
  * เลียนหน้าตาฟอร์ม Excel เดิม "ISSUE MATERIAL LOSS FOR SUBCONTRACT" เฉพาะคอลัมน์ที่พิมพ์ออกมา
- * (ฟอร์มเดิมซ่อนคอลัมน์ตามงานหลังสั่งกับราคาไว้ — เจ้าของให้ทำทีหลัง)
+ * (ฟอร์มเดิมซ่อนคอลัมน์ตามงานหลังสั่งกับราคาไว้ — ตามงานหลังสั่ง: เจ้าของให้ทำทีหลัง)
+ * price: '' = ไม่ใส่ราคา · 'hidden' = ราคา/หน่วย + จำนวนเงิน ซ่อนไว้แบบฟอร์มเดิม · 'shown' = เห็นและพิมพ์ด้วย
+ *   บรรทัดส่ง l.price (ราคาต่อหน่วย หรือ null = ไม่มีราคา / หน่วยไม่ตรง) · จำนวนเงินเป็นสูตร Q'ty × ราคา (เจ้าของสั่ง 8 พ.ย. 2026)
  * ⚠️ ชื่อบริษัท/ที่อยู่มาจากทะเบียนนิติบุคคลตอนออกใบเสมอ ห้ามเขียนตายตัวในโค้ด (repo สาธารณะ)
  * ใช้แค่ getCell / getColumn / getRow / mergeCells / pageSetup ให้ชีตปลอมในเทสทำงานได้ */
-export const BUYPO = { cols: { A: 1.4, B: 7.2, C: 17, D: 17, E: 16, F: 46, G: 12, H: 9, I: 34 },
+export const BUYPO = { cols: { A: 1.4, B: 7.2, C: 17, D: 17, E: 16, F: 46, G: 12, H: 9, I: 34, J: 15, K: 17 },
                        minRows: 15, docCode: 'FM-PU-02' };
 const THIN = { style: 'thin' }, MED = { style: 'medium' };
 const F14 = (bold = false) => ({ name: 'Calibri', size: 14, bold });
 export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo = '', date = '',
-                                 requestBy = '', groups = [] } = {}) {
-  for (const [c, w] of Object.entries(BUYPO.cols)) ws.getColumn(c).width = w;
+                                 requestBy = '', groups = [], price = '' } = {}) {
+  const priced = price === 'hidden' || price === 'shown';
+  const last = price === 'shown' ? 'K' : 'I';      // คอลัมน์ขวาสุดที่พิมพ์
+  for (const [c, w] of Object.entries(BUYPO.cols)) {
+    if (!priced && (c === 'J' || c === 'K')) continue;
+    ws.getColumn(c).width = w;
+    if (price === 'hidden' && (c === 'J' || c === 'K')) ws.getColumn(c).hidden = true;
+  }
   const cell = (a, v, font, extra = {}) => { const c = ws.getCell(a); if (v !== undefined) c.value = v;
     if (font) c.font = font; Object.assign(c, extra); return c; };
   const center = { horizontal: 'center', vertical: 'middle', wrapText: true };
@@ -391,7 +399,7 @@ export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo 
   cell('F2', 'ใบสั่งซื้อ', { name: 'Calibri', size: 30, bold: true }, { alignment: center });
   [['I2', 'Document Code :  ' + BUYPO.docCode], ['I3', 'เลขที่ใบ :  ' + docNo],
    ['I4', 'วันที่ :  ' + dmy(date)], ['I5', 'Page :  1']].forEach(([a, v]) => cell(a, v, F14(true)));
-  ws.mergeCells('B6:I6');
+  ws.mergeCells(`B6:${last}6`);
   cell('B6', 'ISSUE MATERIAL LOSS FOR SUBCONTRACT', { name: 'Arial Narrow', size: 14, bold: true }, { alignment: center });
   const yellow = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
   cell('C7', 'SUB :   ' + entity, F14(true), { alignment: center, fill: yellow });
@@ -404,10 +412,12 @@ export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo 
   const COLS = 'BCDEFGHI';
   head.forEach((h, i) => cell(COLS[i] + '8', h, F14(true),
     { alignment: center, border: { left: THIN, right: THIN, top: MED, bottom: MED } }));
+  if (priced) [['J8', 'ราคา/หน่วย'], ['K8', 'จำนวนเงิน']].forEach(([a, h]) => cell(a, h, F14(true),
+    { alignment: center, border: { left: THIN, right: THIN, top: MED, bottom: MED } }));
   ws.getRow(8).height = 36;
 
   // บรรทัด — Item / P/N / PO เขียนเฉพาะบรรทัดแรกของกลุ่มแบบฟอร์มเดิม
-  let r = 9, item = 0, lines = 0;
+  let r = 9, item = 0, lines = 0, total = 0;
   for (const g of groups) {
     item++;
     g.lines.forEach((l, k) => {
@@ -417,13 +427,21 @@ export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo 
       v.forEach((x, i) => cell(COLS[i] + r, x === '' ? null : x, F14(i !== 4),
         { alignment: i === 4 || i === 7 ? { vertical: 'middle', horizontal: 'left' } : center,
           border: { left: THIN, right: THIN, top: k ? THIN : MED, bottom: THIN } }));
+      if (priced) {
+        const p = l.price == null || !isFinite(Number(l.price)) ? null : Number(l.price);
+        const box = { left: THIN, right: THIN, top: k ? THIN : MED, bottom: THIN };
+        cell('J' + r, p, F14(), { numFmt: '#,##0.00##', alignment: { vertical: 'middle', horizontal: 'right' }, border: box });
+        cell('K' + r, p == null ? null : { formula: `G${r}*J${r}`, result: Math.round(p * (Number(l.qty) || 0) * 1e4) / 1e4 },
+             F14(), { numFmt: '#,##0.00', alignment: { vertical: 'middle', horizontal: 'right' }, border: box });
+        if (p != null) total += p * (Number(l.qty) || 0);
+      }
       ws.getRow(r).height = 22.8;
       r++; lines++;
     });
   }
   // บรรทัดว่างให้เขียนมือเพิ่มได้ เหมือนฟอร์มเดิม
   for (; r < 9 + BUYPO.minRows; r++) {
-    for (const c of COLS) cell(c + r, null, F14(), { border: { left: THIN, right: THIN, top: THIN, bottom: THIN } });
+    for (const c of COLS + (priced ? 'JK' : '')) cell(c + r, null, F14(), { border: { left: THIN, right: THIN, top: THIN, bottom: THIN } });
     ws.getRow(r).height = 22.8;
   }
 
@@ -432,13 +450,19 @@ export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo 
   ws.mergeCells(`B${f1}:I${f1}`);
   cell('B' + f1, `รวมซื้อ Mat'l ทั้งสิ้น  ${groups.length}  P/N  ( ${lines} รายการ )`, F14(true),
     { alignment: { vertical: 'middle', horizontal: 'left' }, border: { left: MED, right: MED, top: MED, bottom: MED } });
-  ws.mergeCells(`B${f2}:E${f2}`); ws.mergeCells(`F${f2}:I${f2}`);
+  ws.mergeCells(`B${f2}:E${f2}`); ws.mergeCells(`F${f2}:${last}${f2}`);
   cell('B' + f2, 'Request By :   ' + requestBy, F14(true), { alignment: { vertical: 'middle' }, border: { left: MED, right: MED, top: MED, bottom: MED } });
   cell('F' + f2, 'Approve :', F14(true), { alignment: { vertical: 'middle' }, border: { left: MED, right: MED, top: MED, bottom: MED } });
+  if (priced) {
+    const bx = { left: MED, right: MED, top: MED, bottom: MED };
+    cell('J' + f1, 'รวมเงิน', F14(true), { alignment: center, border: bx });
+    cell('K' + f1, { formula: `SUM(K9:K${f1 - 1})`, result: Math.round(total * 100) / 100 }, F14(true),
+         { numFmt: '#,##0.00', alignment: { vertical: 'middle', horizontal: 'right' }, border: bx });
+  }
   ws.getRow(f1).height = 30; ws.getRow(f2).height = 40;
 
   ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0,
-    printArea: `A1:I${f2}`, printTitlesRow: '8:8',
+    printArea: `A1:${last}${f2}`, printTitlesRow: '8:8',
     margins: { left: 0.2, right: 0.2, top: 0.3, bottom: 0.3, header: 0.2, footer: 0.2 } };
-  return { lines, items: groups.length, lastRow: f2 };
+  return { lines, items: groups.length, lastRow: f2, total: Math.round(total * 100) / 100 };
 }

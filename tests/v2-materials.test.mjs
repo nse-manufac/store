@@ -7,7 +7,7 @@
  * C คืออาการที่พนักงานแจ้งเข้ามาเองใน issue #26
  */
 import { categorize, checkCode, normCode, makeMaterial, addedOnFloor,
-         searchMaterials, duplicateDescriptions, CATEGORIES , codeSuggest } from '../v2/master/materials.js';
+         searchMaterials, duplicateDescriptions, CATEGORIES , codeSuggest, parsePriceFile, priceOf } from '../v2/master/materials.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -110,6 +110,37 @@ console.log('\n=== พิมพ์รหัสบางส่วนแล้ว�
   ok('พิมพ์เต็มตรงเป๊ะ = ได้เลย', codeSuggest(L, '9100000201').code === '9100000201');
   ok('ไม่พิมพ์ / ไม่ตรงอะไร = ว่าง', codeSuggest(L, '').items.length === 0 && codeSuggest(L, 'ZZZ').code === '');
   ok('เพดานจำนวนตัวเลือก', codeSuggest(L, '0', { limit: 2 }).items.length === 2);
+}
+
+console.log('\n=== PR. ไฟล์ราคาแมท (เจ้าของสั่ง 8 พ.ย. 2026) — ราคาสมมติทั้งหมด ===');
+{
+  const aoa = [
+    ['ITEM', 'MATERIAL NO', 'MATERIAL DESCRIPTION', 'VENDOR', 'STOCK QTY', 'STD COST', 'REMARK '],
+    [1, 901000001, 'ของ 9 หลัก', 1, 10, 1.25, null],          // Excel ตัด 0 หน้ารหัส
+    [2, 9100000002, 'ของ 2', 1, 10, 2.5, null],
+    [3, '91000000AB', 'รหัสมีตัวอักษร', 1, 10, '1,234.5', null],
+    [4, 9100000004, 'ราคาว่าง', 1, 10, null, null],
+    [5, 9100000005, 'ราคาติดลบ', 1, 10, -3, null],
+    [6, 9100000006, 'ซ้ำ ราคาไม่ตรง', 1, 10, 1, null],
+    [7, 9100000006, 'ซ้ำ ราคาไม่ตรง', 1, 10, 2, null],
+    [8, 9100000007, 'ซ้ำ ราคาเดียวกัน', 1, 10, 3, null],
+    [9, 9100000007, 'ซ้ำ ราคาเดียวกัน', 1, 10, 3, null],
+    [10, 9100000008, 'ของฟรี', 1, 10, 0, null],
+    [null, null, null, null, null, null, null]];
+  const p = parsePriceFile(aoa);
+  ok('หาหัว MATERIAL NO + STD COST เจอ · อ่านราคาตัวเลข / ข้อความมีจุลภาค',
+     p.ok && p.prices['9100000002'] === 2.5 && p.prices['91000000AB'] === 1234.5, JSON.stringify(p.prices));
+  ok('ช่องราคาว่าง / ติดลบ = ข้าม (นับไว้) ไม่ใส่ 0 ให้', !('9100000004' in p.prices) && !('9100000005' in p.prices) && p.bad === 2, String(p.bad));
+  ok('รหัสซ้ำราคาไม่ตรง = ไม่คิดราคาให้ + บอกรายชื่อ · ซ้ำราคาเดียวกัน = ใช้ได้',
+     !('9100000006' in p.prices) && p.conflicts.join() === '9100000006' && p.prices['9100000007'] === 3);
+  ok('ราคา 0 (ของฟรี) เก็บเป็น 0 ไม่ใช่ไม่มีราคา', priceOf(p.prices, '9100000008') === 0);
+  ok('Excel ตัด 0 หน้ารหัส: ทะเบียน 0901000001 หาเจอ · ไฟล์มีเลข 10 หลักแต่คีย์ 9 หลักก็เจอ',
+     priceOf(p.prices, '0901000001') === 1.25 && priceOf({ '0901000009': 7 }, '901000009') === 7);
+  ok('ไม่มีในไฟล์ / ไม่มีไฟล์ = null (ห้ามเป็น 0)',
+     priceOf(p.prices, '9199999999') === null && priceOf(null, '9100000002') === null && priceOf(p.prices, '') === null);
+  ok('หัวอยู่ใต้แถวชื่อเรื่อง + แบบไฟล์ data.1 (หัว "price") ก็อ่านได้',
+     parsePriceFile([['รายงานราคา'], [], ['ITEM', 'MATERIAL NO', 'DESC', ' Unit', 'price'], [1, 9100000002, 'x', 'PCS', 4]]).prices['9100000002'] === 4);
+  ok('ไม่มีหัวที่รู้จัก = ok:false ไม่เดาคอลัมน์', !parsePriceFile([['A', 'B'], [1, 2]]).ok && !parsePriceFile(null).ok);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

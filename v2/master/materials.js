@@ -184,3 +184,54 @@ export function duplicateDescriptions(list) {
     .map(([desc, codes]) => ({ description: desc, codes: codes.sort() }))
     .sort((a, b) => b.codes.length - a.codes.length);
 }
+
+/* ── ราคาวัตถุดิบ (เจ้าของสั่ง 8 พ.ย. 2026) ─────────────────────────────
+ * ไฟล์ราคาแมท (STOCK · STD COST) ใช้คิดเงินของซื้อทดแทน แทนไฟล์ data.1 ที่ฟอร์ม Excel เดิมดึงไปใช้
+ * ⚠️ ราคาเก็บในเครื่องเท่านั้น (meta 'prices') ไม่ซิงค์ — เจ้าของเลือกแบบ 1ก
+ * ⚠️ ราคาจริงห้ามเข้า repo (สาธารณะ) · เทสใช้เลขสมมติ */
+const HEAD_CODE = /^MATERIAL\s*NO\.?$/i;
+const HEAD_COST = /^(STD\s*COST|PRICE|ราคา\s*\/\s*หน่วย)$/i;
+
+/**
+ * อ่านไฟล์ราคา — หาหัว "MATERIAL NO" + "STD COST" (หรือ "price" แบบไฟล์ data.1) ใน 30 แถวแรก
+ * ช่องราคาว่าง / ไม่ใช่ตัวเลข = ข้าม (นับไว้บอก) ไม่ใส่ 0 ให้ — 0 คือของฟรี ไม่ใช่ไม่รู้ราคา
+ * รหัสซ้ำแต่ราคาไม่ตรงกัน = ไม่คิดราคาให้รหัสนั้นเลย (ไม่เดาว่าตัวไหนถูก) แล้วบอกรายชื่อ
+ */
+export function parsePriceFile(aoa) {
+  let h = -1, ci = -1, pi = -1;
+  for (let r = 0; r < Math.min((aoa || []).length, 30) && h < 0; r++) {
+    const row = (aoa[r] || []).map(v => String(v == null ? '' : v).trim());
+    const c = row.findIndex(v => HEAD_CODE.test(v)), p = row.findIndex(v => HEAD_COST.test(v));
+    if (c >= 0 && p >= 0) { h = r; ci = c; pi = p; }
+  }
+  if (h < 0) return { ok: false, prices: {}, n: 0, bad: 0, conflicts: [] };
+  const prices = {}, clash = new Set();
+  let bad = 0;
+  for (const row of aoa.slice(h + 1)) {
+    const code = normCode(row && row[ci]);
+    if (!code) continue;
+    const v = row[pi];
+    const cost = typeof v === 'number' ? v : Number(String(v == null ? '' : v).replace(/,/g, '').trim());
+    if (v == null || String(v).trim() === '' || !isFinite(cost) || cost < 0) { bad++; continue; }
+    if (code in prices && prices[code] !== cost) clash.add(code);
+    prices[code] = cost;
+  }
+  for (const code of clash) delete prices[code];
+  return { ok: true, prices, n: Object.keys(prices).length, bad, conflicts: [...clash].sort() };
+}
+
+/**
+ * ราคาต่อหน่วยของรหัส — ไม่มี = null (ห้ามเป็น 0)
+ * Excel ตัดเลข 0 หน้ารหัสทิ้งได้ (0901012528 → 901012528) จึงลองอีกแบบให้ถ้าแบบตรงตัวไม่เจอ
+ */
+export function priceOf(prices, code) {
+  if (!prices) return null;
+  const c = normCode(code);
+  if (!c) return null;
+  if (Object.prototype.hasOwnProperty.call(prices, c)) return prices[c];
+  if (/^\d+$/.test(c)) {
+    const alt = c.startsWith('0') ? c.replace(/^0+/, '') : c.padStart(10, '0');
+    if (alt !== c && Object.prototype.hasOwnProperty.call(prices, alt)) return prices[alt];
+  }
+  return null;
+}

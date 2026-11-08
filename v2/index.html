@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-08.1">
+<meta name="app-version" content="2026-11-08.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2407,8 +2407,10 @@ textarea{font:inherit}
                 <th style="width:34px" title="ติ๊กเพื่อใส่ในใบสั่งซื้อ">✓</th>
                 <th style="width:105px">ตั้งวันที่</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องซื้อ</th><th style="width:100px">ยังค้าง</th>
+                <th style="width:95px" title="ราคาต่อหน่วยจากไฟล์ราคาแมท">ราคา/หน่วย</th>
+                <th style="width:105px" title="ราคา/หน่วย × ต้องซื้อ">จำนวนเงิน</th>
                 <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th><th>หมายเหตุ</th>
-                <th style="width:185px"></th></tr></thead>
+                <th style="width:250px"></th></tr></thead>
               <tbody>
                 <tr v-for="r in fbRows" :key="r.s.id">
                   <td><input v-if="fbCanPick(r.s)" type="checkbox" v-model="fbPick[r.s.id]"></td>
@@ -2419,12 +2421,16 @@ textarea{font:inherit}
                     <b v-if="r.st==='partial'">{{ r.remain }}</b>
                     <span v-else-if="r.st==='done'" class="tag ok">มาครบแล้ว</span>
                     <span v-else class="hint">—</span></td>
+                  <td class="mono hint">{{ priceSet ? unitPriceTxt(fbPrice(r.s).unit) : '—' }}</td>
+                  <td class="mono"><template v-if="!priceSet">—</template>
+                    <span v-else-if="fbPrice(r.s).why" class="tag warn" :title="fbPrice(r.s).why">{{ fbPrice(r.s).why.split(' — ')[0] }}</span>
+                    <template v-else>{{ bahtTxt(fbPrice(r.s).amount) }}</template></td>
                   <td class="mono">{{ r.s.po || '—' }}</td><td class="mono hint">{{ r.s.part_no || '—' }}</td>
                   <td class="hint">{{ r.s.note || '—' }}
                     <span v-if="r.s.source==='manual'" class="tag">คีย์เอง</span>
                     <a v-if="r.s.pr_no" href="#" class="tag ok" title="ออกไฟล์ใบนี้อีกครั้ง"
                        @click.prevent="fbReissue(r.s.pr_no)">ใบ {{ r.s.pr_no }}</a></td>
-                  <td>
+                  <td style="white-space:nowrap">
                     <template v-if="r.st==='done'">
                       <span class="hint">มา {{ localDate(r.s.done_at) }} {{ r.s.done_by }}</span>
                       <button v-if="!r.s.receive_entry_id" class="btn" style="padding:2px 8px;margin-left:5px"
@@ -2440,7 +2446,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fbRows.length"><td colspan="10" class="empty">
+                <tr v-if="!fbRows.length"><td colspan="12" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!fbShowDone" class="hint">· ที่มาครบแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
@@ -2449,6 +2455,23 @@ textarea{font:inherit}
           </div>
           <p class="hint" style="margin:8px 0 0" v-if="fbAll.length > fbRows.length">
             แสดง {{ fbRows.length }} จาก {{ fbAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
+          <!-- ราคาแมท (เจ้าของสั่ง 8 พ.ย. 2026) · ยอดรวมนับทุกเรื่องที่ค้น/กรองอยู่ ไม่ใช่แค่ที่แสดง -->
+          <div class="row" style="margin-top:8px;gap:10px;align-items:center">
+            <template v-if="priceSet">
+              <b>รวม {{ bahtTxt(fbSum.total) }} บาท</b>
+              <span class="hint">คิดได้ {{ fbSum.priced }} จาก {{ fbSum.n }} เรื่อง</span>
+              <span v-if="fbSum.noPrice" class="tag warn" title="รหัสไม่อยู่ในไฟล์ราคา — ไม่นับในยอดรวม">ไม่มีราคา {{ fbSum.noPrice }}</span>
+              <span v-if="fbSum.badUnit" class="tag warn" title="หน่วยของเรื่องไม่ตรงกับทะเบียน — ไม่นับในยอดรวม · ชี้ที่ป้ายในตารางเพื่อดูหน่วย">หน่วยไม่ตรง {{ fbSum.badUnit }}</span>
+              <span v-if="fbPicked.length" class="hint">· ที่ติ๊กไว้ (ยอดค้าง) <b>{{ bahtTxt(fbPickSum.total) }}</b> บาท
+                — คิดได้ {{ fbPickSum.priced }} จาก {{ fbPickSum.n }}</span>
+            </template>
+            <span v-else class="hint">ยังไม่มีไฟล์ราคาในเครื่องนี้ — นำเข้าไฟล์ราคาแมทเพื่อดูจำนวนเงิน</span>
+            <div class="grow"></div>
+            <span v-if="priceSet" class="hint" title="ราคาเก็บในเครื่องนี้เท่านั้น ไม่ซิงค์ไปเครื่องอื่น">
+              ราคาจาก {{ prices.file }} · {{ prices.n }} รหัส · นำเข้า {{ localDate(prices.at) }}</span>
+            <label class="btn" style="cursor:pointer">{{ priceBusy ? 'กำลังอ่าน...' : (priceSet ? 'นำเข้าไฟล์ราคาใหม่' : 'นำเข้าไฟล์ราคา') }}
+              <input type="file" accept=".xlsx,.xls" @change="onPriceFile" :disabled="priceBusy" style="display:none"></label>
+          </div>
           <p class="hint" style="margin:8px 0 0">
             เรื่องซื้อเป็นตัวเตือนให้ตามของที่ยังไม่มา — <b>ไม่รับเข้าคลัง</b> เพราะสั่งมาพอดีกับที่จะใช้<br>
             เว้นช่องยอดแล้วกด <b>มาแล้ว</b> = มาครบ (ลงวันที่ตามช่อง <b>วันที่ของมา</b> · ค่าตั้งต้นวันนี้) · ใส่ยอดก่อนกด (หรือ Enter ในช่อง) = มาบางส่วน เหลือค้างตามส่วนต่าง ·

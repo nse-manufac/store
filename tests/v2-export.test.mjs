@@ -318,6 +318,32 @@ console.log('\n=== G. ใบสั่งซื้อทดแทน FM-PU-02 (�
      !/Thai Union|ทีพีพี|Co\.,Ltd/i.test(src.slice(src.indexOf('ใบสั่งซื้อทดแทน FM-PU-02'))));
 }
 
+console.log('\n=== BQ. ใบสั่งซื้อใส่ราคา (เจ้าของสั่ง 8 พ.ย. 2026) — ราคาสมมติ ===');
+{
+  const groups = [{ part_no: 'PN-1', po: 'PO-A', lines: [
+    { id: 'a', code: 'C1', desc: 'ของ 1', qty: 4, unit: 'PCS', note: '', price: 2.5 },
+    { id: 'b', code: 'C2', desc: 'ของ 2', qty: 3, unit: 'KG', note: '', price: null }] }];
+  const base = { entity: 'TUE-H', docNo: '8.11.26 H', date: '2026-11-08', groups };
+  const w0 = fakeWs(); const r0 = writeBuyPo(w0, base);
+  ok("ไม่ใส่ราคา (ค่าตั้งต้น) = ใบเหมือนเดิม — ไม่มีหัว J8 · พิมพ์ถึง I",
+     w0.getCell('J8').value === undefined && w0.cols.get('J') === undefined && w0.pageSetup.printArea === 'A1:I' + r0.lastRow);
+  const wh = fakeWs(); const rh = writeBuyPo(wh, { ...base, price: 'hidden' });
+  ok('ซ่อน (แบบฟอร์มเดิม): หัว ราคา/หน่วย · จำนวนเงิน · คอลัมน์ J K ซ่อน · พิมพ์ถึง I',
+     wh.getCell('J8').value === 'ราคา/หน่วย' && wh.getCell('K8').value === 'จำนวนเงิน'
+     && wh.cols.get('J').hidden === true && wh.cols.get('K').hidden === true && wh.pageSetup.printArea === 'A1:I' + rh.lastRow);
+  ok('จำนวนเงินเป็นสูตร Q\'ty × ราคา (แก้จำนวนในไฟล์แล้วเงินตาม) · ไม่มีราคา = ช่องว่าง',
+     wh.getCell('J9').value === 2.5 && wh.getCell('K9').value.formula === 'G9*J9' && wh.getCell('K9').value.result === 10
+     && wh.getCell('J10').value === null && wh.getCell('K10').value === null);
+  const f1 = rh.lastRow - 1;
+  ok('ท้ายใบมี รวมเงิน = SUM ของคอลัมน์จำนวนเงิน', wh.getCell('J' + f1).value === 'รวมเงิน'
+     && wh.getCell('K' + f1).value.formula === `SUM(K9:K${f1 - 1})` && rh.total === 10, JSON.stringify(wh.getCell('K' + f1).value));
+  const ws2 = fakeWs(); const rs = writeBuyPo(ws2, { ...base, price: 'shown' });
+  ok('เห็นเลย: ไม่ซ่อน · พิมพ์ถึง K', ws2.cols.get('J').hidden !== true && ws2.pageSetup.printArea === 'A1:K' + rs.lastRow);
+  const appQ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok("แอปยังไม่ใส่ราคาในใบ จนกว่าเจ้าของเลือก (BUY_PO_PRICE = '')", /const BUY_PO_PRICE = '';/.test(appQ)
+     && appQ.includes('price: BUY_PO_PRICE'));
+}
+
 console.log('\n=== H. แถวรวม: ป้าย "รวม" · ตัวหนา · Short / Over รวมทุก PO (เจ้าของสั่ง 16 ต.ค. 2026) ===');
 {
   const lines = toCardLines([
