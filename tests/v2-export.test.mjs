@@ -340,7 +340,7 @@ console.log('\n=== BQ. ใบสั่งซื้อใส่ราคา (เ�
   const ws2 = fakeWs(); const rs = writeBuyPo(ws2, { ...base, price: 'shown' });
   ok('เห็นเลย: ไม่ซ่อน · พิมพ์ถึง K', ws2.cols.get('J').hidden !== true && ws2.pageSetup.printArea === 'A1:K' + rs.lastRow);
   const appQ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  ok("แอปยังไม่ใส่ราคาในใบ จนกว่าเจ้าของเลือก (BUY_PO_PRICE = '')", /const BUY_PO_PRICE = '';/.test(appQ)
+  ok('แอปใส่ราคาในใบแบบเห็นเลย — เจ้าของเลือก 10 พ.ย. 2026', /const BUY_PO_PRICE = 'shown';/.test(appQ)
      && appQ.includes('price: BUY_PO_PRICE'));
 }
 

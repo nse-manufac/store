@@ -2848,8 +2848,8 @@ createApp({
     const fbDocGroups = computed(() => buyDocGroups(fbPicked.value));
     const fbCanPick = s => !s.voided && !s.pr_no && statusOf(s) !== 'done';
     const descOf = c => { const m = matOf(c); return m ? m.description : ''; };
-    // ใส่ราคาในใบสั่งซื้อ: '' ไม่ใส่ · 'hidden' ซ่อนแบบฟอร์มเดิม · 'shown' เห็นเลย — ⚠️ รอเจ้าของเลือก (8 พ.ย. 2026)
-    const BUY_PO_PRICE = '';
+    // ใส่ราคาในใบสั่งซื้อ: '' ไม่ใส่ · 'hidden' ซ่อนแบบฟอร์มเดิม · 'shown' เห็นเลย — เจ้าของเลือก "เห็นเลย" (10 พ.ย. 2026)
+    const BUY_PO_PRICE = 'shown';
     async function buyDocFile(no, date, rows, qty = 'remain') {
       await loadLib('lib/exceljs.min.js', 'ExcelJS');
       const ent = entities.value.find(e => e.entity_code === entity.value) || {};
