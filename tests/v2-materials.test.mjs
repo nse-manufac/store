@@ -140,6 +140,10 @@ console.log('\n=== PR. ไฟล์ราคาแมท (เจ้าของ�
      priceOf(p.prices, '9199999999') === null && priceOf(null, '9100000002') === null && priceOf(p.prices, '') === null);
   ok('หัวอยู่ใต้แถวชื่อเรื่อง + แบบไฟล์ data.1 (หัว "price") ก็อ่านได้',
      parsePriceFile([['รายงานราคา'], [], ['ITEM', 'MATERIAL NO', 'DESC', ' Unit', 'price'], [1, 9100000002, 'x', 'PCS', 4]]).prices['9100000002'] === 4);
+  ok('ไฟล์มีทั้ง PRICE และ STD COST = ใช้ STD COST เสมอ แม้ PRICE อยู่ซ้ายกว่า (ผู้ตรวจ #154 ข้อ 4)',
+     parsePriceFile([['MATERIAL NO', 'PRICE', 'STD COST'], ['A1', 1, 2]]).prices.A1 === 2);
+  ok('หัวครบแต่ราคาใช้ไม่ได้ทุกแถว = ok:true n:0 + นับ bad (แอปบอกเหตุให้ถูก)',
+     (q => q.ok && q.n === 0 && q.bad === 2)(parsePriceFile([['MATERIAL NO', 'STD COST'], ['A1', null], ['A2', 'x']])));
   ok('ไม่มีหัวที่รู้จัก = ok:false ไม่เดาคอลัมน์', !parsePriceFile([['A', 'B'], [1, 2]]).ok && !parsePriceFile(null).ok);
 }
 

@@ -1417,17 +1417,22 @@ export function buyPrice(s, { prices = null, unitOf = null, qty = null } = {}) {
   return { unit, amount: Math.round(unit * q * 1e4) / 1e4, why: '' };
 }
 
+/** ปัดเงินเป็นสตางค์ — ตัดเศษ float ที่ 6 ตำแหน่งก่อน (1.475 ต้องได้ 1.48 แบบ Excel ไม่ใช่ 1.47)
+ *  ⚠️ export/bincard.js writeBuyPo มีตัวเดียวกัน — ยอดบนจอกับ "รวมเงิน" ในไฟล์ต้องเท่ากัน (ผู้ตรวจ #154 ข้อ 3) */
+export const money2 = x => Math.round(Number((Number(x) || 0).toFixed(6)) * 100) / 100;
+
 /** ยอดรวมเงิน — นับเฉพาะเรื่องที่คิดเงินได้ แล้วบอกจำนวนที่ไม่มีราคา / หน่วยไม่ตรงแยกไว้ · qty 'remain' = ยอดค้าง (ตรงกับใบสั่งซื้อ) */
 export function buySum(rows, { prices = null, unitOf = null, qty = 'order' } = {}) {
   const out = { total: 0, n: 0, priced: 0, noPrice: 0, badUnit: 0 };
   for (const s of rows || []) {
     out.n++;
     const p = buyPrice(s, { prices, unitOf, qty: qty === 'remain' ? remainOf(s) : null });
-    if (p.amount != null) { out.total += p.amount; out.priced++; }
+    // บวกผลคูณเต็ม ไม่ใช่ amount ที่ปัดแล้ว — แบบเดียวกับสูตร G×J + SUM ในใบสั่งซื้อ
+    if (p.amount != null) { out.total += p.unit * (qty === 'remain' ? remainOf(s) : Number(s.qty) || 0); out.priced++; }
     else if (p.unit == null) out.noPrice++;
     else out.badUnit++;
   }
-  out.total = Math.round(out.total * 100) / 100;
+  out.total = money2(out.total);
   return out;
 }
 

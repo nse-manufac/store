@@ -377,6 +377,8 @@ export const BUYPO = { cols: { A: 1.4, B: 7.2, C: 17, D: 17, E: 16, F: 46, G: 12
                        minRows: 15, docCode: 'FM-PU-02' };
 const THIN = { style: 'thin' }, MED = { style: 'medium' };
 const F14 = (bold = false) => ({ name: 'Calibri', size: 14, bold });
+// ⚠️ ตัวเดียวกับ money2 ใน master/follow.js — ยอดบนจอกับ "รวมเงิน" ในไฟล์ต้องปัดแบบเดียวกัน (ผู้ตรวจ #154 ข้อ 3)
+const money2 = x => Math.round(Number((Number(x) || 0).toFixed(6)) * 100) / 100;
 export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo = '', date = '',
                                  requestBy = '', groups = [], price = '' } = {}) {
   const priced = price === 'hidden' || price === 'shown';
@@ -456,7 +458,7 @@ export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo 
   if (priced) {
     const bx = { left: MED, right: MED, top: MED, bottom: MED };
     cell('J' + f1, 'รวมเงิน', F14(true), { alignment: center, border: bx });
-    cell('K' + f1, { formula: `SUM(K9:K${f1 - 1})`, result: Math.round(total * 100) / 100 }, F14(true),
+    cell('K' + f1, { formula: `SUM(K9:K${f1 - 1})`, result: money2(total) }, F14(true),
          { numFmt: '#,##0.00', alignment: { vertical: 'middle', horizontal: 'right' }, border: bx });
   }
   ws.getRow(f1).height = 30; ws.getRow(f2).height = 40;
@@ -464,5 +466,5 @@ export function writeBuyPo(ws, { company = '', address = '', entity = '', docNo 
   ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0,
     printArea: `A1:${last}${f2}`, printTitlesRow: '8:8',
     margins: { left: 0.2, right: 0.2, top: 0.3, bottom: 0.3, header: 0.2, footer: 0.2 } };
-  return { lines, items: groups.length, lastRow: f2, total: Math.round(total * 100) / 100 };
+  return { lines, items: groups.length, lastRow: f2, total: money2(total) };
 }

@@ -2803,7 +2803,8 @@ createApp({
     const prices = ref(null);
     const priceBusy = ref(false);
     const priceSet = computed(() => !!(prices.value && prices.value.n));
-    const unitOfMat = code => { const m = matOf(code); return m ? m.unit : ''; };
+    // ดัชนี ไม่ใช่ matOf (ไล่ทั้งทะเบียน) — เรียกหลายครั้งต่อแถวทุกครั้งที่จอวาดใหม่ (ผู้ตรวจ #154 ข้อ 2)
+    const unitOfMat = code => { const m = matIndex.value.get(normCode(code)); return m ? m.unit : ''; };
     const priceOpt = () => ({ prices: prices.value && prices.value.prices, unitOf: unitOfMat });
     const fbPrice = s => buyPrice(s, priceOpt());
     const fbSum = computed(() => buySum(fbAll.value.map(r => r.s), priceOpt()));
@@ -2819,13 +2820,18 @@ createApp({
       try {
         await loadLib('lib/xlsx.full.min.js', 'XLSX');
         const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
-        let p = null;
+        let p = null, seen = null;          // seen = ชีตแรกที่เจอหัวคอลัมน์ ไว้บอกเหตุให้ถูก (ผู้ตรวจ #154 ข้อ 7)
         for (const n of wb.SheetNames) {
           p = parsePriceFile(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: false }));
+          if (p.ok && !seen) seen = p;
           if (p.ok && p.n) break;
         }
         if (!p || !p.ok || !p.n) {
-          flash('ไม่เจอหัวคอลัมน์ "MATERIAL NO" กับ "STD COST" ในไฟล์นี้ — เลือกไฟล์ราคาแมทที่ได้มา', true);
+          flash(seen
+            ? `เจอหัวคอลัมน์แล้ว แต่ไม่มีแถวไหนที่ใช้ราคาได้ — ราคาว่าง / ไม่ใช่ตัวเลข / ติดลบ ${seen.bad} แถว`
+              + (seen.conflicts.length ? ` · รหัสซ้ำราคาไม่ตรงกัน ${seen.conflicts.length} รหัส` : '')
+              + ' — ตรวจไฟล์ก่อน (ราคาเดิมในเครื่องยังอยู่)'
+            : 'ไม่เจอหัวคอลัมน์ "MATERIAL NO" กับ "STD COST" ในไฟล์นี้ — เลือกไฟล์ราคาแมทที่ได้มา', true);
           return;
         }
         const rec = { file: file.name, at: new Date().toISOString(), n: p.n, prices: p.prices };

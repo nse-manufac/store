@@ -9,7 +9,8 @@
  */
 import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
-import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum } from '../v2/master/follow.js';
+import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
+import { writeBuyPo } from '../v2/export/bincard.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -2151,6 +2152,19 @@ console.log('\n=== BP. จำนวนเงินของซื้อทดแ
   ok('ยอดรวมแบบยอดค้าง (ที่ติ๊กไว้ = ตรงกับใบสั่งซื้อ) ใช้ ต้องซื้อ − มาแล้ว',
      buySum([rows[1]], { ...opt, qty: 'remain' }).total === 20);
 
+  // ผู้ตรวจ #154 ข้อ 3 — ยอดบนจอกับ "รวมเงิน" ในไฟล์ต้องเท่ากัน แม้ปัดรายบรรทัดแล้วข้ามเส้นครึ่งสตางค์
+  {
+    // รหัสละ 0.00246 กับ 0.0025: ปัดรายบรรทัดก่อน (โค้ดเดิม) ได้ 0.01 · คูณเต็มแล้วปัดครั้งเดียว (Excel) ได้ 0.00
+    const pr = { '9100000301': 0.00246, '9100000302': 0.0025 };
+    const two = [b('9100000301', 1, ''), b('9100000302', 1, '')];
+    const onScreen = buySum(two, { prices: pr }).total;
+    const ws = (() => { const cells = new Map(); const g = a => { if (!cells.has(a)) cells.set(a, {}); return cells.get(a); };
+      return { getCell: g, getColumn: () => ({}), getRow: () => ({}), mergeCells() {} }; })();
+    const inFile = writeBuyPo(ws, { price: 'shown', groups: [{ part_no: 'P', po: 'Q', lines: two.map(x => ({ ...x, price: pr[x.code] })) }] }).total;
+    ok('ยอดบนจอ = รวมเงินในไฟล์ (บวกผลคูณเต็มแล้วปัดครั้งเดียว)', onScreen === inFile && onScreen === 0, onScreen + ' / ' + inFile);
+    ok('ปัดสตางค์แบบ Excel: 1.475 → 1.48 · เศษ float ไม่ทำให้ปัดลง', money2(1.475) === 1.48 && money2(0.1 + 0.2) === 0.3 && money2(null) === 0);
+  }
+
   const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const syncB = fs.readFileSync(new URL('../v2/core/sync.js', import.meta.url), 'utf8');
@@ -2160,6 +2174,8 @@ console.log('\n=== BP. จำนวนเงินของซื้อทดแ
      htmlB.includes('>ราคา/หน่วย</th>') && htmlB.includes('>จำนวนเงิน</th>') && htmlB.includes('<tr v-if="!fbRows.length"><td colspan="12"')
      && htmlB.includes('รวม {{ bahtTxt(fbSum.total) }} บาท') && htmlB.includes('@change="onPriceFile"'));
   ok('ยอดรวมนับทุกเรื่องที่กรองอยู่ (fbAll) ไม่ใช่แค่ที่แสดง (fbRows)', /fbSum = computed\(\(\) => buySum\(fbAll\.value/.test(appB));
+  ok('หาหน่วยด้วยดัชนี matIndex ไม่ไล่ทั้งทะเบียน (ผู้ตรวจ #154 ข้อ 2) · ไฟล์หัวครบแต่ราคาใช้ไม่ได้ บอกเหตุตรง (ข้อ 7)',
+     appB.includes('const unitOfMat = code => { const m = matIndex.value.get(normCode(code));') && appB.includes('เจอหัวคอลัมน์แล้ว แต่ไม่มีแถวไหนที่ใช้ราคาได้'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

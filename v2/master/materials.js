@@ -190,7 +190,8 @@ export function duplicateDescriptions(list) {
  * ⚠️ ราคาเก็บในเครื่องเท่านั้น (meta 'prices') ไม่ซิงค์ — เจ้าของเลือกแบบ 1ก
  * ⚠️ ราคาจริงห้ามเข้า repo (สาธารณะ) · เทสใช้เลขสมมติ */
 const HEAD_CODE = /^MATERIAL\s*NO\.?$/i;
-const HEAD_COST = /^(STD\s*COST|PRICE|ราคา\s*\/\s*หน่วย)$/i;
+// เรียงตามลำดับที่เลือก — ไฟล์มีทั้ง STD COST และ PRICE ต้องได้ STD COST เสมอ ไม่ใช่ตัวที่อยู่ซ้ายกว่า (ผู้ตรวจ #154 ข้อ 4)
+const HEAD_COST = [/^STD\s*COST$/i, /^PRICE$/i, /^ราคา\s*\/\s*หน่วย$/i];
 
 /**
  * อ่านไฟล์ราคา — หาหัว "MATERIAL NO" + "STD COST" (หรือ "price" แบบไฟล์ data.1) ใน 30 แถวแรก
@@ -201,7 +202,8 @@ export function parsePriceFile(aoa) {
   let h = -1, ci = -1, pi = -1;
   for (let r = 0; r < Math.min((aoa || []).length, 30) && h < 0; r++) {
     const row = (aoa[r] || []).map(v => String(v == null ? '' : v).trim());
-    const c = row.findIndex(v => HEAD_CODE.test(v)), p = row.findIndex(v => HEAD_COST.test(v));
+    const c = row.findIndex(v => HEAD_CODE.test(v));
+    const p = HEAD_COST.map(re => row.findIndex(v => re.test(v))).find(i => i >= 0) ?? -1;
     if (c >= 0 && p >= 0) { h = r; ci = c; pi = p; }
   }
   if (h < 0) return { ok: false, prices: {}, n: 0, bad: 0, conflicts: [] };
