@@ -2167,6 +2167,8 @@ console.log('\n=== BPO. ยอดคงคลัง: PO / P/N ที่มีร
   const otherRow = poUseByCode(ents, EN, calc, [otherClosed], { headerOf }).get(C).rows.find(r => r.po === 'TM0001H955');
   ok('เรื่อง short ที่ปิดแล้วของนิติบุคคลอื่น ไม่ทำให้ใบนี้รับครบ (A3 · ผู้ตรวจ #155 ข้อ 1)',
      otherRow.state === 'in' && otherRow.left === 4, JSON.stringify(otherRow));
+  const ownerless = poUseByCode(ents, EN, calc, [{ ...closedF, entity: '' }], { headerOf }).get(C).rows.find(r => r.po === 'TM0001H955');
+  ok('เรื่อง short ที่ปิดแล้วแต่ยังไม่มีเจ้าของ ยังนับให้ทุกนิติบุคคล (sameEntity ไม่ใช่ entity ===)', ownerless.state === 'done', JSON.stringify(ownerless));
   ok('PO ที่คิดตามสูตรไม่ได้ ยังแสดงจากรายการรับเข้า (ไม่มีสูตร · เหลือ = รับ − จ่าย)',
      at('TM0001H999').why === 'ไม่มีสูตร' && at('TM0001H999').left === 5 && at('TM0001H999').state === 'out');
   ok('รหัสที่รับเข้า PO ที่มีสูตรแต่ไม่อยู่ในสูตร = ไม่อยู่ในสูตร พร้อม P/N ของใบ',
