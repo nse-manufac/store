@@ -2180,8 +2180,9 @@ console.log('\n=== BPO. ยอดคงคลัง: PO / P/N ที่มีร
   ok('จอ: ซ่อน PO ที่จบแล้ว เว้นแต่ติ๊กดู หรือยังมีของเกินค้าง · ค้นด้วย PO / P/N ได้',
      appQ.includes("x.rows.filter(p => balDone.value || p.state !== 'done' || p.extra > 0)")
      && appQ.includes('r.po.rows.some(p => String(p.po).toUpperCase().includes(t) || String(p.pn).toUpperCase().includes(t))'));
-  ok('จอ: ตารางยอดคงคลังมีคอลัมน์ PO / P/N แสดงครบทุกใบ + ช่องติ๊ก แสดง PO ที่จบแล้ว',
-     htmlQ.includes('v-for="p in r.po.rows"') && htmlQ.includes('v-model="balDone"') && htmlQ.includes('>PO / P/N</th>'));
+  ok('จอ: ตารางยอดคงคลังมีคอลัมน์ PO แล้ว P/N แยกกัน (บรรทัดสูงเท่ากัน) แสดงครบทุกใบ + ช่องติ๊ก แสดง PO ที่จบแล้ว',
+     htmlQ.includes('v-for="p in r.po.rows"') && htmlQ.includes('v-model="balDone"') && />PO<\/th>\s*<th style="width:100px">P\/N<\/th>/.test(htmlQ)
+     && (htmlQ.match(/class="po-ln/g) || []).length === 2);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
