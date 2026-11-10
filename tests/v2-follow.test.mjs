@@ -9,7 +9,8 @@
  */
 import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
-import { returnOver, returnOverWarn, overExceedWarn, partNoOf } from '../v2/master/follow.js';
+import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
+import { writeBuyPo } from '../v2/export/bincard.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -2125,6 +2126,56 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
   const fsrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   ok('คำอธิบายของ listFollow อยู่ติดตัวมัน ไม่ไปค้างเหนือ partNoOf (ผู้ตรวจ #151 ข้อ 1)',
      /ไม่กรองแล้วเรื่องของเกิน\/ซื้อทดแทนจะไหลมาโผล่ในหน้าของขาด\n \*\/\nexport function listFollow/.test(fsrc));
+}
+
+console.log('\n=== BP. จำนวนเงินของซื้อทดแทน (เจ้าของสั่ง 8 พ.ย. 2026) — ราคาสมมติ ===');
+{
+  const prices = { '9100000101': 2.5, '9100000102': 10, '0901000103': 1.2345 };
+  const units = { '9100000101': 'PCS', '9100000102': 'KG', '0901000103': '' };
+  const opt = { prices, unitOf: c => units[c] || '' };
+  const b = (code, qty, unit, extra = {}) => ({ kind: 'buy', code, qty, unit, done_qty: 0, ...extra });
+  const a = buyPrice(b('9100000101', 4, 'pcs'), opt);
+  ok('ราคา/หน่วย × ต้องซื้อ · หน่วยตัวพิมพ์เล็กใหญ่ไม่ต่าง', a.unit === 2.5 && a.amount === 10 && a.why === '', JSON.stringify(a));
+  ok('ไม่มีในไฟล์ราคา = ไม่มีราคา (amount null ไม่ใช่ 0)',
+     buyPrice(b('9100000199', 4, 'PCS'), opt).amount === null && buyPrice(b('9100000199', 4, 'PCS'), opt).why === 'ไม่มีราคา');
+  const g = buyPrice(b('9100000102', 500, 'G'), opt);
+  ok('หน่วยไม่ตรงทะเบียน (KG กับ G) = ไม่คิดเงิน บอกทั้งสองหน่วย',
+     g.amount === null && g.unit === 10 && g.why.startsWith('หน่วยไม่ตรง') && g.why.includes('KG') && g.why.includes('G'), g.why);
+  ok('ทะเบียนไม่มีหน่วย / เรื่องไม่มีหน่วย = คิดเงินได้ (ไม่มีอะไรให้เทียบ)',
+     buyPrice(b('0901000103', 2, 'PCS'), opt).amount === 2.469 && buyPrice(b('9100000101', 2, ''), opt).amount === 5);
+  ok('ส่ง qty มาเอง (บรรทัดในใบสั่งซื้อ) ใช้ตัวนั้น', buyPrice(b('9100000101', 4, 'PCS'), { ...opt, qty: 1 }).amount === 2.5);
+  ok('ไม่มีไฟล์ราคา = ไม่มีราคาทุกเรื่อง ไม่พัง', buyPrice(b('9100000101', 4, 'PCS'), {}).why === 'ไม่มีราคา');
+  const rows = [b('9100000101', 4, 'PCS'), b('9100000102', 3, 'KG', { done_qty: 1 }), b('9100000102', 1, 'G'), b('9100000199', 9, 'PCS')];
+  const sm = buySum(rows, opt);
+  ok('ยอดรวมนับเฉพาะที่คิดได้ · แยกนับไม่มีราคา / หน่วยไม่ตรง',
+     sm.total === 40 && sm.n === 4 && sm.priced === 2 && sm.noPrice === 1 && sm.badUnit === 1, JSON.stringify(sm));
+  ok('ยอดรวมแบบยอดค้าง (ที่ติ๊กไว้ = ตรงกับใบสั่งซื้อ) ใช้ ต้องซื้อ − มาแล้ว',
+     buySum([rows[1]], { ...opt, qty: 'remain' }).total === 20);
+
+  // ผู้ตรวจ #154 ข้อ 3 — ยอดบนจอกับ "รวมเงิน" ในไฟล์ต้องเท่ากัน แม้ปัดรายบรรทัดแล้วข้ามเส้นครึ่งสตางค์
+  {
+    // รหัสละ 0.00246 กับ 0.0025: ปัดรายบรรทัดก่อน (โค้ดเดิม) ได้ 0.01 · คูณเต็มแล้วปัดครั้งเดียว (Excel) ได้ 0.00
+    const pr = { '9100000301': 0.00246, '9100000302': 0.0025 };
+    const two = [b('9100000301', 1, ''), b('9100000302', 1, '')];
+    const onScreen = buySum(two, { prices: pr }).total;
+    const ws = (() => { const cells = new Map(); const g = a => { if (!cells.has(a)) cells.set(a, {}); return cells.get(a); };
+      return { getCell: g, getColumn: () => ({}), getRow: () => ({}), mergeCells() {} }; })();
+    const inFile = writeBuyPo(ws, { price: 'shown', groups: [{ part_no: 'P', po: 'Q', lines: two.map(x => ({ ...x, price: pr[x.code] })) }] }).total;
+    ok('ยอดบนจอ = รวมเงินในไฟล์ (บวกผลคูณเต็มแล้วปัดครั้งเดียว)', onScreen === inFile && onScreen === 0, onScreen + ' / ' + inFile);
+    ok('ปัดสตางค์แบบ Excel: 1.475 → 1.48 · เศษ float ไม่ทำให้ปัดลง', money2(1.475) === 1.48 && money2(0.1 + 0.2) === 0.3 && money2(null) === 0);
+  }
+
+  const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const syncB = fs.readFileSync(new URL('../v2/core/sync.js', import.meta.url), 'utf8');
+  ok('ราคาเก็บในเครื่อง (meta prices) ไม่ซิงค์ — เจ้าของเลือก 1ก',
+     appB.includes("db.getMeta('prices', null)") && appB.includes("db.setMeta('prices', rec)") && !/prices/.test(syncB));
+  ok('จอ: ตารางซื้อมี ราคา/หน่วย · จำนวนเงิน · แถวว่าง colspan 12 · ยอดรวม + ปุ่มนำเข้าไฟล์ราคา',
+     htmlB.includes('>ราคา/หน่วย</th>') && htmlB.includes('>จำนวนเงิน</th>') && htmlB.includes('<tr v-if="!fbRows.length"><td colspan="12"')
+     && htmlB.includes('รวม {{ bahtTxt(fbSum.total) }} บาท') && htmlB.includes('@change="onPriceFile"'));
+  ok('ยอดรวมนับทุกเรื่องที่กรองอยู่ (fbAll) ไม่ใช่แค่ที่แสดง (fbRows)', /fbSum = computed\(\(\) => buySum\(fbAll\.value/.test(appB));
+  ok('หาหน่วยด้วยดัชนี matIndex ไม่ไล่ทั้งทะเบียน (ผู้ตรวจ #154 ข้อ 2) · ไฟล์หัวครบแต่ราคาใช้ไม่ได้ บอกเหตุตรง (ข้อ 7)',
+     appB.includes('const unitOfMat = code => { const m = matIndex.value.get(normCode(code));') && appB.includes('เจอหัวคอลัมน์แล้ว แต่ไม่มีแถวไหนที่ใช้ราคาได้'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
