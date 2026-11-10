@@ -1199,7 +1199,10 @@ export function poUseByCode(entries, entity, calcAll, follows = [], { headerOf }
     }
   }
   const closed = new Set();
-  for (const f of follows || []) if (f && f.kind === 'short' && statusOf(f) === 'done') closed.add(pairKey(f.po, f.code));
+  // กรองนิติบุคคลด้วย — pairKey ไม่มี entity ในกุญแจ เรื่องที่ปิดของอีกบริษัทจะทำให้ป้ายบริษัทนี้เปลี่ยน (A3 · ผู้ตรวจ #155 ข้อ 1)
+  for (const f of follows || []) {
+    if (f && f.kind === 'short' && sameEntity(f, entity) && statusOf(f) === 'done') closed.add(pairKey(f.po, f.code));
+  }
 
   const out = new Map(), seen = new Set(), bomPo = new Set();
   const add = (code, row) => {
