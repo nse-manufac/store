@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-08.1">
+<meta name="app-version" content="2026-11-11.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1343,7 +1343,7 @@ textarea{font:inherit}
           <div class="card noprint">
             <div class="row">
               <label class="f grow" style="min-width:230px">ค้นหา
-                <input v-model.trim="balQ" placeholder="พิมพ์รหัสหรือชื่อ"></label>
+                <input v-model.trim="balQ" placeholder="พิมพ์รหัส ชื่อ PO หรือ P/N"></label>
               <label class="f">หมวด
                 <select v-model="balCat">
                   <option value="">ทุกหมวด</option>
@@ -1354,6 +1354,8 @@ textarea{font:inherit}
                 <span class="row" style="gap:5px;flex-wrap:nowrap">
                   <input type="checkbox" v-model="balZero" id="bz" style="width:16px;height:16px">
                   <label for="bz" style="font-size:13px">แสดงรายการที่ยอดเป็นศูนย์ด้วย</label>
+                  <input type="checkbox" v-model="balDone" id="bpd" style="width:16px;height:16px;margin-left:10px">
+                  <label for="bpd" style="font-size:13px">แสดง PO ที่จบแล้ว</label>
                 </span></label>
             </div>
             <div class="row" style="margin-top:12px;gap:28px">
@@ -1432,7 +1434,9 @@ textarea{font:inherit}
               <table>
                 <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
                   <th style="width:105px">หมวด</th><th style="width:110px">คงเหลือ</th>
-                  <th style="width:55px">หน่วย</th><th style="width:110px">เคลื่อนไหวล่าสุด</th>
+                  <th style="width:55px">หน่วย</th>
+                  <th title="PO ที่สูตรใช้รหัสนี้ — จบ = รับครบและจ่ายครบตามสูตร">PO / P/N</th>
+                  <th style="width:110px">เคลื่อนไหวล่าสุด</th>
                   <th style="width:130px"></th></tr></thead>
                 <tbody><tr v-for="r in balShown.rows" :key="r.code">
                   <td class="mono"><b>{{ r.code }}</b></td>
@@ -1441,8 +1445,19 @@ textarea{font:inherit}
                   <td><span v-if="r.category" class="tag">{{ r.category }}</span></td>
                   <td class="mono"><b :style="r.qty<0?'color:var(--bad)':''">{{ r.qty }}</b></td>
                   <td class="mono hint">{{ r.unit }}</td>
+                  <!-- PO / P/N ที่มีรหัสนี้ — แสดงครบทุกใบ (เจ้าของสั่ง 11 พ.ย. 2026) -->
+                  <td style="font-size:12px">
+                    <div v-for="p in r.po.rows" :key="p.po" style="white-space:nowrap">
+                      <span class="mono">{{ p.po }}</span> <span class="mono hint">{{ p.pn || '—' }}</span>
+                      <span class="tag" :class="poUseLabel(p)[1]">{{ poUseLabel(p)[0] }}</span></div>
+                    <span v-if="r.po.noPo" class="tag warn"
+                          title="จ่ายออกที่ไม่ได้ใส่ PO นับให้ใบไหนไม่ได้ — PO ของรหัสนี้อาจค้าง รอจ่าย ทั้งที่จ่ายไปแล้ว">
+                      จ่ายไม่ใส่ PO {{ r.po.noPo }} รายการ</span>
+                    <span v-if="r.po.hidden" class="hint"> จบแล้ว {{ r.po.hidden }} ใบ (ซ่อนอยู่)</span>
+                    <span v-if="!r.po.rows.length && !r.po.noPo && !r.po.hidden" class="hint">—</span>
+                  </td>
                   <td class="mono hint">{{ r.last ? localDate(r.last) : '—' }}</td>
-                  <td class="row" style="gap:4px;flex-wrap:nowrap">
+                  <td class="row" style="gap:4px;flex-wrap:nowrap;white-space:nowrap">
                     <button class="btn" style="padding:2px 9px" @click="openCard(r.code)">การ์ด</button>
                     <button class="btn" style="padding:2px 9px" @click="goIssue(r.code)">จ่ายออก</button>
                   </td>

@@ -19,7 +19,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
          shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver, shortOverTotal, startKey, startOnce, openPairFor, arriveShort, reopenShort,
-         negAfterVoids, buyUnit, dupFollows, doubleReturns, reopenOver, arriveBuy, reopenBuy }
+         negAfterVoids, buyUnit, dupFollows, doubleReturns, reopenOver, arriveBuy, reopenBuy, poUseByCode, poUseLabel }
   from '../v2/master/follow.js';
 import { receivedOfDoc, balanceOf } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
@@ -2125,6 +2125,63 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
   const fsrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   ok('คำอธิบายของ listFollow อยู่ติดตัวมัน ไม่ไปค้างเหนือ partNoOf (ผู้ตรวจ #151 ข้อ 1)',
      /ไม่กรองแล้วเรื่องของเกิน\/ซื้อทดแทนจะไหลมาโผล่ในหน้าของขาด\n \*\/\nexport function listFollow/.test(fsrc));
+}
+
+console.log('\n=== BPO. ยอดคงคลัง: PO / P/N ที่มีรหัสนี้ · จบ = รับครบ + จ่ายครบตามสูตร (เจ้าของเคาะ 11 พ.ย. 2026) ===');
+{
+  const EN = 'TUE-H', C = '9100000951', C2 = '9100000952';
+  const heads = [{ po: 'TM0001H951', pn: 'PN-A', order: 10 }, { po: 'TM0001H952', pn: 'PN-B', order: 5 },
+                 { po: 'TM0001H953', pn: 'PN-A', order: 10 }, { po: 'TM0001H954', pn: 'PN-A', order: 10 },
+                 { po: 'TM0001H955', pn: 'PN-A', order: 10 }];
+  const bomR = { 'PN-A': [{ code: C, usage: 2 }], 'PN-B': [{ code: C, usage: 1 }] };
+  const headerOf = po => heads.find(h => h.po === po) || null;
+  const mk = (kind, po, qty, code = C, extra = {}) => ({ id: kind + po + qty + code, entity: EN, kind, material_code: code, qty,
+                                                         doc_ref: po, ...extra });
+  const ents = [
+    mk('receive', 'TM0001H951', 20), mk('issue', 'TM0001H951', 20),                       // จบ
+    mk('receive', 'TM0001H952', 2),                                                       // รอรับ 3
+    mk('receive', 'TM0001H953', 25), mk('issue', 'TM0001H953', 15),                       // รอจ่าย 5
+    mk('receive', 'TM0001H954', 23), mk('issue', 'TM0001H954', 20),                       // จบ · เกินค้าง 3
+    mk('receive', 'TM0001H955', 16), mk('issue', 'TM0001H955', 20),                       // short ปิดแล้ว = รับครบ → จบ
+    mk('receive', 'TM0001H951', 4, C2),                                                   // รหัสไม่อยู่ในสูตร
+    mk('receive', 'TM0001H999', 7), mk('issue', 'TM0001H999', 2),                         // ไม่มีหัว PO / สูตร
+    mk('issue', '', 3), mk('issue', '', 1),                                               // จ่ายไม่ใส่ PO
+    mk('scrap', 'TM0001H953', 5),                                                         // ของเสียไม่นับเป็นจ่าย
+    { ...mk('issue', 'TM0001H952', 99), voided: true },                                   // ยกเลิกแล้วไม่นับ
+    { ...mk('receive', 'TM0001H952', 50), entity: 'OTHER' }                               // นิติบุคคลอื่นไม่นับ
+  ];
+  const calc = shortAll(ents, EN, { headerOf, bomRowsOf: pn => bomR[pn] || [], all: true });
+  const fol = [makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H955', code: C, qty: 4 })];
+  const closedF = closeFollow(fol[0], { by: 'ก' });
+  const m = poUseByCode(ents, EN, calc, [closedF], { headerOf });
+  const at = po => (m.get(C).rows.find(r => r.po === po) || {});
+  ok('รับครบ + จ่ายครบ = จบ', at('TM0001H951').state === 'done' && at('TM0001H951').extra === 0);
+  ok('รับยังไม่ครบ = รอรับ (เท่าที่ขาด) · ยกเลิก / นิติบุคคลอื่นไม่นับ',
+     at('TM0001H952').state === 'in' && at('TM0001H952').left === 3 && at('TM0001H952').used === 0, JSON.stringify(at('TM0001H952')));
+  ok('รับครบ จ่ายยังไม่ครบ = รอจ่าย · ของเสียไม่นับเป็นจ่าย', at('TM0001H953').state === 'out' && at('TM0001H953').left === 5);
+  ok('รับเกิน จ่ายครบ = จบ · เกินค้าง (ยังแสดงบนจอ — 2ก)', at('TM0001H954').state === 'done' && at('TM0001H954').extra === 3);
+  ok('เรื่อง short ปิดแล้ว = นับว่ารับครบ (1ก)', at('TM0001H955').state === 'done', JSON.stringify(at('TM0001H955')));
+  const noClose = poUseByCode(ents, EN, calc, fol, { headerOf }).get(C).rows.find(r => r.po === 'TM0001H955');
+  ok('เรื่อง short ยังเปิดอยู่ = ยังรอรับ', noClose.state === 'in' && noClose.left === 4);
+  ok('PO ที่คิดตามสูตรไม่ได้ ยังแสดงจากรายการรับเข้า (ไม่มีสูตร · เหลือ = รับ − จ่าย)',
+     at('TM0001H999').why === 'ไม่มีสูตร' && at('TM0001H999').left === 5 && at('TM0001H999').state === 'out');
+  ok('รหัสที่รับเข้า PO ที่มีสูตรแต่ไม่อยู่ในสูตร = ไม่อยู่ในสูตร พร้อม P/N ของใบ',
+     (r => r.why === 'ไม่อยู่ในสูตร' && r.pn === 'PN-A' && r.left === 4)(m.get(C2).rows[0]));
+  ok('นับจ่ายที่ไม่ใส่ PO ไว้บอกบนจอ', m.get(C).noPo === 2);
+  ok('เรียงตาม PO', m.get(C).rows.map(r => r.po).join() === 'TM0001H951,TM0001H952,TM0001H953,TM0001H954,TM0001H955,TM0001H999');
+  ok('ป้าย: รอรับ / รอจ่าย / จบแล้ว · เกินค้าง / ไม่มีสูตร',
+     poUseLabel(at('TM0001H952'))[0] === 'รอรับ 3' && poUseLabel(at('TM0001H953'))[0] === 'รอจ่าย 5'
+     && poUseLabel(at('TM0001H954'))[0] === 'จบแล้ว · เกินค้าง 3' && poUseLabel(at('TM0001H951')).join() === 'จบแล้ว,ok'
+     && poUseLabel(at('TM0001H999'))[0] === 'ไม่มีสูตร · เหลือ 5');
+  throws('ไม่ระบุนิติบุคคล = โยน (A3)', () => poUseByCode(ents, '', calc), 'A3');
+
+  const appQ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlQ = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ซ่อน PO ที่จบแล้ว เว้นแต่ติ๊กดู หรือยังมีของเกินค้าง · ค้นด้วย PO / P/N ได้',
+     appQ.includes("x.rows.filter(p => balDone.value || p.state !== 'done' || p.extra > 0)")
+     && appQ.includes('r.po.rows.some(p => String(p.po).toUpperCase().includes(t) || String(p.pn).toUpperCase().includes(t))'));
+  ok('จอ: ตารางยอดคงคลังมีคอลัมน์ PO / P/N แสดงครบทุกใบ + ช่องติ๊ก แสดง PO ที่จบแล้ว',
+     htmlQ.includes('v-for="p in r.po.rows"') && htmlQ.includes('v-model="balDone"') && htmlQ.includes('>PO / P/N</th>'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

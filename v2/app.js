@@ -43,7 +43,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
-         SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
+         SHORT_TYPES, arriveShort, reopenShort, negAfterVoids, poUseByCode, poUseLabel } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
 
@@ -1657,6 +1657,7 @@ createApp({
     const balQ = ref('');
     const balCat = ref('');
     const balZero = ref(false);
+    const balDone = ref(false);      // แสดง PO ที่จบแล้วด้วย (เจ้าของเคาะ 3ก)
     const cardCode = ref('');        // เปิดการ์ดของรหัสไหนอยู่
     const traceOf = ref('');         // กำลังตามรอยล็อตไหน
 
@@ -1687,12 +1688,28 @@ createApp({
       return rows.sort((a, b) => a.code.localeCompare(b.code));
     });
 
+    // PO / P/N ที่มีรหัสนี้ (เจ้าของสั่ง 11 พ.ย. 2026) · ตรรกะอยู่ที่ master/follow.js poUseByCode
+    const balPos = computed(() => {
+      if (!entity.value) return new Map();
+      try { return poUseByCode(entries.value, entity.value, fsCalc.value, shorts.value, { headerOf: poIdx.value }); }
+      catch (err) { console.error(err); return new Map(); }
+    });
+    // PO ที่จบแล้วซ่อน เว้นแต่ติ๊กดู หรือยังมีของเกินค้าง (เจ้าของเคาะ 2ก 3ก)
+    const balPoOf = code => {
+      const x = balPos.value.get(normCode(code));
+      if (!x) return { rows: [], noPo: 0, hidden: 0 };
+      const rows = x.rows.filter(p => balDone.value || p.state !== 'done' || p.extra > 0);
+      return { rows, noPo: x.noPo, hidden: x.rows.length - rows.length };
+    };
+
     const balShown = computed(() => {
       const t = balQ.value.trim().toUpperCase();
+      const hit = r => r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)
+        || r.po.rows.some(p => String(p.po).toUpperCase().includes(t) || String(p.pn).toUpperCase().includes(t));
       const pool = balAll.value.filter(r =>
         (balZero.value || r.qty !== 0) &&
-        (!balCat.value || r.category === balCat.value) &&
-        (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
+        (!balCat.value || r.category === balCat.value)).map(r => ({ ...r, po: balPoOf(r.code) }))
+        .filter(r => !t || hit(r));
       return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
     });
 
@@ -3658,7 +3675,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
-             balQ, balCat, balZero, balShown, balSum, oddRows,
+             balQ, balCat, balZero, balDone, poUseLabel, balShown, balSum, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,

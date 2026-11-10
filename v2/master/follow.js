@@ -1165,6 +1165,84 @@ export function shortOverTotal(poRows) {
 }
 
 /**
+ * PO / P/N ที่มีรหัสนี้ — คอลัมน์ในหน้ายอดคงคลัง (เจ้าของสั่ง 11 พ.ย. 2026)
+ * ทุก PO ที่สูตรใช้รหัสนี้และเริ่มรับแล้ว (calcAll = shortAll(..., all:true) ชุดเดียวกับตารางในการ์ด)
+ * + PO ที่รับรหัสนี้เข้ามาแต่คิดตามสูตรไม่ได้ (ไม่มีสูตร / รหัสไม่อยู่ในสูตร)
+ *
+ * จบ = รับครบ และ จ่ายครบ ตามสูตร — คิดรายคู่ PO+รหัส ไม่ใช่ทั้งใบ
+ *   รับ = รับเข้า − ส่งคืน Delta (ตัวเดียวกับ shortAll) · เรื่อง short ของคู่นั้นปิดแล้ว = นับว่ารับครบ
+ *     (ของที่ Delta ส่งมาแทนมักรับเข้าด้วย PO อื่น — เจ้าของเคาะ 1ก)
+ *   จ่าย = จ่ายออกที่อ้าง PO นั้น − คืนของที่อ้าง PO นั้น · ของเสียไม่นับเป็นจ่าย
+ *   ⚠️ จ่ายออกที่ไม่ใส่ PO นับให้ใบไหนไม่ได้ — นับจำนวนรายการไว้ใน noPo ให้จอบอกว่าทำไมค้าง
+ *
+ * คืน Map<code, { rows, noPo }> · rows = [{ po, pn, need, have, used, state, left, extra, why }] เรียงตาม PO
+ *   state 'in'   รอรับ   left = ยังขาดรับ
+ *         'out'  รอจ่าย  left = ยังจ่ายไม่ถึงสูตร
+ *         'done' จบแล้ว  extra = ของเกินของใบนั้นที่ยังค้างในคลัง (> 0 จอยังแสดง — เจ้าของเคาะ 2ก)
+ *   why = 'ไม่มีสูตร' / 'ไม่อยู่ในสูตร' → คิดตามสูตรไม่ได้ · left = รับ − จ่าย · จ่ายหมด = done
+ */
+export function poUseByCode(entries, entity, calcAll, follows = [], { headerOf } = {}) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const got = new Map(), used = new Map(), noPo = new Map(), rcv = new Map();
+  for (const e of entries || []) {
+    if (!e || e.entity !== entity || e.voided) continue;
+    const code = txt(e.material_code).toUpperCase(), po = txt(e.doc_ref), q = Number(e.qty) || 0;
+    if (!code) continue;
+    if (e.kind === 'issue' && !po) { noPo.set(code, (noPo.get(code) || 0) + 1); continue; }
+    if (!po) continue;
+    const k = pairKey(po, code);
+    if (e.kind === 'receive' || e.kind === 'sendback') {
+      got.set(k, round5((got.get(k) || 0) + (e.kind === 'receive' ? q : -q)));
+      if (e.kind === 'receive') rcv.set(k, { po, code });
+    } else if (e.kind === 'issue' || e.kind === 'return') {
+      used.set(k, round5((used.get(k) || 0) + (e.kind === 'issue' ? q : -q)));
+    }
+  }
+  const closed = new Set();
+  for (const f of follows || []) if (f && f.kind === 'short' && statusOf(f) === 'done') closed.add(pairKey(f.po, f.code));
+
+  const out = new Map(), seen = new Set(), bomPo = new Set();
+  const add = (code, row) => {
+    if (!out.has(code)) out.set(code, { rows: [], noPo: 0 });
+    out.get(code).rows.push(row);
+  };
+  const usedOf = k => round5(Math.max(0, used.get(k) || 0));
+  for (const r of calcAll || []) {
+    if (!r || r.why || !r.code) continue;
+    bomPo.add(r.po);
+    const k = pairKey(r.po, r.code), u = usedOf(k);
+    seen.add(k);
+    const row = { po: r.po, pn: r.pn, need: r.need, have: r.have, used: u, state: 'done', left: 0, extra: 0, why: '' };
+    if (!(r.have >= r.need || closed.has(k))) { row.state = 'in'; row.left = round5(r.need - r.have); }
+    else if (!(u >= r.need)) { row.state = 'out'; row.left = round5(r.need - u); }
+    else row.extra = round5(Math.max(0, r.have - u));
+    add(r.code, row);
+  }
+  for (const [k, { po, code }] of rcv) {
+    if (seen.has(k)) continue;
+    const have = round5(Math.max(0, got.get(k) || 0)), u = usedOf(k), left = round5(Math.max(0, have - u));
+    const head = typeof headerOf === 'function' ? headerOf(po) : null;
+    add(code, { po, pn: txt(head && head.pn), need: null, have, used: u, state: left > 0 ? 'out' : 'done', left, extra: 0,
+                why: bomPo.has(po) ? 'ไม่อยู่ในสูตร' : 'ไม่มีสูตร' });
+  }
+  for (const [code, n] of noPo) {
+    if (!out.has(code)) out.set(code, { rows: [], noPo: 0 });
+    out.get(code).noPo = n;
+  }
+  for (const x of out.values()) x.rows.sort((a, b) => String(a.po).localeCompare(String(b.po)));
+  return out;
+}
+
+/** ป้ายสถานะของ PO หนึ่งใบในคอลัมน์ PO / P/N — [ข้อความ, class ของ tag] */
+export function poUseLabel(p) {
+  if (!p) return ['', ''];
+  if (p.why) return p.state === 'done' ? [p.why + ' · จ่ายหมดแล้ว', ''] : [p.why + ' · เหลือ ' + p.left, 'warn'];
+  if (p.state === 'in') return ['รอรับ ' + p.left, ''];          // ของมาเป็นรอบ — รอรับเป็นเรื่องปกติ ไม่ระบายแดง
+  if (p.state === 'out') return ['รอจ่าย ' + p.left, 'warn'];
+  return p.extra > 0 ? ['จบแล้ว · เกินค้าง ' + p.extra, 'warn'] : ['จบแล้ว', 'ok'];
+}
+
+/**
  * ตั้งเรื่องคืนจากแถวที่ระบบคำนวณได้
  * ⚠️ ยอดสั่ง · ยอดตามสูตร · ยอดรับ ถูกแช่แข็งลงไปในเรื่องตรงนี้
  *    ใบรับเข้าที่คีย์ทีหลังจะทำให้ยอดของเรื่องที่ตั้งไปแล้วขยับเองถ้าไม่แช่แข็ง
