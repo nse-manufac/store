@@ -19,6 +19,7 @@ import { round5, makeEntry, voidEntry, signedQty } from '../core/ledger.js';
 import { balanceOf } from '../core/balance.js';
 import { resolveEntity, entityOfPo } from './entities.js';
 import { localDate } from '../core/localtime.js';
+import { priceOf } from './materials.js';
 
 /** ชนิดของงานตาม · need = ช่องที่ขาดไม่ได้สำหรับชนิดนั้น */
 export const FOLLOW_KINDS = {
@@ -1478,6 +1479,42 @@ export function buyDocGroups(rows, { qty = 'remain' } = {}) {
     a.part_no.localeCompare(b.part_no) || a.po.localeCompare(b.po));
   for (const g of groups) g.lines.sort((a, b) => a.code.localeCompare(b.code));
   return groups;
+}
+
+/**
+ * จำนวนเงินของเรื่องซื้อ = ราคาต่อหน่วย (ไฟล์ราคา) × จำนวน — แบบคอลัมน์ "จำนวนเงิน" ของฟอร์ม Excel เดิม (เจ้าของสั่ง 8 พ.ย. 2026)
+ * จำนวน = ต้องซื้อ (qty) · ส่ง qty มาเองได้ (บรรทัดในใบสั่งซื้อใช้ยอดในใบ)
+ * ⚠️ ไฟล์ราคาไม่มีหน่วย — ถือว่าเป็นราคาต่อหน่วยในทะเบียน · หน่วยของเรื่องไม่ตรงทะเบียน = ไม่คิดเงิน (ไม่เดาตัวคูณ)
+ * ไม่มีราคา / หน่วยไม่ตรง → amount = null พร้อมเหตุผล · ห้ามเป็น 0 เพราะยอดรวมจะดูครบทั้งที่ขาด
+ */
+export function buyPrice(s, { prices = null, unitOf = null, qty = null } = {}) {
+  const unit = priceOf(prices, s && s.code);
+  if (unit == null) return { unit: null, amount: null, why: 'ไม่มีราคา' };
+  const mu = txt(typeof unitOf === 'function' ? unitOf(s.code) : '').toUpperCase();
+  const su = txt(s.unit).toUpperCase();
+  if (mu && su && mu !== su)
+    return { unit, amount: null, why: `หน่วยไม่ตรง — ราคาในไฟล์เป็นต่อ ${mu} (ตามทะเบียน) แต่เรื่องนี้เป็น ${su}` };
+  const q = qty == null ? Number(s.qty) || 0 : Number(qty) || 0;
+  return { unit, amount: Math.round(unit * q * 1e4) / 1e4, why: '' };
+}
+
+/** ปัดเงินเป็นสตางค์ — ตัดเศษ float ที่ 6 ตำแหน่งก่อน (1.475 ต้องได้ 1.48 แบบ Excel ไม่ใช่ 1.47)
+ *  ⚠️ export/bincard.js writeBuyPo มีตัวเดียวกัน — ยอดบนจอกับ "รวมเงิน" ในไฟล์ต้องเท่ากัน (ผู้ตรวจ #154 ข้อ 3) */
+export const money2 = x => Math.round(Number((Number(x) || 0).toFixed(6)) * 100) / 100;
+
+/** ยอดรวมเงิน — นับเฉพาะเรื่องที่คิดเงินได้ แล้วบอกจำนวนที่ไม่มีราคา / หน่วยไม่ตรงแยกไว้ · qty 'remain' = ยอดค้าง (ตรงกับใบสั่งซื้อ) */
+export function buySum(rows, { prices = null, unitOf = null, qty = 'order' } = {}) {
+  const out = { total: 0, n: 0, priced: 0, noPrice: 0, badUnit: 0 };
+  for (const s of rows || []) {
+    out.n++;
+    const p = buyPrice(s, { prices, unitOf, qty: qty === 'remain' ? remainOf(s) : null });
+    // บวกผลคูณเต็ม ไม่ใช่ amount ที่ปัดแล้ว — แบบเดียวกับสูตร G×J + SUM ในใบสั่งซื้อ
+    if (p.amount != null) { out.total += p.unit * (qty === 'remain' ? remainOf(s) : Number(s.qty) || 0); out.priced++; }
+    else if (p.unit == null) out.noPrice++;
+    else out.badUnit++;
+  }
+  out.total = money2(out.total);
+  return out;
 }
 
 /** ติดเลขใบไว้ที่เรื่อง — ติดแล้วติดซ้ำไม่ได้ · id / created_at ไม่ขยับ (B3) */

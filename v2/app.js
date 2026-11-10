@@ -7,7 +7,7 @@
  */
 import * as db from './core/db.js';
 import { CATEGORIES, categorize, checkCode, makeMaterial, addedOnFloor,
-         searchMaterials, duplicateDescriptions, normCode , codeSuggest } from './master/materials.js';
+         searchMaterials, duplicateDescriptions, normCode , codeSuggest, parsePriceFile } from './master/materials.js';
 import { parseBomHtml, summarize } from './master/sap-bom.js';
 import { makeBomRows, pnSummary, pnsMissingPackMat, unknownCodes,
          importPlan, registryPlan, makeManualRow, manualRowsOf, manualBomPlan,
@@ -42,7 +42,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
-         buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
+         buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc, buyPrice, buySum,
          SHORT_TYPES, arriveShort, reopenShort, negAfterVoids, poUseByCode, poUseLabel } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
@@ -200,6 +200,7 @@ createApp({
         // ชื่อผู้บันทึกของหน้า Mat Follow up — ไม่จำไว้ = ต้องพิมพ์ใหม่ทุกรีเฟรช
         // แล้วช่อง "ใครปิดเรื่อง" จะว่างเป็นส่วนใหญ่ (ผู้ตรวจ #67 ทักไว้)
         fsBy.value = await db.getMeta('followBy', '') || '';
+        prices.value = await db.getMeta('prices', null);   // ราคาแมท — เก็บในเครื่อง ไม่ซิงค์ (เจ้าของเลือก 1ก)
         Object.assign(fold, await db.getMeta('fold', {}) || {});
         ready.value = true;
         // ประกาศ "มีอะไรใหม่" — ขึ้นครั้งแรกต่อเครื่อง (core/version.js)
@@ -2813,6 +2814,52 @@ createApp({
       kind: 'buy', entity: entity.value, q: fbSearch.value, showDone: fbShowDone.value
     }));
     const fbRows = computed(() => fbAll.value.slice(0, SHOW_MAX));
+
+    // ── ราคาแมท (เจ้าของสั่ง 8 พ.ย. 2026) ── ตรรกะอยู่ที่ materials.js parsePriceFile · follow.js buyPrice / buySum
+    // ⚠️ เก็บในเครื่องนี้เท่านั้น (meta 'prices') ไม่ซิงค์ — เครื่องไหนจะดูราคาต้องนำเข้าไฟล์ที่เครื่องนั้น
+    const prices = ref(null);
+    const priceBusy = ref(false);
+    const priceSet = computed(() => !!(prices.value && prices.value.n));
+    // ดัชนี ไม่ใช่ matOf (ไล่ทั้งทะเบียน) — เรียกหลายครั้งต่อแถวทุกครั้งที่จอวาดใหม่ (ผู้ตรวจ #154 ข้อ 2)
+    const unitOfMat = code => { const m = matIndex.value.get(normCode(code)); return m ? m.unit : ''; };
+    const priceOpt = () => ({ prices: prices.value && prices.value.prices, unitOf: unitOfMat });
+    const fbPrice = s => buyPrice(s, priceOpt());
+    const fbSum = computed(() => buySum(fbAll.value.map(r => r.s), priceOpt()));
+    // ที่ติ๊กไว้ = ยอดค้าง ตรงกับจำนวนที่จะขึ้นในใบสั่งซื้อ
+    const fbPickSum = computed(() => buySum(fbPicked.value, { ...priceOpt(), qty: 'remain' }));
+    const bahtTxt = n => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const unitPriceTxt = n => n == null ? '—' : Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    async function onPriceFile(e) {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file || priceBusy.value) return;
+      priceBusy.value = true;
+      try {
+        await loadLib('lib/xlsx.full.min.js', 'XLSX');
+        const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+        let p = null, seen = null;          // seen = ชีตแรกที่เจอหัวคอลัมน์ ไว้บอกเหตุให้ถูก (ผู้ตรวจ #154 ข้อ 7)
+        for (const n of wb.SheetNames) {
+          p = parsePriceFile(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, blankrows: false }));
+          if (p.ok && !seen) seen = p;
+          if (p.ok && p.n) break;
+        }
+        if (!p || !p.ok || !p.n) {
+          flash(seen
+            ? `เจอหัวคอลัมน์แล้ว แต่ไม่มีแถวไหนที่ใช้ราคาได้ — ราคาว่าง / ไม่ใช่ตัวเลข / ติดลบ ${seen.bad} แถว`
+              + (seen.conflicts.length ? ` · รหัสซ้ำราคาไม่ตรงกัน ${seen.conflicts.length} รหัส` : '')
+              + ' — ตรวจไฟล์ก่อน (ราคาเดิมในเครื่องยังอยู่)'
+            : 'ไม่เจอหัวคอลัมน์ "MATERIAL NO" กับ "STD COST" ในไฟล์นี้ — เลือกไฟล์ราคาแมทที่ได้มา', true);
+          return;
+        }
+        const rec = { file: file.name, at: new Date().toISOString(), n: p.n, prices: p.prices };
+        await db.setMeta('prices', rec);
+        prices.value = rec;
+        flash(`นำเข้าราคา ${p.n.toLocaleString()} รหัสแล้ว` + (p.bad ? ` · ข้ามช่องราคาว่าง ${p.bad}` : '')
+              + (p.conflicts.length ? ` · รหัสซ้ำราคาไม่ตรงกัน ${p.conflicts.length} รหัส ไม่คิดราคาให้: ${p.conflicts.slice(0, 5).join(', ')}` : ''),
+              p.conflicts.length > 0);
+      } catch (err) { flash('อ่านไฟล์ราคาไม่สำเร็จ: ' + err.message, true); }
+      finally { priceBusy.value = false; }
+    }
     /** เรื่องที่ต้นเหตุหายไปแล้ว — แสดงให้เห็น ไม่ตัดสินแทนคน */
     /* ── ใบสั่งซื้อทดแทน FM-PU-02 (เจ้าของเคาะ 2 ต.ค. 2026) ── ตรรกะอยู่ที่ master/follow.js · ไฟล์ที่ export/bincard.js
      * ติ๊กเรื่อง → จัดกลุ่ม P/N + PO → ออก Excel → ติดเลขใบไว้ที่เรื่อง (กันสั่งซ้ำ)
@@ -2824,15 +2871,20 @@ createApp({
     const fbDocGroups = computed(() => buyDocGroups(fbPicked.value));
     const fbCanPick = s => !s.voided && !s.pr_no && statusOf(s) !== 'done';
     const descOf = c => { const m = matOf(c); return m ? m.description : ''; };
+    // ใส่ราคาในใบสั่งซื้อ: '' ไม่ใส่ · 'hidden' ซ่อนแบบฟอร์มเดิม · 'shown' เห็นเลย — เจ้าของเลือก "เห็นเลย" (10 พ.ย. 2026)
+    const BUY_PO_PRICE = 'shown';
     async function buyDocFile(no, date, rows, qty = 'remain') {
       await loadLib('lib/exceljs.min.js', 'ExcelJS');
       const ent = entities.value.find(e => e.entity_code === entity.value) || {};
-      const groups = buyDocGroups(rows, { qty }).map(g => ({ ...g, lines: g.lines.map(l => ({ ...l, desc: descOf(l.code) })) }));
+      const groups = buyDocGroups(rows, { qty }).map(g => ({ ...g, lines: g.lines.map(l => {
+        const p = buyPrice(l, priceOpt());     // ราคาในใบ — หน่วยไม่ตรง / ไม่มีราคา = ช่องว่าง
+        return { ...l, desc: descOf(l.code), price: p.amount == null ? null : p.unit };
+      }) }));
       const wb = new ExcelJS.Workbook();
       wb.creator = 'ระบบ Bin Card';
       const ws = wb.addWorksheet(sheetNameFor(no));
       writeBuyPo(ws, { company: ent.company_name || '', address: ent.address || '', entity: entity.value,
-                       docNo: no, date, requestBy: fsBy.value, groups });
+                       docNo: no, date, requestBy: fsBy.value, groups, price: BUY_PO_PRICE });
       saveBlob(new Blob([await wb.xlsx.writeBuffer()], { type: 'application/octet-stream' }),
                `ใบสั่งซื้อ ${safeFileName(no)}.xlsx`);
     }
@@ -3699,7 +3751,7 @@ createApp({
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
-      fbSearch, fbShowDone, fbNew, fbAll, fbRows, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
       fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShow, foRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
