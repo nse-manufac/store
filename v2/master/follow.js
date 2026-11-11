@@ -703,22 +703,36 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN
  *    ยอดต่างจากเรื่องที่ปิด = ขาดเพิ่มจริง ยังขึ้นให้ตั้งเรื่องได้ · เรื่องที่ยกเลิกไม่กัน
  */
 export function shortPending(rows, follows) {
-  const busy = new Set(), closed = new Map();
+  const busy = new Set();
   for (const f of follows || []) {
     if (!f || f.kind !== 'short' || f.voided) continue;
-    const st = statusOf(f), k = pairKey(f.po, f.code);
-    if (st === 'open' || st === 'partial') busy.add(k);
-    else if (st === 'done') {
-      if (!closed.has(k)) closed.set(k, []);
-      closed.get(k).push(round5(Number(f.qty) || 0));
-    }
+    const st = statusOf(f);
+    if (st === 'open' || st === 'partial') busy.add(pairKey(f.po, f.code));
+  }
+  const settled = shortSettled(follows);
+  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !settled(r.po, r.code, r.short));
+}
+
+/**
+ * ยอดขาดของคู่ PO+รหัสนี้ "จบเรื่องแล้ว" ไหม — คืน (po, code, ยอดขาดตอนนี้) => boolean
+ * จบ = ปิดเรื่องด้วยยอดเท่ายอดขาดตอนนี้ · หรือ ยกเลิกเรื่อง / ไม่ติดตาม แล้วยอดขาดยังไม่เกินที่หยุดไว้
+ * ใช้ร่วมกันระหว่างการ์ด "ยังรับไม่ครบตาม BOM" (shortPending) กับคอลัมน์ PO ในหน้ายอดคงคลัง (poUseByCode)
+ * ให้สองจอพูดตรงกัน (ผู้ตรวจ #155 · เจ้าของเคาะ 11 พ.ย. 2026) · ไม่กรองนิติบุคคลเอง — ผู้เรียกกรองมาก่อน
+ */
+function shortSettled(follows) {
+  const closed = new Map();
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'short' || f.voided || statusOf(f) !== 'done') continue;
+    const k = pairKey(f.po, f.code);
+    if (!closed.has(k)) closed.set(k, []);
+    closed.get(k).push(round5(Number(f.qty) || 0));
   }
   // เกณฑ์ "ยอดเท่ากัน" เดียวกับ shortChecker — ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม
-  const sameAsClosed = r => (closed.get(pairKey(r.po, r.code)) || [])
-    .some(q => q > 0 && Math.abs(q - (Number(r.short) || 0)) < 5e-4);
+  const sameAsClosed = (po, code, short) => (closed.get(pairKey(po, code)) || [])
+    .some(q => q > 0 && Math.abs(q - (Number(short) || 0)) < 5e-4);
   // ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) — กฎอยู่ที่ stopGate ใช้ร่วมกับ over
   const stillStopped = stopGate(follows, 'short');
-  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !sameAsClosed(r) && !stillStopped(r.po, r.code, r.short));
+  return (po, code, short) => sameAsClosed(po, code, short) || stillStopped(po, code, short);
 }
 
 /**
@@ -1170,21 +1184,27 @@ export function shortOverTotal(poRows) {
  * ทุก PO ที่สูตรใช้รหัสนี้และเริ่มรับแล้ว (calcAll = shortAll(..., all:true) ชุดเดียวกับตารางในการ์ด)
  * + PO ที่รับรหัสนี้เข้ามาแต่คิดตามสูตรไม่ได้ (ไม่มีสูตร / รหัสไม่อยู่ในสูตร)
  *
- * จบ = รับครบ และ จ่ายครบ ตามสูตร — คิดรายคู่ PO+รหัส ไม่ใช่ทั้งใบ
- *   รับ = รับเข้า − ส่งคืน Delta (ตัวเดียวกับ shortAll) · เรื่อง short ของคู่นั้นปิดแล้ว = นับว่ารับครบ
- *     (ของที่ Delta ส่งมาแทนมักรับเข้าด้วย PO อื่น — เจ้าของเคาะ 1ก)
+ * จบ = รับครบ และ จ่ายครบ — คิดรายคู่ PO+รหัส ไม่ใช่ทั้งใบ
+ *   รับ = รับเข้า − ส่งคืน Delta (ตัวเดียวกับ shortAll)
+ *   รับครบ = ถึงยอดตามสูตร · หรือ ยอดขาด "จบเรื่องแล้ว" ตามกฎเดียวกับการ์ด "ยังรับไม่ครบตาม BOM" (shortSettled)
+ *     = ปิดเรื่องด้วยยอดเท่าที่ขาด · ยกเลิกเรื่อง · ไม่ติดตาม (เจ้าของเคาะ 1ก แล้วปรับ 11 พ.ย. 2026 ให้ตรงกับการ์ด)
+ *   จ่ายครบ = ถึงยอดตามสูตร · ถ้ารับครบเพราะยอดขาดจบเรื่อง = ถึงยอดที่รับมาจริงของใบนี้
+ *     (ของส่วนที่ขาดไม่มาเข้าใบนี้ — ยึดยอดตามสูตรแล้วใบนั้นค้าง "รอจ่าย" ไปตลอด)
  *   จ่าย = จ่ายออกที่อ้าง PO นั้น − คืนของที่อ้าง PO นั้น · ของเสียไม่นับเป็นจ่าย
+ *     แต่หักออกจาก "เกินค้าง" / "เหลือ" — ของที่ทิ้งไปแล้วไม่ได้ค้างในคลัง (เจ้าของเคาะ 11 พ.ย. 2026)
  *   ⚠️ จ่ายออกที่ไม่ใส่ PO นับให้ใบไหนไม่ได้ — นับจำนวนรายการไว้ใน noPo ให้จอบอกว่าทำไมค้าง
  *
  * คืน Map<code, { rows, noPo }> · rows = [{ po, pn, need, have, used, state, left, extra, why }] เรียงตาม PO
  *   state 'in'   รอรับ   left = ยังขาดรับ
  *         'out'  รอจ่าย  left = ยังจ่ายไม่ถึงสูตร
  *         'done' จบแล้ว  extra = ของเกินของใบนั้นที่ยังค้างในคลัง (> 0 จอยังแสดง — เจ้าของเคาะ 2ก)
- *   why = 'ไม่มีสูตร' / 'ไม่อยู่ในสูตร' → คิดตามสูตรไม่ได้ · left = รับ − จ่าย · จ่ายหมด = done
+ *   why = เหตุที่คิดตามสูตรไม่ได้ ตัวเดียวกับ shortWhyOf (ยังไม่รู้จัก PO ใบนี้ / ยังไม่รู้จำนวนสั่ง / ไม่มีสูตร ...)
+ *         หรือ 'ไม่อยู่ในสูตร' · left = รับ − จ่าย − ของเสีย · ไม่เหลือแล้ว = done
+ *         ป้ายใช้ข้อความก่อน ' — ' (ข้อความเต็มอยู่ใน title) — บอกทางแก้ให้ถูก ไม่ใช่ "ไม่มีสูตร" ทุกเหตุ (เจ้าของเคาะ 11 พ.ย. 2026)
  */
 export function poUseByCode(entries, entity, calcAll, follows = [], { headerOf } = {}) {
   if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
-  const got = new Map(), used = new Map(), noPo = new Map(), rcv = new Map();
+  const got = new Map(), used = new Map(), noPo = new Map(), rcv = new Map(), scrap = new Map();
   for (const e of entries || []) {
     if (!e || e.entity !== entity || e.voided) continue;
     const code = txt(e.material_code).toUpperCase(), po = txt(e.doc_ref), q = Number(e.qty) || 0;
@@ -1197,13 +1217,14 @@ export function poUseByCode(entries, entity, calcAll, follows = [], { headerOf }
       if (e.kind === 'receive') rcv.set(k, { po, code });
     } else if (e.kind === 'issue' || e.kind === 'return') {
       used.set(k, round5((used.get(k) || 0) + (e.kind === 'issue' ? q : -q)));
+    } else if (e.kind === 'scrap') {
+      scrap.set(k, round5((scrap.get(k) || 0) + q));
     }
   }
-  const closed = new Set();
   // กรองนิติบุคคลด้วย — pairKey ไม่มี entity ในกุญแจ เรื่องที่ปิดของอีกบริษัทจะทำให้ป้ายบริษัทนี้เปลี่ยน (A3 · ผู้ตรวจ #155 ข้อ 1)
-  for (const f of follows || []) {
-    if (f && f.kind === 'short' && sameEntity(f, entity) && statusOf(f) === 'done') closed.add(pairKey(f.po, f.code));
-  }
+  const settled = shortSettled((follows || []).filter(f => f && sameEntity(f, entity)));
+  const whyOf = new Map();
+  for (const r of calcAll || []) if (r && r.why) whyOf.set(r.po, r.why);
 
   const out = new Map(), seen = new Set(), bomPo = new Set();
   const add = (code, row) => {
@@ -1211,23 +1232,28 @@ export function poUseByCode(entries, entity, calcAll, follows = [], { headerOf }
     out.get(code).rows.push(row);
   };
   const usedOf = k => round5(Math.max(0, used.get(k) || 0));
+  const restOf = (k, have, u) => round5(Math.max(0, have - u - (scrap.get(k) || 0)));
   for (const r of calcAll || []) {
     if (!r || r.why || !r.code) continue;
     bomPo.add(r.po);
     const k = pairKey(r.po, r.code), u = usedOf(k);
     seen.add(k);
     const row = { po: r.po, pn: r.pn, need: r.need, have: r.have, used: u, state: 'done', left: 0, extra: 0, why: '' };
-    if (!(r.have >= r.need || closed.has(k))) { row.state = 'in'; row.left = round5(r.need - r.have); }
-    else if (!(u >= r.need)) { row.state = 'out'; row.left = round5(r.need - u); }
-    else row.extra = round5(Math.max(0, r.have - u));
+    const full = r.have >= r.need;
+    if (!full && !settled(r.po, r.code, r.short)) { row.state = 'in'; row.left = round5(r.need - r.have); }
+    else {
+      const target = full ? r.need : r.have;
+      if (!(u >= target)) { row.state = 'out'; row.left = round5(target - u); }
+      else row.extra = restOf(k, r.have, u);
+    }
     add(r.code, row);
   }
   for (const [k, { po, code }] of rcv) {
     if (seen.has(k)) continue;
-    const have = round5(Math.max(0, got.get(k) || 0)), u = usedOf(k), left = round5(Math.max(0, have - u));
+    const have = round5(Math.max(0, got.get(k) || 0)), u = usedOf(k), left = restOf(k, have, u);
     const head = typeof headerOf === 'function' ? headerOf(po) : null;
     add(code, { po, pn: txt(head && head.pn), need: null, have, used: u, state: left > 0 ? 'out' : 'done', left, extra: 0,
-                why: bomPo.has(po) ? 'ไม่อยู่ในสูตร' : 'ไม่มีสูตร' });
+                why: bomPo.has(po) ? 'ไม่อยู่ในสูตร' : (whyOf.get(po) || 'ไม่มีสูตร') });
   }
   for (const [code, n] of noPo) {
     if (!out.has(code)) out.set(code, { rows: [], noPo: 0 });
@@ -1240,7 +1266,10 @@ export function poUseByCode(entries, entity, calcAll, follows = [], { headerOf }
 /** ป้ายสถานะของ PO หนึ่งใบในคอลัมน์ PO / P/N — [ข้อความ, class ของ tag] */
 export function poUseLabel(p) {
   if (!p) return ['', ''];
-  if (p.why) return p.state === 'done' ? [p.why + ' · จ่ายหมดแล้ว', ''] : [p.why + ' · เหลือ ' + p.left, 'warn'];
+  if (p.why) {
+    const why = p.why.split(' — ')[0];       // ข้อความเต็มอยู่ใน title ของป้าย
+    return p.state === 'done' ? [why + ' · ไม่เหลือแล้ว', ''] : [why + ' · เหลือ ' + p.left, 'warn'];
+  }
   if (p.state === 'in') return ['รอรับ ' + p.left, ''];          // ของมาเป็นรอบ — รอรับเป็นเรื่องปกติ ไม่ระบายแดง
   if (p.state === 'out') return ['รอจ่าย ' + p.left, 'warn'];
   return p.extra > 0 ? ['จบแล้ว · เกินค้าง ' + p.extra, 'warn'] : ['จบแล้ว', 'ok'];

@@ -2170,8 +2170,54 @@ console.log('\n=== BPO. ยอดคงคลัง: PO / P/N ที่มีร
      otherRow.state === 'in' && otherRow.left === 4, JSON.stringify(otherRow));
   const ownerless = poUseByCode(ents, EN, calc, [{ ...closedF, entity: '' }], { headerOf }).get(C).rows.find(r => r.po === 'TM0001H955');
   ok('เรื่อง short ที่ปิดแล้วแต่ยังไม่มีเจ้าของ ยังนับให้ทุกนิติบุคคล (sameEntity ไม่ใช่ entity ===)', ownerless.state === 'done', JSON.stringify(ownerless));
-  ok('PO ที่คิดตามสูตรไม่ได้ ยังแสดงจากรายการรับเข้า (ไม่มีสูตร · เหลือ = รับ − จ่าย)',
-     at('TM0001H999').why === 'ไม่มีสูตร' && at('TM0001H999').left === 5 && at('TM0001H999').state === 'out');
+
+  // ── ปรับ 11 พ.ย. 2026: กฎ "ยอดขาดจบเรื่อง" เดียวกับการ์ด · ไม่ติดตาม · ของเสีย · เหตุที่คิดไม่ได้ ──
+  const row955 = fl => poUseByCode(ents, EN, calc, fl, { headerOf }).get(C).rows.find(r => r.po === 'TM0001H955');
+  const odd = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H955', code: C, qty: 3 }), { by: 'ก' });
+  const r955odd = row955([odd]);
+  ok('ปิดเรื่องด้วยยอดไม่ตรงกับที่ขาด (3 ≠ 4) = ยังรอรับ — ตรงกับการ์ด "ยังรับไม่ครบตาม BOM" (ผู้ตรวจ #155)',
+     r955odd.state === 'in' && r955odd.left === 4
+     && shortPending(calc.filter(r => r.po === 'TM0001H955' && r.code === C), [odd]).length === 1, JSON.stringify(r955odd));
+  const skipRow = calc.find(r => r.po === 'TM0001H955' && r.code === C);
+  const skipped = skipShort(skipRow, { entity: EN, person: 'ก' });
+  ok('ไม่ติดตามยอดขาด = นับว่ารับครบ · การ์ดก็ไม่ขึ้น (เจ้าของเคาะ 11 พ.ย. 2026)',
+     row955([skipped]).state === 'done' && shortPending([skipRow], [skipped]).length === 0, JSON.stringify(row955([skipped])));
+  const cancelled = cancelShort(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H955', code: C, qty: 4 }), { by: 'ก' });
+  ok('ยกเลิกเรื่อง = นับว่ารับครบเหมือนไม่ติดตาม', row955([cancelled]).state === 'done');
+  ok('ไม่ติดตามของเรื่องนิติบุคคลอื่น = ไม่นับ (A3)', row955([{ ...skipped, entity: 'OTHER' }]).state === 'in');
+  // ยอดขาดจบเรื่อง → ส่วนที่ขาดไม่มาเข้าใบนี้ จ่ายครบ = ถึงยอดที่รับมาจริง (16) ไม่ใช่ยอดตามสูตร (20)
+  const half = [...ents.filter(e => !(e.doc_ref === 'TM0001H955' && e.kind === 'issue')), mk('issue', 'TM0001H955', 10)];
+  const r955half = poUseByCode(half, EN, calc, [skipped], { headerOf }).get(C).rows.find(r => r.po === 'TM0001H955');
+  ok('ยอดขาดจบเรื่อง + จ่ายไป 10 จากที่รับ 16 = รอจ่าย 6 (ไม่ใช่ 10 ที่ไม่มีวันจ่ายครบ)',
+     r955half.state === 'out' && r955half.left === 6, JSON.stringify(r955half));
+  const full16 = [...ents.filter(e => !(e.doc_ref === 'TM0001H955' && e.kind === 'issue')), mk('issue', 'TM0001H955', 16)];
+  ok('ยอดขาดจบเรื่อง + จ่ายครบเท่าที่รับ (16) = จบ',
+     poUseByCode(full16, EN, calc, [skipped], { headerOf }).get(C).rows.find(r => r.po === 'TM0001H955').state === 'done');
+  // ของเสียหักออกจาก "เกินค้าง" / "เหลือ" แต่ไม่นับเป็นจ่าย
+  const scr = [...ents, mk('scrap', 'TM0001H954', 3), mk('scrap', 'TM0001H999', 5)];
+  const ms = poUseByCode(scr, EN, calc, [closedF], { headerOf });
+  const s954 = ms.get(C).rows.find(r => r.po === 'TM0001H954'), s999 = ms.get(C).rows.find(r => r.po === 'TM0001H999');
+  ok('รับ 23 จ่าย 20 ของเสีย 3 = จบแล้ว ไม่มีเกินค้าง (ของที่ทิ้งไม่ได้ค้างในคลัง)', s954.state === 'done' && s954.extra === 0, JSON.stringify(s954));
+  ok('PO คิดตามสูตรไม่ได้: รับ 7 จ่าย 2 ของเสีย 5 = ไม่เหลือแล้ว', s999.state === 'done' && s999.left === 0
+     && poUseLabel(s999)[0] === 'ยังไม่รู้จัก PO ใบนี้ · ไม่เหลือแล้ว', JSON.stringify(s999));
+  ok('ของเสียไม่นับเป็นจ่าย — รับครบแต่จ่ายยังไม่ถึงสูตร ยังรอจ่ายเท่าเดิม',
+     ms.get(C).rows.find(r => r.po === 'TM0001H953').left === 5);
+  // เหตุอื่นของ shortWhyOf ขึ้นตรงตัว
+  const heads2 = [...heads, { po: 'TM0001H960', pn: 'PN-A', order: 0 }];
+  const ents2 = [mk('receive', 'TM0001H960', 9)];
+  const calc2 = shortAll(ents2, EN, { headerOf: po => heads2.find(h => h.po === po) || null, bomRowsOf: pn => bomR[pn] || [], all: true });
+  const r960 = poUseByCode(ents2, EN, calc2, [], { headerOf: po => heads2.find(h => h.po === po) || null }).get(C).rows[0];
+  ok('PO มีสูตรแต่ไม่มีจำนวนสั่ง = ป้าย "ยังไม่รู้จำนวนสั่งของใบนี้" ไม่ใช่ "ไม่มีสูตร"',
+     poUseLabel(r960)[0] === 'ยังไม่รู้จำนวนสั่งของใบนี้ · เหลือ 9' && r960.pn === 'PN-A', JSON.stringify(r960));
+  // BOM มีรหัสเดียวกันสองบรรทัด → PO เดียวกันสองแถว · จอใช้ลำดับเป็น key ไม่ซ้ำ (ผู้ตรวจ #155 รอบ 3 ข้อ 2)
+  const dupCalc = shortAll([mk('receive', 'TM0001H951', 20)], EN,
+    { headerOf, bomRowsOf: pn => pn === 'PN-A' ? [{ code: C, usage: 1 }, { code: C, usage: 1 }] : [], all: true });
+  ok('BOM รหัสซ้ำ = สองแถวของ PO เดิม (พฤติกรรมเดิมของ shortAll) — จอต้องไม่ใช้เลข PO เป็น key',
+     poUseByCode([mk('receive', 'TM0001H951', 20)], EN, dupCalc, [], { headerOf }).get(C).rows.length === 2);
+  ok('PO ที่คิดตามสูตรไม่ได้ ยังแสดงจากรายการรับเข้า · เหตุตรงกับ shortWhyOf (ไม่ใช่ "ไม่มีสูตร" ทุกเหตุ) · เหลือ = รับ − จ่าย',
+     at('TM0001H999').why === shortWhyOf('TM0001H999', { headerOf, bomRowsOf: pn => bomR[pn] || [] })
+     && at('TM0001H999').why.startsWith('ยังไม่รู้จัก PO ใบนี้') && at('TM0001H999').left === 5 && at('TM0001H999').state === 'out',
+     JSON.stringify(at('TM0001H999')));
   ok('รหัสที่รับเข้า PO ที่มีสูตรแต่ไม่อยู่ในสูตร = ไม่อยู่ในสูตร พร้อม P/N ของใบ',
      (r => r.why === 'ไม่อยู่ในสูตร' && r.pn === 'PN-A' && r.left === 4)(m.get(C2).rows[0]));
   ok('นับจ่ายที่ไม่ใส่ PO ไว้บอกบนจอ', m.get(C).noPo === 2);
@@ -2179,7 +2225,7 @@ console.log('\n=== BPO. ยอดคงคลัง: PO / P/N ที่มีร
   ok('ป้าย: รอรับ / รอจ่าย / จบแล้ว · เกินค้าง / ไม่มีสูตร',
      poUseLabel(at('TM0001H952'))[0] === 'รอรับ 3' && poUseLabel(at('TM0001H953'))[0] === 'รอจ่าย 5'
      && poUseLabel(at('TM0001H954'))[0] === 'จบแล้ว · เกินค้าง 3' && poUseLabel(at('TM0001H951')).join() === 'จบแล้ว,ok'
-     && poUseLabel(at('TM0001H999'))[0] === 'ไม่มีสูตร · เหลือ 5');
+     && poUseLabel(at('TM0001H999'))[0] === 'ยังไม่รู้จัก PO ใบนี้ · เหลือ 5');
   throws('ไม่ระบุนิติบุคคล = โยน (A3)', () => poUseByCode(ents, '', calc), 'A3');
 
   const appQ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
@@ -2188,7 +2234,7 @@ console.log('\n=== BPO. ยอดคงคลัง: PO / P/N ที่มีร
      appQ.includes("x.rows.filter(p => balDone.value || p.state !== 'done' || p.extra > 0)")
      && appQ.includes('r.po.rows.some(p => String(p.po).toUpperCase().includes(t) || String(p.pn).toUpperCase().includes(t))'));
   ok('จอ: ตารางยอดคงคลังมีคอลัมน์ PO แล้ว P/N แยกกัน (บรรทัดสูงเท่ากัน) แสดงครบทุกใบ + ช่องติ๊ก แสดง PO ที่จบแล้ว',
-     htmlQ.includes('v-for="p in r.po.rows"') && htmlQ.includes('v-model="balDone"') && />PO<\/th>\s*<th style="width:100px">P\/N<\/th>/.test(htmlQ)
+     (htmlQ.match(/v-for="\(p, i\) in r\.po\.rows" :key="i"/g) || []).length === 2 && htmlQ.includes('v-model="balDone"') && />PO<\/th>\s*<th style="width:100px">P\/N<\/th>/.test(htmlQ)
      && (htmlQ.match(/class="po-ln/g) || []).length === 2);
 }
 

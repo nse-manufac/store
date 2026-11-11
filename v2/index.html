@@ -1450,9 +1450,9 @@ textarea{font:inherit}
                   <!-- PO / P/N ที่มีรหัสนี้ — แสดงครบทุกใบ · PO กับ P/N คนละคอลัมน์ (เจ้าของสั่ง 11 พ.ย. 2026)
                        ⚠️ ทุกบรรทัดสูงเท่ากัน (.po-ln) ไม่งั้น P/N เลื่อนไม่ตรงบรรทัดกับ PO ของมัน -->
                   <td style="font-size:12px">
-                    <div v-for="p in r.po.rows" :key="p.po" class="po-ln">
+                    <div v-for="(p, i) in r.po.rows" :key="i" class="po-ln">
                       <span class="mono">{{ p.po }}</span>
-                      <span class="tag" :class="poUseLabel(p)[1]">{{ poUseLabel(p)[0] }}</span></div>
+                      <span class="tag" :class="poUseLabel(p)[1]" :title="p.why || null">{{ poUseLabel(p)[0] }}</span></div>
                     <span v-if="r.po.noPo" class="tag warn"
                           title="จ่ายออกที่ไม่ได้ใส่ PO นับให้ใบไหนไม่ได้ — PO ของรหัสนี้อาจค้าง รอจ่าย ทั้งที่จ่ายไปแล้ว">
                       จ่ายไม่ใส่ PO {{ r.po.noPo }} รายการ</span>
@@ -1460,7 +1460,7 @@ textarea{font:inherit}
                     <span v-if="!r.po.rows.length && !r.po.noPo && !r.po.hidden" class="hint">—</span>
                   </td>
                   <td style="font-size:12px">
-                    <div v-for="p in r.po.rows" :key="p.po" class="po-ln mono hint">{{ p.pn || '—' }}</div>
+                    <div v-for="(p, i) in r.po.rows" :key="i" class="po-ln mono hint">{{ p.pn || '—' }}</div>
                   </td>
                   <td class="mono hint">{{ r.last ? localDate(r.last) : '—' }}</td>
                   <td class="row" style="gap:4px;flex-wrap:nowrap;white-space:nowrap">
