@@ -34,6 +34,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
+import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
@@ -62,6 +63,7 @@ const GROUPS = [
     { k: 'in',    label: 'รับเข้า' },
     { k: 'out',   label: 'จ่ายออก' },
     { k: 'bal',   label: 'ยอดคงคลัง' },
+    { k: 'mrp',   label: 'MRP' },
     { k: 'misc',  label: 'ของเสีย · คืน · ปรับยอด' },
     { k: 'wk',    label: 'รับเข้ารวมรายรอบ' }
   ] },
@@ -2407,6 +2409,36 @@ createApp({
     const bomIdx = computed(() => bomIndex(bom.value));
     const bomUsageOf = (pn, code) => bomIdx.value.usageOf(pn, code);
 
+    /* ── MRP ราย PO (เจ้าของสั่ง 12 พ.ย. 2026) ── ตรรกะอยู่ที่ master/mrp.js · ที่นี่ต่อสายอย่างเดียว */
+    const mrpQ = ref(''), mrpFilter = ref('all'), mrpDone = ref(false), mrpOpen = ref({});
+    const mrpAll = computed(() => {
+      try {
+        return mrpRows(entries.value, entity.value, { poList: posVisible.value, bomRowsOf: bomIdx.value.rowsOf,
+                                                      follows: shorts.value, today: todayLocal() });
+      } catch (e) { return []; }      // ยังไม่ได้เลือกนิติบุคคล — จอว่างแทนการโชว์ข้ามนิติบุคคล (A3)
+    });
+    const mrpBase = computed(() => mrpAll.value.filter(r => (mrpDone.value || !r.done) && mrpMatch(r, mrpQ.value)));
+    const mrpCounts = computed(() => Object.fromEntries(Object.entries(MRP_FILTERS).map(([k, f]) => [k, mrpBase.value.filter(f).length])));
+    const mrpShown = computed(() => mrpBase.value.filter(MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all));
+    const mrpHidden = computed(() => (mrpDone.value ? 0 : mrpAll.value.filter(r => r.done && mrpMatch(r, mrpQ.value)).length));
+    const mrpToggle = po => { mrpOpen.value = { ...mrpOpen.value, [po]: !mrpOpen.value[po] }; };
+    const mrpOpenAll = () => { const o = { ...mrpOpen.value }; for (const r of mrpShown.value) o[r.po] = true; mrpOpen.value = o; };
+    const mrpCloseAll = () => { mrpOpen.value = {}; };
+    const mrpMat = c => matIndex.value.get(normCode(c)) || {};
+    const mrpName = c => mrpMat(c).description || '—';
+    const mrpUnit = c => mrpMat(c).unit || '';
+    /* มือถือ: ย่อทั้งตารางให้พอดีจอแทนการเลื่อนข้าง (เจ้าของขอ 12 พ.ย. 2026) · จอกว้างกว่า 760px ใช้ขนาดปกติ */
+    const mrpBox = ref(null), mrpTable = ref(null);
+    function mrpFit() {
+      const box = mrpBox.value, t = mrpTable.value;
+      if (!box || !t) return;
+      t.style.zoom = '';
+      if (window.innerWidth > 760) return;
+      if (t.scrollWidth > box.clientWidth) t.style.zoom = String(Math.max(0.4, box.clientWidth / t.scrollWidth));
+    }
+    watch([mrpShown, mrpOpen, tab], () => nextTick(mrpFit));
+    window.addEventListener('resize', mrpFit);
+
     /* ── ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ── ตรรกะอยู่ที่ master/follow.js shortAll
      * คิดครั้งเดียวแบบ all: true (ทุกรหัสในสูตรของ PO ที่รับแล้ว) แล้วแบ่งใช้สองทาง:
      *   การ์ด "ยังรับไม่ครบตาม BOM" = ขาดมากกว่า SHORT_MIN (ทุกยอดที่ขาด) ที่ยังไม่มีเรื่องเปิดอยู่
@@ -3681,7 +3713,9 @@ createApp({
     }
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
-    return { APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
+    return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
+             mrpName, mrpUnit, mrpBox, mrpTable, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
              materials, entries, bom, q, fCat, fState, edit, toast,
              activeCount, needReview, shown, codeCheck, dupOf,

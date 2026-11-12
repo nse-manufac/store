@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-10.1">
+<meta name="app-version" content="2026-11-12.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -87,6 +87,19 @@ tr.late td{background:var(--badbg)}
 .tag.ok{background:var(--okbg);color:var(--ok)}
 .tag.warn{background:var(--warnbg);color:var(--warn)}
 .tag.bad{background:var(--badbg);color:var(--bad)}
+/* MRP ราย PO — สีอยู่ที่ป้ายอย่างเดียว ไม่ระบายพื้นแถว (เจ้าของเคาะ 12 พ.ย. 2026) */
+.mrp th,.mrp td{white-space:nowrap;vertical-align:middle}
+.mrp .r{text-align:right}
+.mrp-seg{display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px;border-radius:10px;background:#eef2f7}
+.mrp-seg button{border:0;background:transparent;font:inherit;font-size:13px;color:var(--muted);height:30px;padding:0 10px;
+  border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.mrp-seg button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+.mrp-dot{width:8px;height:8px;border-radius:50%;background:#c5ced8}
+.mrp-dot.ok{background:var(--ok)} .mrp-dot.bad{background:var(--bad)} .mrp-dot.warn{background:#d99a1e}
+tr.mrp-po{cursor:pointer} tr.mrp-po:hover td{background:var(--soft)}
+.mrp-in{padding:8px 4px 14px 30px}
+.mrp-bom{margin-top:8px;border:1px solid var(--line)}
+.tag.mute{background:#eceff3;color:#5b6878}
 .msg{padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
 .msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
 .msg.warn{background:var(--warnbg);color:var(--warn);border:1px solid #f0d799}
@@ -1629,6 +1642,85 @@ textarea{font:inherit}
             </div>
           </div>
         </template>
+      </template>
+
+      <!-- ════════ MRP ราย PO (เจ้าของสั่ง 12 พ.ย. 2026) · ตรรกะอยู่ที่ master/mrp.js ════════ -->
+      <template v-else-if="tab==='mrp'">
+        <div class="card">
+          <h2 style="margin:0 0 4px">MRP ราย PO</h2>
+          <p class="hint" style="margin:0 0 12px">PO ที่นำเข้าแล้วแต่ยังไม่จบ เทียบยอดรับเข้ากับ BOM × PO Qty. ทีละรหัส
+            · ใบที่ยังไม่ได้รับของเลยขึ้นเฉพาะ PO ใน {{ MRP_FRESH_DAYS }} วันล่าสุด</p>
+          <div class="row" style="gap:10px 14px">
+            <div class="mrp-seg" role="group" aria-label="กรองตามสถานะ">
+              <button v-for="f in MRP_SEG" :key="f.k" type="button" :aria-pressed="mrpFilter === f.k" @click="mrpFilter = f.k">
+                <span v-if="f.dot" class="mrp-dot" :class="f.dot"></span>{{ f.label }}
+                <span class="mono hint">{{ mrpCounts[f.k] }}</span></button>
+            </div>
+            <div class="grow"></div>
+            <input v-model.trim="mrpQ" placeholder="ค้น PO · P/N · รหัส" style="width:220px">
+            <span class="row" style="gap:5px;flex-wrap:nowrap">
+              <input type="checkbox" v-model="mrpDone" id="mrpd" style="width:16px;height:16px">
+              <label for="mrpd" style="font-size:13px">แสดง PO ที่จบแล้ว</label></span>
+            <button class="btn" @click="mrpOpenAll">กางทั้งหมด</button>
+            <button class="btn" @click="mrpCloseAll">พับทั้งหมด</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="scroll" ref="mrpBox" style="max-height:none">
+          <table class="mrp" ref="mrpTable">
+            <thead><tr><th style="width:28px"></th><th>PO</th><th>P/N</th><th>วันที่ PO</th>
+              <th class="r">PO Qty.</th><th>วัตถุดิบตาม BOM</th></tr></thead>
+            <tbody>
+              <template v-for="r in mrpShown" :key="r.po">
+                <tr class="mrp-po" @click="mrpToggle(r.po)" :aria-expanded="!!mrpOpen[r.po]">
+                  <td><span class="fold-i">{{ mrpOpen[r.po] ? '▾' : '▸' }}</span></td>
+                  <td class="mono">{{ r.po }}</td>
+                  <td class="mono">{{ r.pn || '—' }}</td>
+                  <td class="mono">{{ r.date || '—' }}</td>
+                  <td class="mono r">{{ r.order ? mrpNum(r.order) : '—' }}</td>
+                  <td>
+                    <template v-if="r.state === 'na'">
+                      <span class="tag mute" :title="r.why">คิดไม่ได้</span> <span class="hint">{{ r.why.split(' — ')[0] }}</span></template>
+                    <template v-else>
+                      <span v-if="r.done" class="tag ok">จบแล้ว</span>
+                      <span v-else-if="r.state === 'ok'" class="tag ok">ครบ</span>
+                      <span v-if="r.nShort" class="tag bad">Short {{ r.nShort }} รายการ</span>
+                      <span v-if="r.nOver" class="tag warn" style="margin-left:4px">Over {{ r.nOver }} รายการ</span>
+                      <span v-if="r.none" class="hint" style="margin-left:6px">ยังไม่ได้รับของ</span>
+                      <span v-if="r.nSkip" class="hint" style="margin-left:6px">จบเรื่องแล้ว {{ r.nSkip }} รายการ</span>
+                    </template>
+                  </td>
+                </tr>
+                <tr v-if="mrpOpen[r.po]"><td colspan="6" style="padding:0"><div class="mrp-in">
+                  <div class="hint" v-if="r.state === 'na'">ยังคิดไม่ได้ — {{ r.why }}
+                    <template v-if="r.lines.length"> · รหัสที่รับเข้ามาแล้ว:</template></div>
+                  <div class="hint" v-else>BOM ของ <b class="mono">{{ r.pn }}</b> × <b class="mono">{{ mrpNum(r.order) }}</b> ชิ้น
+                    · {{ r.lines.length }} รหัส · Short {{ r.nShort }} · Over {{ r.nOver }}</div>
+                  <table v-if="r.lines.length" class="mrp-bom">
+                    <thead><tr><th>รหัส</th><th>วัตถุดิบ</th><th class="r">ใช้ต่อชิ้น</th><th class="r">ต้องใช้ตาม BOM</th>
+                      <th class="r">รับแล้ว</th><th>สถานะ</th><th class="r">จ่ายแล้ว</th></tr></thead>
+                    <tbody><tr v-for="(l, i) in r.lines" :key="i">
+                      <td class="mono">{{ l.code }}</td>
+                      <td>{{ mrpName(l.code) }}</td>
+                      <td class="mono r">{{ mrpNum(l.usage) }}</td>
+                      <td class="mono r">{{ mrpNum(l.need) }} <span class="hint">{{ l.need == null ? '' : mrpUnit(l.code) }}</span></td>
+                      <td class="mono r">{{ mrpNum(l.have) }} <span class="hint">{{ mrpUnit(l.code) }}</span></td>
+                      <td><span v-if="mrpLineLabel(l)[0]" class="tag" :class="mrpLineLabel(l)[1]">{{ mrpLineLabel(l)[0] }}</span></td>
+                      <td class="mono r">{{ mrpNum(l.issued) }}</td>
+                    </tr></tbody>
+                  </table>
+                </div></td></tr>
+              </template>
+              <tr v-if="!mrpShown.length"><td colspan="6" class="hint" style="text-align:center;padding:24px">
+                ไม่มี PO ที่ตรงกับตัวกรองนี้</td></tr>
+              <tr v-if="mrpHidden"><td colspan="6" class="hint" style="text-align:center">
+                PO ที่จบแล้ว {{ mrpHidden }} ใบซ่อนอยู่</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="hint" style="margin:10px 0 0">รับแล้ว = รับเข้าด้วยเลข PO นี้ หักส่งคืน Delta (ไม่หักยอดจ่าย)
+            · Over นับเมื่อเกินตั้งแต่ {{ OVER_MIN }} หน่วย แบบการ์ด over · จบเรื่องแล้ว = ยอดขาดที่ปิดเรื่อง ยกเลิก หรือไม่ติดตามแล้ว นับว่าครบ</p>
+        </div>
       </template>
 
       <!-- ════════ ของเสีย · คืนของ · ปรับยอด ════════ -->

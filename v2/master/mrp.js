@@ -1,0 +1,175 @@
+/**
+ * MRP ราย PO — PO แต่ละใบรับวัตถุดิบครบตาม BOM × จำนวนสั่งแล้วหรือยัง (เจ้าของสั่ง 12 พ.ย. 2026)
+ *
+ * ── เทียบอะไรกับอะไร ─────────────────────────────────────────────
+ *   ต้องใช้ = ต่อชิ้นในสูตร × จำนวนสั่งของใบ
+ *   รับแล้ว = รับเข้าด้วยเลข PO นี้ − ส่งคืน Delta ตาม PO นี้ (ตัวเดียวกับ shortAll / overAll)
+ *             **ไม่หักยอดจ่าย** (เจ้าของเคาะ)
+ *   Short = รับแล้ว < ต้องใช้ · นับทุกยอดที่ขาด (SHORT_MIN = 0 แบบการ์ด short)
+ *           ยอดขาดที่ "จบเรื่องแล้ว" (ปิดเรื่องตรงยอด · ยกเลิกเรื่อง · ไม่ติดตาม) = skip นับว่าครบ
+ *           กฎเดียวกับการ์ด "ยังรับไม่ครบตาม BOM" (shortSettled)
+ *   Over  = รับเกินตั้งแต่ OVER_MIN แบบการ์ด over (เจ้าของเคาะ) · เกินไม่ถึงเกณฑ์ = ครบ
+ *           รหัสที่รับเข้ามาแต่ไม่อยู่ในสูตรของใบ = extra นับเป็น Over (เจ้าของเคาะ)
+ *
+ * ── ใบไหนขึ้น ───────────────────────────────────────────────────
+ *   ทุกใบที่นำเข้าไฟล์ PO แล้ว + ใบที่มีรับเข้าแต่ยังไม่ได้นำเข้าไฟล์ (ขึ้นแบบคิดไม่ได้)
+ *   ใบที่ยังไม่ได้รับของเลย ขึ้นเฉพาะใบที่วันที่ PO อยู่ในช่วง freshDays วันล่าสุด (เจ้าของเคาะ 60 วัน)
+ *     — ไฟล์ PO มีใบเก่าตั้งแต่ก่อนใช้ระบบ ไม่งั้นจะขึ้น Short ทุกรายการค้างตลอด
+ *   จบ (done) = ไม่มี Short ไม่มี Over และจ่ายครบ · จ่ายครบ = จ่ายถึงยอดต้องใช้
+ *     หรือถึงยอดที่รับจริงถ้ายอดขาดจบเรื่องแล้ว (ส่วนที่ขาดไม่มาเข้าใบนี้)
+ *     จ่าย = จ่ายออกที่อ้าง PO นี้ − คืนของที่อ้าง PO นี้ · ซ่อนบนจอจนกว่าจะติ๊กดู
+ *
+ * ⚠️ สูตรที่มีรหัสเดียวกันหลายบรรทัด ใช้บรรทัดแรก — ตัวเดียวกับ bomIndex.usageOf ที่การ์ด over ใช้
+ * ⚠️ ห้ามกรองนิติบุคคลของรายการด้วยอย่างอื่นนอกจาก e.entity === entity (A3)
+ *    เรื่องติดตามใช้ sameEntity (เรื่องที่ยังไม่มีเจ้าของนับให้ทุกนิติบุคคล — แบบการ์ด short)
+ */
+import { round5 } from '../core/ledger.js';
+import { shortWhyOf, shortSettled, sameEntity, OVER_MIN } from './follow.js';
+import { poHeaderIndex } from './po-kit.js';
+
+export const MRP_FRESH_DAYS = 60;
+
+const txt = v => String(v == null ? '' : v).trim();
+const codeKey = c => txt(c).toUpperCase();
+const pairKey = (po, code) => txt(po) + '|' + codeKey(code);
+
+/** วันที่ (YYYY-MM-DD) ถอยหลัง n วัน — คิดแบบ UTC ล้วน ไม่ให้เวลาเครื่องทำวันเลื่อน */
+function daysBefore(date, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(txt(date));
+  if (!m) return '';
+  const t = Date.UTC(+m[1], +m[2] - 1, +m[3]) - n * 864e5;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/**
+ * คืน [{ po, pn, date, order, why, none, lines, nShort, nOver, nSkip, state, done }] เรียงตาม PO
+ *   lines = [{ code, usage, need, have, issued, diff, state }]
+ *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · extra (ไม่อยู่ในสูตร) · na (ใบคิดไม่ได้)
+ *   state ของใบ: short (มี Short) · over (มี Over ไม่มี Short) · ok · na (คิดไม่ได้ — why บอกเหตุ)
+ *
+ * poList = รายการ PO ที่นิติบุคคลนี้มองเห็น (posVisible) · bomRowsOf(pn) = บรรทัดสูตรที่ยังใช้อยู่
+ * today = 'YYYY-MM-DD' ตามเวลาไทย (todayLocal) — ส่งเข้ามาเพื่อเทสได้
+ */
+export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [], today = '',
+                                           freshDays = MRP_FRESH_DAYS, overMin = OVER_MIN } = {}) {
+  if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  if (typeof bomRowsOf !== 'function') throw new Error('ต้องส่ง bomRowsOf เข้ามา');
+
+  // เดินสมุดรอบเดียว
+  const got = new Map(), used = new Map(), codesOf = new Map(), started = new Set();
+  for (const e of entries || []) {
+    if (!e || e.entity !== entity || e.voided) continue;
+    const po = txt(e.doc_ref);
+    if (!po) continue;
+    const k = pairKey(po, e.material_code), q = Number(e.qty) || 0;
+    if (e.kind === 'receive' || e.kind === 'sendback') {
+      if (e.kind === 'receive') started.add(po);
+      got.set(k, round5((got.get(k) || 0) + (e.kind === 'receive' ? q : -q)));
+      if (!codesOf.has(po)) codesOf.set(po, new Set());
+      codesOf.get(po).add(codeKey(e.material_code));
+    } else if (e.kind === 'issue' || e.kind === 'return') {
+      used.set(k, round5((used.get(k) || 0) + (e.kind === 'issue' ? q : -q)));
+    }
+  }
+  const haveOf = k => round5(Math.max(0, got.get(k) || 0));
+  const usedOf = k => round5(Math.max(0, used.get(k) || 0));
+
+  const headerOf = poHeaderIndex(poList);
+  const settled = shortSettled((follows || []).filter(f => f && sameEntity(f, entity)));
+  const since = txt(today) ? daysBefore(today, freshDays) : '';
+
+  const pos = new Set(started);
+  for (const p of poList || []) {
+    const po = txt(p && p.po);
+    if (!po || pos.has(po)) continue;
+    const date = txt(p.date);
+    if (since && date && date >= since) pos.add(po);   // ยังไม่รับเลย — เอาเฉพาะใบใหม่
+  }
+
+  const out = [];
+  for (const po of pos) {
+    const head = headerOf(po);
+    const row = { po, pn: head ? txt(head.pn) : '', date: head ? head.date : '', order: head ? head.order || 0 : 0,
+                  why: '', none: !started.has(po), lines: [], nShort: 0, nOver: 0, nSkip: 0, state: 'ok', done: false };
+    row.why = shortWhyOf(po, { headerOf, bomRowsOf });
+    if (row.why) {
+      row.state = 'na';
+      for (const c of [...(codesOf.get(po) || [])].sort()) {
+        const k = pairKey(po, c);
+        row.lines.push({ code: c, usage: null, need: null, have: haveOf(k), issued: usedOf(k), diff: null, state: 'na' });
+      }
+      out.push(row);
+      continue;
+    }
+    const seen = new Set();
+    let issuedAll = true;
+    for (const b of bomRowsOf(row.pn) || []) {
+      const usage = Number(b && b.usage) || 0, code = codeKey(b && b.code);
+      if (usage <= 0 || !code || seen.has(code)) continue;
+      seen.add(code);
+      const k = pairKey(po, code);
+      const need = round5(usage * row.order), have = haveOf(k), issued = usedOf(k), diff = round5(have - need);
+      let state = 'ok', target = need;
+      if (diff < 0) {
+        if (settled(po, code, -diff)) { state = 'skip'; target = have; } else state = 'short';
+      } else if (diff >= overMin) state = 'over';
+      if (issued < target) issuedAll = false;
+      row.lines.push({ code, usage, need, have, issued, diff, state });
+    }
+    for (const c of [...(codesOf.get(po) || [])].sort()) {
+      if (seen.has(c)) continue;
+      const k = pairKey(po, c), have = haveOf(k);
+      if (!(have > 0)) continue;           // รับแล้วส่งคืนหมด = ไม่มีอะไรค้าง
+      row.lines.push({ code: c, usage: null, need: null, have, issued: usedOf(k), diff: have, state: 'extra' });
+    }
+    row.nShort = row.lines.filter(l => l.state === 'short').length;
+    row.nOver = row.lines.filter(l => l.state === 'over' || l.state === 'extra').length;
+    row.nSkip = row.lines.filter(l => l.state === 'skip').length;
+    row.state = row.nShort ? 'short' : row.nOver ? 'over' : 'ok';
+    row.done = !row.nShort && !row.nOver && issuedAll;
+    out.push(row);
+  }
+  out.sort((a, b) => a.po.localeCompare(b.po));
+  return out;
+}
+
+/** นับใบตามตัวกรองบนจอ — PO ทั้งหมด · ครบ · มี Short · มี Over · คิดไม่ได้ */
+export const MRP_FILTERS = {
+  all: () => true,
+  ok: r => r.state === 'ok',
+  short: r => r.nShort > 0,
+  over: r => r.nOver > 0,
+  na: r => r.state === 'na'
+};
+
+/** ปุ่มตัวกรองบนจอ — ลำดับ · ชื่อ · สีจุด */
+export const MRP_SEG = [
+  { k: 'all', label: 'ทั้งหมด', dot: '' },
+  { k: 'ok', label: 'ครบ', dot: 'ok' },
+  { k: 'short', label: 'มี Short', dot: 'bad' },
+  { k: 'over', label: 'มี Over', dot: 'warn' },
+  { k: 'na', label: 'คิดไม่ได้', dot: 'na' }
+];
+
+/** ตัวเลขบนจอ — คั่นหลักพัน ทศนิยมไม่เกินสี่ตำแหน่ง · ไม่มีค่า = — */
+export const mrpNum = n => (n == null || !isFinite(Number(n)) ? '—'
+  : round5(Number(n)).toLocaleString('en-US', { maximumFractionDigits: 4 }));
+
+/** ป้ายสถานะของรหัสหนึ่งในตาราง BOM — คืน [ข้อความ, คลาสสี] */
+export function mrpLineLabel(l) {
+  if (!l) return ['', 'mute'];
+  if (l.state === 'ok') return ['ครบ', 'ok'];
+  if (l.state === 'short') return ['Short ' + mrpNum(-l.diff), 'bad'];
+  if (l.state === 'over') return ['Over ' + mrpNum(l.diff), 'warn'];
+  if (l.state === 'skip') return ['ขาด ' + mrpNum(-l.diff) + ' · จบเรื่องแล้ว', 'mute'];
+  if (l.state === 'extra') return ['ไม่อยู่ใน BOM · Over ' + mrpNum(l.have), 'warn'];
+  return ['', 'mute'];
+}
+
+/** ค้นด้วยเลข PO · P/N · รหัสวัตถุดิบ (ตัวพิมพ์เล็กใหญ่ไม่มีผล) */
+export function mrpMatch(row, q) {
+  const s = txt(q).toUpperCase();
+  if (!s) return true;
+  return row.po.toUpperCase().includes(s) || row.pn.toUpperCase().includes(s)
+    || row.lines.some(l => l.code.includes(s));
+}

@@ -373,7 +373,7 @@ export function migrateFollow(row, { known = null, now } = {}) {
  * ⚠️ ยังไม่ได้เลือกนิติบุคคล = เห็นได้แค่แถวที่ยังไม่มีเจ้าของ
  *    ห้ามแปลว่า "ไม่กรอง" เพราะนั่นคือการโชว์ยอดข้ามนิติบุคคล ซึ่งเป็นอาการของ A3 ที่เงียบที่สุด
  */
-const sameEntity = (row, entity) =>
+export const sameEntity = (row, entity) =>
   entity ? (!row.entity || row.entity === entity) : !row.entity;
 
 const matchKind = (row, kind) => !kind || row.kind === kind;
@@ -703,22 +703,36 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN
  *    ยอดต่างจากเรื่องที่ปิด = ขาดเพิ่มจริง ยังขึ้นให้ตั้งเรื่องได้ · เรื่องที่ยกเลิกไม่กัน
  */
 export function shortPending(rows, follows) {
-  const busy = new Set(), closed = new Map();
+  const busy = new Set();
   for (const f of follows || []) {
     if (!f || f.kind !== 'short' || f.voided) continue;
-    const st = statusOf(f), k = pairKey(f.po, f.code);
-    if (st === 'open' || st === 'partial') busy.add(k);
-    else if (st === 'done') {
-      if (!closed.has(k)) closed.set(k, []);
-      closed.get(k).push(round5(Number(f.qty) || 0));
-    }
+    const st = statusOf(f);
+    if (st === 'open' || st === 'partial') busy.add(pairKey(f.po, f.code));
+  }
+  const settled = shortSettled(follows);
+  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !settled(r.po, r.code, r.short));
+}
+
+/**
+ * ยอดขาดของคู่ PO+รหัสนี้ "จบเรื่องแล้ว" ไหม — คืน (po, code, ยอดขาดตอนนี้) => boolean
+ * จบ = ปิดเรื่องด้วยยอดเท่ายอดขาดตอนนี้ · หรือ ยกเลิกเรื่อง / ไม่ติดตาม แล้วยอดขาดยังไม่เกินที่หยุดไว้
+ * ใช้ร่วมกันระหว่างการ์ด "ยังรับไม่ครบตาม BOM" (shortPending) กับแท็บ MRP (mrp.js)
+ * ให้สองจอพูดตรงกัน (เจ้าของเคาะ 12 พ.ย. 2026) · ไม่กรองนิติบุคคลเอง — ผู้เรียกกรองมาก่อน
+ */
+export function shortSettled(follows) {
+  const closed = new Map();
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'short' || f.voided || statusOf(f) !== 'done') continue;
+    const k = pairKey(f.po, f.code);
+    if (!closed.has(k)) closed.set(k, []);
+    closed.get(k).push(round5(Number(f.qty) || 0));
   }
   // เกณฑ์ "ยอดเท่ากัน" เดียวกับ shortChecker — ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม
-  const sameAsClosed = r => (closed.get(pairKey(r.po, r.code)) || [])
-    .some(q => q > 0 && Math.abs(q - (Number(r.short) || 0)) < 5e-4);
+  const sameAsClosed = (po, code, short) => (closed.get(pairKey(po, code)) || [])
+    .some(q => q > 0 && Math.abs(q - (Number(short) || 0)) < 5e-4);
   // ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) — กฎอยู่ที่ stopGate ใช้ร่วมกับ over
   const stillStopped = stopGate(follows, 'short');
-  return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !sameAsClosed(r) && !stillStopped(r.po, r.code, r.short));
+  return (po, code, short) => sameAsClosed(po, code, short) || stillStopped(po, code, short);
 }
 
 /**
