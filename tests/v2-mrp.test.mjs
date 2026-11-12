@@ -144,8 +144,16 @@ ok('แท็บอื่นไม่ต้องคิด MRP — watch อ่�
 ok('จอขึ้นเหตุเต็มของใบที่คิดไม่ได้ ไม่ตัดครึ่งหลัง (ผู้ตรวจ #156 ข้อ 5)', !html.includes("r.why.split(' — ')[0]"));
 ok('ตัวคิดพัง = จอบอก ไม่ว่างเงียบ (ผู้ตรวจ #156 ข้อ 6)', html.includes('mrpErr') && /mrpErr/.test(app));
 ok('ช่องเติมวันที่ + ป้ายจ่ายไม่ใส่ PO อยู่บนจอ', html.includes('mrpSetDate(') && html.includes('mrpNoPo'));
+// ตรวจเฉพาะบล็อกแท็บ MRP — ใบอื่นใส่ @click.stop ให้ <td> ของแท็บอื่นได้ ไม่ทำให้เทสนี้แดง (ผู้ตรวจ #156 รอบ 3 ข้อ 2)
+// บล็อก = จาก <template v-else-if="tab==='mrp'"> ถึง <template v-else… ถัดไปที่ย่อหน้าเท่ากัน (แท็บถัดไป)
+const mrpStart = html.indexOf(`<template v-else-if="tab==='mrp'">`);
+const mrpIndent = mrpStart < 0 ? '' : html.slice(html.lastIndexOf('\n', mrpStart) + 1, mrpStart);
+const mrpEndAt = mrpStart < 0 ? -1 : html.indexOf('\n' + mrpIndent + '<template v-else', mrpStart + 1);
+const mrpHtml = mrpStart < 0 ? '' : html.slice(mrpStart, mrpEndAt < 0 ? undefined : mrpEndAt);
+ok('ตัดบล็อกแท็บ MRP ออกมาตรวจได้ (ไม่งั้นเทสข้อถัดไปไม่มีความหมาย)',
+   mrpStart >= 0 && mrpEndAt > mrpStart && mrpHtml.includes('mrpSetDate(') && !mrpHtml.includes(`tab==='misc'`));
 ok('กันคลิกเฉพาะช่องเลือกวันที่ — คลิกช่องวันที่ของแถวอื่นยังกางแถวได้ (ผู้ตรวจ #156 รอบ 2 ข้อ 4)',
-   !/<td[^>]*@click\.stop/.test(html) && /<input type="date"[^>]*@click\.stop/.test(html));
+   !/<td[^>]*@click\.stop/.test(mrpHtml) && /<input type="date"[^>]*@click\.stop/.test(mrpHtml));
 ok('ไม่มีแถวไหนเปลี่ยน = ไม่ขึ้นว่าเติมวันที่แล้ว (ผู้ตรวจ #156 รอบ 2 ข้อ 5)', /if \(!changed\.length\) return;/.test(app));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
