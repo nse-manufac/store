@@ -15,6 +15,7 @@
  *   ทุกใบที่นำเข้าไฟล์ PO แล้ว + ใบที่มีรับเข้าแต่ยังไม่ได้นำเข้าไฟล์ (ขึ้นแบบคิดไม่ได้)
  *   ใบที่ยังไม่ได้รับของเลย ขึ้นเฉพาะใบที่วันที่ PO อยู่ในช่วง freshDays วันล่าสุด (เจ้าของเคาะ 60 วัน)
  *     — ไฟล์ PO มีใบเก่าตั้งแต่ก่อนใช้ระบบ ไม่งั้นจะขึ้น Short ทุกรายการค้างตลอด
+ *     ใบที่ไม่มีวันที่เลย ขึ้นด้วยพร้อม noDate ให้เติมวันที่ได้ (fillPoDate) — ไม่ตัดทิ้งเงียบ (ผู้ตรวจ #156 ข้อ 3 · เจ้าของเคาะ)
  *   จบ (done) = ไม่มี Short ไม่มี Over และจ่ายครบ · จ่ายครบ = จ่ายถึงยอดต้องใช้
  *     หรือถึงยอดที่รับจริงถ้ายอดขาดจบเรื่องแล้ว (ส่วนที่ขาดไม่มาเข้าใบนี้)
  *     จ่าย = จ่ายออกที่อ้าง PO นี้ − คืนของที่อ้าง PO นี้ · ซ่อนบนจอจนกว่าจะติ๊กดู
@@ -44,7 +45,8 @@ function daysBefore(date, n) {
 /**
  * คืน [{ po, pn, date, order, why, none, lines, nShort, nOver, nSkip, state, done }] เรียงตาม PO
  *   lines = [{ code, usage, need, have, issued, diff, state }]
- *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · extra (ไม่อยู่ในสูตร) · na (ใบคิดไม่ได้)
+ *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · extra (ไม่อยู่ในสูตร) · zero (สูตรใช้ 0) · na (ใบคิดไม่ได้)
+ *   noDate = ใบในไฟล์ PO ที่ไม่มีวันที่ — จอให้เติมวันที่ได้
  *   state ของใบ: short (มี Short) · over (มี Over ไม่มี Short) · ok · na (คิดไม่ได้ — why บอกเหตุ)
  *
  * poList = รายการ PO ที่นิติบุคคลนี้มองเห็น (posVisible) · bomRowsOf(pn) = บรรทัดสูตรที่ยังใช้อยู่
@@ -83,7 +85,7 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
     const po = txt(p && p.po);
     if (!po || pos.has(po)) continue;
     const date = txt(p.date);
-    if (since && date && date >= since) pos.add(po);   // ยังไม่รับเลย — เอาเฉพาะใบใหม่
+    if (!date || (since && date >= since)) pos.add(po);   // ยังไม่รับเลย — เอาเฉพาะใบใหม่ · ไม่มีวันที่ = ขึ้นให้เติม
   }
 
   const out = [];
@@ -91,6 +93,7 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
     const head = headerOf(po);
     const row = { po, pn: head ? txt(head.pn) : '', date: head ? head.date : '', order: head ? head.order || 0 : 0,
                   why: '', none: !started.has(po), lines: [], nShort: 0, nOver: 0, nSkip: 0, state: 'ok', done: false };
+    row.noDate = !!head && !txt(row.date);   // ใบที่ไม่อยู่ในไฟล์ PO เติมวันที่ไม่ได้ — ต้องนำเข้าไฟล์ก่อน
     row.why = shortWhyOf(po, { headerOf, bomRowsOf });
     if (row.why) {
       row.state = 'na';
@@ -101,11 +104,12 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       out.push(row);
       continue;
     }
-    const seen = new Set();
+    const seen = new Set(), zero = new Set();
     let issuedAll = true;
     for (const b of bomRowsOf(row.pn) || []) {
       const usage = Number(b && b.usage) || 0, code = codeKey(b && b.code);
-      if (usage <= 0 || !code || seen.has(code)) continue;
+      if (!code || seen.has(code)) continue;
+      if (usage <= 0) { zero.add(code); continue; }   // อยู่ในสูตรแต่ใช้ 0 — รับเข้ามาเมื่อไหร่ขึ้นแบบ zero
       seen.add(code);
       const k = pairKey(po, code);
       const need = round5(usage * row.order), have = haveOf(k), issued = usedOf(k), diff = round5(have - need);
@@ -120,10 +124,12 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       if (seen.has(c)) continue;
       const k = pairKey(po, c), have = haveOf(k);
       if (!(have > 0)) continue;           // รับแล้วส่งคืนหมด = ไม่มีอะไรค้าง
-      row.lines.push({ code: c, usage: null, need: null, have, issued: usedOf(k), diff: have, state: 'extra' });
+      // ใช้ 0 ในสูตร = นับเป็น Over เหมือนกัน (overAll ให้ over = ยอดรับ) แต่ป้ายต้องไม่บอกว่า "ไม่อยู่ใน BOM" (ผู้ตรวจ #156 ข้อ 4)
+      const z = zero.has(c);
+      row.lines.push({ code: c, usage: z ? 0 : null, need: z ? 0 : null, have, issued: usedOf(k), diff: have, state: z ? 'zero' : 'extra' });
     }
     row.nShort = row.lines.filter(l => l.state === 'short').length;
-    row.nOver = row.lines.filter(l => l.state === 'over' || l.state === 'extra').length;
+    row.nOver = row.lines.filter(l => l.state === 'over' || l.state === 'extra' || l.state === 'zero').length;
     row.nSkip = row.lines.filter(l => l.state === 'skip').length;
     row.state = row.nShort ? 'short' : row.nOver ? 'over' : 'ok';
     row.done = !row.nShort && !row.nOver && issuedAll;
@@ -163,7 +169,39 @@ export function mrpLineLabel(l) {
   if (l.state === 'over') return ['Over ' + mrpNum(l.diff), 'warn'];
   if (l.state === 'skip') return ['ขาด ' + mrpNum(-l.diff) + ' · จบเรื่องแล้ว', 'mute'];
   if (l.state === 'extra') return ['ไม่อยู่ใน BOM · Over ' + mrpNum(l.have), 'warn'];
+  if (l.state === 'zero') return ['BOM ใช้ 0 · Over ' + mrpNum(l.have), 'warn'];
   return ['', 'mute'];
+}
+
+/**
+ * จ่ายออกที่ไม่ได้ใส่เลข PO ของนิติบุคคลนี้กี่รายการ — นับให้ใบไหนไม่ได้ ใบที่ใช้ของนั้นจึงอาจค้างไม่ "จบ"
+ * จอขึ้นป้ายบอกเหตุ (ผู้ตรวจ #156 ข้อ 1 · เจ้าของเคาะ — แบบเดียวกับที่ #155 มี)
+ */
+export function mrpNoPoIssues(entries, entity) {
+  if (!txt(entity)) return 0;
+  let n = 0;
+  for (const e of entries || []) {
+    if (e && e.entity === entity && !e.voided && e.kind === 'issue' && !txt(e.doc_ref)) n++;
+  }
+  return n;
+}
+
+/**
+ * เติมวันที่ให้ใบในไฟล์ PO ที่ไม่มีวันที่ (เจ้าของเคาะ 12 พ.ย. 2026) — แก้ในที่ คืนแถวที่แก้
+ * แก้เฉพาะแถวของ PO นั้นที่ยังไม่มีวันที่ · ใบที่มีวันที่อยู่แล้วไม่แตะ (ไม่ใช่ช่องแก้วันที่)
+ * date ต้องเป็น YYYY-MM-DD ที่มีจริง ไม่งั้นโยนพร้อมบอกว่าต้องใส่แบบไหน (G3)
+ * ⚠️ ติด dirty ให้ด้วย — ตัวซิงค์หาแถวที่ต้องส่งจาก dirty บนอ็อบเจกต์ในหน่วยความจำ
+ */
+export function fillPoDate(poList, po, date) {
+  const d = txt(date), m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  const real = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toISOString().slice(0, 10) === d;
+  if (!real) throw new Error('วันที่ไม่ถูกต้อง — เลือกจากปฏิทิน หรือพิมพ์แบบ 2026-11-12');
+  const key = txt(po), out = [];
+  for (const p of poList || []) {
+    if (!p || txt(p.po) !== key || txt(p.date)) continue;
+    p.date = d; p.dirty = true; out.push(p);
+  }
+  return out;
 }
 
 /** ค้นด้วยเลข PO · P/N · รหัสวัตถุดิบ (ตัวพิมพ์เล็กใหญ่ไม่มีผล) */

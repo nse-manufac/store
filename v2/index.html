@@ -1664,6 +1664,10 @@ textarea{font:inherit}
             <button class="btn" @click="mrpOpenAll">กางทั้งหมด</button>
             <button class="btn" @click="mrpCloseAll">พับทั้งหมด</button>
           </div>
+          <p v-if="mrpErr" class="msg warn" style="margin:12px 0 0">{{ mrpErr }}</p>
+          <p v-if="mrpNoPo" class="hint" style="margin:10px 0 0">
+            <span class="tag mute">จ่ายออกไม่ใส่ PO {{ mrpNoPo }} รายการ</span>
+            นับให้ใบไหนไม่ได้ — PO ที่ใช้ของพวกนี้อาจค้าง ไม่ขึ้นว่าจบ</p>
         </div>
         <div class="card">
           <div class="scroll" ref="mrpBox" style="max-height:none">
@@ -1676,11 +1680,16 @@ textarea{font:inherit}
                   <td><span class="fold-i">{{ mrpOpen[r.po] ? '▾' : '▸' }}</span></td>
                   <td class="mono">{{ r.po }}</td>
                   <td class="mono">{{ r.pn || '—' }}</td>
-                  <td class="mono">{{ r.date || '—' }}</td>
+                  <td class="mono" @click.stop>
+                    <template v-if="!r.noDate">{{ r.date || '—' }}</template>
+                    <span v-else class="row" style="gap:6px;flex-wrap:nowrap">
+                      <span class="tag mute">ไม่มีวันที่</span>
+                      <input type="date" title="เติมวันที่ของ PO ใบนี้" style="width:140px;padding:2px 6px"
+                             @change="mrpSetDate(r.po, $event.target.value)"></span></td>
                   <td class="mono r">{{ r.order ? mrpNum(r.order) : '—' }}</td>
                   <td>
                     <template v-if="r.state === 'na'">
-                      <span class="tag mute" :title="r.why">คิดไม่ได้</span> <span class="hint">{{ r.why.split(' — ')[0] }}</span></template>
+                      <span class="tag mute">คิดไม่ได้</span> <span class="hint">{{ r.why }}</span></template>
                     <template v-else>
                       <span v-if="r.done" class="tag ok">จบแล้ว</span>
                       <span v-else-if="r.state === 'ok'" class="tag ok">ครบ</span>

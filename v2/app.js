@@ -34,7 +34,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
-import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS } from './master/mrp.js';
+import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
@@ -2411,16 +2411,30 @@ createApp({
 
     /* ── MRP ราย PO (เจ้าของสั่ง 12 พ.ย. 2026) ── ตรรกะอยู่ที่ master/mrp.js · ที่นี่ต่อสายอย่างเดียว */
     const mrpQ = ref(''), mrpFilter = ref('all'), mrpDone = ref(false), mrpOpen = ref({});
-    const mrpAll = computed(() => {
+    const mrpCalc = computed(() => {
+      if (!entity.value) return { rows: [], err: 'เลือกนิติบุคคลที่มุมขวาบนก่อน แล้วตารางจะขึ้น' };   // A3 — ไม่โชว์ข้ามนิติบุคคล
       try {
-        return mrpRows(entries.value, entity.value, { poList: posVisible.value, bomRowsOf: bomIdx.value.rowsOf,
-                                                      follows: shorts.value, today: todayLocal() });
-      } catch (e) { return []; }      // ยังไม่ได้เลือกนิติบุคคล — จอว่างแทนการโชว์ข้ามนิติบุคคล (A3)
+        return { rows: mrpRows(entries.value, entity.value, { poList: posVisible.value, bomRowsOf: bomIdx.value.rowsOf,
+                                                              follows: shorts.value, today: todayLocal() }), err: '' };
+      } catch (e) { return { rows: [], err: 'คิด MRP ไม่ได้ — ' + e.message + ' · แจ้งเจ้าของพร้อมข้อความนี้' }; }
     });
+    const mrpAll = computed(() => mrpCalc.value.rows);
+    const mrpErr = computed(() => mrpCalc.value.err);
+    const mrpNoPo = computed(() => mrpNoPoIssues(entries.value, entity.value));
     const mrpBase = computed(() => mrpAll.value.filter(r => (mrpDone.value || !r.done) && mrpMatch(r, mrpQ.value)));
     const mrpCounts = computed(() => Object.fromEntries(Object.entries(MRP_FILTERS).map(([k, f]) => [k, mrpBase.value.filter(f).length])));
     const mrpShown = computed(() => mrpBase.value.filter(MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all));
-    const mrpHidden = computed(() => (mrpDone.value ? 0 : mrpAll.value.filter(r => r.done && mrpMatch(r, mrpQ.value)).length));
+    // นับตามตัวกรองที่เลือกอยู่ด้วย — กด "มี Short" แล้วไม่ควรบอกว่ามีใบที่จบซ่อนอยู่ (ผู้ตรวจ #156 ข้อ 6)
+    const mrpHidden = computed(() => (mrpDone.value ? 0 : mrpAll.value.filter(r => r.done && mrpMatch(r, mrpQ.value)
+      && (MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all)(r)).length));
+    async function mrpSetDate(po, date) {
+      if (!date) return;
+      try {
+        const changed = fillPoDate(pos.value, po, date);
+        if (changed.length) await db.put('pos', changed.map(plain));
+        flash(`เติมวันที่ ${po} = ${date} แล้ว`);
+      } catch (e) { flash(e.message, true); }
+    }
     const mrpToggle = po => { mrpOpen.value = { ...mrpOpen.value, [po]: !mrpOpen.value[po] }; };
     const mrpOpenAll = () => { const o = { ...mrpOpen.value }; for (const r of mrpShown.value) o[r.po] = true; mrpOpen.value = o; };
     const mrpCloseAll = () => { mrpOpen.value = {}; };
@@ -2436,7 +2450,8 @@ createApp({
       if (window.innerWidth > 760) return;
       if (t.scrollWidth > box.clientWidth) t.style.zoom = String(Math.max(0.4, box.clientWidth / t.scrollWidth));
     }
-    watch([mrpShown, mrpOpen, tab], () => nextTick(mrpFit));
+    // อ่าน mrpShown เฉพาะตอนอยู่แท็บ MRP — แท็บอื่นไม่ต้องจ่ายค่าคิด (ผู้ตรวจ #156 ข้อ 2)
+    watch(() => tab.value === 'mrp' && [mrpShown.value, mrpOpen.value], () => nextTick(mrpFit));
     window.addEventListener('resize', mrpFit);
 
     /* ── ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ── ตรรกะอยู่ที่ master/follow.js shortAll
@@ -3714,7 +3729,7 @@ createApp({
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
-             mrpName, mrpUnit, mrpBox, mrpTable, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
              materials, entries, bom, q, fCat, fState, edit, toast,

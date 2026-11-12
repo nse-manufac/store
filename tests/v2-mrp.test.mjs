@@ -5,7 +5,7 @@
  * เลข PO · รหัสวัตถุดิบ · จำนวน ในไฟล์นี้ **สมมติขึ้นทั้งหมด** (repo นี้เป็น public)
  */
 import { readFileSync } from 'node:fs';
-import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS } from '../v2/master/mrp.js';
+import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN } from '../v2/master/follow.js';
 
 let pass = 0, fail = 0;
@@ -74,6 +74,27 @@ const unknown = run({ ents: [...ents, mk('receive', 'TM0001H999', A, 4)] }).find
 ok('มีรับเข้าแต่ยังไม่ได้นำเข้าไฟล์ PO = ขึ้นแบบคิดไม่ได้ ไม่หายเงียบ', unknown && unknown.state === 'na' && unknown.why.startsWith('ยังไม่รู้จัก PO'));
 ok('เรียงตาม PO', rows.map(r => r.po).join() === [...rows.map(r => r.po)].sort().join());
 
+const withNoDate = mrpRows(ents, EN, { poList: [...poList, { po: 'TM0001H968', pn: 'PN-A', qty: 10, date: '' }], bomRowsOf, today: TODAY });
+const nd = withNoDate.find(r => r.po === 'TM0001H968');
+ok('ใบในไฟล์ PO ที่ไม่มีวันที่ และยังไม่รับ = ขึ้นพร้อม noDate ไม่หายเงียบ (ผู้ตรวจ #156 ข้อ 3)', nd && nd.noDate && nd.none, JSON.stringify(nd));
+ok('ใบที่มีวันที่ ไม่ติด noDate', at('TM0001H961').noDate === false);
+ok('ใบที่ไม่อยู่ในไฟล์ PO (คิดไม่ได้) ไม่ติด noDate — ไม่มีแถวให้เติมวันที่', unknown.noDate === false);
+const pl = [{ po: 'TM0001H968', date: '' }, { po: 'TM0001H968', date: '' }, { po: 'TM0001H961', date: '2026-11-01' }];
+const filled = fillPoDate(pl, 'TM0001H968', '2026-11-10');
+ok('เติมวันที่: แก้ทุกแถวของใบนั้นที่ยังว่าง · ติด dirty ให้ซิงค์', filled.length === 2 && pl[0].date === '2026-11-10' && pl[1].dirty === true);
+ok('เติมวันที่: ใบที่มีวันที่อยู่แล้วไม่แตะ', fillPoDate(pl, 'TM0001H961', '2026-11-11').length === 0 && pl[2].date === '2026-11-01');
+throws('เติมวันที่: วันที่ไม่มีจริง = โยน พร้อมบอกรูปแบบ', () => fillPoDate(pl, 'TM0001H968', '2026-02-30'), '2026-11-12');
+throws('เติมวันที่: ว่าง = โยน', () => fillPoDate(pl, 'TM0001H968', ''), 'วันที่ไม่ถูกต้อง');
+const zeroBom = { 'PN-A': [{ code: A, usage: 2 }, { code: B, usage: 0.5 }, { code: X, usage: 0 }] };
+const zr = mrpRows(ents, EN, { poList, bomRowsOf: pn => zeroBom[pn] || [], today: TODAY }).find(r => r.po === 'TM0001H963');
+const zl = zr.lines.find(l => l.code === X);
+ok('รหัสที่อยู่ในสูตรแต่ใช้ 0 แล้วรับเข้ามา = Over แต่ป้าย "BOM ใช้ 0" ไม่ใช่ "ไม่อยู่ใน BOM" (ผู้ตรวจ #156 ข้อ 4)',
+   zl.state === 'zero' && zl.need === 0 && zr.nOver === 2 && mrpLineLabel(zl)[0] === 'BOM ใช้ 0 · Over 3', JSON.stringify(zl));
+ok('นับจ่ายออกที่ไม่ใส่ PO เฉพาะนิติบุคคลนี้ · ไม่นับที่ยกเลิก (ผู้ตรวจ #156 ข้อ 1)',
+   mrpNoPoIssues([mk('issue', '', A, 1), mk('issue', ' ', A, 1), mk('issue', '', A, 1, { voided: true }),
+                  mk('issue', '', A, 1, { entity: 'TUE-U' }), mk('issue', 'TM0001H961', A, 1), mk('receive', '', A, 1)], EN) === 2);
+ok('ไม่ระบุนิติบุคคล = 0 ไม่ใช่นับข้ามนิติบุคคล', mrpNoPoIssues([mk('issue', '', A, 1)], '') === 0);
+
 console.log('=== M3. จบแล้ว ===');
 ok('ครบ + จ่ายครบทุกรหัส = จบ', at('TM0001H967').done === true);
 ok('ครบแต่ยังจ่ายไม่ครบ = ยังไม่จบ', at('TM0001H961').done === false);
@@ -119,6 +140,10 @@ const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
 ok('มีแท็บ MRP ในงานประจำวัน', /\{ k: 'mrp',\s+label: 'MRP' \}/.test(app));
 ok('ต่อสายด้วย mrpRows + posVisible (ใบที่นิติบุคคลนี้มองเห็น) + todayLocal', /mrpRows\(entries\.value, entity\.value, \{[^}]*poList: posVisible\.value/.test(app) && /today: todayLocal\(\)/.test(app));
 ok('จอมีปุ่มกางทั้งหมด + พับทั้งหมด + ติ๊กแสดง PO ที่จบแล้ว', html.includes('กางทั้งหมด') && html.includes('พับทั้งหมด') && html.includes('v-model="mrpDone"'));
+ok('แท็บอื่นไม่ต้องคิด MRP — watch อ่าน mrpShown เฉพาะตอนอยู่แท็บ mrp (ผู้ตรวจ #156 ข้อ 2)', /watch\(\(\) => tab\.value === 'mrp' &&/.test(app));
+ok('จอขึ้นเหตุเต็มของใบที่คิดไม่ได้ ไม่ตัดครึ่งหลัง (ผู้ตรวจ #156 ข้อ 5)', !html.includes("r.why.split(' — ')[0]"));
+ok('ตัวคิดพัง = จอบอก ไม่ว่างเงียบ (ผู้ตรวจ #156 ข้อ 6)', html.includes('mrpErr') && /mrpErr/.test(app));
+ok('ช่องเติมวันที่ + ป้ายจ่ายไม่ใส่ PO อยู่บนจอ', html.includes('mrpSetDate(') && html.includes('mrpNoPo'));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
