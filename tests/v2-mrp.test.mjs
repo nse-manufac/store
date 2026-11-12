@@ -144,6 +144,9 @@ ok('แท็บอื่นไม่ต้องคิด MRP — watch อ่�
 ok('จอขึ้นเหตุเต็มของใบที่คิดไม่ได้ ไม่ตัดครึ่งหลัง (ผู้ตรวจ #156 ข้อ 5)', !html.includes("r.why.split(' — ')[0]"));
 ok('ตัวคิดพัง = จอบอก ไม่ว่างเงียบ (ผู้ตรวจ #156 ข้อ 6)', html.includes('mrpErr') && /mrpErr/.test(app));
 ok('ช่องเติมวันที่ + ป้ายจ่ายไม่ใส่ PO อยู่บนจอ', html.includes('mrpSetDate(') && html.includes('mrpNoPo'));
+ok('กันคลิกเฉพาะช่องเลือกวันที่ — คลิกช่องวันที่ของแถวอื่นยังกางแถวได้ (ผู้ตรวจ #156 รอบ 2 ข้อ 4)',
+   !/<td[^>]*@click\.stop/.test(html) && /<input type="date"[^>]*@click\.stop/.test(html));
+ok('ไม่มีแถวไหนเปลี่ยน = ไม่ขึ้นว่าเติมวันที่แล้ว (ผู้ตรวจ #156 รอบ 2 ข้อ 5)', /if \(!changed\.length\) return;/.test(app));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

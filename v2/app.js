@@ -2431,7 +2431,8 @@ createApp({
       if (!date) return;
       try {
         const changed = fillPoDate(pos.value, po, date);
-        if (changed.length) await db.put('pos', changed.map(plain));
+        if (!changed.length) return;   // ไม่มีแถวไหนเปลี่ยน (เติมไปแล้ว) — ไม่ขึ้นว่าบันทึก (ผู้ตรวจ #156 รอบ 2 ข้อ 5)
+        await db.put('pos', changed.map(plain));
         flash(`เติมวันที่ ${po} = ${date} แล้ว`);
       } catch (e) { flash(e.message, true); }
     }
