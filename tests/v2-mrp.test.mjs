@@ -76,7 +76,8 @@ ok('ใบไม่มีสูตร = คิดไม่ได้ · เหต
    && at('TM0001H966').lines.length === 1 && at('TM0001H966').lines[0].have === 7);
 const unknown = run({ ents: [...ents, mk('receive', 'TM0001H999', A, 4)] }).find(r => r.po === 'TM0001H999');
 ok('มีรับเข้าแต่ยังไม่ได้นำเข้าไฟล์ PO = ขึ้นแบบคิดไม่ได้ ไม่หายเงียบ', unknown && unknown.state === 'na' && unknown.why.startsWith('ยังไม่รู้จัก PO'));
-ok('ไม่มี WK (ยังไม่ได้ดึง plan) = เรียงตามวันที่ PO', rows.map(r => r.date || '~').join() === [...rows.map(r => r.date || '~')].sort().join());
+ok('ไม่มี WK (ยังไม่ได้ดึง plan) = เรียงวันที่ PO ใหม่ไปเก่า · ไม่มีวันที่ไปท้าย',
+   rows.map(r => r.date || '').join() === [...rows.map(r => r.date || '')].sort((x, y) => (!x) - (!y) || y.localeCompare(x)).join(), rows.map(r => r.date).join());
 
 const withNoDate = mrpRows(ents, EN, { poList: [...poList, { po: 'TM0001H968', pn: 'PN-A', qty: 10, date: '' }], bomRowsOf, today: TODAY });
 const nd = withNoDate.find(r => r.po === 'TM0001H968');
@@ -161,8 +162,8 @@ ok('WK ของ plan เป็นชื่อชีตยาว — ตัด�
    && planWeek('45') === '45' && planWeek('') === '' && planWeek(null) === '');
 const longWk = planShipList([pOrd('x1', 'TM0001H980', 'PN-A', 5, 'Plan WK 31  1-4.6. 26')], [])[0];
 ok('planShipList ใช้ WK ที่ตัดแล้ว + weekRaw', longWk.week === 'WK31' && longWk.weekRaw === 'Plan WK 31  1-4.6. 26');
-ok('ชื่อชีตต่างแบบ ("Plan WK 31…" กับ "WK 9…") เรียงตามเลขสัปดาห์ ไม่ใช่ตามตัวอักษร',
-   [{ week: planWeek('Plan WK 31  1-4.6. 26'), po: 'A' }, { week: planWeek('WK 9  1-3.3.26'), po: 'B' }].sort(mrpOrder)[0].po === 'B');
+ok('ชื่อชีตต่างแบบ ("Plan WK 31…" กับ "WK 9…") เรียงตามเลขสัปดาห์ ไม่ใช่ตามตัวอักษร (ใหม่สุดก่อน)',
+   [{ week: planWeek('WK 9  1-3.3.26'), po: 'B' }, { week: planWeek('Plan WK 31  1-4.6. 26'), po: 'A' }].sort(mrpOrder)[0].po === 'A');
 
 const PL = planMap(ship);
 const pr = mrpRows([...ents, mk('receive', 'TM0001H965', A, 3)], EN, { poList, bomRowsOf, plan: PL });
@@ -191,8 +192,9 @@ throws('ไม่มี plan และไม่ส่ง today = โยน ไ�
 const R = (week, date, po, pn) => ({ week, date, po, pn });
 const sorted = [R('', '2026-11-01', 'P1', 'A'), R('WK10', '2026-11-05', 'P2', 'A'), R('WK9', '2026-11-09', 'P3', 'A'),
                 R('WK9', '2026-11-02', 'P4', 'A'), R('WK9', '2026-11-02', 'P4', '0'), R('WK9', '', 'P0', 'A')].sort(mrpOrder);
-ok('เรียง WK (WK9 ก่อน WK10) → วันที่ → PO → P/N · ไม่มี WK / ไม่มีวันที่ไปท้าย',
-   sorted.map(r => r.po + r.pn).join() === 'P40,P4A,P3A,P0A,P2A,P1A', sorted.map(r => r.po + r.pn).join());
+const sameDay = [R('WK9', '2026-11-02', 'P5', 'A'), R('WK9', '2026-11-02', 'P4', 'A')].sort(mrpOrder);
+ok('ใบใหม่สุดก่อน: WK มากไปน้อย (WK10 ก่อน WK9) → วันที่ใหม่ไปเก่า → เลข PO → P/N · ไม่มี WK / ไม่มีวันที่ไปท้าย (เจ้าของสั่ง 14 พ.ย. 2026)',
+   sorted.map(r => r.po + r.pn).join() === 'P2A,P3A,P40,P4A,P0A,P1A' && sameDay.map(r => r.po).join() === 'P4,P5', sorted.map(r => r.po + r.pn).join());
 const CAT = { '9100000971': 'PACKING', '9100000972': 'CORE', '9100000973': 'WIRE', '9100000974': 'CORE', '9100000975': '', '9100000976': 'TAPE' };
 const catBom = { 'PN-C': ['9100000971', '9100000972', '9100000973', '9100000974', '9100000975'].map(code => ({ code, usage: 1 })) };
 const cr = mrpRows([mk('receive', 'TM0001H970', '9100000973', 1), mk('receive', 'TM0001H970', '9100000976', 2)], EN,

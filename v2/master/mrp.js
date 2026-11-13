@@ -22,7 +22,8 @@
  *     ใบที่วันที่ PO เก่ากว่า freshDays วัน = จบ (done) ไม่ว่าจะรับแล้วหรือยัง — จอซ่อนไว้ใต้ "แสดง PO ที่จบแล้ว"
  *     ใบที่ไม่มีวันที่ ขึ้นพร้อม noDate ให้เติมวันที่ได้ (fillPoDate) — ไม่ตัดทิ้งเงียบ (ผู้ตรวจ #156 ข้อ 3 · เจ้าของเคาะ)
  *     ใบที่ไม่อยู่ในไฟล์ PO รู้อายุไม่ได้ ขึ้นแบบคิดไม่ได้ ไม่จบ
- *   เรียง: WK → วันที่ → PO → P/N (เจ้าของสั่ง) · ไม่มี WK / ไม่มีวันที่ ไปท้าย
+ *   เรียง: ใบใหม่สุดขึ้นก่อน — WK มากไปน้อย → วันที่ใหม่ไปเก่า → เลข PO → P/N (เจ้าของสั่ง 14 พ.ย. 2026)
+ *     ไม่มี WK / ไม่มีวันที่ ไปท้าย
  *   WK: ของ plan ก่อน · plan ไม่มี = WK จากเลขล็อตตอนรับเข้า (W45 · W-45 · WK 45) ที่เจอบ่อยสุดในใบ
  *     (weekFrom = 'lot' · เจ้าของเคาะ 14 พ.ย. 2026) — เรียงปนกับ WK ของ plan ตามปกติ
  *   รหัสในใบเรียงตามหมวดในทะเบียน (ลำดับ CATEGORIES: CORE → WIRE → TAPE …) แล้วตามรหัส (เจ้าของเคาะ 13 พ.ย. 2026)
@@ -181,11 +182,16 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
   return out;
 }
 
-/** เรียงแถว: WK → วันที่ → PO → P/N (เจ้าของสั่ง 13 พ.ย. 2026) · ค่าว่างไปท้าย · WK เทียบแบบตัวเลข (WK9 ก่อน WK10) */
+/**
+ * เรียงแถว: ใบใหม่สุดขึ้นก่อน (เจ้าของสั่ง 14 พ.ย. 2026)
+ *   WK มากไปน้อย → วันที่ PO ใหม่ไปเก่า → เลข PO น้อยไปมาก → P/N · ค่าว่างไปท้าย · WK เทียบแบบตัวเลข (WK10 ก่อน WK9)
+ * ⚠️ WK เทียบแค่เลขสัปดาห์ — ช่วงข้ามปี WK1 ของปีใหม่จะไปอยู่ล่าง WK52 ของปีก่อน
+ */
 export function mrpOrder(a, b) {
   const blankLast = (x, y, cmp) => (!x && !y ? 0 : !x ? 1 : !y ? -1 : cmp(x, y));
   const num = (x, y) => x.localeCompare(y, 'en', { numeric: true, sensitivity: 'base' });
-  return blankLast(txt(a.week), txt(b.week), num) || blankLast(txt(a.date), txt(b.date), num)
+  const desc = (x, y) => num(y, x);
+  return blankLast(txt(a.week), txt(b.week), desc) || blankLast(txt(a.date), txt(b.date), desc)
     || num(txt(a.po), txt(b.po)) || num(txt(a.pn), txt(b.pn));
 }
 
