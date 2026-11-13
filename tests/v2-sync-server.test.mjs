@@ -10,6 +10,7 @@
  * ทำให้รหัสที่ปิดใช้งานหายจากเซิร์ฟเวอร์ถาวร
  */
 import fs from 'node:fs';
+import { planShipList } from '../v2/master/mrp.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -86,9 +87,10 @@ const REAL_SRC = fs.readFileSync(new URL('../v2/sync/apps-script.gs', import.met
 const TEST_TOKEN = 'เทส-token-ที่ไม่ใช่ค่าตั้งต้น';
 
 function loadScript(opts = {}) {
-  const src = opts.keepDefaultToken
+  let src = opts.keepDefaultToken
     ? REAL_SRC
     : REAL_SRC.replace("var TOKEN = 'CHANGE-ME-1234';", "var TOKEN = '" + TEST_TOKEN + "';");
+  if (opts.planId) src = src.replace("var PLAN_SHEET_ID = '';", "var PLAN_SHEET_ID = '" + opts.planId + "';");
   if (!opts.keepDefaultToken && src === REAL_SRC) {
     throw new Error('แทนค่า TOKEN ในซอร์สไม่สำเร็จ — รูปแบบบรรทัดเปลี่ยนไปแล้ว เทสทั้งชุดจะไม่ได้ตรวจอะไรเลย');
   }
@@ -98,7 +100,8 @@ function loadScript(opts = {}) {
   const env = {
     PropertiesService: { getScriptProperties: () => ({
       getProperty: k => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = String(v); } }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => book, flush() {} },
+    SpreadsheetApp: { getActiveSpreadsheet: () => book, flush() {},
+      openById: id => { if (opts.books && opts.books[id]) return opts.books[id]; throw new Error('เปิดสเปรดชีตไม่ได้: ' + id); } },
     LockService: { getScriptLock: () => ({
       tryLock: () => { locks.taken++; return locks.available; }, releaseLock() {} }) },
     ContentService: { MimeType: { JSON: 'json' },
@@ -444,6 +447,39 @@ console.log('\n=== I. ตารางไม่ได้เปลี่ยน = �
        && sl.store.changed_Materials <= at2, sl.store.changed_Materials + ' → ' + at2);
   }
   ok('onEdit ไม่โยน error แม้ event แปลก', (() => { try { s.onEdit(undefined); s.onEdit({}); return true; } catch (e) { return false; } })());
+}
+
+console.log('=== P. สถานะส่งของจาก plan (planShip · เจ้าของสั่ง 13 พ.ย. 2026) ===');
+{
+  ok('ไฟล์บน GitHub ไม่มีรหัสชีตของ plan (ใส่ตอนดีพลอยเท่านั้น)', REAL_SRC.includes("var PLAN_SHEET_ID = '';"));
+  ok('ยังไม่ใส่ PLAN_SHEET_ID = ตอบว่าต้องใส่ ไม่พัง', /PLAN_SHEET_ID/.test(loadScript().call('planShip').error || ''));
+  const plan = new SS();
+  const fill = (name, rows) => { const sh = plan.insertSheet(name); sh.rows = rows.map(r => r.slice()); };
+  fill('Orders', [['id', 'week', 'poNo', 'pn', 'orderQty', 'voided', 'updatedAt'],
+                  ['o1', 'WK45', 'TM0001H991', 'PN-A', 100, false, ''],
+                  ['o2', 46, 9900001, 'PN-B', '50', 'TRUE', '']]);
+  fill('Records', [['id', 'date', 'orderId', 'process', 'qty', 'voided'],
+                   ['r1', '', 'o1', 'shipping', 60, false],
+                   ['r2', '', 'o1', 'winding', 100, false],
+                   ['r3', '', 'o1', 'shipping', 5, true]]);
+  const before = JSON.stringify([...plan.sheets.values()].map(x => x.rows));
+  const s = loadScript({ planId: 'PLAN-ID-ทดสอบ', books: { 'PLAN-ID-ทดสอบ': plan } });
+  const d = s.call('planShip');
+  ok('อ่านชีตของ plan ได้', d.ok === true, JSON.stringify(d));
+  ok('ส่งเฉพาะคอลัมน์ที่ใช้ · ตัวเลขเป็นตัวเลข · รหัส/WK เป็นข้อความ',
+     JSON.stringify(d.orders[1]) === JSON.stringify({ id: 'o2', poNo: '9900001', week: '46', orderQty: 50, voided: 'TRUE' }), JSON.stringify(d.orders));
+  ok('Records ส่งเฉพาะขั้น shipping (รวมที่ยกเลิก — ฝั่งโปรแกรมเป็นคนตัด)',
+     d.records.length === 2 && d.records.every(r => r.orderId === 'o1') && d.records[1].voided === true, JSON.stringify(d.records));
+  const sum = planShipList(d.orders, d.records);
+  ok('ต่อกับตัวสรุปฝั่งโปรแกรมได้ตรง — ส่ง 60 จาก 100 เหลือ 40 · ใบที่ยกเลิกไม่นับ',
+     sum.length === 1 && sum[0].po === 'TM0001H991' && sum[0].left === 40 && sum[0].week === 'WK45', JSON.stringify(sum));
+  ok('ไม่เขียนอะไรลงชีตของ plan', JSON.stringify([...plan.sheets.values()].map(x => x.rows)) === before);
+  const nb = new SS(); nb.insertSheet('Orders');
+  ok('ไม่มีแท็บ Records = บอกให้ตรวจรหัส ไม่พัง',
+     /Orders หรือ Records/.test(loadScript({ planId: 'X', books: { X: nb } }).call('planShip').error || ''));
+  ok('รหัสชีตผิด / ไม่มีสิทธิ์ = ตอบ error เป็นข้อความ',
+     loadScript({ planId: 'ไม่มีจริง', books: {} }).call('planShip').ok === false);
+  ok('token ผิด = ไม่ให้ดึง', loadScript({ planId: 'PLAN-ID-ทดสอบ', books: { 'PLAN-ID-ทดสอบ': plan }, token: 'ผิด' }).call('planShip').ok === false);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

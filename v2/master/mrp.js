@@ -11,14 +11,23 @@
  *   Over  = รับเกินตั้งแต่ OVER_MIN แบบการ์ด over (เจ้าของเคาะ) · เกินไม่ถึงเกณฑ์ = ครบ
  *           รหัสที่รับเข้ามาแต่ไม่อยู่ในสูตรของใบ = extra นับเป็น Over (เจ้าของเคาะ)
  *
- * ── ใบไหนขึ้น ───────────────────────────────────────────────────
- *   ทุกใบที่นำเข้าไฟล์ PO แล้ว + ใบที่มีรับเข้าแต่ยังไม่ได้นำเข้าไฟล์ (ขึ้นแบบคิดไม่ได้)
- *   ใบที่ยังไม่ได้รับของเลย ขึ้นเฉพาะใบที่วันที่ PO อยู่ในช่วง freshDays วันล่าสุด (เจ้าของเคาะ 60 วัน)
- *     — ไฟล์ PO มีใบเก่าตั้งแต่ก่อนใช้ระบบ ไม่งั้นจะขึ้น Short ทุกรายการค้างตลอด
- *     ใบที่ไม่มีวันที่เลย ขึ้นด้วยพร้อม noDate ให้เติมวันที่ได้ (fillPoDate) — ไม่ตัดทิ้งเงียบ (ผู้ตรวจ #156 ข้อ 3 · เจ้าของเคาะ)
- *   จบ (done) = ไม่มี Short ไม่มี Over และจ่ายครบ · จ่ายครบ = จ่ายถึงยอดต้องใช้
- *     หรือถึงยอดที่รับจริงถ้ายอดขาดจบเรื่องแล้ว (ส่วนที่ขาดไม่มาเข้าใบนี้)
- *     จ่าย = จ่ายออกที่อ้าง PO นี้ − คืนของที่อ้าง PO นี้ · ซ่อนบนจอจนกว่าจะติ๊กดู
+ * ── ใบไหนขึ้น (เจ้าของเคาะ 13 พ.ย. 2026) ─────────────────────────
+ *   ใบที่คิด = ใบในไฟล์ PO (posVisible) + ใบที่มีรับเข้าแต่ยังไม่ได้นำเข้าไฟล์ (ขึ้นแบบคิดไม่ได้)
+ *   มีข้อมูลจากโปรแกรม plan (plan = planMap(...)) → plan เป็นคนตัดสิน ไม่สนวันที่:
+ *     ใบที่ plan รู้จัก = ขึ้นทุกใบ · ส่งครบแล้ว = จบ (done) จอซ่อนไว้ใต้ "แสดง PO ที่จบแล้ว"
+ *     ใบที่ไม่มีใน plan: มีรับเข้าแล้ว = ขึ้นพร้อม notInPlan (ไม่หายเงียบ) · ยังไม่รับ = ไม่ขึ้น
+ *     ⚠️ ใบที่มีใน plan แต่ไม่อยู่ในไฟล์ PO ของนิติบุคคลนี้และยังไม่รับ ไม่ขึ้น — plan ไม่บอกว่าเป็นของนิติบุคคลไหน (A3)
+ *   ยังไม่มีข้อมูลจาก plan (plan = null) → กฎ freshDays วัน (เจ้าของเคาะ 90 วัน · 13 พ.ย. 2026):
+ *     ใบที่วันที่ PO เก่ากว่า freshDays วัน = จบ (done) ไม่ว่าจะรับแล้วหรือยัง — จอซ่อนไว้ใต้ "แสดง PO ที่จบแล้ว"
+ *     ใบที่ไม่มีวันที่ ขึ้นพร้อม noDate ให้เติมวันที่ได้ (fillPoDate) — ไม่ตัดทิ้งเงียบ (ผู้ตรวจ #156 ข้อ 3 · เจ้าของเคาะ)
+ *     ใบที่ไม่อยู่ในไฟล์ PO รู้อายุไม่ได้ ขึ้นแบบคิดไม่ได้ ไม่จบ
+ *   เรียง: WK → วันที่ → PO → P/N (เจ้าของสั่ง) · ไม่มี WK / ไม่มีวันที่ ไปท้าย
+ *   รหัสในใบเรียงตามหมวดในทะเบียน (ลำดับ CATEGORIES: CORE → WIRE → TAPE …) แล้วตามรหัส (เจ้าของเคาะ 13 พ.ย. 2026)
+ *     — ระบบไม่ได้เก็บลำดับบรรทัดของ BOM (id = pn|code เรียงตามรหัส) เรียงตามรหัสล้วนแล้วหมวดสลับกันจนงง
+ *     รหัสที่ไม่มีหมวด / หมวดที่ไม่รู้จัก ไปท้ายกลุ่ม · รหัสนอกสูตรยังอยู่ท้ายตารางเหมือนเดิม
+ *   จบ (done) = plan บอกว่าส่งลูกค้าครบแล้ว (เจ้าของเคาะ 13 พ.ย. 2026) — ไม่ดูยอดจ่ายแล้ว
+ *     ซ่อนบนจอจนกว่าจะติ๊กดู · ยังไม่มีข้อมูล plan = ใบที่ PO เก่ากว่า freshDays วัน (ข้างบน)
+ *     issued ของแต่ละรหัส (จ่าย − คืนของ ที่อ้าง PO นี้) ยังคิดไว้ แต่ไม่ใช้ตัดสินจบและจอไม่แสดง
  *
  * ⚠️ สูตรที่มีรหัสเดียวกันหลายบรรทัด ใช้บรรทัดแรกที่ต่อชิ้นมากกว่า 0 (บรรทัดที่ใช้ 0 ข้าม)
  *    — ต่างจาก bomIndex.usageOf ที่การ์ด over ใช้ (บรรทัดแรกเสมอ แม้ใช้ 0) · ผลตรงกันเมื่อบรรทัดแรกใช้มากกว่า 0
@@ -29,8 +38,9 @@
 import { round5 } from '../core/ledger.js';
 import { shortWhyOf, shortSettled, sameEntity, OVER_MIN } from './follow.js';
 import { poHeaderIndex } from './po-kit.js';
+import { CATEGORIES } from './materials.js';
 
-export const MRP_FRESH_DAYS = 60;
+export const MRP_FRESH_DAYS = 90;
 
 const txt = v => String(v == null ? '' : v).trim();
 const codeKey = c => txt(c).toUpperCase();
@@ -45,19 +55,22 @@ function daysBefore(date, n) {
 }
 
 /**
- * คืน [{ po, pn, date, order, why, none, lines, nShort, nOver, nSkip, state, done }] เรียงตาม PO
+ * คืน [{ po, pn, week, date, order, why, none, notInPlan, lines, nShort, nOver, nSkip, state, done }]
  *   lines = [{ code, usage, need, have, issued, diff, state }]
  *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · extra (ไม่อยู่ในสูตร) · zero (สูตรใช้ 0) · na (ใบคิดไม่ได้)
  *   noDate = ใบในไฟล์ PO ที่ไม่มีวันที่ — จอให้เติมวันที่ได้
  *   state ของใบ: short (มี Short) · over (มี Over ไม่มี Short) · ok · na (คิดไม่ได้ — why บอกเหตุ)
  *
  * poList = รายการ PO ที่นิติบุคคลนี้มองเห็น (posVisible) · bomRowsOf(pn) = บรรทัดสูตรที่ยังใช้อยู่
- * today = 'YYYY-MM-DD' ตามเวลาไทย (todayLocal) — ส่งเข้ามาเพื่อเทสได้
+ * today = 'YYYY-MM-DD' ตามเวลาไทย (todayLocal) — ส่งเข้ามาเพื่อเทสได้ · ไม่มี plan ต้องมีเสมอ
+ * plan = Map จาก planMap(list) · null = ยังไม่ได้ดึงจาก plan · catOf(code) = หมวดในทะเบียน (ใช้เรียงรหัส)
  */
-export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [], today = '',
+export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [], today = '', plan = null, catOf = () => '',
                                            freshDays = MRP_FRESH_DAYS, overMin = OVER_MIN } = {}) {
   if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
   if (typeof bomRowsOf !== 'function') throw new Error('ต้องส่ง bomRowsOf เข้ามา');
+  // ไม่ส่ง today = ตัดใบทุกใบที่มีวันที่ทิ้งเงียบ ๆ — โยนให้รู้แทน (ผู้ตรวจ #156 รอบ 4 ข้อ 1)
+  if (!plan && !/^\d{4}-\d{2}-\d{2}$/.test(txt(today))) throw new Error('ต้องส่ง today (YYYY-MM-DD) — ยังไม่มีข้อมูล plan ต้องใช้กฎ PO ใหม่ใน ' + freshDays + ' วัน');
 
   // เดินสมุดรอบเดียว
   const got = new Map(), used = new Map(), codesOf = new Map(), started = new Set();
@@ -80,26 +93,37 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
 
   const headerOf = poHeaderIndex(poList);
   const settled = shortSettled((follows || []).filter(f => f && sameEntity(f, entity)));
-  const since = txt(today) ? daysBefore(today, freshDays) : '';
+  const since = plan ? '' : daysBefore(today, freshDays);
+  const catRank = c => { const i = CATEGORIES.indexOf(txt(catOf(c)).toUpperCase()); return i < 0 ? CATEGORIES.length : i; };
+  const codeCmp = (a, b) => catRank(a) - catRank(b) || a.localeCompare(b);
+  const planOf = po => (plan ? plan.get(txt(po).toUpperCase()) || null : null);
 
-  const pos = new Set(started);
-  for (const p of poList || []) {
-    const po = txt(p && p.po);
-    if (!po || pos.has(po)) continue;
-    const date = txt(p.date);
-    if (!date || (since && date >= since)) pos.add(po);   // ยังไม่รับเลย — เอาเฉพาะใบใหม่ · ไม่มีวันที่ = ขึ้นให้เติม
+  const cand = new Set(started);
+  for (const p of poList || []) { const po = txt(p && p.po); if (po) cand.add(po); }
+  const pos = [];
+  for (const po of cand) {
+    if (plan) {
+      const p = planOf(po);
+      if (p || started.has(po)) pos.push(po);   // ส่งครบแล้ว = จบ (ซ่อนที่จอ) · ไม่มีใน plan ขึ้นเฉพาะใบที่รับแล้ว
+    } else {
+      pos.push(po);   // ไม่มี plan: ทุกใบขึ้น · ใบที่เก่ากว่า freshDays วัน = จบ (ดู done ข้างล่าง · เจ้าของเคาะ)
+    }
   }
 
   const out = [];
   for (const po of pos) {
-    const head = headerOf(po);
-    const row = { po, pn: head ? txt(head.pn) : '', date: head ? head.date : '', order: head ? head.order || 0 : 0,
-                  why: '', none: !started.has(po), lines: [], nShort: 0, nOver: 0, nSkip: 0, state: 'ok', done: false };
+    const head = headerOf(po), p = planOf(po);
+    const row = { po, pn: head ? txt(head.pn) : '', week: p ? txt(p.week) : '', weekRaw: p ? txt(p.weekRaw) : '',
+                  date: head ? head.date : '',
+                  order: head ? head.order || 0 : 0, notInPlan: !!plan && !p,
+                  why: '', none: !started.has(po), lines: [], nShort: 0, nOver: 0, nSkip: 0, state: 'ok',
+                  done: plan ? !!p && !(p.left > 0)                                   // จบ = plan บอกว่าส่งครบ
+                             : !!head && !!txt(head.date) && txt(head.date) < since };   // ไม่มี plan: เก่ากว่า freshDays วัน
     row.noDate = !!head && !txt(row.date);   // ใบที่ไม่อยู่ในไฟล์ PO เติมวันที่ไม่ได้ — ต้องนำเข้าไฟล์ก่อน
     row.why = shortWhyOf(po, { headerOf, bomRowsOf });
     if (row.why) {
       row.state = 'na';
-      for (const c of [...(codesOf.get(po) || [])].sort()) {
+      for (const c of [...(codesOf.get(po) || [])].sort(codeCmp)) {
         const k = pairKey(po, c);
         row.lines.push({ code: c, usage: null, need: null, have: haveOf(k), issued: usedOf(k), diff: null, state: 'na' });
       }
@@ -107,7 +131,6 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       continue;
     }
     const seen = new Set(), zero = new Set();
-    let issuedAll = true;
     for (const b of bomRowsOf(row.pn) || []) {
       const usage = Number(b && b.usage) || 0, code = codeKey(b && b.code);
       if (!code || seen.has(code)) continue;
@@ -115,14 +138,13 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       seen.add(code);
       const k = pairKey(po, code);
       const need = round5(usage * row.order), have = haveOf(k), issued = usedOf(k), diff = round5(have - need);
-      let state = 'ok', target = need;
-      if (diff < 0) {
-        if (settled(po, code, -diff)) { state = 'skip'; target = have; } else state = 'short';
-      } else if (diff >= overMin) state = 'over';
-      if (issued < target) issuedAll = false;
+      let state = 'ok';
+      if (diff < 0) state = settled(po, code, -diff) ? 'skip' : 'short';
+      else if (diff >= overMin) state = 'over';
       row.lines.push({ code, usage, need, have, issued, diff, state });
     }
-    for (const c of [...(codesOf.get(po) || [])].sort()) {
+    row.lines.sort((a, b) => codeCmp(a.code, b.code));
+    for (const c of [...(codesOf.get(po) || [])].sort(codeCmp)) {
       if (seen.has(c)) continue;
       const k = pairKey(po, c), have = haveOf(k);
       if (!(have > 0)) continue;           // รับแล้วส่งคืนหมด = ไม่มีอะไรค้าง
@@ -134,11 +156,68 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
     row.nOver = row.lines.filter(l => l.state === 'over' || l.state === 'extra' || l.state === 'zero').length;
     row.nSkip = row.lines.filter(l => l.state === 'skip').length;
     row.state = row.nShort ? 'short' : row.nOver ? 'over' : 'ok';
-    row.done = !row.nShort && !row.nOver && issuedAll;
     out.push(row);
   }
-  out.sort((a, b) => a.po.localeCompare(b.po));
+  out.sort(mrpOrder);
   return out;
+}
+
+/** เรียงแถว: WK → วันที่ → PO → P/N (เจ้าของสั่ง 13 พ.ย. 2026) · ค่าว่างไปท้าย · WK เทียบแบบตัวเลข (WK9 ก่อน WK10) */
+export function mrpOrder(a, b) {
+  const blankLast = (x, y, cmp) => (!x && !y ? 0 : !x ? 1 : !y ? -1 : cmp(x, y));
+  const num = (x, y) => x.localeCompare(y, 'en', { numeric: true, sensitivity: 'base' });
+  return blankLast(txt(a.week), txt(b.week), num) || blankLast(txt(a.date), txt(b.date), num)
+    || num(txt(a.po), txt(b.po)) || num(txt(a.pn), txt(b.pn));
+}
+
+/**
+ * สถานะส่งของจากโปรแกรม plan (เจ้าของสั่ง 13 พ.ย. 2026) — คืนรายการราย PO [{ po, week, qty, shipped, left }]
+ * orders / records = แถวจากตาราง Orders / Records ของ plan (pullRows ของ Apps Script ฝั่ง plan)
+ *   ส่งแล้ว = ผลรวม Records ขั้น 'shipping' ที่ไม่ยกเลิก ของ order นั้น (buildCumMap ของ plan)
+ *   เหลือส่ง = Σ ต่อแถว max(0, orderQty − ส่งแล้ว) (wipBalance ของ plan) — PO เดียวมีหลาย P/N ได้ ครบทุกแถวถึงนับว่าส่งครบ
+ *   ใบที่ยกเลิกใน plan ไม่นับ (activeOrders ของ plan)
+ * ⚠️ ผูกกับชื่อคอลัมน์ของ plan: Orders.id · poNo · week · orderQty · voided · Records.orderId · process · qty · voided
+ *    และ id ขั้น 'shipping' ซึ่ง plan ล็อกไว้ห้ามเปลี่ยน (LOCKED_PROCESS_IDS) — plan เปลี่ยนชื่อพวกนี้เมื่อไหร่ ต้องแก้ที่นี่ด้วย
+ */
+export function planShipList(orders, records) {
+  const voided = v => v === true || String(v).toUpperCase() === 'TRUE';
+  const shipped = new Map();
+  for (const r of records || []) {
+    if (!r || voided(r.voided) || txt(r.process) !== 'shipping') continue;
+    const id = txt(r.orderId);
+    shipped.set(id, round5((shipped.get(id) || 0) + (Number(r.qty) || 0)));
+  }
+  const byPo = new Map();
+  for (const o of orders || []) {
+    if (!o || voided(o.voided)) continue;
+    const po = txt(o.poNo);
+    if (!po) continue;
+    const key = po.toUpperCase(), qty = Number(o.orderQty) || 0, s = shipped.get(txt(o.id)) || 0;
+    const cur = byPo.get(key) || { po, week: '', weekRaw: '', qty: 0, shipped: 0, left: 0 };
+    cur.qty = round5(cur.qty + qty);
+    cur.shipped = round5(cur.shipped + s);
+    cur.left = round5(cur.left + Math.max(0, qty - s));
+    if (!cur.week && txt(o.week)) { cur.week = planWeek(o.week); cur.weekRaw = txt(o.week); }
+    byPo.set(key, cur);
+  }
+  return [...byPo.values()];
+}
+
+/**
+ * WK ของ plan เป็นชื่อชีตของไฟล์แผน เช่น "Plan WK 31  1-4.6. 26" หรือ "WK 25  6-9.4.26" (หน้าตาแบบเดียวกับข้อมูลจริง 13 พ.ย. 2026 · ตัวอย่างนี้แต่งขึ้น)
+ * ตัดเหลือ "WK31" ให้จออ่านง่ายและเรียงเป็นตัวเลขได้ — ไม่มีคำว่า WK = ใช้ข้อความเดิม
+ */
+export function planWeek(raw) {
+  const m = /WK\s*0*(\d{1,2})(?!\d)/i.exec(txt(raw));
+  return m ? 'WK' + m[1] : txt(raw);
+}
+
+/** รายการจาก planShipList (หรือที่เก็บไว้ในเครื่อง) → Map ที่ mrpRows ใช้ · กุญแจ = PO ตัดช่องว่าง ตัวพิมพ์ใหญ่ */
+export function planMap(list) {
+  if (!Array.isArray(list)) return null;
+  const m = new Map();
+  for (const p of list) if (p && txt(p.po)) m.set(txt(p.po).toUpperCase(), p);
+  return m;
 }
 
 /** นับใบตามตัวกรองบนจอ — PO ทั้งหมด · ครบ · มี Short · มี Over · คิดไม่ได้ */
@@ -206,10 +285,11 @@ export function fillPoDate(poList, po, date) {
   return out;
 }
 
-/** ค้นด้วยเลข PO · P/N · รหัสวัตถุดิบ (ตัวพิมพ์เล็กใหญ่ไม่มีผล) */
+/** ค้นด้วยเลข PO · P/N · WK · รหัสวัตถุดิบ (ตัวพิมพ์เล็กใหญ่ไม่มีผล) */
 export function mrpMatch(row, q) {
   const s = txt(q).toUpperCase();
   if (!s) return true;
   return row.po.toUpperCase().includes(s) || row.pn.toUpperCase().includes(s)
+    || txt(row.week).toUpperCase().includes(s)
     || row.lines.some(l => l.code.includes(s));
 }
