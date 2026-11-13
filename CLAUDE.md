@@ -139,6 +139,7 @@ v2 ไม่ต้อง grep หา section banner เหมือน v1 เพ
 | PO · Kit List | `v2/master/po-kit.js` |
 | รับเข้ารวมรายสัปดาห์ · เคมี | `v2/master/weekly.js` |
 | นิติบุคคล · ยอดข้ามโรงงาน | `v2/master/entities.js` |
+| แท็บ MRP · PO รับครบตาม BOM ไหม · Short / Over ราย PO | `v2/master/mrp.js` |
 | ไฟล์ Bin Card ที่ออกไปหน้าตาเพี้ยน | `v2/export/bincard.js` |
 | ปุ่ม/หน้าจอ/ข้อความบนจอ | `v2/index.html` (template) · `v2/app.js` (ต่อสาย) |
 

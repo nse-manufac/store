@@ -373,7 +373,7 @@ export function migrateFollow(row, { known = null, now } = {}) {
  * ⚠️ ยังไม่ได้เลือกนิติบุคคล = เห็นได้แค่แถวที่ยังไม่มีเจ้าของ
  *    ห้ามแปลว่า "ไม่กรอง" เพราะนั่นคือการโชว์ยอดข้ามนิติบุคคล ซึ่งเป็นอาการของ A3 ที่เงียบที่สุด
  */
-const sameEntity = (row, entity) =>
+export const sameEntity = (row, entity) =>
   entity ? (!row.entity || row.entity === entity) : !row.entity;
 
 const matchKind = (row, kind) => !kind || row.kind === kind;
@@ -716,10 +716,10 @@ export function shortPending(rows, follows) {
 /**
  * ยอดขาดของคู่ PO+รหัสนี้ "จบเรื่องแล้ว" ไหม — คืน (po, code, ยอดขาดตอนนี้) => boolean
  * จบ = ปิดเรื่องด้วยยอดเท่ายอดขาดตอนนี้ · หรือ ยกเลิกเรื่อง / ไม่ติดตาม แล้วยอดขาดยังไม่เกินที่หยุดไว้
- * ใช้ร่วมกันระหว่างการ์ด "ยังรับไม่ครบตาม BOM" (shortPending) กับคอลัมน์ PO ในหน้ายอดคงคลัง (poUseByCode)
- * ให้สองจอพูดตรงกัน (ผู้ตรวจ #155 · เจ้าของเคาะ 11 พ.ย. 2026) · ไม่กรองนิติบุคคลเอง — ผู้เรียกกรองมาก่อน
+ * ใช้ร่วมกันระหว่างการ์ด "ยังรับไม่ครบตาม BOM" (shortPending) · แท็บ MRP (mrp.js) · คอลัมน์ PO ในหน้ายอดคงคลัง (poUseByCode)
+ * ให้ทุกจอพูดตรงกัน (ผู้ตรวจ #155 · เจ้าของเคาะ 11–12 พ.ย. 2026) · ไม่กรองนิติบุคคลเอง — ผู้เรียกกรองมาก่อน
  */
-function shortSettled(follows) {
+export function shortSettled(follows) {
   const closed = new Map();
   for (const f of follows || []) {
     if (!f || f.kind !== 'short' || f.voided || statusOf(f) !== 'done') continue;
