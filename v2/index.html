@@ -104,7 +104,6 @@ tr.late td{background:var(--badbg)}
   table.mrp td{padding-top:8px;padding-bottom:8px}
   table.mrp .tag{font-size:13px;padding:2px 10px}
   table.mrp .hint{font-size:14px}
-  tr.mrp-po.open > td.mono{font-size:22px}
 }
 .mrp-seg{display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px;border-radius:10px;background:#eef2f7}
 .mrp-seg button{border:0;background:transparent;font:inherit;font-size:13px;color:var(--muted);height:30px;padding:0 10px;
@@ -126,6 +125,9 @@ tr.mrp-po.open .mrp-pono{font-weight:700;color:var(--brand)}
 .mrp td.mrp-wklot{color:var(--muted)}
 /* ใบที่กาง: WK · วันที่ · PO · P/N · PO Qty. ตัวใหญ่ตัวหนา ให้ผู้สูงอายุอ่านง่าย (เจ้าของขอ 13 พ.ย. 2026) */
 tr.mrp-po.open > td.mono{font-size:19px;font-weight:700;padding-top:10px;padding-bottom:10px}
+/* จอคอม: หัวใบที่กาง 22px — ⚠️ ต้องอยู่หลังกฎ 19px ข้างบน: selector เดียวกัน @media ไม่เพิ่ม specificity
+   ตัวที่อยู่ล่างกว่าชนะ (ผู้ตรวจ #158 รอบ 1 ข้อ 1 — เดิมวางไว้ข้างบนแล้วไม่มีผล) */
+@media (min-width:761px){tr.mrp-po.open > td.mono{font-size:22px}}
 tr.mrp-det > td{background:var(--soft);border-bottom:2px solid var(--brand)}
 /* เว้นที่ว่างบน-ล่างของใบที่กาง ให้ลอยแยกจากใบข้าง ๆ ไม่ใช่แค่ตีกรอบ (เจ้าของขอ 13 พ.ย. 2026) */
 tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
