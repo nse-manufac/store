@@ -34,7 +34,8 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
-import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS } from './master/mrp.js';
+import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
+         planShipList, planMap } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
@@ -2411,11 +2412,49 @@ createApp({
 
     /* ── MRP ราย PO (เจ้าของสั่ง 12 พ.ย. 2026) ── ตรรกะอยู่ที่ master/mrp.js · ที่นี่ต่อสายอย่างเดียว */
     const mrpQ = ref(''), mrpFilter = ref('all'), mrpDone = ref(false), mrpOpen = ref({});
+
+    /* สถานะส่งของจากโปรแกรม plan (เจ้าของสั่ง 13 พ.ย. 2026 · แบบ ข) — Apps Script ฝั่งคลังเปิดชีตของ plan ให้เอง
+     * (บัญชี Google เดียวกัน) ทุกเครื่องจึงไม่ต้องตั้งอะไรเพิ่ม · ใช้ URL / token ของซิงค์ตัวเดิม (api)
+     * สคริปต์ส่งมาแค่คอลัมน์ที่ใช้ · ตัวสรุปราย PO อยู่ที่ planShipList ที่เดียว
+     * เก็บผลสรุปไว้ในเครื่อง (meta plan_ship) — เน็ตหลุดก็ยังใช้ของที่ดึงไว้ล่าสุด และบอกเวลาบนจอ
+     * ยังไม่เคยดึงได้เลย = PO เก่ากว่า MRP_FRESH_DAYS วันนับว่าจบแทน (เจ้าของเคาะ 90 วัน) */
+    const planShip = reactive({ at: '', list: null, state: '', error: '' });
+    const PLAN_STALE_MS = 10 * 60 * 1000;
+    db.getMeta('plan_ship', null).then(v => {
+      if (v && Array.isArray(v.list)) { planShip.list = v.list; planShip.at = v.at || ''; }
+    }).catch(() => {});
+    async function planPull(quiet = false) {
+      if (!sync.url || planShip.state === 'busy') return;
+      planShip.state = 'busy'; planShip.error = '';
+      try {
+        const d = await api('planShip');
+        planShip.list = planShipList(d.orders, d.records);
+        planShip.at = new Date().toISOString(); planShip.state = 'ok';
+        await db.setMeta('plan_ship', { at: planShip.at, list: planShip.list });
+        if (!quiet) flash(`ดึงสถานะส่งของจาก plan แล้ว · ${planShip.list.length} PO`);
+      } catch (e) {
+        planShip.state = 'error';
+        planShip.error = looksLikeOldScript(e.message)
+          ? 'ดึงจาก plan ไม่ได้ — Apps Script ฝั่งคลังยังเป็นรุ่นเก่า ต้องอัปเดตสคริปต์ก่อน (แจ้งเจ้าของ)'
+          : 'ดึงจาก plan ไม่ได้ — ' + e.message;
+      }
+    }
+    const planAtText = computed(() => {
+      if (!planShip.at) return '';
+      const d = new Date(planShip.at);
+      return isNaN(d) ? '' : d.toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    });
+    // เปิดแท็บ MRP แล้วข้อมูล plan เก่ากว่า 10 นาที = ดึงใหม่เงียบ ๆ
+    watch(() => tab.value === 'mrp', on => {
+      if (on && !(Date.now() - Date.parse(planShip.at || 0) < PLAN_STALE_MS)) planPull(true);
+    });
+
     const mrpCalc = computed(() => {
       if (!entity.value) return { rows: [], err: 'เลือกนิติบุคคลที่มุมขวาบนก่อน แล้วตารางจะขึ้น' };   // A3 — ไม่โชว์ข้ามนิติบุคคล
       try {
         return { rows: mrpRows(entries.value, entity.value, { poList: posVisible.value, bomRowsOf: bomIdx.value.rowsOf,
-                                                              follows: shorts.value, today: todayLocal() }), err: '' };
+                                                              follows: shorts.value, today: todayLocal(),
+                                                              plan: planMap(planShip.list), catOf }), err: '' };
       } catch (e) { return { rows: [], err: 'คิด MRP ไม่ได้ — ' + e.message + ' · แจ้งเจ้าของพร้อมข้อความนี้' }; }
     });
     const mrpAll = computed(() => mrpCalc.value.rows);
@@ -3731,6 +3770,7 @@ createApp({
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
              mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             planShip, planPull, planAtText,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
              materials, entries, bom, q, fCat, fState, edit, toast,

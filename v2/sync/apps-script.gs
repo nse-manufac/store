@@ -23,6 +23,12 @@ var TOKEN = 'CHANGE-ME-1234';   // ⚠️ ต้องเปลี่ยน แ�
  *    ไม่ใช่รู้ตอนข้อมูลถูกคนอื่นแก้ */
 var DEFAULT_TOKEN = 'CHANGE-ME-1234';
 
+/* รหัสสเปรดชีตของโปรแกรม plan — ตัวยาวใน URL  docs.google.com/spreadsheets/d/<รหัส>/edit
+ * แท็บ MRP ใช้ดูว่า PO ไหนยังส่งลูกค้าไม่หมด (เจ้าของสั่ง 13 พ.ย. 2026) · ว่างไว้ = MRP นับ PO เก่ากว่า 90 วันว่าจบแทน
+ * ⚠️ ใส่รหัสจริงในสคริปต์ที่ดีพลอยเท่านั้น ห้ามใส่ในไฟล์บน GitHub — เหมือน TOKEN
+ * ⚠️ บัญชีที่ดีพลอยสคริปต์นี้ (Execute as: Me) ต้องเปิดสเปรดชีตของ plan ได้ */
+var PLAN_SHEET_ID = '';
+
 /**
  * คอลัมน์ของแต่ละตาราง
  *
@@ -128,6 +134,7 @@ function handle(e, body) {
       case 'ping':      return json(doPing());
       case 'pullTable': return json(doPullTable(body.table || p.table, body.since || p.since || ''));
       case 'pushTable': return json(doPushTable(body.table, body.rows || [], body.device || ''));
+      case 'planShip':  return json(doPlanShip());
       default:          return json({ ok: false, error: 'ไม่รู้จักคำสั่ง: ' + action });
     }
   } catch (err) {
@@ -251,6 +258,35 @@ function toRow(obj, def) {
 }
 
 // ═══════════ คำสั่ง ═══════════
+/**
+ * สถานะส่งของจากโปรแกรม plan — เปิดสเปรดชีตของ plan ตรง ๆ แบบอ่านอย่างเดียว (เจ้าของสั่ง 13 พ.ย. 2026)
+ * ทุกเครื่องของคลังจึงไม่ต้องตั้ง URL / token ของ plan เอง และ token ของ plan ไม่ต้องอยู่ในเครื่องไหนเลย
+ *
+ * ส่งแค่คอลัมน์ที่ MRP ใช้ · ตัวสรุปราย PO อยู่ฝั่งโปรแกรมที่เดียว (planShipList ใน v2/master/mrp.js)
+ * ที่นี่แค่ตัดคอลัมน์ ไม่คิดอะไร — ไม่งั้นกฎ "ส่งครบ" จะมีสองที่แล้วหลุดจากกัน
+ * Records ส่งเฉพาะขั้น shipping (ขั้นอื่นไม่ได้ใช้ และเป็นแถวส่วนใหญ่ของชีต)
+ *
+ * ⚠️ ผูกกับชื่อแท็บและหัวคอลัมน์ของ plan:
+ *    Orders: id · poNo · week · orderQty · voided    Records: orderId · process · qty · voided
+ *    plan เปลี่ยนชื่อพวกนี้ (หรือ id ขั้น 'shipping') เมื่อไหร่ ต้องแก้ที่นี่ด้วย
+ * ⚠️ ห้ามเขียนอะไรลงชีตของ plan จากที่นี่
+ */
+function doPlanShip() {
+  if (!PLAN_SHEET_ID) return { ok: false, error: 'สคริปต์ฝั่งคลังยังไม่ได้ใส่ PLAN_SHEET_ID (รหัสสเปรดชีตของโปรแกรม plan)' };
+  var book = SpreadsheetApp.openById(PLAN_SHEET_ID);
+  var os = book.getSheetByName('Orders'), rs = book.getSheetByName('Records');
+  if (!os || !rs) return { ok: false, error: 'สเปรดชีตของ plan ไม่มีแท็บ Orders หรือ Records — ตรวจ PLAN_SHEET_ID' };
+  var str = function (v) { return v == null ? '' : String(v); };
+  var orders = readObjects(os).map(function (x) {
+    return { id: str(x.id), poNo: str(x.poNo), week: str(x.week), orderQty: Number(x.orderQty) || 0, voided: x.voided };
+  });
+  var records = [];
+  readObjects(rs).forEach(function (x) {
+    if (str(x.process) === 'shipping') records.push({ orderId: str(x.orderId), process: 'shipping', qty: Number(x.qty) || 0, voided: x.voided });
+  });
+  return { ok: true, serverTime: nowIso(), orders: orders, records: records };
+}
+
 function doPing() {
   var counts = {};
   for (var name in TABLES) counts[name] = Math.max(0, sheetOf(name).getLastRow() - 1);
