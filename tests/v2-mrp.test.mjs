@@ -281,6 +281,7 @@ ok('ดึงผ่าน Apps Script ฝั่งคลัง (planShip) ไม
    /await api\('planShip'\)/.test(app) && /planShipList\(d\.orders, d\.records\)/.test(app) && !/plan_link|planLink/.test(app + html));
 ok('จอบอกเสมอว่าตัดใบจบด้วย plan หรือกฎ 90 วัน', mrpHtml.includes('ใช้ข้อมูลส่งของจาก plan') && mrpHtml.includes('ยังไม่ได้ดึงจาก plan'));
 ok('ป้ายไม่มีใน plan อยู่บนจอ', mrpHtml.includes('r.notInPlan'));
+ok('จอคอม: ตาราง MRP + ตาราง BOM ข้างในตัวใหญ่ขึ้น · มือถือไม่ขยาย (เจ้าของขอ 14 พ.ย. 2026)', /@media \(min-width:761px\)\{\s*table\.mrp,table\.mrp table\.mrp-bom\{font-size:\d+px\}/.test(html));
 ok('ช่องสถานะของแถว PO เลื่อนด้วย position:relative ห่างจาก PO Qty. (เจ้าของขอ 14 พ.ย. 2026)', /\.mrp \.mrp-stin\{position:relative;left:\d+px/.test(html) && (mrpHtml.match(/class="mrp-stin"/g) || []).length === 2);
 ok('จอทำ WK จากล็อตเป็นตัวจาง + ชี้เมาส์บอกที่มา', html.includes(`:class="{ 'mrp-wklot': r.weekFrom === 'lot' }" :title="r.weekRaw"`) && /td\.mrp-wklot\{color:/.test(html));
 ok('ตาราง BOM ไม่มีคอลัมน์จ่ายแล้ว — ปิดใบดูจาก plan แทน (เจ้าของขอ 13 พ.ย. 2026)',

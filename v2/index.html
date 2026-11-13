@@ -94,7 +94,18 @@ tr.late td{background:var(--badbg)}
 .mrp td.mrp-st{white-space:normal;min-width:160px}
 /* ช่องสถานะห่างจาก PO Qty. (เจ้าของขอ 14 พ.ย. 2026) — เลื่อนเนื้อหาด้วย position:relative
    ไม่เปลี่ยนความกว้างคอลัมน์ คอลัมน์อื่นจึงไม่เลื่อนตาม (บทเรียนเดียวกับป้ายสถานะในตาราง BOM) */
-.mrp .mrp-stin{position:relative;left:32px;width:calc(100% - 32px)}
+.mrp .mrp-stin{position:relative;left:96px;width:calc(100% - 96px)}
+@media (max-width:760px){.mrp .mrp-stin{left:24px;width:calc(100% - 24px)}}   /* มือถือช่องแคบ — เลื่อนน้อยลง ไม่ให้ตารางย่อเล็กกว่าเดิม */
+/* จอคอม: ตาราง MRP ตัวใหญ่ขึ้นทั้งตาราง ให้อ่านง่าย (เจ้าของขอ 14 พ.ย. 2026 — ที่ว่างเหลือเยอะ)
+   มือถือไม่ขยาย (ตารางย่อพอดีจออยู่แล้ว ขยายแล้วยิ่งเล็ก) */
+@media (min-width:761px){
+  table.mrp,table.mrp table.mrp-bom{font-size:15px}
+  table.mrp th{font-size:13px}
+  table.mrp td{padding-top:8px;padding-bottom:8px}
+  table.mrp .tag{font-size:13px;padding:2px 10px}
+  table.mrp .hint{font-size:14px}
+  tr.mrp-po.open > td.mono{font-size:22px}
+}
 .mrp-seg{display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px;border-radius:10px;background:#eef2f7}
 .mrp-seg button{border:0;background:transparent;font:inherit;font-size:13px;color:var(--muted);height:30px;padding:0 10px;
   border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
