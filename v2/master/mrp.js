@@ -16,12 +16,15 @@
  *   มีข้อมูลจากโปรแกรม plan (plan = planMap(...)) → plan เป็นคนตัดสิน ไม่สนวันที่:
  *     ใบที่ plan รู้จัก = ขึ้นทุกใบ · ส่งครบแล้ว = จบ (done) จอซ่อนไว้ใต้ "แสดง PO ที่จบแล้ว"
  *     ใบที่ไม่มีใน plan: มีรับเข้าแล้ว = ขึ้นพร้อม notInPlan (ไม่หายเงียบ) · ยังไม่รับ = ไม่ขึ้น
+ *       plan บอกอะไรใบนี้ไม่ได้ → ใช้กฎ freshDays วันกับใบนี้ (เก่ากว่า = จบ · เจ้าของเคาะ 14 พ.ย. 2026)
  *     ⚠️ ใบที่มีใน plan แต่ไม่อยู่ในไฟล์ PO ของนิติบุคคลนี้และยังไม่รับ ไม่ขึ้น — plan ไม่บอกว่าเป็นของนิติบุคคลไหน (A3)
  *   ยังไม่มีข้อมูลจาก plan (plan = null) → กฎ freshDays วัน (เจ้าของเคาะ 90 วัน · 13 พ.ย. 2026):
  *     ใบที่วันที่ PO เก่ากว่า freshDays วัน = จบ (done) ไม่ว่าจะรับแล้วหรือยัง — จอซ่อนไว้ใต้ "แสดง PO ที่จบแล้ว"
  *     ใบที่ไม่มีวันที่ ขึ้นพร้อม noDate ให้เติมวันที่ได้ (fillPoDate) — ไม่ตัดทิ้งเงียบ (ผู้ตรวจ #156 ข้อ 3 · เจ้าของเคาะ)
  *     ใบที่ไม่อยู่ในไฟล์ PO รู้อายุไม่ได้ ขึ้นแบบคิดไม่ได้ ไม่จบ
  *   เรียง: WK → วันที่ → PO → P/N (เจ้าของสั่ง) · ไม่มี WK / ไม่มีวันที่ ไปท้าย
+ *   WK: ของ plan ก่อน · plan ไม่มี = WK จากเลขล็อตตอนรับเข้า (W45 · W-45 · WK 45) ที่เจอบ่อยสุดในใบ
+ *     (weekFrom = 'lot' · เจ้าของเคาะ 14 พ.ย. 2026) — เรียงปนกับ WK ของ plan ตามปกติ
  *   รหัสในใบเรียงตามหมวดในทะเบียน (ลำดับ CATEGORIES: CORE → WIRE → TAPE …) แล้วตามรหัส (เจ้าของเคาะ 13 พ.ย. 2026)
  *     — ระบบไม่ได้เก็บลำดับบรรทัดของ BOM (id = pn|code เรียงตามรหัส) เรียงตามรหัสล้วนแล้วหมวดสลับกันจนงง
  *     รหัสที่ไม่มีหมวด / หมวดที่ไม่รู้จัก ไปท้ายกลุ่ม · รหัสนอกสูตรยังอยู่ท้ายตารางเหมือนเดิม
@@ -64,6 +67,7 @@ function daysBefore(date, n) {
  * poList = รายการ PO ที่นิติบุคคลนี้มองเห็น (posVisible) · bomRowsOf(pn) = บรรทัดสูตรที่ยังใช้อยู่
  * today = 'YYYY-MM-DD' ตามเวลาไทย (todayLocal) — ส่งเข้ามาเพื่อเทสได้ · ไม่มี plan ต้องมีเสมอ
  * plan = Map จาก planMap(list) · null = ยังไม่ได้ดึงจาก plan · catOf(code) = หมวดในทะเบียน (ใช้เรียงรหัส)
+ * weekFrom = 'plan' · 'lot' · '' (ไม่มี WK)
  */
 export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [], today = '', plan = null, catOf = () => '',
                                            freshDays = MRP_FRESH_DAYS, overMin = OVER_MIN } = {}) {
@@ -73,14 +77,18 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
   if (!plan && !/^\d{4}-\d{2}-\d{2}$/.test(txt(today))) throw new Error('ต้องส่ง today (YYYY-MM-DD) — ยังไม่มีข้อมูล plan ต้องใช้กฎ PO ใหม่ใน ' + freshDays + ' วัน');
 
   // เดินสมุดรอบเดียว
-  const got = new Map(), used = new Map(), codesOf = new Map(), started = new Set();
+  const got = new Map(), used = new Map(), codesOf = new Map(), started = new Set(), lotWk = new Map();
   for (const e of entries || []) {
     if (!e || e.entity !== entity || e.voided) continue;
     const po = txt(e.doc_ref);
     if (!po) continue;
     const k = pairKey(po, e.material_code), q = Number(e.qty) || 0;
     if (e.kind === 'receive' || e.kind === 'sendback') {
-      if (e.kind === 'receive') started.add(po);
+      if (e.kind === 'receive') {
+        started.add(po);
+        const w = lotWeek(e.lot);
+        if (w) { if (!lotWk.has(po)) lotWk.set(po, new Map()); const m = lotWk.get(po); m.set(w, (m.get(w) || 0) + 1); }
+      }
       got.set(k, round5((got.get(k) || 0) + (e.kind === 'receive' ? q : -q)));
       if (!codesOf.has(po)) codesOf.set(po, new Set());
       codesOf.get(po).add(codeKey(e.material_code));
@@ -93,7 +101,15 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
 
   const headerOf = poHeaderIndex(poList);
   const settled = shortSettled((follows || []).filter(f => f && sameEntity(f, entity)));
-  const since = plan ? '' : daysBefore(today, freshDays);
+  const since = txt(today) ? daysBefore(today, freshDays) : '';
+  const oldPo = head => !!since && !!head && !!txt(head.date) && txt(head.date) < since;
+  // WK จากล็อต: ที่เจอบ่อยสุดในใบ · เท่ากัน = เลขน้อยกว่า · คืน [WK, ข้อความบอกที่มา]
+  const weekOfLots = po => {
+    const m = lotWk.get(po);
+    if (!m) return ['', ''];
+    const all = [...m.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+    return ['WK' + all[0][0], 'จากล็อตรับเข้า: ' + all.map(([w, n]) => 'WK' + w + ' ×' + n).join(' · ')];
+  };
   const catRank = c => { const i = CATEGORIES.indexOf(txt(catOf(c)).toUpperCase()); return i < 0 ? CATEGORIES.length : i; };
   const codeCmp = (a, b) => catRank(a) - catRank(b) || a.localeCompare(b);
   const planOf = po => (plan ? plan.get(txt(po).toUpperCase()) || null : null);
@@ -113,12 +129,15 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
   const out = [];
   for (const po of pos) {
     const head = headerOf(po), p = planOf(po);
-    const row = { po, pn: head ? txt(head.pn) : '', week: p ? txt(p.week) : '', weekRaw: p ? txt(p.weekRaw) : '',
+    const [lw, lwRaw] = p && txt(p.week) ? ['', ''] : weekOfLots(po);
+    const row = { po, pn: head ? txt(head.pn) : '',
+                  week: p && txt(p.week) ? txt(p.week) : lw, weekRaw: p && txt(p.week) ? txt(p.weekRaw) : lwRaw,
+                  weekFrom: p && txt(p.week) ? 'plan' : lw ? 'lot' : '',
                   date: head ? head.date : '',
                   order: head ? head.order || 0 : 0, notInPlan: !!plan && !p,
                   why: '', none: !started.has(po), lines: [], nShort: 0, nOver: 0, nSkip: 0, state: 'ok',
-                  done: plan ? !!p && !(p.left > 0)                                   // จบ = plan บอกว่าส่งครบ
-                             : !!head && !!txt(head.date) && txt(head.date) < since };   // ไม่มี plan: เก่ากว่า freshDays วัน
+                  done: p ? !(p.left > 0)     // จบ = plan บอกว่าส่งครบ
+                          : oldPo(head) };    // plan บอกไม่ได้ (ไม่มี plan / ไม่มีใน plan) = เก่ากว่า freshDays วัน
     row.noDate = !!head && !txt(row.date);   // ใบที่ไม่อยู่ในไฟล์ PO เติมวันที่ไม่ได้ — ต้องนำเข้าไฟล์ก่อน
     row.why = shortWhyOf(po, { headerOf, bomRowsOf });
     if (row.why) {
@@ -210,6 +229,16 @@ export function planShipList(orders, records) {
 export function planWeek(raw) {
   const m = /WK\s*0*(\d{1,2})(?!\d)/i.exec(txt(raw));
   return m ? 'WK' + m[1] : txt(raw);
+}
+
+/**
+ * WK จากเลขล็อตตอนรับเข้า — ล็อตที่พนักงานพิมพ์เป็นสัปดาห์ เช่น "W45" "W-45" "WK 45" "wk09" → 45 / 9
+ * ล็อตแบบอื่น (วันที่รับเข้าที่ระบบเติมให้ · เลขล็อตของผู้ขาย) = null · รับ 1–53 เท่านั้น
+ */
+export function lotWeek(lot) {
+  const m = /^WK?[\s-]*0*(\d{1,2})$/i.exec(txt(lot));
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= 53 ? n : null;
 }
 
 /** รายการจาก planShipList (หรือที่เก็บไว้ในเครื่อง) → Map ที่ mrpRows ใช้ · กุญแจ = PO ตัดช่องว่าง ตัวพิมพ์ใหญ่ */

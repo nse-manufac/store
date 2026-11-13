@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         mrpOrder, planShipList, planMap, planWeek } from '../v2/master/mrp.js';
+         mrpOrder, planShipList, planMap, planWeek, lotWeek } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN } from '../v2/master/follow.js';
 
 let pass = 0, fail = 0;
@@ -201,6 +201,30 @@ const cr = mrpRows([mk('receive', 'TM0001H970', '9100000973', 1), mk('receive', 
 ok('รหัสในใบเรียงตามหมวด (CORE → WIRE → … → PACKING) แล้วตามรหัส · ไม่มีหมวดไปท้าย · นอกสูตรยังอยู่ท้ายสุด (เจ้าของเคาะ)',
    cr.lines.map(l => l.code.slice(-2)).join() === '72,74,73,71,75,76', cr.lines.map(l => l.code.slice(-2)).join());
 ok('ต่อสายหมวดเข้า mrpRows', /plan: planMap\(planShip\.list\), catOf \}/.test(readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
+console.log('=== M8. WK จากล็อต · ใบที่ plan ไม่รู้จัก (เจ้าของเคาะ 14 พ.ย. 2026) ===');
+ok('lotWeek อ่าน W45 · W-45 · WK 45 · wk09 · ไม่รับวันที่ / เลขผู้ขาย / เกิน 53',
+   lotWeek('W45') === 45 && lotWeek('W-45') === 45 && lotWeek('WK 45') === 45 && lotWeek('wk09') === 9 && lotWeek('WK45') === 45
+   && lotWeek('2026-11-01') === null && lotWeek('A12') === null && lotWeek('W54') === null && lotWeek('') === null && lotWeek(null) === null);
+const lotEnts = [...ents,
+  mk('receive', 'TM0001H963', A, 1, { lot: 'W46' }), mk('receive', 'TM0001H963', B, 1, { lot: 'W-45' }),
+  mk('receive', 'TM0001H963', A, 1, { lot: 'WK 45' }), mk('receive', 'TM0001H963', B, 1, { lot: '2026-11-01' }),
+  mk('receive', 'TM0001H962', A, 1, { lot: 'W30' }),
+  mk('receive', 'TM0001H961', A, 1, { lot: 'W50', voided: true }), mk('receive', 'TM0001H961', A, 1, { lot: 'W51', entity: 'TUE-U' })];
+const lr = mrpRows(lotEnts, EN, { poList, bomRowsOf, plan: PL, today: TODAY });
+const lat = po => lr.find(r => r.po === po);
+ok('plan ไม่มีใบนี้ = WK จากล็อตที่เจอบ่อยสุด (WK45 ×2 ชนะ WK46 ×1) · บอกที่มา',
+   lat('TM0001H963').week === 'WK45' && lat('TM0001H963').weekFrom === 'lot' && /ล็อต/.test(lat('TM0001H963').weekRaw), JSON.stringify(lat('TM0001H963')));
+ok('plan มี WK = ใช้ของ plan ไม่สนล็อต', lat('TM0001H962').week === 'WK45' && lat('TM0001H962').weekFrom === 'plan');
+ok('ล็อตที่ยกเลิก / ของนิติบุคคลอื่น ไม่นับ (B · A3)', lat('TM0001H961').weekFrom === 'plan'
+   && mrpRows(lotEnts, EN, { poList, bomRowsOf, today: TODAY }).find(r => r.po === 'TM0001H961').week === '');
+const tie = mrpRows([...ents, mk('receive', 'TM0001H966', A, 1, { lot: 'W12' }), mk('receive', 'TM0001H966', A, 1, { lot: 'W9' })], EN, { poList, bomRowsOf, today: TODAY });
+ok('WK จากล็อตเจอเท่ากัน = เลขน้อยกว่า', tie.find(r => r.po === 'TM0001H966').week === 'WK9');
+ok('ไม่มีล็อตแบบ WK = ไม่มี WK (ไปท้ายตาราง)', lr.find(r => r.po === 'TM0001H967').week === '' && lr.find(r => r.po === 'TM0001H967').weekFrom === '');
+const oldNip = mrpRows([...ents, mk('receive', 'TM0001H965', A, 3)], EN,
+  { poList, bomRowsOf, plan: planMap([{ po: 'TM0001H962', week: 'WK1', qty: 1, shipped: 0, left: 1 }]), today: TODAY });
+ok('ไม่มีใน plan + วันที่ PO เก่ากว่า ' + MRP_FRESH_DAYS + ' วัน = จบ (plan บอกไม่ได้ ใช้กฎวัน — เจ้าของเคาะ)',
+   oldNip.find(r => r.po === 'TM0001H965')?.notInPlan === true && oldNip.find(r => r.po === 'TM0001H965').done === true);
+ok('ไม่มีใน plan + ใบใหม่ = ไม่จบ', oldNip.find(r => r.po === 'TM0001H967')?.done === false);
 ok('ค้นด้วย WK ได้', !!pat('TM0001H962') && mrpMatch(pat('TM0001H962'), 'wk45') && !mrpMatch(pat('TM0001H962'), 'wk46'));
 
 console.log('=== M6. หน้าจอ ===');
@@ -231,6 +255,7 @@ ok('ดึงผ่าน Apps Script ฝั่งคลัง (planShip) ไม
    /await api\('planShip'\)/.test(app) && /planShipList\(d\.orders, d\.records\)/.test(app) && !/plan_link|planLink/.test(app + html));
 ok('จอบอกเสมอว่าตัดใบจบด้วย plan หรือกฎ 90 วัน', mrpHtml.includes('ใช้ข้อมูลส่งของจาก plan') && mrpHtml.includes('ยังไม่ได้ดึงจาก plan'));
 ok('ป้ายไม่มีใน plan อยู่บนจอ', mrpHtml.includes('r.notInPlan'));
+ok('จอทำ WK จากล็อตเป็นตัวจาง + ชี้เมาส์บอกที่มา', html.includes(`:class="{ 'mrp-wklot': r.weekFrom === 'lot' }" :title="r.weekRaw"`) && /td\.mrp-wklot\{color:/.test(html));
 ok('ตาราง BOM ไม่มีคอลัมน์จ่ายแล้ว — ปิดใบดูจาก plan แทน (เจ้าของขอ 13 พ.ย. 2026)',
    /<th class="r">รับแล้ว<\/th><th class="mrp-gap"><span>สถานะ<\/span><\/th><\/tr>/.test(mrpHtml) && !mrpHtml.includes('mrpNum(l.issued)'));
 ok('ป้ายสถานะเลื่อนด้วย position:relative ไม่ใช่ padding/width — คอลัมน์อื่นต้องไม่เลื่อนตาม (เจ้าของทัก 13 พ.ย. 2026)',
