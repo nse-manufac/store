@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-13.1">
+<meta name="app-version" content="2026-11-14.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -92,6 +92,19 @@ tr.late td{background:var(--badbg)}
 .mrp .r{text-align:right}
 /* ช่องสถานะตัดบรรทัดได้ — เหตุ "คิดไม่ได้" ยาว ไม่งั้นทั้งตารางกว้างจนมือถือย่อเหลือ 40% (อ่านไม่ออก) */
 .mrp td.mrp-st{white-space:normal;min-width:160px}
+/* ช่องสถานะห่างจาก PO Qty. (เจ้าของขอ 14 พ.ย. 2026) — เลื่อนเนื้อหาด้วย position:relative
+   ไม่เปลี่ยนความกว้างคอลัมน์ คอลัมน์อื่นจึงไม่เลื่อนตาม (บทเรียนเดียวกับป้ายสถานะในตาราง BOM) */
+.mrp .mrp-stin{position:relative;left:96px;width:calc(100% - 96px)}
+@media (max-width:760px){.mrp .mrp-stin{left:24px;width:calc(100% - 24px)}}   /* มือถือช่องแคบ — เลื่อนน้อยลง ไม่ให้ตารางย่อเล็กกว่าเดิม */
+/* จอคอม: ตาราง MRP ตัวใหญ่ขึ้นทั้งตาราง ให้อ่านง่าย (เจ้าของขอ 14 พ.ย. 2026 — ที่ว่างเหลือเยอะ)
+   มือถือไม่ขยาย (ตารางย่อพอดีจออยู่แล้ว ขยายแล้วยิ่งเล็ก) */
+@media (min-width:761px){
+  table.mrp,table.mrp table.mrp-bom{font-size:15px}
+  table.mrp th{font-size:13px}
+  table.mrp td{padding-top:8px;padding-bottom:8px}
+  table.mrp .tag{font-size:13px;padding:2px 10px}
+  table.mrp .hint{font-size:14px}
+}
 .mrp-seg{display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px;border-radius:10px;background:#eef2f7}
 .mrp-seg button{border:0;background:transparent;font:inherit;font-size:13px;color:var(--muted);height:30px;padding:0 10px;
   border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
@@ -112,6 +125,9 @@ tr.mrp-po.open .mrp-pono{font-weight:700;color:var(--brand)}
 .mrp td.mrp-wklot{color:var(--muted)}
 /* ใบที่กาง: WK · วันที่ · PO · P/N · PO Qty. ตัวใหญ่ตัวหนา ให้ผู้สูงอายุอ่านง่าย (เจ้าของขอ 13 พ.ย. 2026) */
 tr.mrp-po.open > td.mono{font-size:19px;font-weight:700;padding-top:10px;padding-bottom:10px}
+/* จอคอม: หัวใบที่กาง 22px — ⚠️ ต้องอยู่หลังกฎ 19px ข้างบน: selector เดียวกัน @media ไม่เพิ่ม specificity
+   ตัวที่อยู่ล่างกว่าชนะ (ผู้ตรวจ #158 รอบ 1 ข้อ 1 — เดิมวางไว้ข้างบนแล้วไม่มีผล) */
+@media (min-width:761px){tr.mrp-po.open > td.mono{font-size:22px}}
 tr.mrp-det > td{background:var(--soft);border-bottom:2px solid var(--brand)}
 /* เว้นที่ว่างบน-ล่างของใบที่กาง ให้ลอยแยกจากใบข้าง ๆ ไม่ใช่แค่ตีกรอบ (เจ้าของขอ 13 พ.ย. 2026) */
 tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
@@ -1708,7 +1724,7 @@ textarea{font:inherit}
           <div class="scroll" ref="mrpBox" style="max-height:none">
           <table class="mrp" ref="mrpTable">
             <thead><tr><th style="width:28px"></th><th>WK</th><th>วันที่ PO</th><th>PO</th><th>P/N</th>
-              <th class="r">PO Qty.</th><th>วัตถุดิบตาม BOM</th></tr></thead>
+              <th class="r">PO Qty.</th><th class="mrp-st"><div class="mrp-stin">วัตถุดิบตาม BOM</div></th></tr></thead>
             <tbody>
               <template v-for="r in mrpShown" :key="r.po">
                 <tr v-if="mrpOpen[r.po]" class="mrp-space" aria-hidden="true"><td colspan="7"></td></tr>
@@ -1724,7 +1740,7 @@ textarea{font:inherit}
                   <td class="mono mrp-pono">{{ r.po }}</td>
                   <td class="mono">{{ r.pn || '—' }}</td>
                   <td class="mono r">{{ r.order ? mrpNum(r.order) : '—' }}</td>
-                  <td class="mrp-st">
+                  <td class="mrp-st"><div class="mrp-stin">
                     <template v-if="r.state === 'na'">
                       <span class="tag mute">คิดไม่ได้</span> <span class="hint">{{ r.why }}</span></template>
                     <template v-else>
@@ -1737,7 +1753,7 @@ textarea{font:inherit}
                     </template>
                     <span v-if="r.notInPlan" class="tag mute" style="margin-left:4px"
                           title="มีรับเข้าแล้ว แต่หาเลข PO นี้ในโปรแกรม plan ไม่เจอ">ไม่มีใน plan</span>
-                  </td>
+                  </div></td>
                 </tr>
                 <tr v-if="mrpOpen[r.po]" class="mrp-det"><td colspan="7" style="padding:0"><div class="mrp-in">
                   <div class="hint" v-if="r.state === 'na'">ยังคิดไม่ได้ — {{ r.why }}
@@ -1765,7 +1781,7 @@ textarea{font:inherit}
           </table>
           </div>
           <p class="hint" style="margin:10px 0 0">รับแล้ว = รับเข้าด้วยเลข PO นี้ หักส่งคืน Delta (ไม่หักยอดจ่าย)
-            · Over นับเมื่อเกินตั้งแต่ {{ OVER_MIN }} หน่วย แบบการ์ด over · จบเรื่องแล้ว = ยอดขาดที่ปิดเรื่อง ยกเลิก หรือไม่ติดตามแล้ว นับว่าครบ
+            · Over นับเมื่อเกินตั้งแต่ {{ OVER_MIN }} หน่วย แบบการ์ด over · จบเรื่องแล้ว = ยอดขาดที่ปิดเรื่อง ยกเลิก หรือไม่ติดตามแล้ว · ยอดเกินที่ยกเลิกหรือไม่ติดตามแล้ว นับว่าครบ
             · WK มาจากโปรแกรม plan (ตัวจาง = จากล็อตรับเข้า เพราะ plan ไม่มี) · จบ = plan บอกว่าส่งลูกค้าครบแล้ว
             · ใบที่ plan ไม่รู้จัก เก่ากว่า {{ MRP_FRESH_DAYS }} วันนับว่าจบ</p>
         </div>

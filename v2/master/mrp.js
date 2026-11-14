@@ -9,6 +9,8 @@
  *           ยอดขาดที่ "จบเรื่องแล้ว" (ปิดเรื่องตรงยอด · ยกเลิกเรื่อง · ไม่ติดตาม) = skip นับว่าครบ
  *           กฎเดียวกับการ์ด "ยังรับไม่ครบตาม BOM" (shortSettled)
  *   Over  = รับเกินตั้งแต่ OVER_MIN แบบการ์ด over (เจ้าของเคาะ) · เกินไม่ถึงเกณฑ์ = ครบ
+ *           ยอดเกินที่ "จบเรื่องแล้ว" (ยกเลิกเรื่อง · ไม่ติดตาม) = oskip นับว่าครบ — กฎเดียวกับการ์ด over (overSettled)
+ *           (เจ้าของสั่ง 14 พ.ย. 2026 — แบบเดียวกับ Short) · คืนครบแล้ว Over หายเองเพราะส่งคืนหักยอดรับ
  *           รหัสที่รับเข้ามาแต่ไม่อยู่ในสูตรของใบ = extra นับเป็น Over (เจ้าของเคาะ)
  *
  * ── ใบไหนขึ้น (เจ้าของเคาะ 13 พ.ย. 2026) ─────────────────────────
@@ -40,7 +42,7 @@
  *    เรื่องติดตามใช้ sameEntity (เรื่องที่ยังไม่มีเจ้าของนับให้ทุกนิติบุคคล — แบบการ์ด short)
  */
 import { round5 } from '../core/ledger.js';
-import { shortWhyOf, shortSettled, sameEntity, OVER_MIN } from './follow.js';
+import { shortWhyOf, shortSettled, overSettled, sameEntity, OVER_MIN } from './follow.js';
 import { poHeaderIndex } from './po-kit.js';
 import { CATEGORIES } from './materials.js';
 
@@ -61,7 +63,8 @@ function daysBefore(date, n) {
 /**
  * คืน [{ po, pn, week, date, order, why, none, notInPlan, lines, nShort, nOver, nSkip, state, done }]
  *   lines = [{ code, usage, need, have, issued, diff, state }]
- *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · extra (ไม่อยู่ในสูตร) · zero (สูตรใช้ 0) · na (ใบคิดไม่ได้)
+ *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · oskip (เกินแต่จบเรื่องแล้ว)
+ *            · extra (ไม่อยู่ในสูตร) · zero (สูตรใช้ 0) · na (ใบคิดไม่ได้)
  *   noDate = ใบในไฟล์ PO ที่ไม่มีวันที่ — จอให้เติมวันที่ได้
  *   state ของใบ: short (มี Short) · over (มี Over ไม่มี Short) · ok · na (คิดไม่ได้ — why บอกเหตุ)
  *
@@ -101,7 +104,8 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
   const usedOf = k => round5(Math.max(0, used.get(k) || 0));
 
   const headerOf = poHeaderIndex(poList);
-  const settled = shortSettled((follows || []).filter(f => f && sameEntity(f, entity)));
+  const mine = (follows || []).filter(f => f && sameEntity(f, entity));
+  const settled = shortSettled(mine), oSettled = overSettled(mine);
   const since = txt(today) ? daysBefore(today, freshDays) : '';
   const oldPo = head => !!since && !!head && !!txt(head.date) && txt(head.date) < since;
   // WK จากล็อต: ที่เจอบ่อยสุดในใบ · เท่ากัน = เลขน้อยกว่า · คืน [WK, ข้อความบอกที่มา]
@@ -160,7 +164,7 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       const need = round5(usage * row.order), have = haveOf(k), issued = usedOf(k), diff = round5(have - need);
       let state = 'ok';
       if (diff < 0) state = settled(po, code, -diff) ? 'skip' : 'short';
-      else if (diff >= overMin) state = 'over';
+      else if (diff >= overMin) state = oSettled(po, code, diff) ? 'oskip' : 'over';
       row.lines.push({ code, usage, need, have, issued, diff, state });
     }
     row.lines.sort((a, b) => codeCmp(a.code, b.code));
@@ -170,11 +174,13 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       if (!(have > 0)) continue;           // รับแล้วส่งคืนหมด = ไม่มีอะไรค้าง
       // ใช้ 0 ในสูตร = นับเป็น Over เหมือนกัน (overAll ให้ over = ยอดรับ) แต่ป้ายต้องไม่บอกว่า "ไม่อยู่ใน BOM" (ผู้ตรวจ #156 ข้อ 4)
       const z = zero.has(c);
-      row.lines.push({ code: c, usage: z ? 0 : null, need: z ? 0 : null, have, issued: usedOf(k), diff: have, state: z ? 'zero' : 'extra' });
+      // ไม่อยู่ในสูตร / ใช้ 0 ก็หยุดตามได้ (ตั้งเรื่องเอง) — ยอดเกิน = ยอดรับทั้งหมด แบบ overAll
+      row.lines.push({ code: c, usage: z ? 0 : null, need: z ? 0 : null, have, issued: usedOf(k), diff: have,
+                       state: oSettled(po, c, have) ? 'oskip' : z ? 'zero' : 'extra' });
     }
     row.nShort = row.lines.filter(l => l.state === 'short').length;
     row.nOver = row.lines.filter(l => l.state === 'over' || l.state === 'extra' || l.state === 'zero').length;
-    row.nSkip = row.lines.filter(l => l.state === 'skip').length;
+    row.nSkip = row.lines.filter(l => l.state === 'skip' || l.state === 'oskip').length;
     row.state = row.nShort ? 'short' : row.nOver ? 'over' : 'ok';
     out.push(row);
   }
@@ -284,6 +290,7 @@ export function mrpLineLabel(l) {
   if (l.state === 'short') return ['Short ' + mrpNum(-l.diff), 'bad'];
   if (l.state === 'over') return ['Over ' + mrpNum(l.diff), 'warn'];
   if (l.state === 'skip') return ['ขาด ' + mrpNum(-l.diff) + ' · จบเรื่องแล้ว', 'mute'];
+  if (l.state === 'oskip') return ['เกิน ' + mrpNum(l.diff) + ' · จบเรื่องแล้ว', 'mute'];
   if (l.state === 'extra') return ['ไม่อยู่ใน BOM · Over ' + mrpNum(l.have), 'warn'];
   if (l.state === 'zero') return ['BOM ใช้ 0 · Over ' + mrpNum(l.have), 'warn'];
   return ['', 'mute'];

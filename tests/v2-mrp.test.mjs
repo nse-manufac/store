@@ -7,7 +7,8 @@
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek } from '../v2/master/mrp.js';
-import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN } from '../v2/master/follow.js';
+import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
+         skipOver, cancelOver, overAll, overPending, fromOverRow } from '../v2/master/follow.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -122,6 +123,29 @@ ok('ปิดเรื่องด้วยยอดเท่าที่ขา�
 ok('ปิดเรื่องด้วยยอดไม่ตรง = ยัง Short — ตรงกับการ์ด', r962([closedOdd]).nShort === 1 && shortPending([calcB], [closedOdd]).length === 1);
 ok('เรื่องของนิติบุคคลอื่น = ไม่นับ (A3)', r962([{ ...skipped, entity: 'TUE-U' }]).nShort === 1);
 ok('เรื่องที่ยังไม่มีเจ้าของ = นับให้ (sameEntity แบบการ์ด short)', r962([{ ...skipped, entity: '' }]).nSkip === 1);
+
+console.log('=== M4b. ยอดเกินจบเรื่องแล้ว — กฎเดียวกับการ์ด over (เจ้าของสั่ง 14 พ.ย. 2026) ===');
+const ocalc = overAll(ents, EN, { headerOf: po => { const p = poList.find(x => x.po === po); return p ? { pn: p.pn, order: p.qty } : null; },
+                                  usageOf: (pn, code) => { const b = (BOM[pn] || []).find(x => x.code === code); return b ? b.usage : null; } });
+const oA = ocalc.find(r => r.po === 'TM0001H963' && r.code === A);
+const oSkipped = skipOver(oA, { entity: EN, person: 'ก' });
+const r963 = (fl, more = []) => run({ ents: [...ents, ...more], follows: fl }).find(r => r.po === 'TM0001H963');
+ok('ไม่ติดตาม Over = oskip ไม่นับเป็น Over · การ์ด over ก็ไม่ขึ้น',
+   line('TM0001H963', A, run({ follows: [oSkipped] })).state === 'oskip' && r963([oSkipped]).nOver === 1
+   && overPending([oA], [oSkipped]).length === 0, JSON.stringify(r963([oSkipped]).lines));
+ok('ป้าย: เกิน N · จบเรื่องแล้ว (สีเทา)', mrpLineLabel(line('TM0001H963', A, run({ follows: [oSkipped] })))[0] === 'เกิน 3 · จบเรื่องแล้ว'
+   && mrpLineLabel(line('TM0001H963', A, run({ follows: [oSkipped] })))[1] === 'mute');
+ok('นับรวมใน "จบเรื่องแล้ว N รายการ"', r963([oSkipped]).nSkip === 1);
+const oCancel = cancelOver(fromOverRow(oA, { entity: EN, person: 'ก' }), { by: 'ก' });
+ok('ยกเลิกเรื่อง Over = oskip เหมือนไม่ติดตาม', r963([oCancel]).lines.find(l => l.code === A).state === 'oskip');
+ok('รับเกินเพิ่มหลังหยุดตาม = กลับมาเป็น Over (ตรงกับการ์ด)',
+   r963([oSkipped], [mk('receive', 'TM0001H963', A, 2)]).lines.find(l => l.code === A).state === 'over');
+ok('เรื่องของนิติบุคคลอื่น = ไม่นับ (A3)', r963([{ ...oSkipped, entity: 'TUE-U' }]).lines.find(l => l.code === A).state === 'over');
+const xFollow = cancelOver(makeFollow({ kind: 'over', type: 'เกิน', source: 'manual', entity: EN, po: 'TM0001H963', part_no: 'PN-A', code: X, qty: 3 }), { by: 'ก' });
+ok('รหัสนอกสูตรที่หยุดตามแล้ว = oskip ไม่นับเป็น Over', r963([oSkipped, xFollow]).lines.find(l => l.code === X).state === 'oskip',
+   JSON.stringify(r963([oSkipped, xFollow]).lines));
+ok('ทุกรหัสที่เกินจบเรื่องแล้ว = ใบนี้ครบ (ป้ายเขียว)', r963([oSkipped, xFollow]).nOver === 0 && r963([oSkipped, xFollow]).state === 'ok'
+   && r963([oSkipped, xFollow]).nSkip === 2);
 
 console.log('=== M5. ตัวกรอง · ค้นหา ===');
 ok('ตัวกรอง Short / Over / ครบ / คิดไม่ได้', MRP_FILTERS.short(at('TM0001H962')) && MRP_FILTERS.over(at('TM0001H963'))
@@ -257,6 +281,12 @@ ok('ดึงผ่าน Apps Script ฝั่งคลัง (planShip) ไม
    /await api\('planShip'\)/.test(app) && /planShipList\(d\.orders, d\.records\)/.test(app) && !/plan_link|planLink/.test(app + html));
 ok('จอบอกเสมอว่าตัดใบจบด้วย plan หรือกฎ 90 วัน', mrpHtml.includes('ใช้ข้อมูลส่งของจาก plan') && mrpHtml.includes('ยังไม่ได้ดึงจาก plan'));
 ok('ป้ายไม่มีใน plan อยู่บนจอ', mrpHtml.includes('r.notInPlan'));
+ok('จอคอม: ตาราง MRP + ตาราง BOM ข้างในตัวใหญ่ขึ้น · มือถือไม่ขยาย (เจ้าของขอ 14 พ.ย. 2026)', /@media \(min-width:761px\)\{\s*table\.mrp,table\.mrp table\.mrp-bom\{font-size:\d+px\}/.test(html));
+{ // ⚠️ กฎ 22px ต้องอยู่หลังกฎ 19px (selector เดียวกัน · @media ไม่เพิ่ม specificity) — ผู้ตรวจ #158 รอบ 1 ข้อ 1
+  const at19 = html.indexOf('tr.mrp-po.open > td.mono{font-size:19px'), at22 = html.indexOf('tr.mrp-po.open > td.mono{font-size:22px}');
+  ok('จอคอม: หัวใบที่กาง 22px ชนะ 19px จริง (อยู่ล่างกว่า)', at19 >= 0 && at22 > at19, at19 + ' / ' + at22);
+}
+ok('ช่องสถานะของแถว PO เลื่อนด้วย position:relative ห่างจาก PO Qty. (เจ้าของขอ 14 พ.ย. 2026)', /\.mrp \.mrp-stin\{position:relative;left:\d+px/.test(html) && (mrpHtml.match(/class="mrp-stin"/g) || []).length === 2);
 ok('จอทำ WK จากล็อตเป็นตัวจาง + ชี้เมาส์บอกที่มา', html.includes(`:class="{ 'mrp-wklot': r.weekFrom === 'lot' }" :title="r.weekRaw"`) && /td\.mrp-wklot\{color:/.test(html));
 ok('ตาราง BOM ไม่มีคอลัมน์จ่ายแล้ว — ปิดใบดูจาก plan แทน (เจ้าของขอ 13 พ.ย. 2026)',
    /<th class="r">รับแล้ว<\/th><th class="mrp-gap"><span>สถานะ<\/span><\/th><\/tr>/.test(mrpHtml) && !mrpHtml.includes('mrpNum(l.issued)'));

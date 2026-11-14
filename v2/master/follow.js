@@ -553,7 +553,7 @@ export function overPending(rows, follows, { stops = true } = {}) {
   }
   /* ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ short) · ไม่ขึ้นอีกจนกว่ายอดเกินจะมากกว่ายอดค้างตอนกด
    * ⚠️ stops: false = ใบตัดยอดของ Delta (ocPending) — ของที่ไม่ติดตามยังอยู่ในคลังจริง ต้องนับเป็น "ของเกินที่เรามี" (เจ้าของเคาะ) */
-  const stopped = stops ? stopGate(follows, 'over') : () => false;
+  const stopped = stops ? overSettled(follows) : () => false;
   return (rows || []).filter(r => !busy.has(pairKey(r.po, r.code)) && !stopped(r.po, r.code, r.over));
 }
 
@@ -733,6 +733,16 @@ export function shortSettled(follows) {
   // ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) — กฎอยู่ที่ stopGate ใช้ร่วมกับ over
   const stillStopped = stopGate(follows, 'short');
   return (po, code, short) => sameAsClosed(po, code, short) || stillStopped(po, code, short);
+}
+
+/**
+ * ยอดเกินของคู่ PO+รหัสนี้ "จบเรื่องแล้ว" ไหม — คืน (po, code, ยอดเกินตอนนี้) => boolean
+ * จบ = ยกเลิกเรื่อง / ไม่ติดตาม แล้วยอดเกินยังไม่มากกว่าที่หยุดไว้ (stopGate) · กฎเดียวกับการ์ด over (overPending)
+ * ใช้ร่วมกับแท็บ MRP (เจ้าของสั่ง 14 พ.ย. 2026) · คืนครบแล้วไม่ต้องนับตรงนี้ — ส่งคืนหักยอดรับอยู่แล้ว Over หายเอง
+ * ไม่กรองนิติบุคคลเอง — ผู้เรียกกรองมาก่อน
+ */
+export function overSettled(follows) {
+  return stopGate(follows, 'over');
 }
 
 /**
