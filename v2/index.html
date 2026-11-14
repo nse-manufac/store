@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-14.1">
+<meta name="app-version" content="2026-11-14.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2320,11 +2320,11 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:32vh;margin-top:8px" v-if="fsNew.length">
             <table>
               <thead><tr>
-                <th style="width:125px">PO</th><th style="width:90px">P/N</th><th style="width:125px">รหัส</th>
+                <th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:90px">P/N</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:85px">สั่ง</th><th style="width:100px">ตามสูตร</th>
                 <th style="width:100px">รับแล้ว</th><th style="width:95px">ขาด</th><th style="width:210px"></th></tr></thead>
               <tbody><tr v-for="r in fsNew" :key="r.po + r.code">
-                <td class="mono">{{ r.po }}</td><td class="mono hint">{{ r.pn }}</td>
+                <td class="mono">{{ r.po }}</td><td class="mono hint">{{ poDateOf(r.po) || '—' }}</td><td class="mono hint">{{ r.pn }}</td>
                 <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono hint">{{ r.order }}</td><td class="mono hint">{{ r.need }}</td>
                 <td class="mono">{{ r.have }}</td><td class="mono"><b>{{ r.short }}</b></td>
@@ -2360,7 +2360,7 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:52vh;margin-top:10px">
             <table>
               <thead><tr>
-                <th style="width:105px">แจ้งวันที่</th><th style="width:120px">PO</th><th style="width:80px">P/N</th>
+                <th style="width:105px">แจ้งวันที่</th><th style="width:120px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th>
                 <th style="width:120px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:80px">ประเภท</th>
                 <th style="width:100px">ที่แจ้งมา</th><th style="width:110px">ระบบคิดได้</th><th style="width:100px">ยังค้าง</th>
                 <th style="width:150px">ETA</th><th>ข้อความเต็ม</th>
@@ -2369,6 +2369,7 @@ textarea{font:inherit}
                 <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}">
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.po }}</td>
+                  <td class="mono hint">{{ poDateOf(r.s.po) || '—' }}</td>
                   <td class="mono" :class="{hint: fsPn(r.s).fromPo}" :title="fsPn(r.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(r.s).pn || '—' }}</td>
                   <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td><span class="tag" :class="r.s.type==='ขาด'?'bad':'warn'">{{ r.s.type }}</span></td>
@@ -2407,7 +2408,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fsRows.length"><td colspan="12" class="empty">
+                <tr v-if="!fsRows.length"><td colspan="13" class="empty">
                   ไม่มีเรื่องค้าง 🎉<span v-if="fsSearch"> — หรือคำค้นไม่ตรงกับอะไรเลย</span>
                   <span v-else-if="!fsShowDone"> · ที่ปิดแล้วดูได้จากช่องติ๊กด้านบน</span></td></tr>
               </tbody>
@@ -2935,13 +2936,14 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:38vh;margin-top:10px" v-if="foNew.length">
             <table>
               <thead><tr>
-                <th style="width:125px">PO</th><th style="width:80px">P/N</th>
+                <th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th>
                 <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:95px">สั่ง</th>
                 <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
                 <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
                 <th style="width:290px"></th></tr></thead>
               <tbody><tr v-for="r in foNew" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td>
+                <td class="mono hint">{{ poDateOf(r.po) || '—' }}</td>
                 <td class="mono hint">{{ r.pn }}</td>
                 <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono hint">{{ r.order }}</td>
@@ -3028,7 +3030,7 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:44vh;margin-top:10px">
             <table>
               <thead><tr>
-                <th style="width:105px">ตั้งวันที่</th><th style="width:125px">PO</th>
+                <th style="width:105px">ตั้งวันที่</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th>
                 <th style="width:80px">P/N</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:100px">ต้องคืน</th><th style="width:100px">ยังค้าง</th>
                 <th>ยอดที่แช่แข็งไว้ตอนตั้งเรื่อง</th>
@@ -3037,6 +3039,7 @@ textarea{font:inherit}
                 <tr v-for="r in foRows" :key="r.s.id">
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.po }}</td>
+                  <td class="mono hint">{{ poDateOf(r.s.po) || '—' }}</td>
                   <td class="mono hint">{{ r.s.part_no }}</td>
                   <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                   <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
@@ -3067,7 +3070,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!foRows.length"><td colspan="9" class="empty">
+                <tr v-if="!foRows.length"><td colspan="10" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!foShowDone" class="hint">· ที่คืนแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>
