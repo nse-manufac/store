@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-14.3">
+<meta name="app-version" content="2026-11-14.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2267,12 +2267,12 @@ textarea{font:inherit}
             เรื่องที่มีความคืบหน้าแล้วไม่อยู่ในนี้ · ยอดต่างกันไม่นับว่าซ้ำ · ติ๊กออกได้ถ้าไม่แน่ใจ · ยกเลิกแบบไม่ลบ ยอดคงคลังไม่เปลี่ยน</p>
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.short">
             <table>
-              <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
+              <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
                 <tr v-for="d in dupShown('short')" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
-                  <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
+                  <td class="mono">{{ d.row.po }}</td><td class="mono hint">{{ poDateOf(d.row.po) || '—' }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
                   <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
                   <td class="mono hint">{{ d.row.eta || '—' }}</td><td class="hint">{{ d.row.note || '—' }}</td>
@@ -2291,11 +2291,11 @@ textarea{font:inherit}
             โดยไม่มีอะไรฟ้อง · <b>ตั้งนิติบุคคลที่หัวจอให้ถูกก่อน แล้วกดปุ่มในแถว</b></div>
           <div class="scroll" style="max-height:26vh">
             <table>
-              <thead><tr><th style="width:110px">แจ้งวันที่</th><th style="width:125px">PO</th>
+              <thead><tr><th style="width:110px">แจ้งวันที่</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th>
                 <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:105px">จำนวน</th>
                 <th>ข้อความเต็ม</th><th style="width:150px"></th></tr></thead>
               <tbody><tr v-for="s in fsNoEntity" :key="s.id">
-                <td class="mono hint">{{ s.date }}</td><td class="mono">{{ s.po }}</td>
+                <td class="mono hint">{{ s.date }}</td><td class="mono">{{ s.po }}</td><td class="mono hint">{{ poDateOf(s.po) || '—' }}</td>
                 <td class="mono">{{ s.code }}</td><td class="hint">{{ catOf(s.code) || '—' }}</td>
                 <td class="mono">{{ s.qty || '—' }} {{ s.unit }}</td>
                 <td class="hint">{{ s.note }}</td>
@@ -2474,12 +2474,12 @@ textarea{font:inherit}
             กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="fsStopShow">
             <table>
-              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
+              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
               <tbody><tr v-for="x in fsStopped.slice(0, SHOW_MAX)" :key="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
-                <td class="mono">{{ x.s.po }}</td><td class="mono" :class="{hint: fsPn(x.s).fromPo}" :title="fsPn(x.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(x.s).pn || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
+                <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono" :class="{hint: fsPn(x.s).fromPo}" :title="fsPn(x.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(x.s).pn || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td><td class="hint">{{ x.s.void_reason }}</td>
                 <td class="hint">{{ x.s.void_by }} · {{ localDate(x.s.void_at) }}</td>
                 <td><button class="btn" style="padding:2px 8px" :disabled="starting.has('fsrestart|' + x.s.id)"
@@ -2977,9 +2977,9 @@ textarea{font:inherit}
             ถ้าคืนของจริงครั้งเดียว ให้กด <b>เอากลับ</b> ที่เรื่องที่เกินในตารางข้างล่าง (ติ๊ก "แสดงที่คืนแล้ว")
             รายการส่งคืนจะถูกยกเลิก ยอดคงคลังกลับมา แล้วกด <b>ยกเลิกเรื่อง</b> ที่เรื่องนั้นต่อ</p>
           <table>
-            <thead><tr><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th>เรื่องที่คืนแล้ว</th><th style="width:110px">คืนรวม</th></tr></thead>
+            <thead><tr><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th>เรื่องที่คืนแล้ว</th><th style="width:110px">คืนรวม</th></tr></thead>
             <tbody><tr v-for="g in foDouble" :key="g.po + '|' + g.code">
-              <td class="mono">{{ g.po }}</td><td class="mono">{{ g.code }}</td><td class="hint">{{ catOf(g.code) || '—' }}</td>
+              <td class="mono">{{ g.po }}</td><td class="mono hint">{{ poDateOf(g.po) || '—' }}</td><td class="mono">{{ g.code }}</td><td class="hint">{{ catOf(g.code) || '—' }}</td>
               <td class="hint"><span v-for="x in g.rows" :key="x.row.id" style="margin-right:12px">
                 ตั้ง {{ x.row.date }} · ยอด {{ x.row.qty }} · คืน {{ x.returned }}</span></td>
               <td class="mono"><b>{{ g.total }}</b></td>
@@ -3002,12 +3002,12 @@ textarea{font:inherit}
             เรื่องที่มีความคืบหน้าแล้วไม่อยู่ในนี้ · ยอดต่างกันไม่นับว่าซ้ำ · ติ๊กออกได้ถ้าไม่แน่ใจ · ยกเลิกแบบไม่ลบ ยอดคงคลังไม่เปลี่ยน</p>
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.over">
             <table>
-              <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
+              <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
                 <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
                 <tr v-for="d in dupShown('over')" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
-                  <td class="mono">{{ d.row.po }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
+                  <td class="mono">{{ d.row.po }}</td><td class="mono hint">{{ poDateOf(d.row.po) || '—' }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
                   <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
                   <td class="mono hint">{{ d.row.eta || '—' }}</td><td class="hint">{{ d.row.note || '—' }}</td>
@@ -3101,11 +3101,11 @@ textarea{font:inherit}
           </div>
           <div class="scroll" style="max-height:30vh">
             <table>
-              <thead><tr><th style="width:125px">PO</th><th style="width:80px">P/N</th>
+              <thead><tr><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th>
                 <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:110px">รับมาแล้ว</th>
                 <th>ติดตรงไหน</th></tr></thead>
               <tbody><tr v-for="r in foBlocked" :key="r.po + r.code">
-                <td class="mono">{{ r.po }}</td>
+                <td class="mono">{{ r.po }}</td><td class="mono hint">{{ poDateOf(r.po) || '—' }}</td>
                 <td class="mono hint">{{ r.pn || '—' }}</td>
                 <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono">{{ r.recv }}</td>
@@ -3127,12 +3127,12 @@ textarea{font:inherit}
             นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="foStopShow">
             <table>
-              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:125px">รหัส</th>
+              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
               <tbody><tr v-for="x in foStopped.slice(0, SHOW_MAX)" :key="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
-                <td class="mono">{{ x.s.po }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
+                <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td>
                 <td class="hint">{{ x.s.void_reason }}</td>
                 <td class="hint">{{ x.s.void_by }} · {{ localDate(x.s.void_at) }}</td>
