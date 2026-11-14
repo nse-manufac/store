@@ -1022,7 +1022,7 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      && shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0).calc === 8,
      JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
   ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
-     /same !== null/.test(htmlSrc.split('ระบบคิดได้')[1].slice(0, 1200)));
+     /same !== null/.test(htmlSrc.split('ระบบคิดได้')[1].slice(0, 1400)));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
      /ยังไม่มีการรับเข้า/.test(shortCheckOf({ po: 'TM9269H002', code: 'A', qty: 1 }, all0).why)
@@ -2111,10 +2111,10 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
   const htmlP = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const tbl = htmlP.slice(htmlP.indexOf('<h2>ของขาด / รอส่ง</h2>'), htmlP.indexOf('<h2>เพิ่มเรื่องเอง</h2>'));
   const stop = htmlP.slice(htmlP.indexOf('ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }}'), htmlP.indexOf('ซื้อแมททดแทน (Mat Follow up 7/8)'));
-  ok('จอ: ตารางของขาด / รอส่ง มีคอลัมน์ P/N ต่อจาก PO · แถวว่างกินครบทุกคอลัมน์ · ช่องค้นบอกว่าค้น P/N ได้',
-     tbl.includes('<th style="width:120px">PO</th><th style="width:80px">P/N</th>') && tbl.includes("{{ fsPn(r.s).pn || '—' }}")
-     && tbl.includes(':class="{hint: fsPn(r.s).fromPo}"') && tbl.includes('colspan="12"') && tbl.includes('ค้นหา PO · P/N · รหัส')
-     && (tbl.match(/<th[\s>]/g) || []).length === 12);
+  ok('จอ: ตารางของขาด / รอส่ง มีคอลัมน์ PO · วันที่ PO · P/N · แถวว่างกินครบทุกคอลัมน์ · ช่องค้นบอกว่าค้น P/N ได้',
+     tbl.includes('<th style="width:120px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th>') && tbl.includes("{{ fsPn(r.s).pn || '—' }}")
+     && tbl.includes(':class="{hint: fsPn(r.s).fromPo}"') && tbl.includes('colspan="13"') && tbl.includes('ค้นหา PO · P/N · รหัส')
+     && (tbl.match(/<th[\s>]/g) || []).length === 13);
   ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N', stop.includes("{{ fsPn(x.s).pn || '—' }}") && stop.includes('<th style="width:80px">P/N</th>'));
   ok('จอ: ตาราง short / over ส่งตัวหา PO ให้ช่องค้น', (appP.match(/showDone: [^\n]*headerOf: poIdx\.value/g) || []).length === 2);
   // ตาราง buy แสดง part_no ของเรื่องเอง และ listFollow ค้น part_no · note อยู่แล้ว — ป้ายต้องบอก (ผู้ตรวจ #151 รอบ 2 ข้อ 1)
@@ -2176,6 +2176,20 @@ console.log('\n=== BP. จำนวนเงินของซื้อทดแ
   ok('ยอดรวมนับทุกเรื่องที่กรองอยู่ (fbAll) ไม่ใช่แค่ที่แสดง (fbRows)', /fbSum = computed\(\(\) => buySum\(fbAll\.value/.test(appB));
   ok('หาหน่วยด้วยดัชนี matIndex ไม่ไล่ทั้งทะเบียน (ผู้ตรวจ #154 ข้อ 2) · ไฟล์หัวครบแต่ราคาใช้ไม่ได้ บอกเหตุตรง (ข้อ 7)',
      appB.includes('const unitOfMat = code => { const m = matIndex.value.get(normCode(code));') && appB.includes('เจอหัวคอลัมน์แล้ว แต่ไม่มีแถวไหนที่ใช้ราคาได้'));
+}
+
+console.log('=== วันที่ PO ในหน้า short / over (เจ้าของขอ 14 พ.ย. 2026) ===');
+{
+  const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const block = k => { const a = htmlSrc.indexOf(`<template v-else-if="tab==='${k}'">`); return htmlSrc.slice(a, htmlSrc.indexOf('\n      <template v-else', a + 1)); };
+  const sh = block('fshort'), ov = block('fover');
+  const cnt = (src, re) => (src.match(re) || []).length;
+  ok('short: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g) === 2
+     && sh.includes("poDateOf(r.po) || '—'") && sh.includes("poDateOf(r.s.po) || '—'"));
+  ok('over: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g) === 2
+     && ov.includes("poDateOf(r.po) || '—'") && ov.includes("poDateOf(r.s.po) || '—'"));
+  ok('วันที่ PO มาจากไฟล์ PO (poHeaderIndex) และต่อสายออกจาก setup', /const poDateOf = po => \(poIdx\.value\(po\) \|\| \{\}\)\.date \|\| ''/.test(appSrc)
+     && /planAtText, poDateOf,/.test(appSrc));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

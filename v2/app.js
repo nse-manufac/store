@@ -2407,6 +2407,8 @@ createApp({
     /* ดัชนี PO / สูตร ทำครั้งเดียวต่อการเปลี่ยนข้อมูล (เจ้าของแจ้ง 4 พ.ย. 2026 หน้า over โหลดนาน)
      * เดิมถาม poHeader / activeBomRowsOf ทีละคู่ PO+รหัส — กรองและเรียงทั้งตารางทุกครั้ง · ผลเท่าเดิมทุกแถว (มีเทสคุม) */
     const poIdx = computed(() => poHeaderIndex(pos.value));
+    /** วันที่ของ PO จากไฟล์ PO ที่นำเข้า — คอลัมน์ "วันที่ PO" ในหน้า short / over (เจ้าของขอ 14 พ.ย. 2026) · ไม่มี = '' */
+    const poDateOf = po => (poIdx.value(po) || {}).date || '';
     const bomIdx = computed(() => bomIndex(bom.value));
     const bomUsageOf = (pn, code) => bomIdx.value.usageOf(pn, code);
 
@@ -3770,7 +3772,7 @@ createApp({
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
              mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
-             planShip, planPull, planAtText,
+             planShip, planPull, planAtText, poDateOf,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
              materials, entries, bom, q, fCat, fState, edit, toast,
