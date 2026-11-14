@@ -112,6 +112,15 @@ var TABLES = {
            'active','created_at','updated_at'],
     bools: ['active'],
     texts: ['entity_code','vendor_no','created_at','updated_at']
+  },
+  // WK ที่พิมพ์เองในแท็บ MRP (เจ้าของสั่ง 15 พ.ย. 2026) — หนึ่งแถวต่อ PO · id = 'WK|' + PO ตัวพิมพ์ใหญ่
+  // แยกจากชีต POs โดยตั้งใจ: toRow เขียนช่องที่ไม่ส่งมาเป็นค่าว่าง นำเข้าไฟล์ PO ใหม่แล้ว WK จะหาย
+  // ลบ = deleted TRUE (ไม่ลบแถว) ให้เครื่องอื่นรู้ตอนซิงค์
+  PoWeeks: {
+    key: 'id',
+    cols: ['id','po','week','by','deleted','created_at','updated_at'],
+    bools: ['deleted'],
+    texts: ['id','po','created_at','updated_at']
   }
 };
 

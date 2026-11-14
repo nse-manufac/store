@@ -19,7 +19,8 @@
 export const DB_NAME = 'bincard-v2';
 // 2 — เพิ่มตาราง counts (รอบนับของ)
 // 3 — เพิ่มตาราง entities (แยกยอดตามนิติบุคคล)
-export const DB_VERSION = 3;
+// 4 — เพิ่มตาราง weeks (WK ที่พิมพ์เองในแท็บ MRP · เจ้าของสั่ง 15 พ.ย. 2026) — ตารางใหม่เปล่า ไม่ต้องย้ายข้อมูล
+export const DB_VERSION = 4;
 
 /** ตารางทั้งหมด — keyPath ทุกตัวคือ id ยกเว้นที่ระบุ */
 const STORES = {
@@ -32,6 +33,7 @@ const STORES = {
   shorts:    { keyPath: 'id' },
   closes:    { keyPath: 'id' },
   counts:    { keyPath: 'id' },
+  weeks:     { keyPath: 'id' },
   meta:      { keyPath: 'k' }
 };
 

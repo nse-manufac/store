@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
@@ -149,6 +149,7 @@ createApp({
         kits.value = normKeysAll(data.kits || []);
         shorts.value = normKeysAll(data.shorts || []);
         entities.value = normKeysAll(data.entities || []);
+        poWeeks.value = normKeysAll(data.weeks || []);
 
         /* ซ่อมแถวงานตามที่เกิดก่อนโครงใหม่ — เติม kind / source / เวลา / นิติบุคคล
          *
@@ -2143,6 +2144,7 @@ createApp({
     // แต่หน้านี้รับเข้าท่อแค่สองแบบ — PO รายวัน กับ Kit List (22-H)
     // กลุ่มจ่ายรวมยังต้องเดาชนิดให้ออก แต่เด้งไปแท็บรับเข้ารวมรายรอบ (เจ้าของ 22 ก.ย. 2026)
     const pos = ref([]);
+    const poWeeks = ref([]);        // WK ที่พิมพ์เองในแท็บ MRP (ตาราง weeks · ซิงค์) — ตรรกะอยู่ที่ master/mrp.js
     const kits = ref([]);
     const shorts = ref([]);
     const imp = ref(null);          // ผลอ่านไฟล์ที่รอให้ตรวจก่อนกดนำเข้า
@@ -2456,7 +2458,8 @@ createApp({
       try {
         return { rows: mrpRows(entries.value, entity.value, { poList: posVisible.value, bomRowsOf: bomIdx.value.rowsOf,
                                                               follows: shorts.value, today: todayLocal(),
-                                                              plan: planMap(planShip.list), catOf }), err: '' };
+                                                              plan: planMap(planShip.list), catOf,
+                                                              weeks: poWeekMap(poWeeks.value) }), err: '' };
       } catch (e) { return { rows: [], err: 'คิด MRP ไม่ได้ — ' + e.message + ' · แจ้งเจ้าของพร้อมข้อความนี้' }; }
     });
     const mrpAll = computed(() => mrpCalc.value.rows);
@@ -2475,6 +2478,15 @@ createApp({
         if (!changed.length) return;   // ไม่มีแถวไหนเปลี่ยน (เติมไปแล้ว) — ไม่ขึ้นว่าบันทึก (ผู้ตรวจ #156 รอบ 2 ข้อ 5)
         await db.put('pos', changed.map(plain));
         flash(`เติมวันที่ ${po} = ${date} แล้ว`);
+      } catch (e) { flash(e.message, true); }
+    }
+    /* WK พิมพ์เอง (เจ้าของสั่ง 15 พ.ย. 2026) — ช่องขึ้นเฉพาะใบที่ plan / ล็อตไม่มี WK · เว้นว่าง = ลบ */
+    async function mrpSetWeek(po, v) {
+      try {
+        const row = setPoWeek(poWeeks.value, po, v, { by: device.value, now: new Date().toISOString() });
+        if (!row) return;
+        await db.put('weeks', [plain(row)]);
+        flash(row.deleted ? `ลบ WK ของ ${po} แล้ว` : `ตั้ง WK${row.week} ให้ ${po} แล้ว`);
       } catch (e) { flash(e.message, true); }
     }
     const mrpToggle = po => { mrpOpen.value = { ...mrpOpen.value, [po]: !mrpOpen.value[po] }; };
@@ -3422,7 +3434,7 @@ createApp({
      * ลืม entities มารอบหนึ่งแล้ว ซิงค์วิ่งไปหกตารางแล้วพังที่ตารางที่เจ็ด
      * ด้วยข้อความที่ไม่บอกว่าตารางไหน — ตอนนี้ missingTables() จะฟ้องตั้งแต่เปิดโปรแกรม
      */
-    const LIST_OF = { entries, materials, bom, pos, kits, shorts, entities };
+    const LIST_OF = { entries, materials, bom, pos, kits, shorts, entities, weeks: poWeeks };
     const listOf = t => {
       const l = LIST_OF[t];
       if (!l) throw new Error(`ตาราง ${t} ยังไม่ได้ต่อสายกับข้อมูลในเครื่อง — เป็นบั๊กของโปรแกรม ไม่ใช่การตั้งค่า`);
@@ -3772,7 +3784,7 @@ createApp({
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
              mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
-             planShip, planPull, planAtText, poDateOf,
+             planShip, planPull, planAtText, poDateOf, mrpSetWeek,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
              materials, entries, bom, q, fCat, fState, edit, toast,

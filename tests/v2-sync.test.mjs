@@ -84,7 +84,7 @@ ok('นับแยกรายตาราง ไม่ใช่ยอดรว
 ok('ตารางที่ยังไม่มีข้อมูลก็ต้องมีในสรุป ไม่ใช่หายไป',
    plan.per.pos === 0 && plan.per.shorts === 0, JSON.stringify(plan.per));
 ok('ซิงค์ครบทุกตารางที่ต้องแชร์กันข้ามเครื่อง',
-   Object.keys(TABLES).join(',') === 'entries,materials,bom,pos,kits,shorts,entities',
+   Object.keys(TABLES).join(',') === 'entries,materials,bom,pos,kits,shorts,entities,weeks',   // weeks — WK พิมพ์เองใน MRP (15 พ.ย. 2026)
    Object.keys(TABLES).join(','));
 ok('ทุกตารางบอกชื่อชีตปลายทางไว้ครบ',
    Object.values(TABLES).every(t => t.sheet && t.key && t.label));
@@ -212,8 +212,8 @@ ok('ขาดตารางไหน บอกชื่อตารางนั
    missingTables(wired).join(',') === 'entities', missingTables(wired).join(','));
 ok('ไม่ได้ส่งอะไรมาเลย ถือว่าขาดทั้งหมด ไม่ใช่ปล่อยผ่าน',
    missingTables(undefined).length === Object.keys(TABLES).length);
-ok('ตอนนี้ประกาศไว้เจ็ดตาราง — เพิ่มเมื่อไหร่ต้องไปต่อสายใน app.js ด้วย',
-   Object.keys(TABLES).length === 7, String(Object.keys(TABLES).length));
+ok('ตอนนี้ประกาศไว้แปดตาราง — เพิ่มเมื่อไหร่ต้องไปต่อสายใน app.js ด้วย',
+   Object.keys(TABLES).length === 8, String(Object.keys(TABLES).length));
 
 console.log('\n=== ป้ายสถานะซิงค์บนหัวจอ (เจ้าของขอ 6 ต.ค. 2026) ===');
 {

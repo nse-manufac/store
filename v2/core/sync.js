@@ -27,7 +27,9 @@ export const TABLES = {
   // ชีตชื่อ Shorts มาแต่เดิม แต่ตั้งแต่ ก.ย. 2026 เก็บงานตามสามแบบ (ขาด · เกิน · ซื้อทดแทน)
   // ⚠️ ห้ามเปลี่ยน sheet — ข้อมูลของพนักงานอยู่ใต้ชื่อนั้น เปลี่ยนแล้วเครื่องที่ยังไม่อัปเดตจะมองคนละชีต
   shorts:    { key: 'id',            label: 'ตามงานวัตถุดิบ',   sheet: 'Shorts' },
-  entities:  { key: 'entity_code',   label: 'นิติบุคคล',        sheet: 'Entities' }
+  entities:  { key: 'entity_code',   label: 'นิติบุคคล',        sheet: 'Entities' },
+  // WK ที่พิมพ์เองในแท็บ MRP (เจ้าของสั่ง 15 พ.ย. 2026) — แยกจากชีต POs เพื่อไม่ให้นำเข้าไฟล์ PO ใหม่แล้ว WK หาย
+  weeks:     { key: 'id',            label: 'WK ที่พิมพ์เอง',     sheet: 'PoWeeks' }
 };
 
 /**

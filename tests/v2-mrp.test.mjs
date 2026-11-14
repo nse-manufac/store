@@ -6,7 +6,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         mrpOrder, planShipList, planMap, planWeek, lotWeek } from '../v2/master/mrp.js';
+         mrpOrder, planShipList, planMap, planWeek, lotWeek,
+         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
          skipOver, cancelOver, overAll, overPending, fromOverRow } from '../v2/master/follow.js';
 
@@ -214,11 +215,11 @@ ok('ไม่มี plan: ใบที่ไม่อยู่ในไฟล์
 throws('ไม่มี plan และไม่ส่ง today = โยน ไม่ตัดใบทิ้งเงียบ (ผู้ตรวจ #156 รอบ 4 ข้อ 1)', () => mrpRows(ents, EN, { poList, bomRowsOf }), 'today');
 
 const R = (week, date, po, pn) => ({ week, date, po, pn });
-const sorted = [R('', '2026-11-01', 'P1', 'A'), R('WK10', '2026-11-05', 'P2', 'A'), R('WK9', '2026-11-09', 'P3', 'A'),
-                R('WK9', '2026-11-02', 'P4', 'A'), R('WK9', '2026-11-02', 'P4', '0'), R('WK9', '', 'P0', 'A')].sort(mrpOrder);
-const sameDay = [R('WK9', '2026-11-02', 'P5', 'A'), R('WK9', '2026-11-02', 'P4', 'A')].sort(mrpOrder);
-ok('ใบใหม่สุดก่อน: WK มากไปน้อย (WK10 ก่อน WK9) → วันที่ใหม่ไปเก่า → เลข PO → P/N · ไม่มี WK / ไม่มีวันที่ไปท้าย (เจ้าของสั่ง 14 พ.ย. 2026)',
-   sorted.map(r => r.po + r.pn).join() === 'P2A,P3A,P40,P4A,P0A,P1A' && sameDay.map(r => r.po).join() === 'P4,P5', sorted.map(r => r.po + r.pn).join());
+const sorted = [R('', '2026-11-01', 'P1', 'A'), R('WK46', '2026-11-05', 'P2', 'A'), R('WK45', '2026-11-09', 'P3', 'A'),
+                R('WK45', '2026-11-02', 'P4', 'A'), R('WK45', '2026-11-02', 'P4', '0'), R('WK45', '', 'P0', 'A')].sort(mrpOrder);
+const sameDay = [R('WK45', '2026-11-02', 'P5', 'A'), R('WK45', '2026-11-02', 'P4', 'A')].sort(mrpOrder);
+ok('ใบใหม่สุดก่อน: WK ใหม่ไปเก่า → วันที่ใหม่ไปเก่า → เลข PO → P/N · ไม่มี WK (หรือรู้ปีไม่ได้) / ไม่มีวันที่ไปท้าย (เจ้าของสั่ง 14 พ.ย. 2026)',
+   sorted.map(r => r.po + r.pn).join() === 'P2A,P3A,P40,P4A,P1A,P0A' && sameDay.map(r => r.po).join() === 'P4,P5', sorted.map(r => r.po + r.pn).join());
 const CAT = { '9100000971': 'PACKING', '9100000972': 'CORE', '9100000973': 'WIRE', '9100000974': 'CORE', '9100000975': '', '9100000976': 'TAPE' };
 const catBom = { 'PN-C': ['9100000971', '9100000972', '9100000973', '9100000974', '9100000975'].map(code => ({ code, usage: 1 })) };
 const cr = mrpRows([mk('receive', 'TM0001H970', '9100000973', 1), mk('receive', 'TM0001H970', '9100000976', 2)], EN,
@@ -226,7 +227,7 @@ const cr = mrpRows([mk('receive', 'TM0001H970', '9100000973', 1), mk('receive', 
     catOf: c => CAT[c] || '' })[0];
 ok('รหัสในใบเรียงตามหมวด (CORE → WIRE → … → PACKING) แล้วตามรหัส · ไม่มีหมวดไปท้าย · นอกสูตรยังอยู่ท้ายสุด (เจ้าของเคาะ)',
    cr.lines.map(l => l.code.slice(-2)).join() === '72,74,73,71,75,76', cr.lines.map(l => l.code.slice(-2)).join());
-ok('ต่อสายหมวดเข้า mrpRows', /plan: planMap\(planShip\.list\), catOf \}/.test(readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
+ok('ต่อสายหมวดเข้า mrpRows', /plan: planMap\(planShip\.list\), catOf,/.test(readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
 console.log('=== M8. WK จากล็อต · ใบที่ plan ไม่รู้จัก (เจ้าของเคาะ 14 พ.ย. 2026) ===');
 ok('lotWeek อ่าน W45 · W-45 · WK 45 · wk09 · ไม่รับวันที่ / เลขผู้ขาย / เกิน 53',
    lotWeek('W45') === 45 && lotWeek('W-45') === 45 && lotWeek('WK 45') === 45 && lotWeek('wk09') === 9 && lotWeek('WK45') === 45
@@ -251,6 +252,39 @@ const oldNip = mrpRows([...ents, mk('receive', 'TM0001H965', A, 3)], EN,
 ok('ไม่มีใน plan + วันที่ PO เก่ากว่า ' + MRP_FRESH_DAYS + ' วัน = จบ (plan บอกไม่ได้ ใช้กฎวัน — เจ้าของเคาะ)',
    oldNip.find(r => r.po === 'TM0001H965')?.notInPlan === true && oldNip.find(r => r.po === 'TM0001H965').done === true);
 ok('ไม่มีใน plan + ใบใหม่ = ไม่จบ', oldNip.find(r => r.po === 'TM0001H967')?.done === false);
+console.log('=== M9. ข้ามปี · WK ที่พิมพ์เอง (เจ้าของสั่ง 15 พ.ย. 2026) ===');
+ok('weekKeyOf: ปีที่ใกล้วันที่ PO ที่สุด — WK52 ปลายปี · WK1 ของปีถัดไปเมื่อ PO ลงวันที่ปลายธันวาคม',
+   weekKeyOf(52, '2026-12-24') === '2026-12-21' && weekKeyOf(1, '2026-12-30') === '2027-01-04' && weekKeyOf(1, '2027-01-02') === '2027-01-04'
+   && weekKeyOf(52, '2027-01-05') === '2026-12-21' && weekKeyOf(45, '2026-11-11') === '2026-11-02' && weekKeyOf(0, '2026-11-11') === '' && weekKeyOf(45, '') === '');
+ok('ข้ามปี: WK1 ของปีใหม่ขึ้นเหนือ WK52 ของปีก่อน (ใบใหม่สุดก่อน)',
+   [R('WK52', '2026-12-22', 'OLD', 'A'), R('WK1', '2026-12-29', 'NEW', 'A'), R('WK51', '2026-12-15', 'OLDER', 'A')].sort(mrpOrder).map(r => r.po).join() === 'NEW,OLD,OLDER');
+const yearPlan = planMap([{ po: 'TM0001H961', week: 'WK52', qty: 10, shipped: 0, left: 10 }, { po: 'TM0001H962', week: 'WK1', qty: 10, shipped: 0, left: 10 }]);
+const yearPos = poList.map(p => p.po === 'TM0001H961' ? { ...p, date: '2026-12-21' } : p.po === 'TM0001H962' ? { ...p, date: '2026-12-30' } : p);
+const yr = mrpRows(ents, EN, { poList: yearPos, bomRowsOf, plan: yearPlan, today: '2026-12-31' });
+ok('mrpRows: weekKey ติดปีให้ · WK1 (PO 30 ธ.ค.) อยู่เหนือ WK52 (PO 21 ธ.ค.)', yr[0].po === 'TM0001H962' && yr[0].weekKey === '2027-01-04'
+   && yr.find(r => r.po === 'TM0001H961').weekKey === '2026-12-21', yr.map(r => r.po + ':' + r.weekKey).join());
+ok('weekNumOf: WK45 · 45 → 45 · ว่าง / เกิน 53 → 0', weekNumOf('WK45') === 45 && weekNumOf('45') === 45 && weekNumOf('') === 0 && weekNumOf('WK60') === 0);
+
+ok('parseWeekInput: 45 · WK45 · wk 45 · W-07 → เลข · ว่าง → ลบ · 0 / 54 / ตัวอักษร → ไม่ถูกต้อง',
+   parseWeekInput('45') === 45 && parseWeekInput('WK45') === 45 && parseWeekInput('wk 45') === 45 && parseWeekInput('W-07') === 7
+   && parseWeekInput('') === '' && parseWeekInput('0') === null && parseWeekInput('54') === null && parseWeekInput('abc') === null);
+const wk = [];
+const w1 = setPoWeek(wk, ' tm0001h963 ', 'WK44', { by: 'ก', now: 'T1' });
+ok('setPoWeek: สร้างแถวใหม่ · กุญแจ = WK|PO ตัวพิมพ์ใหญ่ · ติด dirty', wk.length === 1 && w1.id === 'WK|TM0001H963' && w1.week === 44 && w1.dirty === true && w1.deleted === false);
+w1.dirty = false;
+ok('setPoWeek: ค่าเดิม = ไม่เปลี่ยน (null)', setPoWeek(wk, 'TM0001H963', '44') === null && w1.dirty === false);
+ok('setPoWeek: แก้เลข = แถวเดิม ติด dirty', setPoWeek(wk, 'TM0001H963', '45') === w1 && w1.week === 45 && w1.dirty === true && wk.length === 1);
+ok('setPoWeek: เว้นว่าง = ลบ (deleted ไม่ใช่ลบทิ้ง — ซิงค์ได้)', setPoWeek(wk, 'TM0001H963', '') === w1 && w1.deleted === true && wk.length === 1);
+ok('setPoWeek: ลบซ้ำ = ไม่เปลี่ยน', setPoWeek(wk, 'TM0001H963', '') === null);
+throws('setPoWeek: เลขไม่ถูกต้อง = โยนพร้อมบอกวิธีพิมพ์', () => setPoWeek(wk, 'TM0001H963', '99'), 'WK45');
+ok('poWeekMap: ข้ามแถวที่ลบ (true หรือข้อความ TRUE จากชีต)', poWeekMap([...wk, { po: 'X1', week: '12', deleted: 'TRUE' }, { po: 'x2', week: 7 }]).size === 1
+   && poWeekMap([{ po: 'x2', week: 7 }]).get('X2') === 7);
+const mw = poWeekMap([{ po: 'TM0001H963', week: 40 }, { po: 'TM0001H962', week: 30 }, { po: 'TM0001H967', week: 41 }]);
+const mr = mrpRows([...ents, mk('receive', 'TM0001H967', A, 1, { lot: 'W20' })], EN, { poList, bomRowsOf, plan: PL, today: TODAY, weeks: mw });
+const mat = po => mr.find(r => r.po === po);
+ok('WK พิมพ์เองใช้เมื่อ plan ไม่มี WK · weekFrom = manual', mat('TM0001H963').week === 'WK40' && mat('TM0001H963').weekFrom === 'manual');
+ok('plan มี WK = ใช้ของ plan ไม่สน WK พิมพ์เอง', mat('TM0001H962').week === 'WK45' && mat('TM0001H962').weekFrom === 'plan');
+ok('WK พิมพ์เองชนะ WK จากล็อต (คนพิมพ์ตั้งใจ · ล็อตเป็นการเดา)', mat('TM0001H967').week === 'WK41' && mat('TM0001H967').weekFrom === 'manual');
 ok('ค้นด้วย WK ได้', !!pat('TM0001H962') && mrpMatch(pat('TM0001H962'), 'wk45') && !mrpMatch(pat('TM0001H962'), 'wk46'));
 
 console.log('=== M6. หน้าจอ ===');
@@ -281,6 +315,9 @@ ok('ดึงผ่าน Apps Script ฝั่งคลัง (planShip) ไม
    /await api\('planShip'\)/.test(app) && /planShipList\(d\.orders, d\.records\)/.test(app) && !/plan_link|planLink/.test(app + html));
 ok('จอบอกเสมอว่าตัดใบจบด้วย plan หรือกฎ 90 วัน', mrpHtml.includes('ใช้ข้อมูลส่งของจาก plan') && mrpHtml.includes('ยังไม่ได้ดึงจาก plan'));
 ok('ป้ายไม่มีใน plan อยู่บนจอ', mrpHtml.includes('r.notInPlan'));
+ok('ช่องพิมพ์ WK ขึ้นเฉพาะใบที่ไม่มี WK หรือพิมพ์เอง · ต่อสาย mrpSetWeek · ส่ง weeks เข้า mrpRows (เจ้าของสั่ง 15 พ.ย. 2026)',
+   /v-if="r\.weekFrom === '' \|\| r\.weekFrom === 'manual'"/.test(mrpHtml) && mrpHtml.includes('mrpSetWeek(r.po, $event.target.value)')
+   && /weeks: poWeekMap\(poWeeks\.value\)/.test(app));
 ok('จอคอม: ตาราง MRP + ตาราง BOM ข้างในตัวใหญ่ขึ้น · มือถือไม่ขยาย (เจ้าของขอ 14 พ.ย. 2026)', /@media \(min-width:761px\)\{\s*table\.mrp,table\.mrp table\.mrp-bom\{font-size:\d+px\}/.test(html));
 { // ⚠️ กฎ 22px ต้องอยู่หลังกฎ 19px (selector เดียวกัน · @media ไม่เพิ่ม specificity) — ผู้ตรวจ #158 รอบ 1 ข้อ 1
   const at19 = html.indexOf('tr.mrp-po.open > td.mono{font-size:19px'), at22 = html.indexOf('tr.mrp-po.open > td.mono{font-size:22px}');
