@@ -26,8 +26,10 @@
  *     ใบที่ไม่อยู่ในไฟล์ PO รู้อายุไม่ได้ ขึ้นแบบคิดไม่ได้ ไม่จบ
  *   เรียง: ใบใหม่สุดขึ้นก่อน — WK มากไปน้อย → วันที่ใหม่ไปเก่า → เลข PO → P/N (เจ้าของสั่ง 14 พ.ย. 2026)
  *     ไม่มี WK / ไม่มีวันที่ ไปท้าย
- *   WK: ของ plan ก่อน · plan ไม่มี = WK จากเลขล็อตตอนรับเข้า (W45 · W-45 · WK 45) ที่เจอบ่อยสุดในใบ
- *     (weekFrom = 'lot' · เจ้าของเคาะ 14 พ.ย. 2026) — เรียงปนกับ WK ของ plan ตามปกติ
+ *   WK: ของ plan ก่อน → WK ที่พิมพ์เอง (weeks · ตาราง weeks ที่ซิงค์ · เจ้าของเคาะ 15 พ.ย. 2026)
+ *     → WK จากเลขล็อตตอนรับเข้า (W45 · W-45 · WK 45) ที่เจอบ่อยสุดในใบ (weekFrom = 'lot' · เจ้าของเคาะ 14 พ.ย. 2026)
+ *   ข้ามปี: WK เทียบด้วย weekKey = วันจันทร์ของสัปดาห์นั้นในปีที่ใกล้วันอ้างอิงที่สุด
+ *     (วันที่ PO → วันรับเข้าครั้งแรก → วันนี้) — WK1 ของปีใหม่จึงขึ้นเหนือ WK52 ของปีก่อน (เจ้าของสั่ง 15 พ.ย. 2026)
  *   รหัสในใบเรียงตามหมวดในทะเบียน (ลำดับ CATEGORIES: CORE → WIRE → TAPE …) แล้วตามรหัส (เจ้าของเคาะ 13 พ.ย. 2026)
  *     — ระบบไม่ได้เก็บลำดับบรรทัดของ BOM (id = pn|code เรียงตามรหัส) เรียงตามรหัสล้วนแล้วหมวดสลับกันจนงง
  *     รหัสที่ไม่มีหมวด / หมวดที่ไม่รู้จัก ไปท้ายกลุ่ม · รหัสนอกสูตรยังอยู่ท้ายตารางเหมือนเดิม
@@ -71,9 +73,10 @@ function daysBefore(date, n) {
  * poList = รายการ PO ที่นิติบุคคลนี้มองเห็น (posVisible) · bomRowsOf(pn) = บรรทัดสูตรที่ยังใช้อยู่
  * today = 'YYYY-MM-DD' ตามเวลาไทย (todayLocal) — ส่งเข้ามาเพื่อเทสได้ · ไม่มี plan ต้องมีเสมอ
  * plan = Map จาก planMap(list) · null = ยังไม่ได้ดึงจาก plan · catOf(code) = หมวดในทะเบียน (ใช้เรียงรหัส)
- * weekFrom = 'plan' · 'lot' · '' (ไม่มี WK)
+ * weekFrom = 'plan' · 'manual' (พิมพ์เอง) · 'lot' · '' (ไม่มี WK) · weekKey = 'YYYY-MM-DD' ใช้เรียง ('' = ไม่มี WK)
+ * weeks = Map จาก poWeekMap(rows) · null = ไม่มี WK ที่พิมพ์เอง
  */
-export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [], today = '', plan = null, catOf = () => '',
+export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [], today = '', plan = null, catOf = () => '', weeks = null,
                                            freshDays = MRP_FRESH_DAYS, overMin = OVER_MIN } = {}) {
   if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
   if (typeof bomRowsOf !== 'function') throw new Error('ต้องส่ง bomRowsOf เข้ามา');
@@ -81,7 +84,7 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
   if (!plan && !/^\d{4}-\d{2}-\d{2}$/.test(txt(today))) throw new Error('ต้องส่ง today (YYYY-MM-DD) — ยังไม่มีข้อมูล plan ต้องใช้กฎ PO ใหม่ใน ' + freshDays + ' วัน');
 
   // เดินสมุดรอบเดียว
-  const got = new Map(), used = new Map(), codesOf = new Map(), started = new Set(), lotWk = new Map();
+  const got = new Map(), used = new Map(), codesOf = new Map(), started = new Set(), lotWk = new Map(), firstAt = new Map();
   for (const e of entries || []) {
     if (!e || e.entity !== entity || e.voided) continue;
     const po = txt(e.doc_ref);
@@ -90,6 +93,8 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
     if (e.kind === 'receive' || e.kind === 'sendback') {
       if (e.kind === 'receive') {
         started.add(po);
+        const d = txt(e.at).slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d) && (!firstAt.has(po) || d < firstAt.get(po))) firstAt.set(po, d);
         const w = lotWeek(e.lot);
         if (w) { if (!lotWk.has(po)) lotWk.set(po, new Map()); const m = lotWk.get(po); m.set(w, (m.get(w) || 0) + 1); }
       }
@@ -134,15 +139,21 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
   const out = [];
   for (const po of pos) {
     const head = headerOf(po), p = planOf(po);
-    const [lw, lwRaw] = p && txt(p.week) ? ['', ''] : weekOfLots(po);
+    const pw = p && txt(p.week) ? txt(p.week) : '';
+    const mw = !pw && weeks ? weeks.get(txt(po).toUpperCase()) || null : null;
+    const [lw, lwRaw] = pw || mw ? ['', ''] : weekOfLots(po);
     const row = { po, pn: head ? txt(head.pn) : '',
-                  week: p && txt(p.week) ? txt(p.week) : lw, weekRaw: p && txt(p.week) ? txt(p.weekRaw) : lwRaw,
-                  weekFrom: p && txt(p.week) ? 'plan' : lw ? 'lot' : '',
+                  week: pw || (mw ? 'WK' + mw : lw), weekRaw: pw ? txt(p.weekRaw) : mw ? 'พิมพ์เอง' : lwRaw,
+                  weekFrom: pw ? 'plan' : mw ? 'manual' : lw ? 'lot' : '',
                   date: head ? head.date : '',
                   order: head ? head.order || 0 : 0, notInPlan: !!plan && !p,
                   why: '', none: !started.has(po), lines: [], nShort: 0, nOver: 0, nSkip: 0, state: 'ok',
                   done: p ? !(p.left > 0)     // จบ = plan บอกว่าส่งครบ
                           : oldPo(head) };    // plan บอกไม่ได้ (ไม่มี plan / ไม่มีใน plan) = เก่ากว่า freshDays วัน
+    // WK จากล็อต: อิงวันรับเข้าครั้งแรก + มองไปข้างหน้าไม่เกิน LOT_WK_AHEAD สัปดาห์ (ล็อตเก่าห้ามกลายเป็นปีหน้า · รีวิว #160)
+    row.weekKey = row.weekFrom === 'lot'
+      ? weekKeyOf(weekNumOf(row.week), firstAt.get(po) || txt(row.date) || txt(today), { ahead: LOT_WK_AHEAD })
+      : weekKeyOf(weekNumOf(row.week), txt(row.date) || firstAt.get(po) || txt(today));
     row.noDate = !!head && !txt(row.date);   // ใบที่ไม่อยู่ในไฟล์ PO เติมวันที่ไม่ได้ — ต้องนำเข้าไฟล์ก่อน
     row.why = shortWhyOf(po, { headerOf, bomRowsOf });
     if (row.why) {
@@ -190,15 +201,98 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
 
 /**
  * เรียงแถว: ใบใหม่สุดขึ้นก่อน (เจ้าของสั่ง 14 พ.ย. 2026)
- *   WK มากไปน้อย → วันที่ PO ใหม่ไปเก่า → เลข PO น้อยไปมาก → P/N · ค่าว่างไปท้าย · WK เทียบแบบตัวเลข (WK10 ก่อน WK9)
- * ⚠️ WK เทียบแค่เลขสัปดาห์ — ช่วงข้ามปี WK1 ของปีใหม่จะไปอยู่ล่าง WK52 ของปีก่อน
+ *   WK ใหม่ไปเก่า (weekKey — รู้ปี · เจ้าของสั่ง 15 พ.ย. 2026) → วันที่ PO ใหม่ไปเก่า → เลข PO น้อยไปมาก → P/N · ค่าว่างไปท้าย
+ *   แถวที่ไม่มี weekKey (เรียกตรง ๆ ด้วยอ็อบเจกต์ธรรมดา) คิดจาก week + date ของแถวเอง
  */
 export function mrpOrder(a, b) {
   const blankLast = (x, y, cmp) => (!x && !y ? 0 : !x ? 1 : !y ? -1 : cmp(x, y));
   const num = (x, y) => x.localeCompare(y, 'en', { numeric: true, sensitivity: 'base' });
   const desc = (x, y) => num(y, x);
-  return blankLast(txt(a.week), txt(b.week), desc) || blankLast(txt(a.date), txt(b.date), desc)
+  const key = r => (r.weekKey !== undefined ? txt(r.weekKey) : weekKeyOf(weekNumOf(r.week), txt(r.date)));
+  return blankLast(key(a), key(b), desc) || blankLast(txt(a.date), txt(b.date), desc)
     || num(txt(a.po), txt(b.po)) || num(txt(a.pn), txt(b.pn));
+}
+
+/** เลขสัปดาห์จากข้อความ "WK45" · "45" → 45 · ไม่มี = 0 */
+export function weekNumOf(w) {
+  const m = /(\d{1,2})\s*$/.exec(txt(w).replace(/^WK?\s*/i, ''));
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= 53 ? n : 0;
+}
+
+/**
+ * WK จากล็อตมาหลังวันรับเข้าครั้งแรกได้ไม่เกินกี่สัปดาห์ — ข้อมูลจริง 14 พ.ย. 2026: ส่วนใหญ่ก่อนวันรับ 0–1 สัปดาห์ · มากสุดหลังวันรับ 8 สัปดาห์
+ * เกินนี้ถือว่าเป็นล็อตของปีก่อน (ล็อต W10 รับเข้า พ.ย. = WK10 ปีนี้ ไม่ใช่ปีหน้า)
+ */
+export const LOT_WK_AHEAD = 12;
+
+/**
+ * วันจันทร์ของสัปดาห์ที่ n (นับแบบ ISO) ในปีที่ใกล้วันอ้างอิงที่สุด — คืน 'YYYY-MM-DD' ไว้เรียง · ไม่มี WK / ไม่มีวันอ้างอิง = ''
+ * WK ไม่บอกปี จึงเดาจากวันที่ PO: ใบลงวันที่ 30 ธ.ค. + WK1 = WK1 ของปีถัดไป (เจ้าของสั่ง 15 พ.ย. 2026 — ข้ามปีเรียงผิด)
+ * ahead (สัปดาห์) = ไม่เอาปีที่ใกล้สุด แต่เอาวันจันทร์ล่าสุดที่ไม่เกินวันอ้างอิง + ahead สัปดาห์ (ใช้กับ WK จากล็อต)
+ * ⚠️ ใช้เรียงเท่านั้น ไม่ได้บอกว่าสัปดาห์ของลูกค้าเริ่มวันไหนจริง
+ */
+export function weekKeyOf(n, ref, { ahead = null } = {}) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(txt(ref));
+  if (!n || !m) return '';
+  const at = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  const monday = y => {
+    const jan4 = new Date(Date.UTC(y, 0, 4)), dow = (jan4.getUTCDay() + 6) % 7;
+    return jan4.getTime() - dow * 864e5 + (n - 1) * 7 * 864e5;
+  };
+  let best = null;
+  for (const y of [+m[1] - 1, +m[1], +m[1] + 1]) {
+    const t = monday(y);
+    if (ahead !== null) { if (t <= at + ahead * 7 * 864e5 && (best === null || t > best)) best = t; }
+    else if (best === null || Math.abs(t - at) < Math.abs(best - at)) best = t;
+  }
+  return new Date(best).toISOString().slice(0, 10);
+}
+
+/**
+ * WK ที่พิมพ์เอง — ช่องพิมพ์ในแท็บ MRP ของใบที่ plan กับล็อตไม่มี WK (เจ้าของสั่ง 15 พ.ย. 2026)
+ * เก็บในตาราง weeks (ซิงค์ทุกเครื่อง · ชีต PoWeeks) แยกจากไฟล์ PO — นำเข้าไฟล์ PO ใหม่แล้ว WK ไม่หาย
+ * แถว: { id: 'WK|' + PO ตัวพิมพ์ใหญ่, po, week: 1–53, by, deleted, created_at, updated_at }
+ *
+ * parseWeekInput: "45" · "WK45" · "wk 45" · "W-45" → 45 · ว่าง → '' (ลบ) · อย่างอื่น → null (ไม่ถูกต้อง)
+ */
+export function parseWeekInput(v) {
+  const s = txt(v);
+  if (!s) return '';
+  const m = /^(?:WK?[\s-]*)?0*(\d{1,2})$/i.exec(s);
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= 53 ? n : null;
+}
+
+/** ตั้ง / ลบ WK ที่พิมพ์เองของ PO หนึ่ง — แก้ในที่ คืนแถวที่เปลี่ยน (null = ไม่มีอะไรเปลี่ยน) · ติด dirty ให้ซิงค์ */
+export function setPoWeek(rows, po, input, { by = '', now = '' } = {}) {
+  const key = txt(po).toUpperCase();
+  if (!key) throw new Error('ไม่มีเลข PO');
+  const n = parseWeekInput(input);
+  if (n === null) throw new Error('WK ต้องเป็นเลข 1–53 เช่น 45 หรือ WK45 — เว้นว่างเพื่อลบ');
+  const id = 'WK|' + key;
+  const cur = (rows || []).find(r => r && r.id === id);
+  if (n === '') {
+    if (!cur || cur.deleted) return null;
+    cur.deleted = true; cur.dirty = true;
+    return cur;
+  }
+  if (cur && !cur.deleted && Number(cur.week) === n) return null;
+  if (cur) { cur.week = n; cur.deleted = false; cur.by = txt(by) || cur.by || ''; cur.dirty = true; return cur; }
+  const row = { id, po: txt(po), week: n, by: txt(by), deleted: false, created_at: now || new Date().toISOString(), dirty: true };
+  rows.push(row);
+  return row;
+}
+
+/** แถวตาราง weeks → Map(PO ตัวพิมพ์ใหญ่ → เลขสัปดาห์) · ข้ามแถวที่ลบ / เลขไม่ถูกต้อง */
+export function poWeekMap(rows) {
+  const m = new Map();
+  for (const r of rows || []) {
+    if (!r || r.deleted === true || String(r.deleted).toUpperCase() === 'TRUE') continue;
+    const n = parseWeekInput(r.week);
+    if (typeof n === 'number' && txt(r.po)) m.set(txt(r.po).toUpperCase(), n);
+  }
+  return m;
 }
 
 /**

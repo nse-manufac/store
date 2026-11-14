@@ -449,6 +449,22 @@ console.log('\n=== I. ตารางไม่ได้เปลี่ยน = �
   ok('onEdit ไม่โยน error แม้ event แปลก', (() => { try { s.onEdit(undefined); s.onEdit({}); return true; } catch (e) { return false; } })());
 }
 
+console.log('=== W. WK ที่พิมพ์เองในแท็บ MRP (ชีต PoWeeks · 15 พ.ย. 2026) ===');
+{
+  const { TABLES: CLIENT } = await import('../v2/core/sync.js');
+  const srvTables = new Function(REAL_SRC.replace("var TOKEN = 'CHANGE-ME-1234';", "var TOKEN='x';") + '\n;return TABLES;')();
+  ok('ทุกชีตที่แอปซิงค์ มีในสคริปต์ฝั่งเซิร์ฟเวอร์ (กุญแจตรงกัน)', Object.values(CLIENT).every(t => srvTables[t.sheet] && srvTables[t.sheet].key === t.key),
+     Object.values(CLIENT).filter(t => !srvTables[t.sheet]).map(t => t.sheet).join(','));
+  const sw = loadScript();
+  const w = { id: 'WK|TM0001H963', po: 'TM0001H963', week: 44, by: 'PC-1', deleted: false, created_at: '2026-11-15T01:00:00.000Z' };
+  ok('ส่ง WK ขึ้นได้ · สร้างชีต PoWeeks ให้เอง', sw.call('pushTable', { table: 'PoWeeks', rows: [w] }).ok === true && !!sw.book.getSheetByName('PoWeeks'));
+  const back = sw.call('pullTable', { table: 'PoWeeks', since: '' }).rows[0];
+  ok('ดึงกลับมาได้ · deleted เป็น boolean · มี updated_at', back && back.id === w.id && Number(back.week) === 44 && back.deleted === false && !!back.updated_at, JSON.stringify(back));
+  sw.call('pushTable', { table: 'PoWeeks', rows: [{ ...w, deleted: true }] });
+  const del = sw.call('pullTable', { table: 'PoWeeks', since: '' }).rows;
+  ok('ลบ = ติด deleted ไม่ลบแถว · กุญแจเดิมไม่เพิ่มแถวซ้ำ', del.length === 1 && del[0].deleted === true);
+}
+
 console.log('=== P. สถานะส่งของจาก plan (planShip · เจ้าของสั่ง 13 พ.ย. 2026) ===');
 {
   ok('ไฟล์บน GitHub ไม่มีรหัสชีตของ plan (ใส่ตอนดีพลอยเท่านั้น)', REAL_SRC.includes("var PLAN_SHEET_ID = '';"));

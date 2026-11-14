@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-14.2">
+<meta name="app-version" content="2026-11-14.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -123,6 +123,7 @@ tr.mrp-det > td{box-shadow:inset 4px 0 0 var(--brand),inset -2px 0 0 var(--brand
 tr.mrp-po.open .mrp-pono{font-weight:700;color:var(--brand)}
 /* WK ที่เดาจากล็อตรับเข้า (plan ไม่มี) — สีจาง ให้รู้ว่าไม่ใช่ของ plan · ชี้เมาส์บอกที่มา */
 .mrp td.mrp-wklot{color:var(--muted)}
+.mrp .mrp-wkin{width:66px;padding:2px 6px;font:inherit}
 /* ใบที่กาง: WK · วันที่ · PO · P/N · PO Qty. ตัวใหญ่ตัวหนา ให้ผู้สูงอายุอ่านง่าย (เจ้าของขอ 13 พ.ย. 2026) */
 tr.mrp-po.open > td.mono{font-size:19px;font-weight:700;padding-top:10px;padding-bottom:10px}
 /* จอคอม: หัวใบที่กาง 22px — ⚠️ ต้องอยู่หลังกฎ 19px ข้างบน: selector เดียวกัน @media ไม่เพิ่ม specificity
@@ -1730,7 +1731,12 @@ textarea{font:inherit}
                 <tr v-if="mrpOpen[r.po]" class="mrp-space" aria-hidden="true"><td colspan="7"></td></tr>
                 <tr class="mrp-po" :class="{ open: mrpOpen[r.po] }" @click="mrpToggle(r.po)" :aria-expanded="!!mrpOpen[r.po]">
                   <td><span class="fold-i">{{ mrpOpen[r.po] ? '▾' : '▸' }}</span></td>
-                  <td class="mono" :class="{ 'mrp-wklot': r.weekFrom === 'lot' }" :title="r.weekRaw">{{ r.week || '—' }}</td>
+                  <td class="mono" :class="{ 'mrp-wklot': r.weekFrom === 'lot' }" :title="r.weekRaw">
+                    <!-- plan / ล็อตไม่มี WK = พิมพ์เอง (ซิงค์ทุกเครื่อง · เจ้าของสั่ง 15 พ.ย. 2026) · เว้นว่าง = ลบ -->
+                    <input v-if="r.weekFrom === '' || r.weekFrom === 'manual'" class="mrp-wkin" :value="r.weekFrom === 'manual' ? r.week : ''"
+                           placeholder="WK" title="พิมพ์ WK เอง เช่น 45 — plan กับล็อตไม่มี WK ของใบนี้ · เว้นว่างเพื่อลบ"
+                           @click.stop @keydown.enter="$event.target.blur()" @change="mrpSetWeek(r.po, $event.target.value)">
+                    <template v-else>{{ r.week || '—' }}</template></td>
                   <td class="mono">
                     <template v-if="!r.noDate">{{ r.date || '—' }}</template>
                     <span v-else class="row" style="gap:6px;flex-wrap:nowrap">
