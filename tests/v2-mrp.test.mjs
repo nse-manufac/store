@@ -263,6 +263,19 @@ const yearPos = poList.map(p => p.po === 'TM0001H961' ? { ...p, date: '2026-12-2
 const yr = mrpRows(ents, EN, { poList: yearPos, bomRowsOf, plan: yearPlan, today: '2026-12-31' });
 ok('mrpRows: weekKey ติดปีให้ · WK1 (PO 30 ธ.ค.) อยู่เหนือ WK52 (PO 21 ธ.ค.)', yr[0].po === 'TM0001H962' && yr[0].weekKey === '2027-01-04'
    && yr.find(r => r.po === 'TM0001H961').weekKey === '2026-12-21', yr.map(r => r.po + ':' + r.weekKey).join());
+ok('weekKeyOf ahead (WK จากล็อต): วันจันทร์ล่าสุดที่ไม่เกินวันอ้างอิง + ahead · ล็อต W10 รับ พ.ย. = ปีนี้ ไม่ใช่ปีหน้า (รีวิว #160)',
+   weekKeyOf(10, '2026-11-10', { ahead: 12 }) === '2026-03-02' && weekKeyOf(52, '2027-01-05', { ahead: 12 }) === '2026-12-21'
+   && weekKeyOf(1, '2027-01-05', { ahead: 12 }) === '2027-01-04' && weekKeyOf(53, '2026-11-10', { ahead: 12 }) === '2026-12-28'
+   && weekKeyOf(52, '2026-11-10', { ahead: 12 }) === '2026-12-21');
+const lotY = (po, lot, at) => ({ ...mk('receive', po, A, 1, { lot }), at });
+const ly = mrpRows([lotY('TM0001H963', 'W45', '2026-11-10T09:00:00'), lotY('TM0001H966', 'W10', '2026-11-10T09:00:00')], EN,
+                   { poList: poList.map(p => ({ ...p, date: '2026-11-10' })), bomRowsOf, plan: null, today: '2026-11-14' });
+const lyo = ly.filter(r => r.weekFrom === 'lot').map(r => r.week + ':' + r.weekKey).join();
+ok('mrpRows: ล็อต W10 รับเข้า พ.ย. อยู่ใต้ล็อต W45 (ของเก่าไม่เด้งขึ้นหัวตาราง · รีวิว #160)', lyo === 'WK45:2026-11-02,WK10:2026-03-02', lyo);
+const ly2 = mrpRows([lotY('TM0001H963', 'W52', '2027-01-05T09:00:00'), lotY('TM0001H966', 'W01', '2027-01-05T09:00:00')], EN,
+                    { poList: poList.map(p => ({ ...p, date: '' })), bomRowsOf, plan: null, today: '2027-01-06' });
+const ly2o = ly2.filter(r => r.weekFrom === 'lot').map(r => r.week + ':' + r.weekKey).join();
+ok('mrpRows: ข้ามปีจากล็อต — W01 รับ 5 ม.ค. อยู่เหนือ W52 ของปีก่อน (อิงวันรับเข้าครั้งแรก)', ly2o === 'WK1:2027-01-04,WK52:2026-12-21', ly2o);
 ok('weekNumOf: WK45 · 45 → 45 · ว่าง / เกิน 53 → 0', weekNumOf('WK45') === 45 && weekNumOf('45') === 45 && weekNumOf('') === 0 && weekNumOf('WK60') === 0);
 
 ok('parseWeekInput: 45 · WK45 · wk 45 · W-07 → เลข · ว่าง → ลบ · 0 / 54 / ตัวอักษร → ไม่ถูกต้อง',

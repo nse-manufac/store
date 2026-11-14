@@ -150,7 +150,10 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
                   why: '', none: !started.has(po), lines: [], nShort: 0, nOver: 0, nSkip: 0, state: 'ok',
                   done: p ? !(p.left > 0)     // จบ = plan บอกว่าส่งครบ
                           : oldPo(head) };    // plan บอกไม่ได้ (ไม่มี plan / ไม่มีใน plan) = เก่ากว่า freshDays วัน
-    row.weekKey = weekKeyOf(weekNumOf(row.week), txt(row.date) || firstAt.get(po) || txt(today));
+    // WK จากล็อต: อิงวันรับเข้าครั้งแรก + มองไปข้างหน้าไม่เกิน LOT_WK_AHEAD สัปดาห์ (ล็อตเก่าห้ามกลายเป็นปีหน้า · รีวิว #160)
+    row.weekKey = row.weekFrom === 'lot'
+      ? weekKeyOf(weekNumOf(row.week), firstAt.get(po) || txt(row.date) || txt(today), { ahead: LOT_WK_AHEAD })
+      : weekKeyOf(weekNumOf(row.week), txt(row.date) || firstAt.get(po) || txt(today));
     row.noDate = !!head && !txt(row.date);   // ใบที่ไม่อยู่ในไฟล์ PO เติมวันที่ไม่ได้ — ต้องนำเข้าไฟล์ก่อน
     row.why = shortWhyOf(po, { headerOf, bomRowsOf });
     if (row.why) {
@@ -218,11 +221,18 @@ export function weekNumOf(w) {
 }
 
 /**
+ * WK จากล็อตมาหลังวันรับเข้าครั้งแรกได้ไม่เกินกี่สัปดาห์ — ข้อมูลจริง 14 พ.ย. 2026: ส่วนใหญ่ก่อนวันรับ 0–1 สัปดาห์ · มากสุดหลังวันรับ 8 สัปดาห์
+ * เกินนี้ถือว่าเป็นล็อตของปีก่อน (ล็อต W10 รับเข้า พ.ย. = WK10 ปีนี้ ไม่ใช่ปีหน้า)
+ */
+export const LOT_WK_AHEAD = 12;
+
+/**
  * วันจันทร์ของสัปดาห์ที่ n (นับแบบ ISO) ในปีที่ใกล้วันอ้างอิงที่สุด — คืน 'YYYY-MM-DD' ไว้เรียง · ไม่มี WK / ไม่มีวันอ้างอิง = ''
  * WK ไม่บอกปี จึงเดาจากวันที่ PO: ใบลงวันที่ 30 ธ.ค. + WK1 = WK1 ของปีถัดไป (เจ้าของสั่ง 15 พ.ย. 2026 — ข้ามปีเรียงผิด)
+ * ahead (สัปดาห์) = ไม่เอาปีที่ใกล้สุด แต่เอาวันจันทร์ล่าสุดที่ไม่เกินวันอ้างอิง + ahead สัปดาห์ (ใช้กับ WK จากล็อต)
  * ⚠️ ใช้เรียงเท่านั้น ไม่ได้บอกว่าสัปดาห์ของลูกค้าเริ่มวันไหนจริง
  */
-export function weekKeyOf(n, ref) {
+export function weekKeyOf(n, ref, { ahead = null } = {}) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(txt(ref));
   if (!n || !m) return '';
   const at = Date.UTC(+m[1], +m[2] - 1, +m[3]);
@@ -233,7 +243,8 @@ export function weekKeyOf(n, ref) {
   let best = null;
   for (const y of [+m[1] - 1, +m[1], +m[1] + 1]) {
     const t = monday(y);
-    if (best === null || Math.abs(t - at) < Math.abs(best - at)) best = t;
+    if (ahead !== null) { if (t <= at + ahead * 7 * 864e5 && (best === null || t > best)) best = t; }
+    else if (best === null || Math.abs(t - at) < Math.abs(best - at)) best = t;
   }
   return new Date(best).toISOString().slice(0, 10);
 }
