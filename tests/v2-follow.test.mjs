@@ -2184,10 +2184,17 @@ console.log('=== วันที่ PO ในหน้า short / over (เจ�
   const block = k => { const a = htmlSrc.indexOf(`<template v-else-if="tab==='${k}'">`); return htmlSrc.slice(a, htmlSrc.indexOf('\n      <template v-else', a + 1)); };
   const sh = block('fshort'), ov = block('fover');
   const cnt = (src, re) => (src.match(re) || []).length;
-  ok('short: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g) === 2
+  ok('short: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g) >= 2
      && sh.includes("poDateOf(r.po) || '—'") && sh.includes("poDateOf(r.s.po) || '—'"));
-  ok('over: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g) === 2
+  ok('over: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g) >= 2
      && ov.includes("poDateOf(r.po) || '—'") && ov.includes("poDateOf(r.s.po) || '—'"));
+  // เจ้าของขอเพิ่ม 14 พ.ย. 2026 — ทุกตารางในสองหน้านี้ที่มีคอลัมน์ PO ต้องมีวันที่ PO ด้วย (เรื่องซ้ำ · ยังไม่รู้นิติบุคคล · คืนซ้ำ · ติดอยู่ · ยกเลิก / ไม่ติดตาม)
+  ok('short: ทุกตารางที่มีคอลัมน์ PO มีวันที่ PO (5 ตาราง)', cnt(sh, /<th[^>]*>PO<\/th>/g) === 5 && cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g) === 5,
+     cnt(sh, /<th[^>]*>PO<\/th>/g) + ' / ' + cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g));
+  ok('over: ทุกตารางที่มีคอลัมน์ PO มีวันที่ PO (6 ตาราง)', cnt(ov, /<th[^>]*>PO<\/th>/g) === 6 && cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g) === 6,
+     cnt(ov, /<th[^>]*>PO<\/th>/g) + ' / ' + cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g));
+  ok('ช่องวันที่ PO ของตารางที่เพิ่มต่อสายถูกตัว', ["poDateOf(d.row.po) || '—'", "poDateOf(s.po) || '—'", "poDateOf(x.s.po) || '—'"].every(t => sh.includes(t))
+     && ["poDateOf(d.row.po) || '—'", "poDateOf(g.po) || '—'", "poDateOf(r.po) || '—'", "poDateOf(x.s.po) || '—'"].every(t => ov.includes(t)));
   ok('วันที่ PO มาจากไฟล์ PO (poHeaderIndex) และต่อสายออกจาก setup', /const poDateOf = po => \(poIdx\.value\(po\) \|\| \{\}\)\.date \|\| ''/.test(appSrc)
      && /planAtText, poDateOf,/.test(appSrc));
 }
