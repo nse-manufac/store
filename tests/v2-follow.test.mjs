@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
+import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -1287,7 +1288,8 @@ console.log('\n=== T. กันกดตั้งเรื่องซ้ำ (�
 
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('ปุ่มตั้งเรื่องทั้งสามแบบ กดไม่ได้ระหว่างบันทึก',
-     ["isStarting('short', r)", "isStarting('over', r)", "isStarting('buy', r)"].every(x => html.includes(x)));
+     // ซื้อ: ปุ่มทีละแถวเปลี่ยนเป็นปุ่มส่งใบขอสั่งซื้อ (16 พ.ย. 2026) — จางระหว่างส่งด้วย fbReqBusy
+     ["isStarting('short', r)", "isStarting('over', r)", ':disabled="!entity || fbReqBusy'].every(x => html.includes(x)));
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('ทั้งสามทางเดินผ่าน startOnce และส่ง follows ให้ด่านที่สอง',
      // 5 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" short / over · ปุ่ม "คืนแล้ว" ของการ์ดของเกินเอาออกแล้ว (15 พ.ย. 2026)
@@ -2182,8 +2184,9 @@ console.log('\n=== BP. จำนวนเงินของซื้อทดแ
   const syncB = fs.readFileSync(new URL('../v2/core/sync.js', import.meta.url), 'utf8');
   ok('ราคาเก็บในเครื่อง (meta prices) ไม่ซิงค์ — เจ้าของเลือก 1ก',
      appB.includes("db.getMeta('prices', null)") && appB.includes("db.setMeta('prices', rec)") && !/prices/.test(syncB));
-  ok('จอ: ตารางซื้อมี ราคา/หน่วย · จำนวนเงิน · แถวว่าง colspan 12 · ยอดรวม + ปุ่มนำเข้าไฟล์ราคา',
-     htmlB.includes('>ราคา/หน่วย</th>') && htmlB.includes('>จำนวนเงิน</th>') && htmlB.includes('<tr v-if="!fbRows.length"><td colspan="12"')
+  // colspan 13 — เพิ่มคอลัมน์ "ผู้ขอ · อนุมัติ" (ใบขอสั่งซื้อ 16 พ.ย. 2026)
+  ok('จอ: ตารางซื้อมี ราคา/หน่วย · จำนวนเงิน · แถวว่าง colspan 13 · ยอดรวม + ปุ่มนำเข้าไฟล์ราคา',
+     htmlB.includes('>ราคา/หน่วย</th>') && htmlB.includes('>จำนวนเงิน</th>') && htmlB.includes('<tr v-if="!fbRows.length"><td colspan="13"')
      && htmlB.includes('รวม {{ bahtTxt(fbSum.total) }} บาท') && htmlB.includes('@change="onPriceFile"'));
   ok('ยอดรวมนับทุกเรื่องที่กรองอยู่ (fbAll) ไม่ใช่แค่ที่แสดง (fbRows)', /fbSum = computed\(\(\) => buySum\(fbAll\.value/.test(appB));
   ok('หาหน่วยด้วยดัชนี matIndex ไม่ไล่ทั้งทะเบียน (ผู้ตรวจ #154 ข้อ 2) · ไฟล์หัวครบแต่ราคาใช้ไม่ได้ บอกเหตุตรง (ข้อ 7)',
@@ -2209,6 +2212,41 @@ console.log('=== วันที่ PO ในหน้า short / over (เจ�
      && ["poDateOf(d.row.po) || '—'", "poDateOf(g.po) || '—'", "poDateOf(r.po) || '—'", "poDateOf(x.s.po) || '—'"].every(t => ov.includes(t)));
   ok('วันที่ PO มาจากไฟล์ PO (poHeaderIndex) และต่อสายออกจาก setup', /const poDateOf = po => \(poIdx\.value\(po\) \|\| \{\}\)\.date \|\| ''/.test(appSrc)
      && /planAtText, poDateOf,/.test(appSrc));
+}
+
+console.log('\n=== ใบขอสั่งซื้อ — ผู้ขอ · แผนก · ผู้อนุมัติ · วันที่ขอ (เจ้าของสั่ง 16 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H';
+  const sc = (id, code, qty) => ({ id, entity: E, kind: 'scrap', material_code: code, qty, at: '2026-11-14T03:00:00.000Z',
+                                   reason_code: 'damage', doc_ref: 'PO1', part_no: 'PN1' });
+  const scraps = [sc('S1', 'C1', 2), sc('S2', 'C2', 5)];
+  const rows = pendingScraps(scraps, E, []);
+  const head = { by: 'สมชาย', dept: 'ผลิต', approver: 'สมศักดิ์', date: '2026-11-16' };
+  const p = buyRequest(rows, head, { entity: E, unitOf: c => c === 'C1' ? 'MTR' : 'PCE', follows: [], at: '2026-11-16T03:00:00.000Z' });
+  ok('ติ๊ก 2 ใบ = ตั้งเรื่องซื้อ 2 เรื่อง', p.ok && p.recs.length === 2 && p.recs.every(r => r.kind === 'buy' && r.source === 'auto'));
+  ok('หัวใบเก็บที่ทุกเรื่อง · ผู้ขอเป็นผู้ตั้งเรื่อง · วันที่ขอเป็นตั้งวันที่',
+     p.recs.every(r => r.req_by === 'สมชาย' && r.req_dept === 'ผลิต' && r.req_approver === 'สมศักดิ์'
+                       && r.created_by === 'สมชาย' && r.date === '2026-11-16'));
+  ok('ผูกของเสียใบนั้น + หน่วยจากทะเบียน', p.recs[0].scrap_entry_id === 'S1' && p.recs[0].unit === 'MTR' && p.recs[1].unit === 'PCE');
+  ok('ส่งแล้วของเสียหายจากรายการรอ', pendingScraps(scraps, E, p.recs).length === 0);
+  for (const [k, label] of REQ_FIELDS) {
+    const r = buyRequest(rows, { ...head, [k]: '  ' }, { entity: E });
+    ok(`ไม่กรอก ${label} = ไม่ตั้งเรื่องเลย`, !r.ok && !r.recs.length && r.missing.includes(label));
+  }
+  ok('ไม่ติ๊กอะไร = ไม่ผ่าน', !buyRequest([], head, { entity: E }).ok);
+  throws('ใบไหนตั้งเรื่องไว้แล้ว ทั้งชุดไม่ผ่าน (ไม่ตั้งไปครึ่งใบ)',
+         () => buyRequest(rows, head, { entity: E, follows: [p.recs[1]] }), 'ตั้งเรื่อง');
+  throws('ไม่บอกนิติบุคคลไม่ได้ (A3)', () => buyRequest(rows, head, {}), 'A3');
+  const old = makeFollow({ kind: 'buy', entity: E, code: 'C1', qty: 1, source: 'manual' });
+  ok('เรื่องที่ไม่ได้มาจากใบขอ — สามช่องว่าง', old.req_by === '' && old.req_dept === '' && old.req_approver === '');
+  // สามช่องต้องอยู่ในชีต Shorts ไม่งั้นเครื่องอื่นไม่เห็น (ต้อง deploy Apps Script ใหม่)
+  const gs = fs.readFileSync(new URL('../v2/sync/apps-script.gs', import.meta.url), 'utf8');
+  const at0 = gs.indexOf('Shorts: {');
+  const shortsCols = gs.slice(at0, gs.indexOf('bools:', at0));
+  ok('ชีต Shorts มีคอลัมน์ req_by · req_dept · req_approver',
+     ['req_by', 'req_dept', 'req_approver'].every(c => shortsCols.includes(`'${c}'`)));
+  const appJs = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('หน้าจอส่งใบผ่าน buyRequest ไม่ตั้งเรื่องเอง', /buyRequest\(fbReqPicked\.value, fbReq,/.test(appJs));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

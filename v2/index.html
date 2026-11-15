@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-15.5">
+<meta name="app-version" content="2026-11-16.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2503,40 +2503,62 @@ textarea{font:inherit}
       <!-- ════════ ซื้อแมททดแทน (Mat Follow up 7/8) ════════ -->
       <template v-else-if="tab==='fbuy'">
 
+        <!-- ใบขอสั่งซื้อ — ติ๊กของเสียที่จะขอซื้อ + ผู้ขอ · แผนก · ผู้อนุมัติ · วันที่ขอ (เจ้าของสั่ง 16 พ.ย. 2026) -->
         <div class="card">
           <div class="row">
-            <h2 style="margin:0">ของเสียที่ยังไม่ได้ตั้งเรื่องซื้อทดแทน</h2>
-            <span class="hint">ของที่ตัดออกจากคลังไปแล้ว ต้องสั่งทดแทนผ่าน Delta</span>
+            <h2 style="margin:0">ใบขอสั่งซื้อ</h2>
+            <span class="hint">ติ๊กของเสียที่จะขอซื้อทดแทน แล้วกรอกหัวใบ · ส่งแล้วแต่ละรายการกลายเป็นเรื่องในตารางข้างล่าง</span>
             <div class="grow"></div>
-            <div><div class="hint">รอตั้งเรื่อง</div>
+            <div><div class="hint">ของเสียรอขอซื้อ</div>
               <div class="big" :class="fbNew.length ? 'warn' : ''">{{ fbNew.length }}</div></div>
           </div>
           <p class="hint" style="margin:6px 0 0" v-if="!entity">
             ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — ดูรายการของเสียไม่ได้</p>
 
-          <div class="scroll" style="max-height:34vh;margin-top:10px" v-if="fbNew.length">
-            <table>
-              <thead><tr>
-                <th style="width:105px">วันที่เสีย</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
-                <th style="width:95px">จำนวน</th><th style="width:140px">ล็อต</th>
-                <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th>
-                <th style="width:150px">เพราะอะไร</th><th>หมายเหตุ</th>
-                <th style="width:140px"></th></tr></thead>
-              <tbody><tr v-for="r in fbNew" :key="r.id">
-                <td class="mono hint">{{ localDate(r.at) }}</td>
-                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
-                <td class="mono"><b>{{ r.qty }}</b></td>
-                <td class="mono hint">{{ r.lot || '—' }}</td>
-                <td class="mono">{{ r.po || '—' }}</td><td class="mono hint">{{ r.part_no || '—' }}</td>
-                <td>{{ reasonLabel({ kind: 'scrap', reason_code: r.reason_code }) }}</td>
-                <td class="hint">{{ r.note || '—' }}</td>
-                <td><button class="btn" style="padding:2px 9px" :disabled="!entity || isStarting('buy', r)"
-                            @click="fbStart(r)">ตั้งเรื่องซื้อ</button></td>
-              </tr></tbody>
-            </table>
-          </div>
+          <template v-if="fbNew.length">
+            <div class="row" style="margin-top:10px">
+              <label class="f" style="width:190px">ผู้ขอสั่งซื้อ
+                <input v-model.trim="fbReq.by" placeholder="ชื่อคนขอ"></label>
+              <label class="f" style="width:170px">แผนก
+                <input v-model.trim="fbReq.dept" placeholder="เช่น ผลิต · คลัง" list="fbdeptlist"></label>
+              <label class="f" style="width:190px">ผู้อนุมัติ
+                <input v-model.trim="fbReq.approver" placeholder="ชื่อผู้อนุมัติ"></label>
+              <label class="f" style="width:155px">วันที่ขอสั่งซื้อ
+                <input v-model="fbReq.date" type="date"></label>
+              <datalist id="fbdeptlist"><option v-for="d in fbDeptList" :key="d" :value="d"></option></datalist>
+            </div>
+
+            <div class="scroll" style="max-height:34vh;margin-top:10px">
+              <table>
+                <thead><tr>
+                  <th style="width:34px"><input type="checkbox" v-model="fbReqAll" title="เลือกทั้งหมด"></th>
+                  <th style="width:105px">วันที่เสีย</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
+                  <th>ชื่อ</th><th style="width:95px">จำนวน</th><th style="width:140px">ล็อต</th>
+                  <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th>
+                  <th style="width:150px">เพราะอะไร</th><th>หมายเหตุ</th></tr></thead>
+                <tbody><tr v-for="r in fbNew" :key="r.id" :class="fbReq.pick[r.id] ? 'review' : ''">
+                  <td><input type="checkbox" v-model="fbReq.pick[r.id]"></td>
+                  <td class="mono hint">{{ localDate(r.at) }}</td>
+                  <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
+                  <td>{{ (matOf(r.code) || {}).description || '—' }}</td>
+                  <td class="mono"><b>{{ r.qty }}</b> {{ unitOf(r.code) }}</td>
+                  <td class="mono hint">{{ r.lot || '—' }}</td>
+                  <td class="mono">{{ r.po || '—' }}</td><td class="mono hint">{{ r.part_no || '—' }}</td>
+                  <td>{{ reasonLabel({ kind: 'scrap', reason_code: r.reason_code }) }}</td>
+                  <td class="hint">{{ r.note || '—' }}</td>
+                </tr></tbody>
+              </table>
+            </div>
+
+            <div class="row" style="margin-top:10px;align-items:center">
+              <button class="btn primary" :disabled="!entity || fbReqBusy || !fbReqPicked.length" @click="fbReqSubmit">
+                {{ fbReqBusy ? 'กำลังส่ง...' : `ส่งใบขอสั่งซื้อ (${fbReqPicked.length} รายการ)` }}</button>
+              <span class="hint" v-if="!fbReqPicked.length">ยังไม่ได้ติ๊กรายการ</span>
+              <span class="hint" v-else-if="fbReqMissing.length">ยังไม่ได้กรอก: {{ fbReqMissing.join(' · ') }}</span>
+            </div>
+          </template>
           <p v-else-if="entity" class="empty" style="margin-top:10px">
-            ของเสียทุกใบตั้งเรื่องซื้อทดแทนไว้แล้ว 🎉</p>
+            ของเสียทุกใบขอซื้อทดแทนไว้แล้ว 🎉</p>
         </div>
 
         <div class="card" v-if="fbOrphans.length">
@@ -2581,7 +2603,8 @@ textarea{font:inherit}
                 <th style="width:100px">ต้องซื้อ</th><th style="width:100px">ยังค้าง</th>
                 <th style="width:95px" title="ราคาต่อหน่วยจากไฟล์ราคาแมท">ราคา/หน่วย</th>
                 <th style="width:105px" title="ราคา/หน่วย × ต้องซื้อ">จำนวนเงิน</th>
-                <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th><th>หมายเหตุ</th>
+                <th style="width:125px">PO ที่เสีย</th><th style="width:110px">P/N</th>
+                <th style="width:150px" title="จากใบขอสั่งซื้อ">ผู้ขอ · อนุมัติ</th><th>หมายเหตุ</th>
                 <th style="width:250px"></th></tr></thead>
               <tbody>
                 <tr v-for="r in fbRows" :key="r.s.id">
@@ -2598,6 +2621,9 @@ textarea{font:inherit}
                     <span v-else-if="fbPrice(r.s).why" class="tag warn" :title="fbPrice(r.s).why">{{ fbPrice(r.s).why.split(' — ')[0] }}</span>
                     <template v-else>{{ bahtTxt(fbPrice(r.s).amount) }}</template></td>
                   <td class="mono">{{ r.s.po || '—' }}</td><td class="mono hint">{{ r.s.part_no || '—' }}</td>
+                  <td><template v-if="r.s.req_by">{{ r.s.req_by }}<span class="hint"> · {{ r.s.req_dept }}</span>
+                      <div class="hint">อนุมัติ {{ r.s.req_approver }}</div></template>
+                    <span v-else class="hint">—</span></td>
                   <td class="hint">{{ r.s.note || '—' }}
                     <span v-if="r.s.source==='manual'" class="tag">คีย์เอง</span>
                     <a v-if="r.s.pr_no" href="#" class="tag ok" title="ออกไฟล์ใบนี้อีกครั้ง"
@@ -2618,7 +2644,7 @@ textarea{font:inherit}
                     </template>
                   </td>
                 </tr>
-                <tr v-if="!fbRows.length"><td colspan="12" class="empty">
+                <tr v-if="!fbRows.length"><td colspan="13" class="empty">
                   ยังไม่มีเรื่องที่ตั้งไว้
                   <span v-if="!fbShowDone" class="hint">· ที่มาครบแล้วดูได้จากช่องติ๊กด้านบน</span>
                 </td></tr>

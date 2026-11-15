@@ -96,7 +96,9 @@ var TABLES = {
            'return_entry_id','receive_entry_id','scrap_entry_id','next_po',
            'voided','void_reason','void_by','void_at',
            // ใบสั่งซื้อทดแทน FM-PU-02 (ต.ค. 2026) — ต่อท้ายเสมอ ชีตเดิมจะได้คอลัมน์เพิ่มเองตอนซิงค์
-           'pr_no','pr_date'],
+           'pr_no','pr_date',
+           // ใบขอสั่งซื้อ (16 พ.ย. 2026) — ผู้ขอ · แผนก · ผู้อนุมัติ · ต่อท้ายเสมอเหมือนกัน
+           'req_by','req_dept','req_approver'],
     bools: ['done','voided'],
     texts: ['id','date','po','code','eta','updated_at',
             'part_no','created_at','done_at','void_at','next_po',
