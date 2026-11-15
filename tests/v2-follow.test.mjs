@@ -2247,6 +2247,11 @@ console.log('\n=== ใบขอสั่งซื้อ — ผู้ขอ · �
      ['req_by', 'req_dept', 'req_approver'].every(c => shortsCols.includes(`'${c}'`)));
   const appJs = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('หน้าจอส่งใบผ่าน buyRequest ไม่ตั้งเรื่องเอง', /buyRequest\(fbReqPicked\.value, fbReq,/.test(appJs));
+  // ช่อง "วันที่ขอ" อยู่ถาวรบนจอ + หัวใบคงไว้หลังส่ง — จอค้างข้ามคืนแล้วใบถัดไปจะลงวันของเมื่อวาน (ผู้ตรวจ #168 ข้อ 1)
+  ok('ช่อง "วันที่ขอ" เลื่อนเป็นวันนี้เองเมื่อข้ามวัน — ทั้งตอนเข้าแท็บและตอนกดส่ง',
+     /fbReqDateOn !== t\) \{ fbReq\.date = rollDay\(/.test(appJs)
+     && /watch\(tab, k => \{ if \(k === 'fbuy'\) fbReqDayNow\(\); \}\)/.test(appJs)
+     && /async function fbReqSubmit\(\)[\s\S]{0,300}?fbReqDayNow\(\);[\s\S]{0,200}?buyRequest\(fbReqPicked/.test(appJs));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
