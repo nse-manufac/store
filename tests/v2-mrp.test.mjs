@@ -397,7 +397,7 @@ ok('จอ: ปุ่มกลับไป MRP ขึ้นเฉพาะตอ
 ok('จอ: กดไป / กลับ ตั้ง pin ให้แถวขึ้นเสมอ · ตาราง short ใช้ sliceKeep · ตาราง MRP ใช้ mrpKeep · เปลี่ยนตัวกรองแล้วล้าง pin',
    ((a) => a.includes('followPin.value = v.id;') && a.includes('if (b) mrpPin.value = b.po;')
      && a.includes('sliceKeep(fsAll.value, SHOW_MAX, r => r.s.id === followPin.value)')
-     && a.includes('mrpKeep(mrpAll.value,') && a.includes("watch([mrpQ, mrpFilter, mrpDone], () => { mrpPin.value = ''; });"))
+     && a.includes('mrpKeep(mrpAll.value,') && a.includes('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ') && a.includes("watch([mrpQ, mrpFilter, mrpDone], () => { mrpPin.value = ''; });"))
    (readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
