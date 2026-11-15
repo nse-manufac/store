@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-15.1">
+<meta name="app-version" content="2026-11-15.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -142,7 +142,7 @@ tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
    ⚠️ เลื่อนด้วย position:relative เท่านั้น — ไม่เปลี่ยนความกว้างคอลัมน์ คอลัมน์อื่นจึงอยู่ที่เดิม
       เพิ่ม padding / width ที่ช่องนี้แล้วตาราง (auto layout) แบ่งที่ใหม่ ทุกคอลัมน์เลื่อนตาม — เจ้าของทักแล้ว */
 .mrp-bom .mrp-gap{padding-left:32px}
-.mrp-bom .mrp-gap > span{position:relative;left:30%}
+.mrp-bom .mrp-gap > span,.mrp-bom .mrp-gap > button{position:relative;left:30%}
 .tag.mute{background:#eceff3;color:#5b6878}
 .msg{padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
 .msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
@@ -2035,7 +2035,7 @@ textarea{font:inherit}
           <p class="hint" style="margin:-4px 0 10px">
             เอกสารเขียน <span class="mono">Return</span> ไว้ที่คอลัมน์ Material Document No. —
             รอบนี้ Delta ไม่ได้ส่งของ แต่ตัดจากของเกินที่ค้างอยู่ที่เรา ของอยู่ในคลังแล้วตั้งแต่รอบก่อน
-            ถ้ารับเข้าอีกยอดจะซ้ำ · <b>ต้องไปเทียบกับยอด over ที่มีจริงในแท็บ over รอคืน</b>
+            ถ้ารับเข้าอีกยอดจะซ้ำ · แถวพวกนี้เก็บไว้ในเครื่องแล้ว (หน้าจอเทียบยอดปิดไว้ชั่วคราว)
           </p>
           <div class="scroll" style="max-height:32vh">
             <table>
@@ -2874,8 +2874,10 @@ textarea{font:inherit}
       <!-- ════════ over รอคืน (Mat Follow up 6/8) ════════ -->
       <template v-else-if="tab==='fover'">
 
-        <!-- ใบแจ้งตัดยอด over ของ Delta — โผล่เฉพาะเมื่อเคยนำเข้าไฟล์ไว้แล้ว -->
-        <div class="card" v-if="ocMatch.dates.length">
+        <!-- ใบแจ้งตัดยอด over ของ Delta — โผล่เฉพาะเมื่อเคยนำเข้าไฟล์ไว้แล้ว
+             ⚠️ ซ่อนไว้ชั่วคราว (เจ้าของสั่ง 15 พ.ย. 2026 · งานด่วน) — หนี้ที่ค้าง: ลบการ์ดนี้ทิ้งจริง
+             พร้อม ocDate/ocCuts/ocPending/ocMatch ใน app.js · บรรทัดในประกาศ 6 พ.ย. · เทสที่ยึดไว้ -->
+        <div class="card" v-if="false && ocMatch.dates.length">
           <div class="row">
             <h2 style="margin:0">Delta ตัดจากยอด over — เทียบกับของที่เรามี</h2>
             <div class="grow"></div>
