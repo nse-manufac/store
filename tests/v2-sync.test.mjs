@@ -245,5 +245,26 @@ console.log('\n=== ป้ายสถานะซิงค์บนหัวจ�
      ['badge', 'onBadge', 'localTime'].every(f => new RegExp('\\b' + f + '\\b').test(ret)));
 }
 
+console.log('\n=== ของที่นำเข้าต้องมีธงรอส่งตั้งแต่บนจอ (ตรวจทั้งโปรแกรม 14 พ.ย. 2026 ข้อ 2) ===');
+{
+  // db.put ติดธง dirty บนอ็อบเจกต์ที่ส่งเข้าไป ถ้าใส่สำเนา (x.map(plain) · plain(x)) แล้วเอาตัวเดิม x ขึ้นจอ
+  // ตัวบนจอไม่มีธง → ป้ายรอส่งขึ้น 0 และไม่ถูกส่งขึ้นจนกว่าจะรีเฟรช (เคยเป็นกับนำเข้า PO · Kit List · ทะเบียนจากใบเบิก)
+  const copyThenPushOriginal = src => {
+    const bad = [];
+    const re = /await db\.put\('(\w+)',\s*(?:plain\(([\w.]+)\)|([\w.]+)\.map\(plain\))\)/g;
+    for (let m; (m = re.exec(src));) {
+      const name = m[2] || m[3];
+      if (src.slice(m.index, m.index + 400).includes('.push(...' + name + ')')) bad.push(m[1] + ' ← ' + name);
+    }
+    return bad;
+  };
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const bad = copyThenPushOriginal(app);
+  ok('ไม่มีจุดไหนใส่สำเนาลงเครื่องแล้วเอาตัวเดิม (ไม่มีธง) ขึ้นจอ', bad.length === 0, bad.join(' · '));
+  ok('ด่านนี้จับแบบเดิมได้จริง', copyThenPushOriginal(
+    "await db.put('pos', p.plan.fresh.map(plain));\n pos.value.push(...p.plan.fresh);\n"
+    + "await db.put('materials', plain(recs));\n materials.value.push(...recs);").length === 2);
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

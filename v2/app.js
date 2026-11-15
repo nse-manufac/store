@@ -487,12 +487,14 @@ createApp({
       incBusy.value = true;
       try {
         // หน่วยที่แปลงไม่ได้ปล่อยว่างไว้ ไม่เดา — ธงรอตรวจจะพาคนมาเติมเอง
-        const recs = list.map(i => makeMaterial({
+        const recs = plain(list.map(i => makeMaterial({
           material_code: i.code, description: i.desc, unit: i.unit,
           active: true, needs_review: true, source: 'ใบเบิก',
           note: 'ตั้งจากชีต data ของใบเบิกวัตถุดิบ' + (i.note ? ' · ' + i.note : '')
-        }));
-        await db.put('materials', plain(recs));
+        })));
+        // ใส่ลงเครื่องกับขึ้นจอเป็นอ็อบเจกต์ตัวเดียวกัน — db.put ติดธง dirty บนตัวที่ส่งเข้าไป
+        // ถ้าใส่สำเนา ตัวบนจอไม่มีธง แล้วไม่ถูกส่งขึ้นจนกว่าจะรีเฟรช (ตรวจทั้งโปรแกรม 14 พ.ย. 2026 ข้อ 2)
+        await db.put('materials', recs);
         materials.value.push(...recs);
         db.announce('materials');
         flash(`เพิ่ม ${recs.length.toLocaleString()} รหัสเข้าทะเบียนแล้ว — ติดธงรอตรวจไว้ทุกตัว`);
@@ -2018,8 +2020,9 @@ createApp({
           // ถ้าปล่อยให้ตกไป catch ข้างนอก จะขึ้นว่า "อ่านไฟล์ไม่สำเร็จ" ทั้งที่อ่านได้ครบ
           // แล้วคนจะปิดจอทิ้งทั้งที่ของพร้อมบันทึก (ผู้ตรวจ #101)
           try {
-            await db.put('kits', freshOver.map(plain));
-            kits.value.push(...freshOver);
+            const rows = freshOver.map(plain);   // ตัวเดียวกันทั้งในเครื่องและบนจอ (ธง dirty · ข้อ 2)
+            await db.put('kits', rows);
+            kits.value.push(...rows);
             keptOver = freshOver.length;
           } catch (err) { overErr = err.message; }
         }
@@ -2226,13 +2229,16 @@ createApp({
       impBusy.value = true;
       try {
         if (p.kind === 'po') {
-          await db.put('pos', p.plan.fresh.map(plain));
-          pos.value.push(...p.plan.fresh);
+          // ตัวเดียวกันทั้งในเครื่องและบนจอ — db.put ติดธง dirty บนตัวที่ส่งเข้าไป (ตรวจทั้งโปรแกรม ข้อ 2)
+          const rows = p.plan.fresh.map(plain);
+          await db.put('pos', rows);
+          pos.value.push(...rows);
           // ไม่สร้างเรื่อง short จากไฟล์ PO แล้ว (เจ้าของสั่ง 7 พ.ย. 2026) — ดู parsePoFile
           flash(`นำเข้า PO ${p.plan.fresh.length} รายการ`);
         } else {
-          await db.put('kits', p.plan.fresh.map(plain));
-          kits.value.push(...p.plan.fresh);
+          const rows = p.plan.fresh.map(plain);
+          await db.put('kits', rows);
+          kits.value.push(...rows);
           flash(`นำเข้า ${KIND_LABEL[p.kind]} ${p.plan.fresh.length} รายการ · ${p.plan.pos.length} PO`);
         }
         imp.value = null;
