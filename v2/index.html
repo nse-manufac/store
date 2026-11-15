@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-14.4">
+<meta name="app-version" content="2026-11-15.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2865,8 +2865,10 @@ textarea{font:inherit}
       <!-- ════════ over รอคืน (Mat Follow up 6/8) ════════ -->
       <template v-else-if="tab==='fover'">
 
-        <!-- ใบแจ้งตัดยอด over ของ Delta — โผล่เฉพาะเมื่อเคยนำเข้าไฟล์ไว้แล้ว -->
-        <div class="card" v-if="ocMatch.dates.length">
+        <!-- ใบแจ้งตัดยอด over ของ Delta — โผล่เฉพาะเมื่อเคยนำเข้าไฟล์ไว้แล้ว
+             ⚠️ ซ่อนไว้ชั่วคราว (เจ้าของสั่ง 15 พ.ย. 2026 · งานด่วน) — หนี้ที่ค้าง: ลบการ์ดนี้ทิ้งจริง
+             พร้อม ocDate/ocCuts/ocPending/ocMatch ใน app.js · บรรทัดในประกาศ 6 พ.ย. · เทสที่ยึดไว้ -->
+        <div class="card" v-if="false && ocMatch.dates.length">
           <div class="row">
             <h2 style="margin:0">Delta ตัดจากยอด over — เทียบกับของที่เรามี</h2>
             <div class="grow"></div>
