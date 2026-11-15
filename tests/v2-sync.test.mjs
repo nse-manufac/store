@@ -6,7 +6,7 @@
  * ซึ่งเป็นความเสียหายที่ไม่มีใครเห็นจนกว่าจะมีคนทักว่ายอดไม่ตรง
  */
 import fs from 'node:fs';
-import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced,
+import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced, settlePushed,
          chunk, toWire, syncPlan, looksLikeOldScript, normKeys, normKeysAll,
          KEY_COLS, missingTables, normalizeScriptUrl, syncBadge } from '../v2/core/sync.js';
 
@@ -68,6 +68,36 @@ ok('เวลาถูกเขียนทับด้วยเวลาขอ�
    sent[0].updated_at === '2026-08-16T02:00:00.000Z');
 ok('ถ้าเซิร์ฟเวอร์ไม่ส่งเวลามา ก็คงของเดิมไว้ ไม่ล้างทิ้ง',
    markSynced([{ id: 'A', updated_at: 'x', dirty: true }], '')[0].updated_at === 'x');
+
+// ระหว่างรอเซิร์ฟเวอร์ตอบ พนักงานแก้แถวเดิมได้ — ห้ามปิดธงหรือเขียนสำเนาตอนส่งทับ (ตรวจทั้งโปรแกรม 14 พ.ย. 2026)
+{
+  const T = '2026-11-15T03:00:00.000Z';
+  const a = { id: 'A', qty: 1, updated_at: 't0', dirty: true };
+  const b = { id: 'B', qty: 2, voided: false, updated_at: 't0', dirty: true };
+  const c = { id: 'C', date: '', updated_at: 't0', dirty: true };
+  const list = [a, b, c], part = [a, b, c];
+  const sentJson = part.map(r => JSON.stringify(toWire(r)));
+  // ระหว่างรอ: B ถูกยกเลิก (แทนด้วยอ็อบเจกต์ใหม่แบบ doVoid) · C ถูกเติมวันที่ในตัว (แบบ fillPoDate)
+  const bVoid = { ...b, voided: true, void_reason: 'คีย์ผิด', updated_at: 't1', dirty: true };
+  list.splice(1, 1, bVoid);
+  c.date = '2026-11-01'; c.dirty = true;
+  const r = settlePushed(list, part, sentJson, T);
+  ok('แถวที่ไม่ถูกแตะระหว่างส่ง ปิดธงและได้เวลาเซิร์ฟเวอร์',
+     r.done.length === 1 && r.done[0] === a && a.dirty === false && a.updated_at === T, JSON.stringify(r.done));
+  ok('แถวที่ถูกยกเลิกระหว่างส่ง ไม่ถูกคืนให้เขียนทับ — การยกเลิกยังรอส่งอยู่',
+     !r.done.includes(b) && bVoid.dirty === true && bVoid.voided === true && list[1] === bVoid);
+  ok('แถวที่ถูกแก้ในตัวระหว่างส่ง คงธงไว้ รอบหน้าส่งของใหม่ขึ้นไป',
+     r.kept.includes(c) && c.dirty === true && c.updated_at === 't0');
+  ok('แถวที่หายไปจากรายการ (โหลดใหม่ระหว่างส่ง) ไม่ปิดธงแบบเดา',
+     settlePushed([], [{ id: 'Z', dirty: true }], ['{"id":"Z"}'], T).done.length === 0);
+  ok('ตารางที่ใช้กุญแจอื่น (ทะเบียน = material_code) ก็จับคู่ได้',
+     (() => { const m1 = { material_code: '9900000001', dirty: true };
+              return settlePushed([m1], [m1], [JSON.stringify(toWire(m1))], T, 'material_code').done.length === 1; })());
+  const appSrc = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('syncNow ใช้ settlePushed — ไม่ปิดธงทั้งก้อนแล้วเขียนสำเนาทับแบบเดิม',
+     appSrc.includes('settlePushed(list.value, part, sentJson, res.serverTime, key)')
+     && !appSrc.includes('markSynced(part'));
+}
 
 console.log('\n=== D. เตรียมส่ง ===');
 const store = {

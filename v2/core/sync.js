@@ -195,6 +195,30 @@ export const markSynced = (rows, serverTime) =>
   rows.map(r => ({ ...r, dirty: false, updated_at: serverTime || r.updated_at }));
 
 /**
+ * หลังส่งก้อนหนึ่งขึ้นสำเร็จ — ปิดธงเฉพาะแถวที่ยังเป็นของที่ส่งไปจริง
+ *
+ * ระหว่างรอเซิร์ฟเวอร์ตอบ (2–35 วินาที) พนักงานแก้แถวเดิมต่อได้ เช่น กดยกเลิกรายการ
+ * ของเดิมปิดธงทุกแถวในก้อนแล้วเขียนสำเนาตอนส่งทับลงเครื่อง → การยกเลิกหายจากในเครื่อง
+ * และไม่ถูกส่งขึ้นอีกเลย (D3 · D7 · ตรวจทั้งโปรแกรม 14 พ.ย. 2026)
+ *
+ * ปิดธงได้ก็ต่อเมื่อแถวในรายการตอนนี้ยังเป็นอ็อบเจกต์เดิม และเนื้อในยังตรงกับที่ส่ง
+ *   ถูกแทนด้วยอ็อบเจกต์ใหม่ (ยกเลิก · เติมวันหมดอายุ · เอาเรื่องกลับ) → คงธงไว้ ไม่เขียนทับ
+ *   ถูกแก้ในตัว (เติมวันที่ PO · ตั้ง WK) → คงธงไว้ รอบหน้าส่งของใหม่ขึ้นไป
+ * sentJson = JSON ของ toWire(แถว) ตอนส่ง เรียงตามลำดับเดียวกับ part
+ * แถวที่ปิดธงถูกแก้ในตัว (dirty · updated_at) แบบเดียวกับของเดิม คืนไว้ให้เขียนลงเครื่อง
+ */
+export function settlePushed(list, part, sentJson, serverTime, key = 'id') {
+  const byKey = new Map((list || []).map(r => [asText(r && r[key]), r]));
+  const done = [], kept = [];
+  part.forEach((r, i) => {
+    const same = byKey.get(asText(r[key])) === r && JSON.stringify(toWire(r)) === sentJson[i];
+    (same ? done : kept).push(r);
+  });
+  for (const r of done) { r.dirty = false; r.updated_at = serverTime || r.updated_at; }
+  return { done, kept };
+}
+
+/**
  * ตัดเป็นก้อนก่อนส่ง
  *
  * Apps Script มีเพดานเวลาทำงาน 6 นาทีต่อครั้ง และ setValues ทีละมาก ๆ ช้ากว่าที่คิด
