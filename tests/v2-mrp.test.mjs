@@ -5,11 +5,12 @@
  * เลข PO · รหัสวัตถุดิบ · จำนวน ในไฟล์นี้ **สมมติขึ้นทั้งหมด** (repo นี้เป็น public)
  */
 import { readFileSync } from 'node:fs';
-import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
+import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
          weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
-         skipOver, cancelOver, overAll, overPending, fromOverRow } from '../v2/master/follow.js';
+         skipOver, cancelOver, overAll, overPending, fromOverRow,
+         shortSettled, overSettled, stoppedShorts, sliceKeep } from '../v2/master/follow.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -147,6 +148,39 @@ ok('รหัสนอกสูตรที่หยุดตามแล้ว 
    JSON.stringify(r963([oSkipped, xFollow]).lines));
 ok('ทุกรหัสที่เกินจบเรื่องแล้ว = ใบนี้ครบ (ป้ายเขียว)', r963([oSkipped, xFollow]).nOver === 0 && r963([oSkipped, xFollow]).state === 'ok'
    && r963([oSkipped, xFollow]).nSkip === 2);
+
+console.log('=== M4c. ป้าย "จบเรื่องแล้ว" รู้ว่าจบเพราะเรื่องไหน — กดไปแถวนั้นในแท็บ short / over (เจ้าของสั่ง 15 พ.ย. 2026) ===');
+const via962 = fl => r962(fl).lines.find(l => l.code === B).via;
+ok('ไม่ติดตาม = via ชี้เรื่องที่หยุดไว้ (การ์ดยกเลิก)', JSON.stringify(via962([skipped])) === JSON.stringify({ how: 'stop', id: skipped.id }));
+ok('ยกเลิกเรื่อง = via ชี้เรื่องที่ยกเลิก', JSON.stringify(via962([cancelled])) === JSON.stringify({ how: 'stop', id: cancelled.id }));
+ok('ปิดเรื่องตรงยอด = via done ชี้เรื่องที่ปิด', JSON.stringify(via962([closedSame])) === JSON.stringify({ how: 'done', id: closedSame.id }));
+const sOld = { ...skipped, id: 'F-OLD', void_at: '2026-11-01T01:00:00.000Z' }, sNew = { ...skipped, id: 'F-NEW', void_at: '2026-11-10T01:00:00.000Z' };
+const closedEarly = { ...closedSame, created_at: '2026-11-05T01:00:00.000Z' };
+ok('ปิดตรงยอดไว้ก่อน แล้วมาหยุดทีหลัง = ชี้การ์ดยกเลิก', JSON.stringify(via962([closedEarly, sNew])) === JSON.stringify({ how: 'stop', id: 'F-NEW' }));
+ok('หยุดไว้ก่อน แล้วมีเรื่องตั้งทีหลังและปิดตรงยอด = ชี้เรื่องที่ปิด (เพดานหยุดหมดอายุ — กฎ stopGate เดิม)',
+   JSON.stringify(via962([sOld, closedEarly])) === JSON.stringify({ how: 'done', id: closedSame.id }));
+ok('หยุดไว้หลายรอบ = ชี้รอบล่าสุด ตรงกับแถวที่การ์ดยกเลิกแสดง (stoppedShorts)',
+   via962([sOld, sNew]).id === 'F-NEW' && stoppedShorts([sOld, sNew], { entity: EN })[0].s.id === 'F-NEW');
+ok('Short / ครบ = ไม่มี via (ป้ายกดไม่ได้)', via962([]) === null && line('TM0001H961', A).via === null
+   && line('TM0001H963', A).via === null);
+ok('ไม่ติดตาม Over = via ชี้เรื่อง over ที่หยุดไว้', line('TM0001H963', A, run({ follows: [oSkipped] })).via.id === oSkipped.id);
+ok('รหัสนอกสูตรที่หยุดตามแล้ว = via ชี้เรื่องนั้น', r963([oSkipped, xFollow]).lines.find(l => l.code === X).via.id === xFollow.id);
+ok('shortSettled / overSettled ยังคืน true / false เหมือนเดิม',
+   shortSettled([skipped])('TM0001H962', B, 1) === true && shortSettled([])('TM0001H962', B, 1) === false
+   && overSettled([oSkipped])('TM0001H963', A, 3) === true && overSettled([oSkipped])('TM0001H963', A, 9) === false);
+
+console.log('=== M4d. แถวที่กดไปหา / กลับมา ขึ้นเสมอ (เจ้าของสั่ง 15 พ.ย. 2026) ===');
+const many = Array.from({ length: 305 }, (_, i) => ({ s: { id: 'F' + i } }));
+const keep = id => x => x.s.id === id;
+ok('sliceKeep: แถวที่ pin อยู่เลยเพดาน = ต่อท้าย ขึ้นแถวเดียว', (() => { const o = sliceKeep(many, 300, keep('F303'));
+   return o.length === 301 && o[300].s.id === 'F303' && o[299].s.id === 'F299'; })());
+ok('sliceKeep: แถวที่ pin อยู่ในเพดานแล้ว = ไม่ซ้ำ ไม่เพิ่ม', sliceKeep(many, 300, keep('F5')).length === 300);
+ok('sliceKeep: ไม่มี pin / pin ไม่มีในรายการ = ตัดตามเดิม',
+   sliceKeep(many, 300, null).length === 300 && sliceKeep(many, 300, keep('X')).length === 300 && sliceKeep(null, 300, null).length === 0);
+const allPo = [{ po: 'P1' }, { po: 'P2' }, { po: 'P3' }];
+ok('mrpKeep: ใบ pin ขึ้นแม้หลุดตัวกรอง · ลำดับตามรายการเต็ม', mrpKeep(allPo, [allPo[2]], 'P1').map(r => r.po).join() === 'P1,P3');
+ok('mrpKeep: ไม่มี pin = ตามตัวกรองเดิม · ใบ pin ผ่านตัวกรองอยู่แล้ว = ไม่ซ้ำ',
+   mrpKeep(allPo, [allPo[1]], '').map(r => r.po).join() === 'P2' && mrpKeep(allPo, [allPo[1]], 'P2').map(r => r.po).join() === 'P2');
 
 console.log('=== M5. ตัวกรอง · ค้นหา ===');
 ok('ตัวกรอง Short / Over / ครบ / คิดไม่ได้', MRP_FILTERS.short(at('TM0001H962')) && MRP_FILTERS.over(at('TM0001H963'))
@@ -341,12 +375,30 @@ ok('จอทำ WK จากล็อตเป็นตัวจาง + ชี
 ok('ตาราง BOM ไม่มีคอลัมน์จ่ายแล้ว — ปิดใบดูจาก plan แทน (เจ้าของขอ 13 พ.ย. 2026)',
    /<th class="r">รับแล้ว<\/th><th class="mrp-gap"><span>สถานะ<\/span><\/th><\/tr>/.test(mrpHtml) && !mrpHtml.includes('mrpNum(l.issued)'));
 ok('ป้ายสถานะเลื่อนด้วย position:relative ไม่ใช่ padding/width — คอลัมน์อื่นต้องไม่เลื่อนตาม (เจ้าของทัก 13 พ.ย. 2026)',
-   /\.mrp-bom \.mrp-gap > span\{position:relative;left:/.test(html) && !/\.mrp-gap\{[^}]*width/.test(html));
+   // ป้าย "จบเรื่องแล้ว" เป็น <button> — ต้องเลื่อนด้วยกฎเดียวกับ <span> ไม่งั้นป้ายในคอลัมน์ไม่อยู่แนวเดียวกัน (รีวิว #165 ข้อ 1)
+   /\.mrp-bom \.mrp-gap > span,\.mrp-bom \.mrp-gap > button\{position:relative;left:/.test(html) && !/\.mrp-gap\{[^}]*width/.test(html));
 ok('ใบที่กางมีแถวเว้นที่ว่างทั้งบนและล่าง แยกจากใบข้าง ๆ (เจ้าของขอ 13 พ.ย. 2026)',
    (mrpHtml.match(/<tr v-if="mrpOpen\[r\.po\]" class="mrp-space"/g) || []).length === 2 && /tr\.mrp-space > td\{height:/.test(html));
 ok('ใบที่กาง: WK · วันที่ · PO · P/N · PO Qty. ตัวใหญ่ตัวหนา (เจ้าของขอ 13 พ.ย. 2026)', /tr\.mrp-po\.open > td\.mono\{font-size:\d+px;font-weight:700/.test(html));
 ok('PO ที่กางอยู่ติดคลาส open + แถวรายละเอียดมีคลาสของตัวเอง ให้ CSS แยกให้เห็นชัด',
    mrpHtml.includes(':class="{ open: mrpOpen[r.po] }"') && mrpHtml.includes('class="mrp-det"') && /tr\.mrp-po\.open > td\{/.test(html));
+
+ok('จอ: ป้ายที่มี via เป็นปุ่มเรียก mrpGoSettled · ตาราง short / ยกเลิก short / ยกเลิก over ติด data-fid ให้หาแถวเจอ',
+   mrpHtml.includes('@click="mrpGoSettled(l, r.po)"')
+   && html.includes('<tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}" :data-fid="r.s.id">')
+   && html.includes('<tr v-for="x in fsStopShown" :key="x.s.id" :data-fid="x.s.id">')
+   && html.includes('<tr v-for="x in foStopShown" :key="x.s.id" :data-fid="x.s.id">'));
+
+ok('จอ: ปุ่มกลับไป MRP ขึ้นเฉพาะตอนอยู่แท็บ short / over · แถวรหัสใน MRP ติด data-mrp-line ให้กลับมาถึงแถวเดิม',
+   html.includes(`v-if="mrpBack && (tab === 'fshort' || tab === 'fover')"`) && html.includes('@click="mrpGoBack"')
+   && mrpHtml.includes(`:data-mrp-line="r.po + '|' + l.code"`)
+   && /mrpBack\.value = \{ po, code: l\.code \}/.test(readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
+
+ok('จอ: กดไป / กลับ ตั้ง pin ให้แถวขึ้นเสมอ · ตาราง short ใช้ sliceKeep · ตาราง MRP ใช้ mrpKeep · เปลี่ยนตัวกรองแล้วล้าง pin',
+   ((a) => a.includes('followPin.value = v.id;') && a.includes('if (b) mrpPin.value = b.po;')
+     && a.includes('sliceKeep(fsAll.value, SHOW_MAX, r => r.s.id === followPin.value)')
+     && a.includes('mrpKeep(mrpAll.value,') && a.includes('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ') && a.includes("watch([mrpQ, mrpFilter, mrpDone], () => { mrpPin.value = ''; });"))
+   (readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

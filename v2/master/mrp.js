@@ -44,7 +44,7 @@
  *    เรื่องติดตามใช้ sameEntity (เรื่องที่ยังไม่มีเจ้าของนับให้ทุกนิติบุคคล — แบบการ์ด short)
  */
 import { round5 } from '../core/ledger.js';
-import { shortWhyOf, shortSettled, overSettled, sameEntity, OVER_MIN } from './follow.js';
+import { shortWhyOf, shortSettledBy, overSettledBy, sameEntity, OVER_MIN } from './follow.js';
 import { poHeaderIndex } from './po-kit.js';
 import { CATEGORIES } from './materials.js';
 
@@ -64,9 +64,10 @@ function daysBefore(date, n) {
 
 /**
  * คืน [{ po, pn, week, date, order, why, none, notInPlan, lines, nShort, nOver, nSkip, state, done }]
- *   lines = [{ code, usage, need, have, issued, diff, state }]
+ *   lines = [{ code, usage, need, have, issued, diff, state, via }]
  *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · oskip (เกินแต่จบเรื่องแล้ว)
  *            · extra (ไม่อยู่ในสูตร) · zero (สูตรใช้ 0) · na (ใบคิดไม่ได้)
+ *     via: skip / oskip = { how: 'stop' | 'done', id } เรื่องที่ทำให้จบ (ป้ายกดไปแถวนั้นในแท็บ short / over) · อื่น ๆ = null
  *   noDate = ใบในไฟล์ PO ที่ไม่มีวันที่ — จอให้เติมวันที่ได้
  *   state ของใบ: short (มี Short) · over (มี Over ไม่มี Short) · ok · na (คิดไม่ได้ — why บอกเหตุ)
  *
@@ -110,7 +111,7 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
 
   const headerOf = poHeaderIndex(poList);
   const mine = (follows || []).filter(f => f && sameEntity(f, entity));
-  const settled = shortSettled(mine), oSettled = overSettled(mine);
+  const settled = shortSettledBy(mine), oSettled = overSettledBy(mine);
   const since = txt(today) ? daysBefore(today, freshDays) : '';
   const oldPo = head => !!since && !!head && !!txt(head.date) && txt(head.date) < since;
   // WK จากล็อต: ที่เจอบ่อยสุดในใบ · เท่ากัน = เลขน้อยกว่า · คืน [WK, ข้อความบอกที่มา]
@@ -160,7 +161,7 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       row.state = 'na';
       for (const c of [...(codesOf.get(po) || [])].sort(codeCmp)) {
         const k = pairKey(po, c);
-        row.lines.push({ code: c, usage: null, need: null, have: haveOf(k), issued: usedOf(k), diff: null, state: 'na' });
+        row.lines.push({ code: c, usage: null, need: null, have: haveOf(k), issued: usedOf(k), diff: null, state: 'na', via: null });
       }
       out.push(row);
       continue;
@@ -173,10 +174,10 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       seen.add(code);
       const k = pairKey(po, code);
       const need = round5(usage * row.order), have = haveOf(k), issued = usedOf(k), diff = round5(have - need);
-      let state = 'ok';
-      if (diff < 0) state = settled(po, code, -diff) ? 'skip' : 'short';
-      else if (diff >= overMin) state = oSettled(po, code, diff) ? 'oskip' : 'over';
-      row.lines.push({ code, usage, need, have, issued, diff, state });
+      let state = 'ok', via = null;
+      if (diff < 0) state = (via = settled(po, code, -diff)) ? 'skip' : 'short';
+      else if (diff >= overMin) state = (via = oSettled(po, code, diff)) ? 'oskip' : 'over';
+      row.lines.push({ code, usage, need, have, issued, diff, state, via });
     }
     row.lines.sort((a, b) => codeCmp(a.code, b.code));
     for (const c of [...(codesOf.get(po) || [])].sort(codeCmp)) {
@@ -186,8 +187,9 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       // ใช้ 0 ในสูตร = นับเป็น Over เหมือนกัน (overAll ให้ over = ยอดรับ) แต่ป้ายต้องไม่บอกว่า "ไม่อยู่ใน BOM" (ผู้ตรวจ #156 ข้อ 4)
       const z = zero.has(c);
       // ไม่อยู่ในสูตร / ใช้ 0 ก็หยุดตามได้ (ตั้งเรื่องเอง) — ยอดเกิน = ยอดรับทั้งหมด แบบ overAll
+      const via = oSettled(po, c, have);
       row.lines.push({ code: c, usage: z ? 0 : null, need: z ? 0 : null, have, issued: usedOf(k), diff: have,
-                       state: oSettled(po, c, have) ? 'oskip' : z ? 'zero' : 'extra' });
+                       state: via ? 'oskip' : z ? 'zero' : 'extra', via });
     }
     row.nShort = row.lines.filter(l => l.state === 'short').length;
     row.nOver = row.lines.filter(l => l.state === 'over' || l.state === 'extra' || l.state === 'zero').length;
@@ -419,6 +421,17 @@ export function fillPoDate(poList, po, date) {
     p.date = d; p.dirty = true; out.push(p);
   }
   return out;
+}
+
+/**
+ * ใบที่ขึ้นในตาราง = ใบที่ผ่านตัวกรอง (shown) + ใบที่ปุ่ม "กลับไป MRP" พากลับมา (pin = เลข PO)
+ * ใบ pin ขึ้นแม้หลุดตัวกรอง · คำค้น · ซ่อนใบที่จบ — ไม่ไปล้างตัวกรองที่ผู้ใช้ตั้งไว้ (เจ้าของสั่ง 15 พ.ย. 2026)
+ * ลำดับตาม all (เรียงแล้ว)
+ */
+export function mrpKeep(all, shown, pin) {
+  if (!txt(pin)) return shown;
+  const on = new Set(shown);
+  return (all || []).filter(r => on.has(r) || r.po === pin);
 }
 
 /** ค้นด้วยเลข PO · P/N · WK · รหัสวัตถุดิบ (ตัวพิมพ์เล็กใหญ่ไม่มีผล) */

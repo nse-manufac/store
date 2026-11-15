@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-15.4">
+<meta name="app-version" content="2026-11-15.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -80,6 +80,12 @@ th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid va
 td{padding:6px 8px;border-bottom:1px solid #f0f3f6;vertical-align:top}
 tr.review td{background:#fffdf3}
 tr.late td{background:var(--badbg)}
+/* แถวที่กดมาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — กะพริบให้เห็นว่าคือแถวไหน */
+tr.hit td{animation:hit 2.4s ease-out}
+@keyframes hit{0%,40%{background:var(--warnbg);box-shadow:inset 0 0 0 9999px rgba(176,109,0,.08)}100%{background:transparent}}
+button.tag.mrp-via{border:0;cursor:pointer;font-family:inherit}
+button.tag.mrp-via:hover{text-decoration:underline}
+.mrp-back{position:fixed;left:22px;bottom:22px;z-index:30;box-shadow:0 4px 14px rgba(18,32,44,.25)}
 .mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
 .scroll{max-height:60vh;overflow:auto}
 .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
@@ -136,7 +142,7 @@ tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
    ⚠️ เลื่อนด้วย position:relative เท่านั้น — ไม่เปลี่ยนความกว้างคอลัมน์ คอลัมน์อื่นจึงอยู่ที่เดิม
       เพิ่ม padding / width ที่ช่องนี้แล้วตาราง (auto layout) แบ่งที่ใหม่ ทุกคอลัมน์เลื่อนตาม — เจ้าของทักแล้ว */
 .mrp-bom .mrp-gap{padding-left:32px}
-.mrp-bom .mrp-gap > span{position:relative;left:30%}
+.mrp-bom .mrp-gap > span,.mrp-bom .mrp-gap > button{position:relative;left:30%}
 .tag.mute{background:#eceff3;color:#5b6878}
 .msg{padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
 .msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
@@ -1767,13 +1773,16 @@ textarea{font:inherit}
                   <table v-if="r.lines.length" class="mrp-bom">
                     <thead><tr><th>รหัส</th><th>วัตถุดิบ</th><th class="r">ใช้ต่อชิ้น</th><th class="r">ต้องใช้ตาม BOM</th>
                       <th class="r">รับแล้ว</th><th class="mrp-gap"><span>สถานะ</span></th></tr></thead>
-                    <tbody><tr v-for="(l, i) in r.lines" :key="i">
+                    <tbody><tr v-for="(l, i) in r.lines" :key="i" :data-mrp-line="r.po + '|' + l.code">
                       <td class="mono">{{ l.code }}</td>
                       <td>{{ mrpName(l.code) }}</td>
                       <td class="mono r">{{ mrpNum(l.usage) }}</td>
                       <td class="mono r">{{ mrpNum(l.need) }} <span class="hint">{{ l.need == null ? '' : mrpUnit(l.code) }}</span></td>
                       <td class="mono r">{{ mrpNum(l.have) }} <span class="hint">{{ mrpUnit(l.code) }}</span></td>
-                      <td class="mrp-gap"><span v-if="mrpLineLabel(l)[0]" class="tag" :class="mrpLineLabel(l)[1]">{{ mrpLineLabel(l)[0] }}</span></td>
+                      <td class="mrp-gap"><button v-if="l.via" type="button" class="tag mrp-via" :class="mrpLineLabel(l)[1]"
+                              :title="l.via.how === 'done' ? 'ดูเรื่องที่ปิดไปแล้วในแท็บ short รอส่ง' : 'ดูในการ์ด ยกเลิก / ไม่ติดตามแล้ว ของแท็บ ' + (l.state === 'oskip' ? 'over รอคืน' : 'short รอส่ง')"
+                              @click="mrpGoSettled(l, r.po)">{{ mrpLineLabel(l)[0] }} ›</button>
+                        <span v-else-if="mrpLineLabel(l)[0]" class="tag" :class="mrpLineLabel(l)[1]">{{ mrpLineLabel(l)[0] }}</span></td>
                     </tr></tbody>
                   </table>
                 </div></td></tr>
@@ -2372,7 +2381,7 @@ textarea{font:inherit}
                 <th style="width:150px">ETA</th><th>ข้อความเต็ม</th>
                 <th style="width:250px"></th></tr></thead>
               <tbody>
-                <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}">
+                <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}" :data-fid="r.s.id">
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.po }}</td>
                   <td class="mono hint">{{ poDateOf(r.s.po) || '—' }}</td>
@@ -2477,7 +2486,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in fsStopped.slice(0, SHOW_MAX)" :key="x.s.id">
+              <tbody><tr v-for="x in fsStopShown" :key="x.s.id" :data-fid="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
                 <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono" :class="{hint: fsPn(x.s).fromPo}" :title="fsPn(x.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(x.s).pn || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td><td class="hint">{{ x.s.void_reason }}</td>
@@ -2487,7 +2496,7 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
           </div>
-          <p class="hint" style="margin:6px 0 0" v-if="fsStopShow && fsStopped.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ fsStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
+          <p class="hint" style="margin:6px 0 0" v-if="fsStopShow && fsStopped.length > SHOW_MAX">แสดง {{ fsStopShown.length }} จาก {{ fsStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
         </div>
       </template>
 
@@ -3128,7 +3137,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in foStopped.slice(0, SHOW_MAX)" :key="x.s.id">
+              <tbody><tr v-for="x in foStopShown" :key="x.s.id" :data-fid="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
                 <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td>
@@ -3139,7 +3148,7 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
           </div>
-          <p class="hint" style="margin:6px 0 0" v-if="foStopShow && foStopped.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ foStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
+          <p class="hint" style="margin:6px 0 0" v-if="foStopShow && foStopped.length > SHOW_MAX">แสดง {{ foStopShown.length }} จาก {{ foStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
         </div>
       </template>
 
@@ -3764,6 +3773,9 @@ textarea{font:inherit}
     </main>
 
     <div class="toast" :class="{bad:toast.bad}" v-if="toast.show">{{ toast.text }}</div>
+    <!-- มาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — กดกลับไปใบเดิม แถวเดิม -->
+    <button v-if="mrpBack && (tab === 'fshort' || tab === 'fover')" class="btn primary mrp-back" @click="mrpGoBack">
+      ‹ กลับไป MRP · {{ mrpBack.po }}</button>
   </template>
 </div>
 
