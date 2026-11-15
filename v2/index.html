@@ -2486,7 +2486,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in fsStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id">
+              <tbody><tr v-for="x in fsStopShown" :key="x.s.id" :data-fid="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
                 <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono" :class="{hint: fsPn(x.s).fromPo}" :title="fsPn(x.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(x.s).pn || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td><td class="hint">{{ x.s.void_reason }}</td>
@@ -2496,7 +2496,7 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
           </div>
-          <p class="hint" style="margin:6px 0 0" v-if="fsStopShow && fsStopped.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ fsStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
+          <p class="hint" style="margin:6px 0 0" v-if="fsStopShow && fsStopped.length > SHOW_MAX">แสดง {{ fsStopShown.length }} จาก {{ fsStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
         </div>
       </template>
 
@@ -3141,7 +3141,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in foStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id">
+              <tbody><tr v-for="x in foStopShown" :key="x.s.id" :data-fid="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
                 <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td>
@@ -3152,7 +3152,7 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
           </div>
-          <p class="hint" style="margin:6px 0 0" v-if="foStopShow && foStopped.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ foStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
+          <p class="hint" style="margin:6px 0 0" v-if="foStopShow && foStopped.length > SHOW_MAX">แสดง {{ foStopShown.length }} จาก {{ foStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
         </div>
       </template>
 

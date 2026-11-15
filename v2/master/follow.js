@@ -880,6 +880,17 @@ export function skipShort(calcRow, { entity, person = '', unit = '', date = '', 
  * คู่ PO+รหัสละแถวเดียว = รอบที่หยุดไว้ล่าสุด (รอบเก่ายังอยู่ในฐานข้อมูลเป็นประวัติ ไม่ได้ลบ · B1)
  */
 export function stoppedShorts(follows, opts = {}) { return stoppedOf(follows, 'short', opts); }
+
+/**
+ * ตัดรายการให้เหลือ max แถวตอนแสดง แต่แถวที่ keep(แถว) = true ต้องขึ้นเสมอ — อยู่เลยเพดาน = ต่อท้าย
+ * ใช้กับแถวที่กดมาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP ให้ไปถึงแถวนั้นได้ทุกครั้ง (เจ้าของสั่ง 15 พ.ย. 2026)
+ */
+export function sliceKeep(rows, max, keep) {
+  const all = rows || [], out = all.slice(0, max);
+  if (!keep || out.some(keep)) return out;
+  const hit = all.slice(max).find(keep);
+  return hit ? [...out, hit] : out;
+}
 /** การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ของ over — กติกาเดียวกับ short */
 export function stoppedOvers(follows, opts = {}) { return stoppedOf(follows, 'over', opts); }
 function stoppedOf(follows, kind, { entity } = {}) {

@@ -423,6 +423,17 @@ export function fillPoDate(poList, po, date) {
   return out;
 }
 
+/**
+ * ใบที่ขึ้นในตาราง = ใบที่ผ่านตัวกรอง (shown) + ใบที่ปุ่ม "กลับไป MRP" พากลับมา (pin = เลข PO)
+ * ใบ pin ขึ้นแม้หลุดตัวกรอง · คำค้น · ซ่อนใบที่จบ — ไม่ไปล้างตัวกรองที่ผู้ใช้ตั้งไว้ (เจ้าของสั่ง 15 พ.ย. 2026)
+ * ลำดับตาม all (เรียงแล้ว)
+ */
+export function mrpKeep(all, shown, pin) {
+  if (!txt(pin)) return shown;
+  const on = new Set(shown);
+  return (all || []).filter(r => on.has(r) || r.po === pin);
+}
+
 /** ค้นด้วยเลข PO · P/N · WK · รหัสวัตถุดิบ (ตัวพิมพ์เล็กใหญ่ไม่มีผล) */
 export function mrpMatch(row, q) {
   const s = txt(q).toUpperCase();
