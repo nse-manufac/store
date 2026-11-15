@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-15.3">
+<meta name="app-version" content="2026-11-15.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2933,8 +2933,6 @@ textarea{font:inherit}
             <div class="grow"></div>
             <label class="f" style="width:150px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
-            <label class="f" style="width:145px" title="คืนเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่คืนจริง">วันที่คืน
-              <input v-model="foDate" type="date"></label>
             <div><div class="hint">รอตั้งเรื่อง</div>
               <div class="big" :class="foNew.length ? 'warn' : ''">{{ foNew.length }}</div></div>
           </div>
@@ -2948,7 +2946,7 @@ textarea{font:inherit}
                 <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:95px">สั่ง</th>
                 <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
                 <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
-                <th style="width:290px"></th></tr></thead>
+                <th style="width:210px"></th></tr></thead>
               <tbody><tr v-for="r in foNew" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td>
                 <td class="mono hint">{{ poDateOf(r.po) || '—' }}</td>
@@ -2960,9 +2958,7 @@ textarea{font:inherit}
                 <td class="mono hint">{{ r.sentBack || '—' }}</td>
                 <td class="mono"><b>{{ r.over }}</b></td>
                 <td><button class="btn primary" style="padding:2px 9px" :disabled="!entity || isStarting('over', r)"
-                            @click="foReturnNew(r)" title="ตั้งเรื่องและคืนครบในก้าวเดียว">คืนแล้ว</button>
-                  <button class="btn" style="padding:2px 9px;margin-left:4px" :disabled="!entity || isStarting('over', r)"
-                          @click="foStart(r)" title="ยังไม่ได้คืนจริง — ตั้งเรื่องไว้ตาม">ตั้งเรื่องคืน</button>
+                          @click="foStart(r)" title="ตั้งเรื่องก่อน · คืนของจริงแล้วค่อยกด คืนแล้ว ในตารางเรื่องที่ตั้งไว้แล้ว">ตั้งเรื่องคืน</button>
                   <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="!entity || isStarting('over', r)"
                           @click="foSkip(r)">ไม่ติดตาม</button></td>
               </tr></tbody>
@@ -3492,7 +3488,6 @@ textarea{font:inherit}
             <p>Mat Follow up → over รอคืน · ไม่ต้องเปิดกล่องกรอกทุกครั้งแล้ว</p>
             <p>ตาราง <b>เรื่องที่ตั้งไว้แล้ว</b>: เว้นช่องยอดแล้วกด <b>คืนแล้ว</b> = คืนที่ค้างทั้งหมด · ใส่ยอดก่อนกด = คืนบางส่วน ·
               ต้องใส่ล็อต / เหตุผลอื่น กด <b>รายละเอียด…</b></p>
-            <p>การ์ด <b>ของเกินที่ระบบคำนวณได้</b>: กด <b>คืนแล้ว</b> ได้เลย ไม่ต้องตั้งเรื่องก่อน</p>
             <p>ช่อง <b>วันที่คืน</b> ใส่วันนี้ไว้ให้ แก้ย้อนหลังได้ (แบบเดียวกับวันที่ของมาของ short)</p>
             <p>⚠️ คืนแล้ว = ตัดของออกจากคลังจริงทันที · ระบบถามก่อนบันทึกเฉพาะตอนมีเรื่องน่าสงสัย:
               สต็อกจะติดลบ · PO ใบนั้นรับยังไม่ครบตามสูตร · คืนมากกว่ายอดเกินที่ระบบคิดได้ — อ่านก่อนกดยืนยัน</p>
