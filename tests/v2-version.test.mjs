@@ -135,7 +135,7 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
                  '<h2>ของขาด / รอส่ง</h2>', '@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>',
                  'ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }} เรื่อง', 'ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง',
                  '@click="fsRestart(x.s)">กลับมาติดตาม</button>', '@click="foRestart(x.s)">กลับมาติดตาม</button>',
-                 '<h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>', '@click="foReturnNew(r)"', '@click="foSkip(r)">ไม่ติดตาม</button>',
+                 '<h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>', '@click="foSkip(r)">ไม่ติดตาม</button>',
                  '@click="foVoid(r.s)">ยกเลิกเรื่อง</button>', '@click.prevent="askReturn(r.s)">รายละเอียด…</a>', '>วันที่คืน',
                  'Delta ตัดจากยอด over — เทียบกับของที่เรามี', 'v-if="rbExceed"'];
   const js0 = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');

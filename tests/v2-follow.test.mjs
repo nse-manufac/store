@@ -1286,8 +1286,8 @@ console.log('\n=== T. กันกดตั้งเรื่องซ้ำ (�
      ["isStarting('short', r)", "isStarting('over', r)", "isStarting('buy', r)"].every(x => html.includes(x)));
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('ทั้งสามทางเดินผ่าน startOnce และส่ง follows ให้ด่านที่สอง',
-     // 6 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" short / over + "คืนแล้ว" การ์ดของเกิน (ใช้กุญแจเดียวกับตั้งเรื่องของแถวนั้น — กดอันหนึ่งแล้วอีกอันจาง)
-     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 6
+     // 5 = ตั้งเรื่อง short / over / buy + "ไม่ติดตาม" short / over · ปุ่ม "คืนแล้ว" ของการ์ดของเกินเอาออกแล้ว (15 พ.ย. 2026)
+     (app.match(/await startOnce\(starting, startKey\('(short|over|buy)'/g) || []).length === 5
      && /fromShortRow\(row, \{[^}]*follows: shorts\.value/.test(app) && /fromOverRow\(row, \{[^}]*follows: shorts\.value/.test(app));
 }
 
@@ -2001,9 +2001,17 @@ console.log('\n=== OR. over: คืนแล้วกดทีเดียว (�
 
   const appR = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlR = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-  ok('จอ: ตาราง over มีช่องยอด + คืนแล้ว · การ์ดคิดได้มีคืนแล้ว · ช่องวันที่คืนทั้งสองการ์ด',
-     htmlR.includes('v-model="foGot[r.s.id]"') && htmlR.includes('@click="foReturnNew(r)"')
-     && (htmlR.match(/v-model="foDate" type="date"/g) || []).length === 2);
+  ok('จอ: ตาราง over มีช่องยอด + คืนแล้ว · ช่องวันที่คืนอยู่การ์ดเรื่องที่ตั้งไว้แล้วที่เดียว',
+     htmlR.includes('v-model="foGot[r.s.id]"')
+     && (htmlR.match(/v-model="foDate" type="date"/g) || []).length === 1);
+  {
+    // เจ้าของสั่ง 15 พ.ย. 2026: ของเกินที่ยังไม่ตั้งเรื่อง ต้องตั้งเรื่องก่อน ห้ามคืนข้ามขั้น
+    const card = htmlR.slice(htmlR.indexOf('<h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>'), htmlR.indexOf('<div class="card" v-if="foDouble.length">'));
+    ok('จอ: การ์ดของเกินที่ยังไม่ตั้งเรื่อง ไม่มีปุ่มคืนแล้ว · มีตั้งเรื่องคืน + ไม่ติดตาม',
+       card.length > 0 && !card.includes('คืนแล้ว</button>') && !card.includes('foDate')
+       && card.includes('@click="foStart(r)"') && card.includes('@click="foSkip(r)">ไม่ติดตาม</button>')
+       && !/foReturnNew/.test(appR + htmlR));
+  }
   ok('จอ: วันที่คืนเลื่อนเป็นวันใหม่เองเมื่อเปิดจอค้างข้ามคืน (กติกาเดียวกับ short)',
      /foDateOn !== t\) \{ foDate\.value = rollDay\(/.test(appR) && /watch\(tab, k => \{ if \(k === 'fover'\) foDayNow\(\); \}\)/.test(appR));
   ok('จอ: คำเตือนขึ้นก่อนบันทึก · ปุ่มกันกดซ้ำ · กล่องเดิมใช้ returnOver ตัวเดียวกัน',
