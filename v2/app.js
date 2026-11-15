@@ -34,13 +34,13 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
          unknownEntities, poOwnerOf, poVisibleTo, DEFAULT_ENTITY } from './master/entities.js';
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
-import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
+import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          planShipList, planMap, poWeekMap, setPoWeek } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
-         cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort,
+         cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
@@ -2316,7 +2316,9 @@ createApp({
     }));
     /** P/N ที่ตาราง short แสดง — ไม่มีในเรื่อง = หาจากไฟล์ PO (ตัวจาง) · ตรรกะอยู่ที่ partNoOf */
     const fsPn = s => partNoOf(s, poIdx.value);
-    const fsRows = computed(() => fsAll.value.slice(0, SHOW_MAX));
+    // แถวที่กดมาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — ขึ้นเสมอแม้เลย SHOW_MAX (sliceKeep) · ออกจากแท็บ short / over = ล้าง
+    const followPin = ref('');
+    const fsRows = computed(() => sliceKeep(fsAll.value, SHOW_MAX, r => r.s.id === followPin.value));
 
     const fsSum = computed(() => sumFollow(openShorts.value, { today: todayLocal() }));
 
@@ -2473,9 +2475,12 @@ createApp({
     const mrpNoPo = computed(() => mrpNoPoIssues(entries.value, entity.value));
     const mrpBase = computed(() => mrpAll.value.filter(r => (mrpDone.value || !r.done) && mrpMatch(r, mrpQ.value)));
     const mrpCounts = computed(() => Object.fromEntries(Object.entries(MRP_FILTERS).map(([k, f]) => [k, mrpBase.value.filter(f).length])));
-    const mrpShown = computed(() => mrpBase.value.filter(MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all));
+    // ใบที่ปุ่ม "กลับไป MRP" พากลับมา ขึ้นแม้หลุดตัวกรอง (mrpKeep) · เปลี่ยนตัวกรอง / คำค้นเมื่อไหร่ = ล้าง
+    const mrpPin = ref('');
+    watch([mrpQ, mrpFilter, mrpDone], () => { mrpPin.value = ''; });
+    const mrpShown = computed(() => mrpKeep(mrpAll.value, mrpBase.value.filter(MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all), mrpPin.value));
     // นับตามตัวกรองที่เลือกอยู่ด้วย — กด "มี Short" แล้วไม่ควรบอกว่ามีใบที่จบซ่อนอยู่ (ผู้ตรวจ #156 ข้อ 6)
-    const mrpHidden = computed(() => (mrpDone.value ? 0 : mrpAll.value.filter(r => r.done && mrpMatch(r, mrpQ.value)
+    const mrpHidden = computed(() => (mrpDone.value ? 0 : mrpAll.value.filter(r => r.done && r.po !== mrpPin.value && mrpMatch(r, mrpQ.value)
       && (MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all)(r)).length));
     async function mrpSetDate(po, date) {
       if (!date) return;
@@ -2662,22 +2667,8 @@ createApp({
         });
       } catch (err) { flash(err.message, true); }
     }
-    /** การ์ดของเกินที่ระบบคำนวณได้ — ตั้งเรื่องและคืนครบในก้าวเดียว */
-    async function foReturnNew(r) {
-      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      try {
-        await startOnce(starting, startKey('over', r), async () => {
-          const warn = foReturnWarn(r, r.over);
-          if (warn && !confirm(warn + '\n\nคืนต่อไหม')) return;
-          const day = foDayNow();
-          const made = fromOverRow(r, { entity: entity.value, person: fsBy.value, unit: unitOf(r.code),
-                                        date: day, follows: shorts.value });
-          const { rec, entry } = returnOver(made, { person: fsBy.value, device: device.value, at: atFrom(day) });
-          await saveReturn(rec, entry);
-          flash(`คืน ${r.po} · ${r.code} จำนวน ${entry.qty} ให้ Delta แล้ว · คงคลังเหลือ ${foBookOf(r.code)}`);
-        });
-      } catch (err) { flash(err.message, true); }
-    }
+    /* การ์ดของเกินที่ระบบคำนวณได้ ไม่มีปุ่ม "คืนแล้ว" (เจ้าของสั่ง 15 พ.ย. 2026) — ต้องตั้งเรื่องก่อนเสมอ
+     * แล้วค่อยกดคืนแล้วในตารางเรื่องที่ตั้งไว้แล้ว · ห้ามเอาปุ่มตั้ง+คืนก้าวเดียวกลับมา */
 
     /* ── กล่องคืนของ (ลิงก์ "รายละเอียด…") ─────────────────────────────
      * ใส่ล็อต / เหตุผลอื่น / หมายเหตุ · เห็นยอดหลังคืนและคำเตือนก่อนกด */
@@ -2834,6 +2825,7 @@ createApp({
     }
     const fsStopped = computed(() => stoppedShorts(shorts.value, { entity: entity.value }));
     const fsStopShow = ref(false);
+    const fsStopShown = computed(() => sliceKeep(fsStopped.value, SHOW_MAX, x => x.s.id === followPin.value));
     async function fsRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่อง short ใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
@@ -2877,6 +2869,45 @@ createApp({
     }
     const foStopped = computed(() => stoppedOvers(shorts.value, { entity: entity.value }));
     const foStopShow = ref(false);
+    const foStopShown = computed(() => sliceKeep(foStopped.value, SHOW_MAX, x => x.s.id === followPin.value));
+    /* ป้าย "จบเรื่องแล้ว" ในแท็บ MRP กดแล้วไปแถวของเรื่องที่ทำให้จบ (เจ้าของสั่ง 15 พ.ย. 2026)
+     * ยกเลิก / ไม่ติดตาม = การ์ดท้ายแท็บ short / over · ปิดเรื่องตรงยอด = ตารางเรื่องที่ปิดแล้วของแท็บ short
+     * เรื่องไหนทำให้จบ ตัดสินที่ shortSettledBy / overSettledBy (follow.js) — ตรงนี้แค่เปิดแท็บแล้วเลื่อนไปหา */
+    /* ปุ่ม "กลับไป MRP" มุมซ้ายล่าง (เจ้าของสั่ง 15 พ.ย. 2026) — จำ PO + รหัสที่กดมา กลับไปแล้วกางใบเดิม เลื่อนถึงแถวเดิม
+     * ย้ายไปแท็บอื่นที่ไม่ใช่ short / over = ไม่ขึ้นแล้ว */
+    const mrpBack = ref(null);
+    watch(tab, k => { if (k !== 'fshort' && k !== 'fover') { mrpBack.value = null; followPin.value = ''; } });
+    function mrpGoBack() {
+      const b = mrpBack.value;
+      if (b) mrpPin.value = b.po;   // ใบเดิมขึ้นแม้หลุดตัวกรองไปแล้ว (เช่น กลับมาติดตามแล้วใบไม่ครบอีก)
+      tab.value = 'mrp';
+      if (!b) return;
+      mrpOpen.value = { ...mrpOpen.value, [b.po]: true };
+      nextTick(() => {
+        const el = document.querySelector(`tr[data-mrp-line="${CSS.escape(b.po + '|' + b.code)}"]`);
+        if (!el) { flash(`ไม่เจอ ${b.po} ในแท็บ MRP แล้ว — ใบนี้อาจถูกลบหรือเปลี่ยนนิติบุคคล`, true); return; }
+        el.scrollIntoView({ block: 'center' });
+        el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
+      });
+    }
+    function mrpGoSettled(l, po) {
+      const v = l && l.via;
+      if (!v) return;
+      const over = l.state === 'oskip';
+      if (v.how === 'done') { fsShowDone.value = true; fsSearch.value = po; }
+      else if (over) foStopShow.value = true;
+      else fsStopShow.value = true;
+      followPin.value = v.id;   // แถวนี้ขึ้นเสมอแม้อยู่เลย SHOW_MAX แถว (sliceKeep)
+      tab.value = over ? 'fover' : 'fshort';
+      mrpBack.value = { po, code: l.code };
+      nextTick(() => {
+        const el = document.querySelector(`tr[data-fid="${CSS.escape(String(v.id))}"]`);
+        // เหตุเดียวที่เหลือ: เรื่องยังไม่มีเจ้าของ (เลข PO ไม่เข้ารูปแบบ entityOfPo) — การ์ดยกเลิกไม่โชว์ · ช่องค้นหาไม่เกี่ยว (รีวิว #165 รอบ 3)
+        if (!el) { flash('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ เพราะเลข PO ไม่เข้ารูปแบบ', true); return; }
+        el.scrollIntoView({ block: 'center' });
+        el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
+      });
+    }
     async function foRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่องคืนใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
@@ -3789,7 +3820,7 @@ createApp({
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
-             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
              planShip, planPull, planAtText, poDateOf, mrpSetWeek,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
@@ -3845,7 +3876,7 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShow, foRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
+      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShown, foStopShow, foRestart, foGot, foDate, foReturn, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,

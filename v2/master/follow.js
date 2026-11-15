@@ -720,19 +720,35 @@ export function shortPending(rows, follows) {
  * ให้สองจอพูดตรงกัน (เจ้าของเคาะ 12 พ.ย. 2026) · ไม่กรองนิติบุคคลเอง — ผู้เรียกกรองมาก่อน
  */
 export function shortSettled(follows) {
+  const by = shortSettledBy(follows);
+  return (po, code, short) => !!by(po, code, short);
+}
+
+/**
+ * เหมือน shortSettled แต่บอกด้วยว่าจบเพราะเรื่องไหน — คืน (po, code, ยอดขาด) => { how, id } | null
+ * how: 'stop' = ยกเลิกเรื่อง / ไม่ติดตาม (อยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว") · 'done' = ปิดเรื่องตรงยอด
+ * id = เรื่องที่ทำให้จบ — แท็บ MRP ใช้กระโดดไปแถวนั้นในแท็บ short (เจ้าของสั่ง 15 พ.ย. 2026)
+ * ⚠️ เรื่องหยุดมาก่อน — การ์ดยกเลิกเป็นที่ที่เจ้าของขอให้ลิงก์ไป · ปิดตรงยอดใช้เมื่อไม่มีเรื่องหยุด
+ */
+export function shortSettledBy(follows) {
   const closed = new Map();
   for (const f of follows || []) {
     if (!f || f.kind !== 'short' || f.voided || statusOf(f) !== 'done') continue;
     const k = pairKey(f.po, f.code);
     if (!closed.has(k)) closed.set(k, []);
-    closed.get(k).push(round5(Number(f.qty) || 0));
+    closed.get(k).push(f);
   }
   // เกณฑ์ "ยอดเท่ากัน" เดียวกับ shortChecker — ต่างกันไม่เกินครึ่งของหลักทศนิยมที่สาม
   const sameAsClosed = (po, code, short) => (closed.get(pairKey(po, code)) || [])
-    .some(q => q > 0 && Math.abs(q - (Number(short) || 0)) < 5e-4);
+    .find(f => { const q = round5(Number(f.qty) || 0); return q > 0 && Math.abs(q - (Number(short) || 0)) < 5e-4; });
   // ยกเลิก / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) — กฎอยู่ที่ stopGate ใช้ร่วมกับ over
   const stillStopped = stopGate(follows, 'short');
-  return (po, code, short) => sameAsClosed(po, code, short) || stillStopped(po, code, short);
+  return (po, code, short) => {
+    const st = stillStopped(po, code, short);
+    if (st) return { how: 'stop', id: st.id };
+    const d = sameAsClosed(po, code, short);
+    return d ? { how: 'done', id: d.id } : null;
+  };
 }
 
 /**
@@ -742,11 +758,18 @@ export function shortSettled(follows) {
  * ไม่กรองนิติบุคคลเอง — ผู้เรียกกรองมาก่อน
  */
 export function overSettled(follows) {
-  return stopGate(follows, 'over');
+  const gate = stopGate(follows, 'over');
+  return (po, code, over) => !!gate(po, code, over);
+}
+
+/** เหมือน overSettled แต่บอกเรื่องที่ทำให้จบ — คืน (po, code, ยอดเกิน) => { how: 'stop', id } | null (ดู shortSettledBy) */
+export function overSettledBy(follows) {
+  const gate = stopGate(follows, 'over');
+  return (po, code, over) => { const f = gate(po, code, over); return f ? { how: 'stop', id: f.id } : null; };
 }
 
 /**
- * เพดาน "ไม่ขึ้นอีก" ของคู่ที่หยุดตาม (ยกเลิกเรื่อง / ไม่ติดตาม) — คืน (po, code, ยอดที่คิดได้ตอนนี้) => ยังหยุดอยู่ไหม
+ * เพดาน "ไม่ขึ้นอีก" ของคู่ที่หยุดตาม (ยกเลิกเรื่อง / ไม่ติดตาม) — คืน (po, code, ยอดที่คิดได้ตอนนี้) => เรื่องที่หยุดไว้ | null
  * ใช้ร่วมกันทั้ง short (shortPending) และ over (overPending) · ย้ายมาจาก shortPending (#146) พฤติกรรมเดิม
  * ⚠️ เพดาน = ยอดที่ยังค้างในเรื่องตอนกด (remainOf) ไม่ใช่ qty เต็ม (ผู้ตรวจ #146 รอบ 4)
  * ⚠️ เก็บรอบที่หยุดล่าสุดรอบเดียวต่อคู่ — กฎเดียวกับการ์ด "ยกเลิก / ไม่ติดตามแล้ว" (ผู้ตรวจ #146 รอบ 6)
@@ -768,9 +791,9 @@ function stopGate(follows, kind) {
   }
   return (po, code, qty) => {
     const k = pairKey(po, code), f = stopped.get(k);
-    if (!f) return false;
-    if (txt(liveAt.get(k) || '') > txt(f.void_at)) return false;
-    return (Number(qty) || 0) <= remainOf(f) + 5e-4;
+    if (!f) return null;
+    if (txt(liveAt.get(k) || '') > txt(f.void_at)) return null;
+    return (Number(qty) || 0) <= remainOf(f) + 5e-4 ? f : null;
   };
 }
 
@@ -857,6 +880,17 @@ export function skipShort(calcRow, { entity, person = '', unit = '', date = '', 
  * คู่ PO+รหัสละแถวเดียว = รอบที่หยุดไว้ล่าสุด (รอบเก่ายังอยู่ในฐานข้อมูลเป็นประวัติ ไม่ได้ลบ · B1)
  */
 export function stoppedShorts(follows, opts = {}) { return stoppedOf(follows, 'short', opts); }
+
+/**
+ * ตัดรายการให้เหลือ max แถวตอนแสดง แต่แถวที่ keep(แถว) = true ต้องขึ้นเสมอ — อยู่เลยเพดาน = ต่อท้าย
+ * ใช้กับแถวที่กดมาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP ให้ไปถึงแถวนั้นได้ทุกครั้ง (เจ้าของสั่ง 15 พ.ย. 2026)
+ */
+export function sliceKeep(rows, max, keep) {
+  const all = rows || [], out = all.slice(0, max);
+  if (!keep || out.some(keep)) return out;
+  const hit = all.slice(max).find(keep);
+  return hit ? [...out, hit] : out;
+}
 /** การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ของ over — กติกาเดียวกับ short */
 export function stoppedOvers(follows, opts = {}) { return stoppedOf(follows, 'over', opts); }
 function stoppedOf(follows, kind, { entity } = {}) {
