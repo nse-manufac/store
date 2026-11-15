@@ -2661,22 +2661,8 @@ createApp({
         });
       } catch (err) { flash(err.message, true); }
     }
-    /** การ์ดของเกินที่ระบบคำนวณได้ — ตั้งเรื่องและคืนครบในก้าวเดียว */
-    async function foReturnNew(r) {
-      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      try {
-        await startOnce(starting, startKey('over', r), async () => {
-          const warn = foReturnWarn(r, r.over);
-          if (warn && !confirm(warn + '\n\nคืนต่อไหม')) return;
-          const day = foDayNow();
-          const made = fromOverRow(r, { entity: entity.value, person: fsBy.value, unit: unitOf(r.code),
-                                        date: day, follows: shorts.value });
-          const { rec, entry } = returnOver(made, { person: fsBy.value, device: device.value, at: atFrom(day) });
-          await saveReturn(rec, entry);
-          flash(`คืน ${r.po} · ${r.code} จำนวน ${entry.qty} ให้ Delta แล้ว · คงคลังเหลือ ${foBookOf(r.code)}`);
-        });
-      } catch (err) { flash(err.message, true); }
-    }
+    /* การ์ดของเกินที่ระบบคำนวณได้ ไม่มีปุ่ม "คืนแล้ว" (เจ้าของสั่ง 15 พ.ย. 2026) — ต้องตั้งเรื่องก่อนเสมอ
+     * แล้วค่อยกดคืนแล้วในตารางเรื่องที่ตั้งไว้แล้ว · ห้ามเอาปุ่มตั้ง+คืนก้าวเดียวกลับมา */
 
     /* ── กล่องคืนของ (ลิงก์ "รายละเอียด…") ─────────────────────────────
      * ใส่ล็อต / เหตุผลอื่น / หมายเหตุ · เห็นยอดหลังคืนและคำเตือนก่อนกด */
@@ -3883,7 +3869,7 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShown, foStopShow, foRestart, foGot, foDate, foReturn, foReturnNew, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
+      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShown, foStopShow, foRestart, foGot, foDate, foReturn, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
