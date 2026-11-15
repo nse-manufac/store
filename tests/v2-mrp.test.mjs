@@ -375,5 +375,10 @@ ok('จอ: ป้ายที่มี via เป็นปุ่มเรีย
    && html.includes('fsStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id"')
    && html.includes('foStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id"'));
 
+ok('จอ: ปุ่มกลับไป MRP ขึ้นเฉพาะตอนอยู่แท็บ short / over · แถวรหัสใน MRP ติด data-mrp-line ให้กลับมาถึงแถวเดิม',
+   html.includes(`v-if="mrpBack && (tab === 'fshort' || tab === 'fover')"`) && html.includes('@click="mrpGoBack"')
+   && mrpHtml.includes(`:data-mrp-line="r.po + '|' + l.code"`)
+   && /mrpBack\.value = \{ po, code: l\.code \}/.test(readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

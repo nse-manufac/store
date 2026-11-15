@@ -85,6 +85,7 @@ tr.hit td{animation:hit 2.4s ease-out}
 @keyframes hit{0%,40%{background:var(--warnbg);box-shadow:inset 0 0 0 9999px rgba(176,109,0,.08)}100%{background:transparent}}
 button.tag.mrp-via{border:0;cursor:pointer;font-family:inherit}
 button.tag.mrp-via:hover{text-decoration:underline}
+.mrp-back{position:fixed;left:22px;bottom:22px;z-index:30;box-shadow:0 4px 14px rgba(18,32,44,.25)}
 .mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
 .scroll{max-height:60vh;overflow:auto}
 .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
@@ -1772,7 +1773,7 @@ textarea{font:inherit}
                   <table v-if="r.lines.length" class="mrp-bom">
                     <thead><tr><th>รหัส</th><th>วัตถุดิบ</th><th class="r">ใช้ต่อชิ้น</th><th class="r">ต้องใช้ตาม BOM</th>
                       <th class="r">รับแล้ว</th><th class="mrp-gap"><span>สถานะ</span></th></tr></thead>
-                    <tbody><tr v-for="(l, i) in r.lines" :key="i">
+                    <tbody><tr v-for="(l, i) in r.lines" :key="i" :data-mrp-line="r.po + '|' + l.code">
                       <td class="mono">{{ l.code }}</td>
                       <td>{{ mrpName(l.code) }}</td>
                       <td class="mono r">{{ mrpNum(l.usage) }}</td>
@@ -3775,6 +3776,9 @@ textarea{font:inherit}
     </main>
 
     <div class="toast" :class="{bad:toast.bad}" v-if="toast.show">{{ toast.text }}</div>
+    <!-- มาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — กดกลับไปใบเดิม แถวเดิม -->
+    <button v-if="mrpBack && (tab === 'fshort' || tab === 'fover')" class="btn primary mrp-back" @click="mrpGoBack">
+      ‹ กลับไป MRP · {{ mrpBack.po }}</button>
   </template>
 </div>
 
