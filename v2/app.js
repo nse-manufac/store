@@ -2897,7 +2897,7 @@ createApp({
       nextTick(() => {
         const el = document.querySelector(`tr[data-fid="${CSS.escape(String(v.id))}"]`);
         // เหตุเดียวที่เหลือ: เรื่องยังไม่มีเจ้าของ (เลข PO ไม่เข้ารูปแบบ entityOfPo) — การ์ดยกเลิกไม่โชว์ · ช่องค้นหาไม่เกี่ยว (รีวิว #165 รอบ 3)
-        if (!el) { flash('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ เพราะเลข PO ไม่เข้ารูปแบบ (ดูแถบเตือนด้านบนของแท็บนี้)', true); return; }
+        if (!el) { flash('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ เพราะเลข PO ไม่เข้ารูปแบบ', true); return; }
         el.scrollIntoView({ block: 'center' });
         el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
       });
