@@ -362,7 +362,8 @@ ok('จอทำ WK จากล็อตเป็นตัวจาง + ชี
 ok('ตาราง BOM ไม่มีคอลัมน์จ่ายแล้ว — ปิดใบดูจาก plan แทน (เจ้าของขอ 13 พ.ย. 2026)',
    /<th class="r">รับแล้ว<\/th><th class="mrp-gap"><span>สถานะ<\/span><\/th><\/tr>/.test(mrpHtml) && !mrpHtml.includes('mrpNum(l.issued)'));
 ok('ป้ายสถานะเลื่อนด้วย position:relative ไม่ใช่ padding/width — คอลัมน์อื่นต้องไม่เลื่อนตาม (เจ้าของทัก 13 พ.ย. 2026)',
-   /\.mrp-bom \.mrp-gap > span\{position:relative;left:/.test(html) && !/\.mrp-gap\{[^}]*width/.test(html));
+   // ป้าย "จบเรื่องแล้ว" เป็น <button> — ต้องเลื่อนด้วยกฎเดียวกับ <span> ไม่งั้นป้ายในคอลัมน์ไม่อยู่แนวเดียวกัน (รีวิว #165 ข้อ 1)
+   /\.mrp-bom \.mrp-gap > span,\.mrp-bom \.mrp-gap > button\{position:relative;left:/.test(html) && !/\.mrp-gap\{[^}]*width/.test(html));
 ok('ใบที่กางมีแถวเว้นที่ว่างทั้งบนและล่าง แยกจากใบข้าง ๆ (เจ้าของขอ 13 พ.ย. 2026)',
    (mrpHtml.match(/<tr v-if="mrpOpen\[r\.po\]" class="mrp-space"/g) || []).length === 2 && /tr\.mrp-space > td\{height:/.test(html));
 ok('ใบที่กาง: WK · วันที่ · PO · P/N · PO Qty. ตัวใหญ่ตัวหนา (เจ้าของขอ 13 พ.ย. 2026)', /tr\.mrp-po\.open > td\.mono\{font-size:\d+px;font-weight:700/.test(html));
