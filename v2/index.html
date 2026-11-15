@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-15.5">
+<meta name="app-version" content="2026-11-16.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1733,7 +1733,7 @@ textarea{font:inherit}
             <thead><tr><th style="width:28px"></th><th>WK</th><th>วันที่ PO</th><th>PO</th><th>P/N</th>
               <th class="r">PO Qty.</th><th class="mrp-st"><div class="mrp-stin">วัตถุดิบตาม BOM</div></th></tr></thead>
             <tbody>
-              <template v-for="r in mrpShown" :key="r.po">
+              <template v-for="r in mrpDraw" :key="r.po">
                 <tr v-if="mrpOpen[r.po]" class="mrp-space" aria-hidden="true"><td colspan="7"></td></tr>
                 <tr class="mrp-po" :class="{ open: mrpOpen[r.po] }" @click="mrpToggle(r.po)" :aria-expanded="!!mrpOpen[r.po]">
                   <td><span class="fold-i">{{ mrpOpen[r.po] ? '▾' : '▸' }}</span></td>
@@ -2226,7 +2226,7 @@ textarea{font:inherit}
                 <th style="width:110px">วันที่</th><th style="width:125px">PO</th>
                 <th style="width:125px">P/N</th><th style="width:90px">จำนวน</th>
                 <th style="width:110px">Kit List</th><th>หมายเหตุ</th></tr></thead>
-              <tbody><tr v-for="(p,i) in poRows" :key="p.id">
+              <tbody><tr v-for="(p,i) in poDraw" :key="p.id">
                 <td class="mono hint">{{ i + 1 }}</td>
                 <td class="mono hint">{{ p.date }}</td><td class="mono"><b>{{ p.po }}</b></td>
                 <td class="mono">{{ p.pn }}</td><td class="mono">{{ p.qty }}</td>
@@ -2338,7 +2338,7 @@ textarea{font:inherit}
                 <th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:90px">P/N</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:85px">สั่ง</th><th style="width:100px">ตามสูตร</th>
                 <th style="width:100px">รับแล้ว</th><th style="width:95px">ขาด</th><th style="width:210px"></th></tr></thead>
-              <tbody><tr v-for="r in fsNew" :key="r.po + r.code">
+              <tbody><tr v-for="r in fsNewDraw" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td><td class="mono hint">{{ poDateOf(r.po) || '—' }}</td><td class="mono hint">{{ r.pn }}</td>
                 <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
                 <td class="mono hint">{{ r.order }}</td><td class="mono hint">{{ r.need }}</td>
@@ -2956,7 +2956,7 @@ textarea{font:inherit}
                 <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
                 <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
                 <th style="width:210px"></th></tr></thead>
-              <tbody><tr v-for="r in foNew" :key="r.po + r.code">
+              <tbody><tr v-for="r in foNewDraw" :key="r.po + r.code">
                 <td class="mono">{{ r.po }}</td>
                 <td class="mono hint">{{ poDateOf(r.po) || '—' }}</td>
                 <td class="mono hint">{{ r.pn }}</td>
@@ -3223,7 +3223,7 @@ textarea{font:inherit}
                 <th>วันที่รับ</th><th>PO</th><th>รหัส</th><th>ชื่อ</th><th>ล็อต</th>
                 <th style="text-align:right">จำนวน</th><th>หน่วย</th><th>ผู้รับ</th><th style="width:150px">วันหมดอายุ</th>
               </tr></thead>
-              <tbody><tr v-for="r in fxRows" :key="r.e.id">
+              <tbody><tr v-for="r in fxDraw" :key="r.e.id">
                 <td class="mono" style="white-space:nowrap">{{ localDate(r.e.at) }}</td>
                 <td class="mono">{{ r.e.doc_ref }}</td><td class="mono">{{ r.e.material_code }}</td>
                 <td>{{ r.m.description || '—' }}</td><td class="mono" style="white-space:nowrap">{{ r.e.lot }}</td>
