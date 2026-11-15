@@ -9,7 +9,8 @@ import { mrpRows, mrpMatch, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
          weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
-         skipOver, cancelOver, overAll, overPending, fromOverRow } from '../v2/master/follow.js';
+         skipOver, cancelOver, overAll, overPending, fromOverRow,
+         shortSettled, overSettled, stoppedShorts } from '../v2/master/follow.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -147,6 +148,26 @@ ok('รหัสนอกสูตรที่หยุดตามแล้ว 
    JSON.stringify(r963([oSkipped, xFollow]).lines));
 ok('ทุกรหัสที่เกินจบเรื่องแล้ว = ใบนี้ครบ (ป้ายเขียว)', r963([oSkipped, xFollow]).nOver === 0 && r963([oSkipped, xFollow]).state === 'ok'
    && r963([oSkipped, xFollow]).nSkip === 2);
+
+console.log('=== M4c. ป้าย "จบเรื่องแล้ว" รู้ว่าจบเพราะเรื่องไหน — กดไปแถวนั้นในแท็บ short / over (เจ้าของสั่ง 15 พ.ย. 2026) ===');
+const via962 = fl => r962(fl).lines.find(l => l.code === B).via;
+ok('ไม่ติดตาม = via ชี้เรื่องที่หยุดไว้ (การ์ดยกเลิก)', JSON.stringify(via962([skipped])) === JSON.stringify({ how: 'stop', id: skipped.id }));
+ok('ยกเลิกเรื่อง = via ชี้เรื่องที่ยกเลิก', JSON.stringify(via962([cancelled])) === JSON.stringify({ how: 'stop', id: cancelled.id }));
+ok('ปิดเรื่องตรงยอด = via done ชี้เรื่องที่ปิด', JSON.stringify(via962([closedSame])) === JSON.stringify({ how: 'done', id: closedSame.id }));
+const sOld = { ...skipped, id: 'F-OLD', void_at: '2026-11-01T01:00:00.000Z' }, sNew = { ...skipped, id: 'F-NEW', void_at: '2026-11-10T01:00:00.000Z' };
+const closedEarly = { ...closedSame, created_at: '2026-11-05T01:00:00.000Z' };
+ok('ปิดตรงยอดไว้ก่อน แล้วมาหยุดทีหลัง = ชี้การ์ดยกเลิก', JSON.stringify(via962([closedEarly, sNew])) === JSON.stringify({ how: 'stop', id: 'F-NEW' }));
+ok('หยุดไว้ก่อน แล้วมีเรื่องตั้งทีหลังและปิดตรงยอด = ชี้เรื่องที่ปิด (เพดานหยุดหมดอายุ — กฎ stopGate เดิม)',
+   JSON.stringify(via962([sOld, closedEarly])) === JSON.stringify({ how: 'done', id: closedSame.id }));
+ok('หยุดไว้หลายรอบ = ชี้รอบล่าสุด ตรงกับแถวที่การ์ดยกเลิกแสดง (stoppedShorts)',
+   via962([sOld, sNew]).id === 'F-NEW' && stoppedShorts([sOld, sNew], { entity: EN })[0].s.id === 'F-NEW');
+ok('Short / ครบ = ไม่มี via (ป้ายกดไม่ได้)', via962([]) === null && line('TM0001H961', A).via === null
+   && line('TM0001H963', A).via === null);
+ok('ไม่ติดตาม Over = via ชี้เรื่อง over ที่หยุดไว้', line('TM0001H963', A, run({ follows: [oSkipped] })).via.id === oSkipped.id);
+ok('รหัสนอกสูตรที่หยุดตามแล้ว = via ชี้เรื่องนั้น', r963([oSkipped, xFollow]).lines.find(l => l.code === X).via.id === xFollow.id);
+ok('shortSettled / overSettled ยังคืน true / false เหมือนเดิม',
+   shortSettled([skipped])('TM0001H962', B, 1) === true && shortSettled([])('TM0001H962', B, 1) === false
+   && overSettled([oSkipped])('TM0001H963', A, 3) === true && overSettled([oSkipped])('TM0001H963', A, 9) === false);
 
 console.log('=== M5. ตัวกรอง · ค้นหา ===');
 ok('ตัวกรอง Short / Over / ครบ / คิดไม่ได้', MRP_FILTERS.short(at('TM0001H962')) && MRP_FILTERS.over(at('TM0001H963'))
@@ -347,6 +368,12 @@ ok('ใบที่กางมีแถวเว้นที่ว่างท�
 ok('ใบที่กาง: WK · วันที่ · PO · P/N · PO Qty. ตัวใหญ่ตัวหนา (เจ้าของขอ 13 พ.ย. 2026)', /tr\.mrp-po\.open > td\.mono\{font-size:\d+px;font-weight:700/.test(html));
 ok('PO ที่กางอยู่ติดคลาส open + แถวรายละเอียดมีคลาสของตัวเอง ให้ CSS แยกให้เห็นชัด',
    mrpHtml.includes(':class="{ open: mrpOpen[r.po] }"') && mrpHtml.includes('class="mrp-det"') && /tr\.mrp-po\.open > td\{/.test(html));
+
+ok('จอ: ป้ายที่มี via เป็นปุ่มเรียก mrpGoSettled · ตาราง short / ยกเลิก short / ยกเลิก over ติด data-fid ให้หาแถวเจอ',
+   mrpHtml.includes('@click="mrpGoSettled(l, r.po)"')
+   && html.includes('<tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}" :data-fid="r.s.id">')
+   && html.includes('fsStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id"')
+   && html.includes('foStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id"'));
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

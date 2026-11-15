@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-14.4">
+<meta name="app-version" content="2026-11-15.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -80,6 +80,11 @@ th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid va
 td{padding:6px 8px;border-bottom:1px solid #f0f3f6;vertical-align:top}
 tr.review td{background:#fffdf3}
 tr.late td{background:var(--badbg)}
+/* แถวที่กดมาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — กะพริบให้เห็นว่าคือแถวไหน */
+tr.hit td{animation:hit 2.4s ease-out}
+@keyframes hit{0%,40%{background:var(--warnbg);box-shadow:inset 0 0 0 9999px rgba(176,109,0,.08)}100%{background:transparent}}
+button.tag.mrp-via{border:0;cursor:pointer;font-family:inherit}
+button.tag.mrp-via:hover{text-decoration:underline}
 .mono{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
 .scroll{max-height:60vh;overflow:auto}
 .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
@@ -1773,7 +1778,10 @@ textarea{font:inherit}
                       <td class="mono r">{{ mrpNum(l.usage) }}</td>
                       <td class="mono r">{{ mrpNum(l.need) }} <span class="hint">{{ l.need == null ? '' : mrpUnit(l.code) }}</span></td>
                       <td class="mono r">{{ mrpNum(l.have) }} <span class="hint">{{ mrpUnit(l.code) }}</span></td>
-                      <td class="mrp-gap"><span v-if="mrpLineLabel(l)[0]" class="tag" :class="mrpLineLabel(l)[1]">{{ mrpLineLabel(l)[0] }}</span></td>
+                      <td class="mrp-gap"><button v-if="l.via" type="button" class="tag mrp-via" :class="mrpLineLabel(l)[1]"
+                              :title="l.via.how === 'done' ? 'ดูเรื่องที่ปิดไปแล้วในแท็บ short รอส่ง' : 'ดูในการ์ด ยกเลิก / ไม่ติดตามแล้ว ของแท็บ ' + (l.state === 'oskip' ? 'over รอคืน' : 'short รอส่ง')"
+                              @click="mrpGoSettled(l, r.po)">{{ mrpLineLabel(l)[0] }} ›</button>
+                        <span v-else-if="mrpLineLabel(l)[0]" class="tag" :class="mrpLineLabel(l)[1]">{{ mrpLineLabel(l)[0] }}</span></td>
                     </tr></tbody>
                   </table>
                 </div></td></tr>
@@ -2372,7 +2380,7 @@ textarea{font:inherit}
                 <th style="width:150px">ETA</th><th>ข้อความเต็ม</th>
                 <th style="width:250px"></th></tr></thead>
               <tbody>
-                <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}">
+                <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}" :data-fid="r.s.id">
                   <td class="mono hint">{{ r.s.date }}</td>
                   <td class="mono">{{ r.s.po }}</td>
                   <td class="mono hint">{{ poDateOf(r.s.po) || '—' }}</td>
@@ -2477,7 +2485,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in fsStopped.slice(0, SHOW_MAX)" :key="x.s.id">
+              <tbody><tr v-for="x in fsStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
                 <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono" :class="{hint: fsPn(x.s).fromPo}" :title="fsPn(x.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(x.s).pn || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td><td class="hint">{{ x.s.void_reason }}</td>
@@ -3130,7 +3138,7 @@ textarea{font:inherit}
               <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th>
                 <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
                 <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in foStopped.slice(0, SHOW_MAX)" :key="x.s.id">
+              <tbody><tr v-for="x in foStopped.slice(0, SHOW_MAX)" :key="x.s.id" :data-fid="x.s.id">
                 <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
                 <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                 <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td>

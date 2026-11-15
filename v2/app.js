@@ -2871,6 +2871,24 @@ createApp({
     }
     const foStopped = computed(() => stoppedOvers(shorts.value, { entity: entity.value }));
     const foStopShow = ref(false);
+    /* ป้าย "จบเรื่องแล้ว" ในแท็บ MRP กดแล้วไปแถวของเรื่องที่ทำให้จบ (เจ้าของสั่ง 15 พ.ย. 2026)
+     * ยกเลิก / ไม่ติดตาม = การ์ดท้ายแท็บ short / over · ปิดเรื่องตรงยอด = ตารางเรื่องที่ปิดแล้วของแท็บ short
+     * เรื่องไหนทำให้จบ ตัดสินที่ shortSettledBy / overSettledBy (follow.js) — ตรงนี้แค่เปิดแท็บแล้วเลื่อนไปหา */
+    function mrpGoSettled(l, po) {
+      const v = l && l.via;
+      if (!v) return;
+      const over = l.state === 'oskip';
+      if (v.how === 'done') { fsShowDone.value = true; fsSearch.value = po; }
+      else if (over) foStopShow.value = true;
+      else fsStopShow.value = true;
+      tab.value = over ? 'fover' : 'fshort';
+      nextTick(() => {
+        const el = document.querySelector(`tr[data-fid="${CSS.escape(String(v.id))}"]`);
+        if (!el) { flash(`หาแถวของเรื่องนี้ไม่เจอ — อาจอยู่เกิน ${SHOW_MAX} แถวแรกของตาราง`, true); return; }
+        el.scrollIntoView({ block: 'center' });
+        el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
+      });
+    }
     async function foRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่องคืนใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
@@ -3783,7 +3801,7 @@ createApp({
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
-             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
              planShip, planPull, planAtText, poDateOf, mrpSetWeek,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
