@@ -1160,7 +1160,7 @@ createApp({
         // รายการที่สูตรบอกว่าต้องใช้ แต่ Kit List ไม่ได้จ่ายมา — บอกไว้ ไม่ใช่เติมให้เอง
         const missing = rows.filter(r => !kit.some(k => String(k.code) === String(r.code)));
         bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมยอดที่ Delta จ่ายให้แล้ว)`
-          + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้จ่ายมา` : '');
+          + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้ส่งมา` : '');
         markReceived(recv);
         return;
       }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-16.4">
+<meta name="app-version" content="2026-11-16.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1156,7 +1156,7 @@ textarea{font:inherit}
               <input v-model.trim="inH.person" placeholder="ชื่อคนคีย์"></label>
           </div>
           <p class="hint" style="margin:6px 0 0">
-            กางทุก PO ในไฟล์ลงตารางเดียว พร้อมยอดที่ Delta จ่ายมา — ตรวจแล้วแก้ยอดที่นับได้จริง
+            กางทุก PO ในไฟล์ลงตารางเดียว พร้อมยอดที่ Delta ส่งมา — ตรวจแล้วแก้ยอดที่นับได้จริง
             ก่อนกดบันทึก · ของที่ยังไม่มาให้ล้างช่องรับจริงไว้ บันทึกแล้วบรรทัดพวกนั้นจะคาอยู่ให้คีย์ต่อ
           </p>
           <div :class="['msg', inFileTone]" v-if="inFileMsg" style="margin:10px 0 0">{{ inFileMsg }}</div>
@@ -1222,7 +1222,7 @@ textarea{font:inherit}
                 <th style="width:100px">หมวดหมู่</th>
                 <th style="width:60px">หน่วย</th><th style="width:95px">ตามสูตร</th>
                 <th style="width:90px">รับแล้ว</th>
-                <th style="width:95px">Delta จ่ายมา</th>
+                <th style="width:95px">Delta ส่งมา</th>
                 <th style="width:95px">รับจริง</th><th style="width:110px">ล็อต</th>
                 <th style="width:130px">วันหมดอายุ</th><th style="width:36px"></th>
               </tr></thead>
@@ -1318,7 +1318,7 @@ textarea{font:inherit}
                 <th style="width:60px">หน่วย</th><th style="width:90px">ตามสูตร</th>
                 <th style="width:90px" v-if="outH.po">จ่ายแล้ว</th>
                 <th style="width:95px" v-if="outH.po">ยังต้องจ่าย</th>
-                <th style="width:100px">Delta จ่ายมา</th>
+                <th style="width:100px">Delta ส่งมา</th>
                 <th style="width:95px">{{ outH.po ? 'คงเหลือ PO' : 'คงเหลือ' }}</th><th style="width:95px">จ่ายออก</th>
                 <th style="width:95px">หลังจ่าย</th><th style="width:210px">ล็อต</th>
                 <th style="width:36px"></th>
@@ -1937,7 +1937,7 @@ textarea{font:inherit}
             <input type="file" accept=".xlsx,.xls" @change="onWkFile" :disabled="wkBusy">
             <span class="hint" v-if="wkBusy">กำลังอ่านไฟล์...</span></p>
           <p class="hint" style="margin:6px 0 0">
-            กางรายการทั้งใบพร้อมยอดที่ Delta จ่ายมา · ตั้งเลขล็อตเป็นวันที่รับเข้า ·
+            กางรายการทั้งใบพร้อมยอดที่ Delta ส่งมา · ตั้งเลขล็อตเป็นวันที่รับเข้า ·
             เอายอดรวมรายรหัสจากแถว Total มาเทียบให้เอง
             — เหลือใส่ชื่อผู้รับ ตรวจแล้วกดบันทึก
           </p>
@@ -2000,7 +2000,7 @@ textarea{font:inherit}
             </table>
           </div>
           <div class="row" style="margin-top:11px">
-            <button class="btn" @click="wkUseIssued">เติมรับจริง = ยอดที่จ่ายมา</button>
+            <button class="btn" @click="wkUseIssued">เติมรับจริง = ยอดที่ส่งมา</button>
             <span class="hint">พร้อมบันทึก {{ wkCheck.ready.length }} บรรทัด</span>
             <div class="grow"></div>
             <button class="btn" @click="wkLines=[];wkTotals={};wkOver=[];wkMsg=''">ล้าง</button>
@@ -2195,7 +2195,7 @@ textarea{font:inherit}
             </table>
             <table v-else>
               <thead><tr><th style="width:120px">PO</th><th style="width:115px">รหัส</th>
-                <th>ชื่อ</th><th style="width:100px">จ่ายมา</th>
+                <th>ชื่อ</th><th style="width:100px">ส่งมา</th>
                 <th style="width:100px" v-if="imp.kind==='chem'">ตามสูตร</th>
                 <th style="width:110px" v-if="imp.kind==='chem'">ยอดสั่ง</th></tr></thead>
               <tbody><tr v-for="k in imp.plan.fresh.slice(0,80)" :key="k.id">
