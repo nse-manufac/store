@@ -97,6 +97,33 @@ export function movedOfDoc(entries, entity, docRef, kind) {
 export const receivedOfDoc = (entries, entity, docRef) => movedOfDoc(entries, entity, docRef, 'receive');
 
 /**
+ * ยอดของ PO ใบนี้ แยกตามรหัส — Map<code, { recv, sendback, issued, bal }> (เจ้าของสั่ง 16 พ.ย. 2026)
+ *
+ * หน้าจ่ายออกใช้แทนยอดคงคลังรวม จะได้ไม่เบิกของ PO หนึ่งไปใช้กับอีกใบ
+ *   bal = รับเข้าตามใบนี้ − ส่งคืน Delta ตามใบนี้ − จ่ายออกตามใบนี้
+ * ⚠️ ไม่นับ "คืนของ" กับ "ของเสีย" แม้คีย์อ้าง PO นี้ (เจ้าของเคาะ)
+ *   คืนของ = ของเหลือจากไลน์กลับเข้าคลัง · ของเสีย = ของที่จ่ายออกไปแล้วถึงเสีย — ไม่ใช่ยอดของใบนี้
+ * ⚠️ ไม่ใช่ยอดคงคลัง — ยกยอดมา · ปรับยอด · รับเข้าที่ไม่อ้าง PO ไม่อยู่ในนี้ ห้ามเอาไปแทน balances()
+ */
+export function poStockOf(entries, entity, docRef) {
+  const recv = movedOfDoc(entries, entity, docRef, 'receive');
+  const back = movedOfDoc(entries, entity, docRef, 'sendback');
+  const iss  = movedOfDoc(entries, entity, docRef, 'issue');
+  const m = new Map();
+  for (const c of new Set([...recv.keys(), ...back.keys(), ...iss.keys()])) {
+    const r = recv.get(c)?.qty || 0, s = back.get(c)?.qty || 0, i = iss.get(c)?.qty || 0;
+    m.set(c, { recv: r, sendback: s, issued: i, bal: round5(r - s - i) });
+  }
+  return m;
+}
+
+/** ยังต้องจ่ายอีก = ตามสูตร − จ่ายแล้ว · null ถ้ายังไม่รู้ยอดตามสูตร (ไม่เดาเป็น 0) · ติดลบ = จ่ายเกินสูตรแล้ว */
+export function stillToIssue(reqmt, issued) {
+  if (reqmt === null || reqmt === undefined || reqmt === '' || !isFinite(Number(reqmt))) return null;
+  return round5(Number(reqmt) - (Number(issued) || 0));
+}
+
+/**
  * การ์ดรายตัว — ประวัติของรหัสเดียวพร้อมยอดสะสมทีละบรรทัด
  * เรียงเก่าไปใหม่ เพราะเป็นเอกสารที่ลูกค้าอ่านไล่ลงมา
  */
