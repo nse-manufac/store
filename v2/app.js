@@ -961,8 +961,6 @@ createApp({
       poPick.value = '';
     }
 
-    const matOf = code => materials.value.find(m => normCode(m.material_code) === normCode(code));
-
     /**
      * หมวดหมู่ของรหัสนี้ — ฝั่ง Mat Follow up เห็นแต่รหัสล้วน ซึ่งบอกไม่ได้ว่าของคืออะไร
      * (เจ้าของสั่ง 22 ก.ย. 2026) · รหัสที่ยังไม่มีในทะเบียนคืนค่าว่าง ให้หน้าจอขึ้นขีด
@@ -980,6 +978,8 @@ createApp({
       }
       return m;
     });
+    // ใช้ดัชนีเดียวกัน — เดิมไล่ find() ทั้งทะเบียนทุกครั้งที่เรียก แท็บยอดคงเหลือเรียกทุกแถว (สลับแท็บช้า · วัด 16 พ.ย. 2026)
+    const matOf = code => matIndex.value.get(normCode(code));
     const catOf = code => {
       const m = matIndex.value.get(normCode(code));
       return m && m.category ? m.category : '';
@@ -989,9 +989,13 @@ createApp({
     const lg = reactive({ from: todayLocal(), to: todayLocal(), q: '', voided: false });
     const LG_MAX = 500;   // บนจอแสดงไม่เกินนี้ ตารางยาวกว่านี้เรนเดอร์ช้า · ส่งออก Excel ได้ครบทุกแถว
     const lgSide = computed(() => tab.value === 'lgout' ? 'out' : 'in');
-    const lgRows = computed(() => (tab.value !== 'lgin' && tab.value !== 'lgout') || !entity.value ? []
-      : logRows(entries.value, { entity: entity.value, side: lgSide.value, from: lg.from, to: lg.to,
-                                 q: lg.q, voided: lg.voided, matOf: c => matIndex.value.get(normCode(c)) }));
+    // แยกฝั่งละตัว และไม่ผูกกับแท็บ — ผลค้างไว้จนข้อมูลหรือตัวกรองเปลี่ยน กลับมาเปิดแท็บซ้ำไม่ต้องคำนวณใหม่
+    // (computed คำนวณเมื่อมีคนอ่านเท่านั้น อยู่แท็บอื่นก็ไม่เสียแรง)
+    const lgSideRows = side => computed(() => !entity.value ? []
+      : logRows(entries.value, { entity: entity.value, side, from: lg.from, to: lg.to,
+                                 q: lg.q, voided: lg.voided, matOf }));
+    const lgIn = lgSideRows('in'), lgOut = lgSideRows('out');
+    const lgRows = computed(() => (lgSide.value === 'out' ? lgOut : lgIn).value);
     const lgShown = computed(() => lgRows.value.slice(0, LG_MAX));
     function lgToday() { lg.from = todayLocal(); lg.to = todayLocal(); }
     async function lgExport() {
@@ -2406,8 +2410,7 @@ createApp({
      *
      * ⚠️ การ์ดที่สามขาดไม่ได้ · PO ที่ไม่มีสูตรหรือยังไม่รู้จำนวนสั่ง คำนวณยอดเกินไม่ได้
      *    ไม่โชว์ไว้ มันจะหายจากจอโดยไม่มีใครรู้ว่าตกหล่น */
-    const unitOf = code =>
-      (materials.value.find(m => normCode(m.material_code) === normCode(code)) || {}).unit || '';
+    const unitOf = code => (matOf(code) || {}).unit || '';   // ดัชนี ไม่ไล่ทั้งทะเบียน — เรียกทุกแถวของการ์ด
     const foSearch = ref('');
     const foShowDone = ref(false);
 
