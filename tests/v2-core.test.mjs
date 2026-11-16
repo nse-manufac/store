@@ -300,6 +300,17 @@ ok('รหัสที่ไม่มีในทะเบียนไม่พ�
 }
 ok('ไม่มีอะไรเลยก็ไม่พัง', logRows(null, { entity: 'X' }).length === 0 && logSheet([]).length === 1);
 
+{
+  // สลับแท็บช้า (วัด 16 พ.ย. 2026) — สองจุดที่ทำให้เปิดแท็บแล้วต้องไล่ข้อมูลใหม่ทั้งก้อน
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('matOf เปิดดัชนีทะเบียน ไม่ไล่ find() ทั้งทะเบียนทุกครั้ง',
+     src.includes('const matOf = code => matIndex.value.get(normCode(code));')
+     && !src.includes('materials.value.find(m => normCode(m.material_code) === normCode(code))'));
+  ok('Log รับเข้า/จ่ายออก ค้างผลแยกฝั่ง ไม่ผูกกับแท็บ (กลับมาเปิดซ้ำไม่คำนวณใหม่)',
+     src.includes("const lgIn = lgSideRows('in'), lgOut = lgSideRows('out');")
+     && !src.includes("tab.value !== 'lgin'"));
+}
+
 console.log('\n=== วาดตารางยาวทีละช่วง (เจ้าของสั่ง 16 พ.ย. 2026 · ไม่ตัดแถวทิ้ง) ===');
 {
   const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
