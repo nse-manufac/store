@@ -112,6 +112,8 @@ export function makeFollow(input = {}) {
     next_po: txt(input.next_po),
     // ใบสั่งซื้อทดแทน (FM-PU-02) ที่เรื่องนี้ถูกใส่ไปแล้ว — ว่าง = ยังไม่ได้ออกใบ (เจ้าของเคาะ 2 ต.ค. 2026)
     pr_no: txt(input.pr_no), pr_date: txt(input.pr_date),
+    // ใบขอสั่งซื้อ — ผู้ขอ · แผนก · ผู้อนุมัติ (เจ้าของสั่ง 16 พ.ย. 2026) · วันที่ขอ = date · ว่าง = เรื่องก่อนมีใบขอ
+    req_by: txt(input.req_by), req_dept: txt(input.req_dept), req_approver: txt(input.req_approver),
     note: txt(input.note),
     created_at: now, created_by: txt(input.by),
     done_at: '', done_by: '',
@@ -1359,7 +1361,7 @@ export function pendingScraps(entries, entity, follows) {
  * PO ยังว่างได้ เพราะตอนตั้งเรื่องมักยังไม่รู้ว่า Delta จะออกใบไหนให้
  */
 export function fromScrapRow(row, { entity, person = '', unit = '', date = '',
-                                    at = '', follows = null } = {}) {
+                                    at = '', follows = null, req = null } = {}) {
   if (!row || !txt(row.id)) throw new Error('ไม่มีรายการของเสียให้ตั้งเรื่อง');
   if (follows && buyFor(follows, row.id)) {
     throw new Error('ของเสียใบนี้ตั้งเรื่องซื้อทดแทนไว้แล้ว');
@@ -1370,8 +1372,32 @@ export function fromScrapRow(row, { entity, person = '', unit = '', date = '',
     scrap_entry_id: row.id,
     // po = PO เดิมที่ของเสียเกิด (Old Po.) · PO ใหม่ที่ Delta ออกให้ทีหลังเก็บที่ next_po
     po: txt(row.po), part_no: txt(row.part_no),
-    note: txt(row.note), by: person, now: at, date
+    note: txt(row.note), by: person, now: at, date,
+    req_by: req && req.by, req_dept: req && req.dept, req_approver: req && req.approver
   });
+}
+
+/**
+ * ใบขอสั่งซื้อ — ติ๊กของเสียหลายใบ + หัวใบ (ผู้ขอ · แผนก · ผู้อนุมัติ · วันที่ขอ) → เรื่องซื้อทีละใบ
+ * (เจ้าของสั่ง 16 พ.ย. 2026 · แทนปุ่ม "ตั้งเรื่องซื้อ" ทีละแถว)
+ * หัวใบต้องครบทุกช่อง · วันที่ขอเป็น "ตั้งวันที่" ของเรื่อง · ผู้ขอเป็นผู้ตั้งเรื่อง
+ * ⚠️ ตรวจซ้ำทั้งชุดก่อนคืนผล — ใบไหนตั้งเรื่องไว้แล้ว ทั้งชุดไม่ผ่าน จะได้ไม่ตั้งไปครึ่งใบ
+ */
+export const REQ_FIELDS = [['by', 'ผู้ขอสั่งซื้อ'], ['dept', 'แผนก'], ['approver', 'ผู้อนุมัติ'], ['date', 'วันที่ขอสั่งซื้อ']];
+export function buyRequest(rows, head = {}, { entity, unitOf = () => '', follows = null, at = '' } = {}) {
+  const h = Object.fromEntries(REQ_FIELDS.map(([k]) => [k, txt(head[k])]));
+  const missing = REQ_FIELDS.filter(([k]) => !h[k]).map(([, label]) => label);
+  if (missing.length) return { ok: false, missing, recs: [], why: 'ยังไม่ได้กรอก ' + missing.join(' · ') };
+  const list = (rows || []).filter(Boolean);
+  if (!list.length) return { ok: false, missing, recs: [], why: 'ยังไม่ได้ติ๊กรายการ' };
+  const seen = new Set();
+  const recs = list.map(row => {
+    if (seen.has(txt(row.id))) throw new Error('ติ๊กของเสียใบเดียวกันซ้ำ');
+    seen.add(txt(row.id));
+    return fromScrapRow(row, { entity, person: h.by, unit: unitOf(row.code), date: h.date, at, follows,
+                               req: { by: h.by, dept: h.dept, approver: h.approver } });
+  });
+  return { ok: true, missing, recs, why: '' };
 }
 
 /* ── ใบสั่งซื้อทดแทน FM-PU-02 "ISSUE MATERIAL LOSS FOR SUBCONTRACT" (เจ้าของเคาะ 2 ต.ค. 2026) ──

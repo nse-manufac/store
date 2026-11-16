@@ -300,6 +300,16 @@ console.log('\n=== H0. ใบสั่งซื้อทดแทน — เล�
   ok('pr_date ยังเป็นข้อความ YYYY-MM-DD', got && got.pr_date === '2026-10-02', JSON.stringify((got || {}).pr_date));
 }
 
+console.log('\n=== H0b. ใบขอสั่งซื้อ — ผู้ขอ · แผนก · ผู้อนุมัติ เดินทางผ่านชีต (16 พ.ย. 2026) ===');
+{
+  const s = loadScript();
+  s.call('pushTable', { table: 'Shorts', rows: [{ id: 'RQ1', entity: 'TUE-H', kind: 'buy', code: '4010600100',
+    qty: 3, req_by: 'สมชาย', req_dept: 'ผลิต', req_approver: 'สมศักดิ์', updated_at: '' }] });
+  const got = s.call('pullTable', { table: 'Shorts', since: '' }).rows[0];
+  ok('ผู้ขอ · แผนก · ผู้อนุมัติ กลับมาครบ', got && got.req_by === 'สมชาย' && got.req_dept === 'ผลิต'
+     && got.req_approver === 'สมศักดิ์', JSON.stringify(got));
+}
+
 console.log('\n=== H. ตารางตามงานวัตถุดิบ (ชีต Shorts) ===');
 /* ชีตนี้เดิมเก็บแค่ของขาด ตอนนี้เก็บงานตามสามแบบ จึงต่อคอลัมน์เพิ่ม
  * เรื่องที่ต้องพิสูจน์คือ "ชีตที่พนักงานใช้อยู่แล้ว" ต้องรอดจากการต่อคอลัมน์
