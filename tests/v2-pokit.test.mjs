@@ -253,17 +253,19 @@ ok('ช่อง PO ของหน้าจ่ายออกเติม P/N �
 ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต่อ แต่ไม่เติมวันที่ (วันจ่ายออกคือวันที่เบิก)',
    bodyOf('pickOutPo').includes('poHeader(') && bodyOf('pickOutPo').includes('outH.pn')
    && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
-// เจ้าของ 16 ก.ย. 2026: ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
-ok('หน้ารับเข้ายังเติมจำนวนสั่งจากไฟล์ PO · หน้าจ่ายออกไม่เติม',
-   /inH\.order = h\.order/.test(bodyOf('pickPo')) && !/outH\.order = h\.order/.test(bodyOf('pickOutPo')));
+// เจ้าของ 16 พ.ย. 2026 กลับคำ 16 ก.ย.: หน้าจ่ายออกเติมจำนวนสั่งด้วย ให้เห็น "ยังต้องจ่าย" ของ PO
+// (ที่เคยไม่เติมเพราะยอดเบิกถูกตั้งตามสูตรให้ทั้งใบ — ตอนนี้ไม่ตั้งแล้ว #78)
+ok('ทั้งสองหน้าเติมจำนวนสั่งจากไฟล์ PO',
+   /inH\.order = h\.order/.test(bodyOf('pickPo')) && /outH\.order = \(h && h\.order\) \|\| null/.test(bodyOf('pickOutPo')));
 /* ผู้ตรวจรอบสองของ #81: เลิกเติมจำนวนสั่งแล้วไม่มีใครล้างค่าเดิมทิ้ง เลขของใบก่อนจึงค้างข้ามใบ
  * ไปคูณ usage ของ P/N ใบใหม่ แล้วช่อง "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ ทั้งที่ P/N บนจอถูกต้อง
  * ต้องปิดทั้งสามทาง: คีย์ PO ใบใหม่ · กดปุ่ม "ล้าง" · บันทึกจบ
+ * (16 พ.ย. 2026 กลับมาเติมแล้ว แต่ใบที่ไม่มีในไฟล์ PO ยังต้องได้ค่าว่าง — ห้ามเขียนแบบ if (h.order) ที่ค้างค่าเก่า)
  * ⚠️ ห้ามใช้ switchedPo เป็นเงื่อนไข — หลัง clearOut/saveOut ค่า outShownPo ว่าง switchedPo คืน false */
 // เอาคอมเมนต์ออกก่อนตรวจ — ข้อนี้ตรวจว่าโค้ดทำอะไร ไม่ใช่ว่าคอมเมนต์เอ่ยถึงอะไร
 const codeOf = name => bodyOf(name).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 ok('ขึ้นใบใหม่แล้วจำนวนสั่งของหน้าจ่ายออกต้องว่าง ไม่ใช่ค่าของใบเก่า',
-   /outH\.order = null/.test(codeOf('pickOutPo'))
+   /outH\.order = \(h && h\.order\) \|\| null/.test(codeOf('pickOutPo'))
    && /outH\.order = null/.test(codeOf('clearOut'))
    && /outH\.order = null/.test(codeOf('saveOut'))
    && !/switchedPo/.test(codeOf('pickOutPo')));
