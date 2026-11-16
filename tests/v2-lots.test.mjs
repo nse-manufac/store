@@ -6,7 +6,8 @@
  * ถ้าปล่อยให้ล็อตที่เดามาดูเหมือนของที่บันทึกไว้ เราจะพูดกับลูกค้าเกินกว่าที่รู้จริง
  */
 import fs from 'node:fs';
-import { lotsOf, suggestLots, traceLot, receiveLot, relot } from '../v2/core/lots.js';
+import { lotsOf, suggestLots, traceLot, receiveLot, relot, poLotsOf } from '../v2/core/lots.js';
+import { poStockOf } from '../v2/core/balance.js';
 import { makeEntry } from '../v2/core/ledger.js';
 
 let pass = 0, fail = 0;
@@ -121,6 +122,43 @@ ok('ไม่มีวันที่เดิม / ไม่มีอะไร�
   ok('ไม่บล็อก / ไม่ถามยืนยัน เพราะไม่มีวันหมดอายุ หรือไม่มีล็อต ทั้งสองหน้า',
      !src.includes('ต้องกรอกวันหมดอายุอีก') && !/confirm\([^;]*ยังไม่มีวันหมดอายุ/.test(src)
      && !/confirm\([^;]*ยังไม่ใส่เลขล็อต/.test(src));
+}
+
+console.log('\n=== ล็อตของ PO ใบเดียว — หน้าจ่ายออกเดาล็อต/ป้ายของไม่พอจากของของใบนั้น (เจ้าของสั่ง 16 พ.ย. 2026) ===');
+{
+  const P = 'POX';
+  const rows = [
+    mk({ kind: 'open', qty: 50 }),                                          // ยกยอดมา ไม่ใช่ของใบนี้
+    mk({ kind: 'receive', qty: 30, lot: 'L-OTHER', doc_ref: 'POY' }),       // ของ PO อื่น
+    mk({ kind: 'receive', qty: 10, lot: 'L-1', doc_ref: P }),
+    mk({ kind: 'receive', qty: 6,  lot: 'L-2', doc_ref: P }),
+    mk({ kind: 'issue', qty: 4, doc_ref: P }),                             // ไม่ระบุล็อต → ตัดล็อตเก่าก่อน
+    mk({ kind: 'issue', qty: 3, lot: 'L-2', doc_ref: P }),                 // ระบุล็อต → ตัดล็อตนั้น
+    mk({ kind: 'sendback', qty: 1, reason_code: 'over', doc_ref: P }),
+    mk({ kind: 'return', qty: 9, reason_code: 'unused', doc_ref: P }),     // ไม่นับ (เจ้าของเคาะ)
+    mk({ kind: 'scrap', qty: 2, reason_code: 'wind', doc_ref: P })         // ไม่นับ
+  ];
+  const lots = poLotsOf(rows, E, CODE, P);
+  const sum = lots.reduce((a, l) => a + l.qty, 0);
+  ok('รวมทุกล็อตของใบ = คงเหลือ PO ของ poStockOf (ต้องไม่หลุดจากกัน)',
+     sum === poStockOf(rows, E, P).get(CODE).bal && sum === 8, `${sum} vs ${poStockOf(rows, E, P).get(CODE).bal}`);
+  ok('ไม่ระบุล็อตตัดล็อตเก่าก่อน · ระบุล็อตตัดล็อตนั้น',
+     JSON.stringify(lots.map(l => [l.lot, l.qty])) === JSON.stringify([['L-1', 5], ['L-2', 3]]),
+     JSON.stringify(lots.map(l => [l.lot, l.qty])));
+  ok('ไม่เอาล็อตของ PO อื่นหรือยกยอดมาปน', !lots.some(l => l.lot === 'L-OTHER' || l.lot === ''));
+
+  const s = suggestLots(rows, E, CODE, 12, P);
+  ok('ส่งเลข PO = ป้ายขาดคิดจากของใบนี้ (มี 8 จ่าย 12 ขาด 4)', s.short === 4 && !s.enough, JSON.stringify(s.short));
+  ok('ส่งเลข PO = เสนอล็อตของใบนี้เท่านั้น', s.picks.every(p => p.lot === 'L-1' || p.lot === 'L-2'));
+  ok('ไม่ส่งเลข PO = ใช้ยอดทั้งคลังเหมือนเดิม', suggestLots(rows, E, CODE, 12).short === 0);
+
+  // จ่ายไม่ระบุล็อตจนหมดใบ — ล็อตที่รับมาต้องหมดด้วย ไม่ใช่เหลือเต็ม (กับดักของ lotsOf)
+  const done = [mk({ kind: 'receive', qty: 5, lot: 'L-9', doc_ref: 'POZ' }), mk({ kind: 'issue', qty: 5, doc_ref: 'POZ' })];
+  ok('จ่ายไม่ระบุล็อตครบใบ = ไม่เหลือล็อต → ป้ายของไม่พอขึ้น',
+     poLotsOf(done, E, CODE, 'POZ').length === 0 && suggestLots(done, E, CODE, 1, 'POZ').short === 1);
+  let threw = false; try { poLotsOf(rows, '', CODE, P); } catch { threw = true; }
+  ok('poLotsOf ลืมส่ง entity ไม่ได้ (A3)', threw);
+  ok('ไม่มีเลข PO = ว่าง', poLotsOf(rows, E, CODE, '').length === 0);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

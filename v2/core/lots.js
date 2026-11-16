@@ -64,6 +64,52 @@ export function lotsOf(entries, entity, code) {
     .sort((a, b) => (a.lot === '' ? -1 : b.lot === '' ? 1 : 0) || a.first.localeCompare(b.first));
 }
 
+// ชนิดที่นับเป็นของ PO — ชุดเดียวกับ poStockOf (core/balance.js) · ไม่นับคืนของ/ของเสีย
+const PO_KINDS = new Set(['receive', 'sendback', 'issue']);
+
+/**
+ * ล็อตที่ยังเหลือของ PO ใบเดียว — ชุดเดียวกับ poStockOf (core/balance.js) จึงรวมกันได้เท่าคงเหลือ PO
+ *
+ * นับเฉพาะ รับเข้า · ส่งคืน Delta · จ่ายออก ที่อ้าง PO นี้ (ไม่นับคืนของ/ของเสีย — เจ้าของเคาะ 16 พ.ย. 2026)
+ * ของออกที่ระบุล็อตตัดจากล็อตนั้นก่อน ส่วนที่ไม่ระบุล็อต (หรือเกินล็อตนั้น) ตัดจากล็อตเก่าก่อน
+ * ⚠️ ถ้าตัดจ่ายออกไม่ระบุล็อตจากกองว่างตรง ๆ แบบ lotsOf กองว่างติดลบแล้วถูกกรองทิ้ง
+ *    ล็อตที่รับมาจะเหลือเต็ม → ป้าย "ของไม่พอ" ไม่ขึ้นทั้งที่คงเหลือ PO หมดแล้ว
+ */
+export function poLotsOf(entries, entity, code, docRef) {
+  if (!entity) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
+  const c = String(code), ref = String(docRef || '');
+  if (!ref) return [];
+  const rows = entries.filter(e => e.entity === entity && counts(e) && String(e.material_code) === c
+    && String(e.doc_ref) === ref && PO_KINDS.has(e.kind));
+  const piles = new Map();
+  for (const e of rows) {
+    const d = signedQty(e);
+    if (d <= 0) continue;
+    const lot = String(e.lot || '');
+    const cur = piles.get(lot) || { lot, qty: 0, first: e.at, last: e.at, inferred: false };
+    cur.qty = round5(cur.qty + d);
+    if (e.at < cur.first) cur.first = e.at;
+    if (e.at > cur.last) cur.last = e.at;
+    piles.set(lot, cur);
+  }
+  let loose = 0;
+  for (const e of rows) {
+    let out = -signedQty(e);
+    if (out <= 0) continue;
+    const p = e.lot ? piles.get(String(e.lot)) : null;
+    if (p) { const t = Math.min(p.qty, out); p.qty = round5(p.qty - t); out = round5(out - t); }
+    loose = round5(loose + out);
+  }
+  const sorted = [...piles.values()]
+    .sort((a, b) => (a.lot === '' ? -1 : b.lot === '' ? 1 : 0) || a.first.localeCompare(b.first));
+  for (const p of sorted) {
+    if (loose <= 0) break;
+    const t = Math.min(p.qty, loose);
+    p.qty = round5(p.qty - t); loose = round5(loose - t);
+  }
+  return sorted.filter(p => p.qty > 0);
+}
+
 /**
  * เดาว่าควรตัดจากล็อตไหน — ของเก่าก่อน
  * คืนรายการที่อาจมีหลายล็อตถ้าล็อตเดียวไม่พอ
@@ -72,9 +118,10 @@ export function lotsOf(entries, entity, code) {
  * ⚠️ ห้ามเอาไปบล็อกการบันทึก — INVARIANTS A4 บอกว่ายอดติดลบเตือนได้แต่ห้ามห้าม
  * เพราะของจริงมีกรณีคีย์รับเข้าย้อนหลัง
  */
-export function suggestLots(entries, entity, code, qty) {
+export function suggestLots(entries, entity, code, qty, docRef) {
   const want = Number(qty) || 0;
-  const open = lotsOf(entries, entity, code);
+  // ส่งเลข PO มา = หยิบจากล็อตของใบนั้นเท่านั้น (หน้าจ่ายออก · เจ้าของสั่ง 16 พ.ย. 2026)
+  const open = docRef ? poLotsOf(entries, entity, code, docRef) : lotsOf(entries, entity, code);
   const picks = [];
   let left = want;
   for (const l of open) {

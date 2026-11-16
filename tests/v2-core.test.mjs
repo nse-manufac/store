@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue } from '../v2/core/balance.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -387,6 +387,38 @@ ok('ไม่มีอะไรเลยก็ไม่พัง', missingExpiry
      src.includes('setExpiry(e, { date: fxDraft[e.id], by: fx.by, today: todayLocal() })')
      && src.includes('missingExpiry(entries.value, entity.value, needsExp)'));
   ok('หน้าแรกมีตัวนับที่พาไปแท็บนี้', src.includes("label: 'รับเข้าที่ยังไม่มีวันหมดอายุ', tab: 'lgexp'"));
+}
+
+console.log('\n=== ยอดของ PO ใบเดียวบนหน้าจ่ายออก (เจ้าของสั่ง 16 พ.ย. 2026) ===');
+{
+  const C = base.material_code;
+  const rows = [
+    mk({ kind: 'receive', qty: 100, lot: 'L1', doc_ref: 'POA' }),
+    mk({ kind: 'receive', qty: 20.5, lot: 'L2', doc_ref: 'POA' }),
+    mk({ kind: 'receive', qty: 999, lot: 'L3', doc_ref: 'POB' }),
+    mk({ kind: 'sendback', qty: 5, reason_code: 'over', doc_ref: 'POA' }),
+    mk({ kind: 'issue', qty: 30, doc_ref: 'POA' }),
+    mk({ kind: 'issue', qty: 10.2, doc_ref: 'POA' }),
+    mk({ kind: 'issue', qty: 7, doc_ref: 'POB' }),
+    mk({ kind: 'issue', qty: 3 }),                                    // เบิกไม่อ้าง PO
+    mk({ kind: 'return', qty: 4, reason_code: 'unused', doc_ref: 'POA' }),
+    mk({ kind: 'scrap', qty: 2, reason_code: 'wind', doc_ref: 'POA' }),
+    voidEntry(mk({ kind: 'issue', qty: 50, doc_ref: 'POA' }), { by: 'เจ้าของ', reason: 'คีย์ผิด' }),
+    makeEntry({ ...base, entity: 'OTHER', kind: 'issue', qty: 888, doc_ref: 'POA' })
+  ];
+  const s = poStockOf(rows, E, 'POA').get(C);
+  ok('คงเหลือ PO = รับ − ส่งคืน Delta − จ่ายออก ของใบนี้', s.bal === 75.3, JSON.stringify(s));
+  ok('จ่ายแล้วรวมทุกรอบของใบนี้ ไม่นับที่ยกเลิก (B1)', s.issued === 40.2, String(s.issued));
+  ok('ไม่นับคืนของกับของเสียที่อ้าง PO (เจ้าของเคาะ)', s.recv === 120.5 && s.sendback === 5);
+  ok('PO ใบอื่น · เบิกไม่อ้าง PO · นิติบุคคลอื่น ไม่ปน (A3)',
+     poStockOf(rows, E, 'POB').get(C).bal === 992 && poStockOf(rows, 'OTHER', 'POA').get(C).bal === -888);
+  ok('จ่ายไปแล้วแต่ยังไม่รับ = ติดลบ ไม่หาย',
+     poStockOf([mk({ kind: 'issue', qty: 6, doc_ref: 'POC' })], E, 'POC').get(C).bal === -6);
+  ok('ไม่ใส่เลข PO = ว่าง', poStockOf(rows, E, '').size === 0);
+  throws('poStockOf ลืมส่ง entity ไม่ได้ (A3)', () => poStockOf(rows, '', 'POA'), 'นิติบุคคล');
+  ok('ยังต้องจ่าย = ตามสูตร − จ่ายแล้ว', stillToIssue(100, 40.2) === 59.8);
+  ok('ยังไม่รู้ยอดตามสูตร = null ไม่ใช่ 0', stillToIssue(null, 5) === null && stillToIssue('', 5) === null);
+  ok('จ่ายเกินสูตร = ติดลบ', stillToIssue(10, 12) === -2);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
