@@ -344,6 +344,29 @@ console.log('\n=== วาดตารางยาวทีละช่วง (�
     const e = env(), rows = Array.from({ length: 900 }, (_, i) => 'PO' + i);
     ok('แถวที่ต้องเลื่อนไปหา (keep) ขึ้นทันทีแม้อยู่ท้ายรายการ', e.drawing({ value: rows }, r => r === 'PO850').value.includes('PO850'));
   }
+  {
+    // ⚠️ เคสนี้ต้องใช้ Vue ตัวจริง — computed ปลอมข้างบนไม่ cache (body รันใหม่ทุกครั้งที่อ่าน)
+    // จึงตั้งรอบวาดใหม่ให้เองเสมอ และมองไม่เห็นอาการ "ค้างที่ 60 แถว" ที่เจอจริงตอนสลับแท็บเร็ว ๆ
+    const Vue = new Function(fs.readFileSync(new URL('../v2/lib/vue.global.prod.js', import.meta.url), 'utf8') + '\nreturn Vue;')();
+    const { ref, computed, watch, effect, stop, nextTick } = Vue;
+    const q = [], tab = ref('ยาว');
+    const make = new Function('ref', 'computed', 'watch', 'tab', 'requestAnimationFrame', 'setTimeout',
+      src.slice(a, b) + '\nreturn { drawing };');
+    const { drawing } = make(ref, computed, watch, tab, cb => q.push(cb), cb => q.push(cb));
+    const frames = () => { let k = 0; while (q.length && k < 5000) { q.shift()(); k++; } };
+    const rows = ref(Array.from({ length: 3429 }, (_, i) => i));
+    const view = drawing(rows);
+    let seen = 0, r = null;
+    const mount = () => { r = effect(() => { seen = view.value.length; }); };   // ตารางที่อยู่ใน v-if ของแท็บ
+    mount();
+    const first = seen;
+    tab.value = 'สั้น'; await nextTick(); stop(r);    // สลับออกก่อนก้อนแรกมาถึง → ตารางถูกถอดออกจากจอ
+    frames();                                         // ปล่อยเฟรมที่ค้างไว้ให้หมด
+    tab.value = 'ยาว'; await nextTick(); mount();      // กลับมาแท็บเดิม ตารางถูกสร้างใหม่
+    frames();
+    ok('สลับแท็บออกก่อนก้อนแรกมาถึงแล้วกลับมา ยังวาดต่อจนครบทุกแถว ไม่ค้างที่ 60 แถว',
+       first === 60 && seen === rows.value.length, first + ' → ' + seen + ' จาก ' + rows.value.length);
+  }
   ok('ตารางยาวทุกตารางวนจากตัววาด (MRP · PO · ขาดรอรับ · over · รอเติมวันหมดอายุ)',
      ['r in mrpDraw"', '(p,i) in poDraw"', 'r in fsNewDraw"', 'r in foNewDraw"', 'r in fxDraw"'].every(k => html.includes('v-for="' + k)));
   ok('ตัวเลขนับบนจอยังนับจากรายการเต็ม', html.includes('{{ fsNew.length }}') && html.includes('{{ foNew.length }}')

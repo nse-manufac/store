@@ -1020,7 +1020,10 @@ createApp({
       // รอให้เบราว์เซอร์วาดก้อนเดิมขึ้นจอ (และรับคลิก) ก่อนต่อก้อนถัดไป
       drawTimer = requestAnimationFrame(() => { drawTimer = setTimeout(drawMore, 0); });
     }
-    watch(tab, () => { drawN.value = DRAW_FIRST; drawWant = 0; });
+    // ⚠️ ห้ามล้าง drawWant ที่นี่ — drawWant เป็นแค่เพดาน "สูงสุดที่เคยต้องวาด"
+    // ถ้าล้าง แล้วสลับแท็บออกก่อนก้อนแรกมาถึง drawMore จะเจอ drawN >= drawWant แล้วตายไป
+    // พอกลับมาแท็บเดิม drawN ยังเป็น 60 เท่าเดิม → computed ไม่ dirty → ค้างที่ 60 แถวตลอดไป
+    watch(tab, () => { drawN.value = DRAW_FIRST; });
     const drawing = (src, keep) => computed(() => {
       const rows = src.value;
       let n = drawN.value;
