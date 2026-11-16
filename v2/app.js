@@ -1778,7 +1778,7 @@ createApp({
     // คิดบนแถวที่เรียงเก่าไปใหม่ก่อน แล้วค่อยกลับด้านไว้ดูบนจอ — กลับก่อนคิด ยอดสะสมจะนับถอยหลัง
     const withSO = rows => {
       const so = cardShortOver(rows, { headerOf: poIdx.value, usageOf: bomUsageOf });
-      return rows.map((r, i) => ({ ...r, short: so[i].short, over: so[i].over }));
+      return rows.map((r, i) => ({ ...r, short: so[i].short, over: so[i].over, need: so[i].need }));
     };
     const card = computed(() => (cardCode.value && entity.value)
       ? withSO(cardRows(entries.value, entity.value, normCode(cardCode.value))).reverse() : []);
