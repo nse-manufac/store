@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc } from './core/balance.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, stillToIssue } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -42,7 +42,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
-         pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
+         pendingScraps, fromScrapRow, buyRequest, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc, buyPrice, buySum,
          SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
@@ -1159,8 +1159,8 @@ createApp({
         });
         // รายการที่สูตรบอกว่าต้องใช้ แต่ Kit List ไม่ได้จ่ายมา — บอกไว้ ไม่ใช่เติมให้เอง
         const missing = rows.filter(r => !kit.some(k => String(k.code) === String(r.code)));
-        bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมยอดที่ Delta จ่ายให้แล้ว)`
-          + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้จ่ายมา` : '');
+        bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมยอดที่ Delta ส่งมาให้แล้ว)`
+          + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้ส่งมา` : '');
         markReceived(recv);
         return;
       }
@@ -1216,19 +1216,20 @@ createApp({
      * เดิมช่องนี้เรียก expandOut ตรง ๆ PO ที่ยังไม่มี Kit List จึงไม่มี P/N ให้กางสูตร
      * หน้าจ่ายออกว่างทั้งที่หน้ารับเข้ากางได้ · ไม่เติมวันที่ เพราะวันจ่ายออกคือวันที่เบิก ไม่ใช่วันในไฟล์ PO
      */
+    /** จำนวนสั่งของ PO ที่อยู่บนหัวจอจ่ายออก — ไม่มีเลข PO หรือไม่มีในไฟล์ PO = null (ห้ามค้างค่าของใบก่อน) */
+    const outOrderOfPo = () => (poHeader(pos.value, outH.po) || {}).order || null;
+
     function pickOutPo() {
       const h = poHeader(pos.value, outH.po);
-      // เติมแค่ P/N — ไม่เติมจำนวนสั่ง และไม่เติมวันที่ (เจ้าของ 16 ก.ย. 2026)
-      // ของที่เบิกไปทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
-      // จำนวนสั่งเหลือไว้ให้คีย์เองเมื่ออยากเห็นยอดตามสูตร ส่วนหน้ารับเข้ายังเติมให้เหมือนเดิม
+      // เติม P/N กับจำนวนสั่ง ไม่เติมวันที่ (จำนวนสั่ง: เจ้าของสั่ง 16 พ.ย. 2026 · กลับคำ 16 ก.ย. 2026)
+      // เดิมไม่เติมจำนวนสั่งเพราะสมัยนั้นยอดเบิกถูกตั้งตามสูตรให้ทั้งใบ กลายเป็นงานนั่งลบ
+      // ตอนนี้ไม่ตั้งยอดเบิกให้แล้ว (#78) จำนวนสั่งจึงแค่ทำให้ "ตามสูตร" กับ "ยังต้องจ่าย" ขึ้นเลข
       //
-      // ⚠️ ล้างจำนวนสั่งของใบก่อนทุกครั้ง (ผู้ตรวจรอบสองของ #81) — ว่าง ไม่ใช่ค่าของใบเก่า
-      // ไม่มีใครเติมค่านี้ให้แล้ว ถ้าไม่ล้าง เลขของใบก่อนจะค้างไปคูณ usage ของ P/N ใบใหม่
-      // แล้วช่อง "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ ทั้งที่ P/N บนจอถูกต้อง
-      // ล้างทุกครั้งที่ถูกเรียก ไม่เช็ก switchedPo เพราะหลัง clearOut/saveOut ค่า outShownPo ว่าง
-      // switchedPo จึงคืน false แล้วเคส "ล้างแล้วคีย์ PO ใบใหม่" หลุด · ตัวนี้ผูกกับ @change ของช่อง PO
-      // ซึ่งยิงเฉพาะตอนพนักงานเปลี่ยนเลข PO จริง ๆ อยู่แล้ว
-      outH.order = null;
+      // ⚠️ ใบที่ไม่มีในไฟล์ PO ต้องล้างเป็นว่าง ไม่ใช่ค้างค่าของใบเก่า (ผู้ตรวจรอบสองของ #81)
+      // ถ้าค้าง เลขของใบก่อนจะไปคูณ usage ของ P/N ใบใหม่ แล้ว "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ
+      // ตั้งทุกครั้งที่ถูกเรียก ไม่เช็ก switchedPo เพราะหลัง clearOut/saveOut ค่า outShownPo ว่าง
+      // ตัวนี้ผูกกับ @change ของช่อง PO ซึ่งยิงเฉพาะตอนพนักงานเปลี่ยนเลข PO จริง ๆ อยู่แล้ว
+      outH.order = (h && h.order) || null;
       if (h && h.pn) outH.pn = h.pn;
       expandOut();
     }
@@ -1406,16 +1407,31 @@ createApp({
     }
     const addOutLine = () => outLines.value.push(outBlank());
 
-    /** ยอดคงเหลือของบรรทัดนี้ ณ ตอนนี้ */
-    const outBalOf = l =>
-      l.code && entity.value ? (bookBalances.value.get(normCode(l.code)) || 0) : 0;
+    /* ยอดของ PO บนหัวจอ — รับ − ส่งคืน Delta − จ่ายออก ของใบนี้ (core/balance.js · เจ้าของสั่ง 16 พ.ย. 2026)
+     * มีเลข PO = คงเหลือ/หลังจ่าย/คำเตือนติดลบ คิดจากยอดของใบนี้ จะได้ไม่เบิกปนข้าม PO
+     * ไม่มีเลข PO (เบิกทีละรายการ) = ใช้ยอดคงคลังรวมเหมือนเดิม */
+    const outPoStock = computed(() =>
+      outH.po && entity.value ? poStockOf(entries.value, entity.value, outH.po) : null);
+    const outPoOf = l => (outPoStock.value && l.code && outPoStock.value.get(normCode(l.code))) || null;
+    /** จ่ายแล้วตามใบนี้ทุกรอบ · null = ไม่ได้ใส่เลข PO */
+    const outIssuedOf = l => outPoStock.value ? (outPoOf(l)?.issued || 0) : null;
+    /** ยังต้องจ่ายอีก = ตามสูตร − จ่ายแล้ว · null ถ้ายังไม่รู้ยอดตามสูตรหรือไม่ได้ใส่ PO */
+    const outLeftOf = l => outPoStock.value ? stillToIssue(l.reqmt, outIssuedOf(l)) : null;
+
+    /** ยอดคงเหลือของบรรทัดนี้ ณ ตอนนี้ — ของ PO บนหัวจอถ้ามี ไม่งั้นยอดคงคลังรวม */
+    const outBalOf = l => {
+      if (!l.code || !entity.value) return 0;
+      if (outPoStock.value) return outPoOf(l)?.bal || 0;
+      return bookBalances.value.get(normCode(l.code)) || 0;
+    };
     const outAfterOf = l =>
       Math.round((outBalOf(l) - (Number(l.qty) || 0)) * 1e5) / 1e5;
 
     /** ระบบเดาให้ว่าน่าจะหยิบจากล็อตไหน — ของเก่าก่อน */
+    // มีเลข PO = เดาล็อตและป้าย "ของไม่พอ" จากของของใบนี้ ให้ตรงกับคอลัมน์คงเหลือ PO (เจ้าของสั่ง 16 พ.ย. 2026)
     const outSuggestOf = l =>
       l.code && Number(l.qty) > 0 && entity.value
-        ? suggestLots(entries.value, entity.value, normCode(l.code), Number(l.qty)) : null;
+        ? suggestLots(entries.value, entity.value, normCode(l.code), Number(l.qty), outH.po) : null;
     function useSuggested(l) {
       const s = outSuggestOf(l);
       if (s && s.picks.length) { l.lot = s.picks[0].lot; l.inferred = true; }
@@ -1519,7 +1535,7 @@ createApp({
       // ของจริงมีกรณีคีย์รับเข้าย้อนหลัง ถ้าห้ามบันทึกพนักงานจะไปจดใส่กระดาษแล้วลืมคีย์
       const neg = outNegative.value;
       if (neg.length && !confirm(
-        [`มี ${neg.length} รายการที่ยอดจะติดลบ`,
+        [`มี ${neg.length} รายการที่ยอด${outPoStock.value ? 'ของ PO ' + outH.po + ' ' : ''}จะติดลบ`,
          neg.slice(0, 5).map(l => l.code + ' → ' + outAfterOf(l)).join('\n'),
          '', 'ยืนยันบันทึกไหม'].join('\n'))) return;
       try {
@@ -1534,7 +1550,9 @@ createApp({
         db.announce('entries');
         flash(`บันทึกจ่ายออก ${posted.length} รายการ`
               + (outH.po ? ` · PO ${outH.po}` : ''));
-        outLines.value = []; outHint.value = ''; outH.order = null;
+        // เลข PO ยังอยู่บนหัวจอ — จำนวนสั่งต้องเป็นของใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
+        // ถ้าล้างเป็นว่าง จ่ายรอบสองของใบเดิม "ตามสูตร" กับ "ยังต้องจ่าย" ว่างจนกว่าจะสลับ PO ไปมา
+        outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo();
         outShownPo = '';  // บันทึกแล้วจอว่าง — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนเปลี่ยน PO (#78)
       } catch (err) { flash(err.message, true); }
     }
@@ -3124,6 +3142,41 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    // ── ใบขอสั่งซื้อ (เจ้าของสั่ง 16 พ.ย. 2026) — ติ๊กของเสีย + หัวใบ แล้วตั้งเรื่องซื้อทีเดียวหลายรายการ ──
+    // ตรรกะอยู่ที่ master/follow.js buyRequest · ผู้ขอ · แผนก · ผู้อนุมัติเก็บที่เรื่อง (req_by · req_dept · req_approver)
+    // ⚠️ วันที่ขอ — ช่องนี้อยู่ถาวรบนจอ และหัวใบคงไว้หลังส่ง จอเปิดค้างข้ามคืนแล้วต้องเลื่อนเป็นวันนี้เอง
+    // (กติกาเดียวกับ fsDate · foDate · fbDate) · rollDay รักษาค่าที่คนตั้งเองไว้ เลื่อนให้เฉพาะช่องที่ไม่ได้แตะ
+    let fbReqDateOn = todayLocal();
+    const fbReq = reactive({ by: '', dept: '', approver: '', date: fbReqDateOn, pick: {} });
+    function fbReqDayNow() {
+      const t = todayLocal();
+      if (fbReqDateOn !== t) { fbReq.date = rollDay(fbReq.date, fbReqDateOn, t); fbReqDateOn = t; }
+      return fbReq.date || t;
+    }
+    const fbReqBusy = ref(false);
+    // แผนกที่เคยใช้ ไว้ให้เลือกซ้ำ — ไม่มีทะเบียนแผนก
+    const fbDeptList = computed(() => [...new Set(shorts.value
+      .filter(s => s.kind === 'buy' && s.entity === entity.value && s.req_dept).map(s => s.req_dept))].sort());
+    const fbReqPicked = computed(() => fbNew.value.filter(r => fbReq.pick[r.id]));
+    const fbReqAll = computed({
+      get: () => fbNew.value.length > 0 && fbNew.value.every(r => fbReq.pick[r.id]),
+      set: v => { for (const r of fbNew.value) fbReq.pick[r.id] = v; }
+    });
+    const fbReqMissing = computed(() => buyRequest([], fbReq).missing);
+    async function fbReqSubmit() {
+      if (fbReqBusy.value) return;
+      fbReqBusy.value = true;
+      try {
+        fbReqDayNow();                   // จอค้างในแท็บนี้ข้ามคืน ตัวเฝ้าแท็บไม่ทำงาน — เลื่อนก่อนอ่านค่า
+        const p = buyRequest(fbReqPicked.value, fbReq, { entity: entity.value, unitOf, follows: shorts.value });
+        if (!p.ok) { flash(p.why, true); return; }
+        for (const rec of p.recs) await fsPut(rec);
+        fbReq.pick = {};                 // หัวใบคงไว้ — ใบถัดไปมักเป็นคนเดิม
+        flash(`ส่งใบขอสั่งซื้อแล้ว — ตั้งเรื่องซื้อ ${p.recs.length} รายการ`);
+      } catch (err) { flash(err.message, true); }
+      finally { fbReqBusy.value = false; }
+    }
+
     /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) · ของเสียใบนั้นกลับมาให้ตั้งเรื่องใหม่ได้ */
     async function fbVoid(row) {
       const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
@@ -3147,6 +3200,8 @@ createApp({
       return fbDate.value || t;
     }
     watch(tab, k => { if (k === 'fbuy') fbDayNow(); });
+    // ช่องวันที่ขอของใบขอสั่งซื้ออยู่แท็บเดียวกัน แต่แยกตัวเฝ้าของตัวเอง — แต่ละช่องถือด่านข้ามวันของตัวเอง
+    watch(tab, k => { if (k === 'fbuy') fbReqDayNow(); });
     async function fbClose(row) {
       const raw = fbGot[row.id];
       try {
@@ -3816,7 +3871,8 @@ createApp({
       inLines.value = []; bomHint.value = ''; inShownPo = '';
       inFile.value = ''; inFileMsg.value = '';
     }
-    function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
+    // จำนวนสั่งตั้งจากใบที่อยู่บนหัวจอ ไม่ใช่ค้างค่าเดิม — ใบที่ไม่มีในไฟล์ PO หรือช่อง PO ว่าง = ว่าง (#170)
+    function clearOut() { outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo(); outShownPo = ''; }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
              mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
@@ -3848,7 +3904,7 @@ createApp({
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
-             outBalOf, outAfterOf, outSuggestOf, useSuggested,
+             outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
              balQ, balCat, balZero, balShown, balSum, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
@@ -3874,7 +3930,7 @@ createApp({
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
-      fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,
       fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShown, foStopShow, foRestart, foGot, foDate, foReturn, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,

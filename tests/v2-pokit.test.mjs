@@ -253,19 +253,23 @@ ok('ช่อง PO ของหน้าจ่ายออกเติม P/N �
 ok('pickOutPo เติม P/N จากไฟล์ PO แล้วกางต่อ แต่ไม่เติมวันที่ (วันจ่ายออกคือวันที่เบิก)',
    bodyOf('pickOutPo').includes('poHeader(') && bodyOf('pickOutPo').includes('outH.pn')
    && bodyOf('pickOutPo').includes('expandOut()') && !bodyOf('pickOutPo').includes('outH.date'));
-// เจ้าของ 16 ก.ย. 2026: ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่เติมให้ทั้งใบกลายเป็นงานนั่งลบ
-ok('หน้ารับเข้ายังเติมจำนวนสั่งจากไฟล์ PO · หน้าจ่ายออกไม่เติม',
-   /inH\.order = h\.order/.test(bodyOf('pickPo')) && !/outH\.order = h\.order/.test(bodyOf('pickOutPo')));
+// เจ้าของ 16 พ.ย. 2026 กลับคำ 16 ก.ย.: หน้าจ่ายออกเติมจำนวนสั่งด้วย ให้เห็น "ยังต้องจ่าย" ของ PO
+// (ที่เคยไม่เติมเพราะยอดเบิกถูกตั้งตามสูตรให้ทั้งใบ — ตอนนี้ไม่ตั้งแล้ว #78)
+ok('ทั้งสองหน้าเติมจำนวนสั่งจากไฟล์ PO',
+   /inH\.order = h\.order/.test(bodyOf('pickPo')) && /outH\.order = \(h && h\.order\) \|\| null/.test(bodyOf('pickOutPo')));
 /* ผู้ตรวจรอบสองของ #81: เลิกเติมจำนวนสั่งแล้วไม่มีใครล้างค่าเดิมทิ้ง เลขของใบก่อนจึงค้างข้ามใบ
  * ไปคูณ usage ของ P/N ใบใหม่ แล้วช่อง "ตามสูตร" ขึ้นเลขผิดเงียบ ๆ ทั้งที่ P/N บนจอถูกต้อง
  * ต้องปิดทั้งสามทาง: คีย์ PO ใบใหม่ · กดปุ่ม "ล้าง" · บันทึกจบ
+ * (16 พ.ย. 2026 กลับมาเติมแล้ว แต่ใบที่ไม่มีในไฟล์ PO ยังต้องได้ค่าว่าง — ห้ามเขียนแบบ if (h.order) ที่ค้างค่าเก่า)
  * ⚠️ ห้ามใช้ switchedPo เป็นเงื่อนไข — หลัง clearOut/saveOut ค่า outShownPo ว่าง switchedPo คืน false */
 // เอาคอมเมนต์ออกก่อนตรวจ — ข้อนี้ตรวจว่าโค้ดทำอะไร ไม่ใช่ว่าคอมเมนต์เอ่ยถึงอะไร
 const codeOf = name => bodyOf(name).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 ok('ขึ้นใบใหม่แล้วจำนวนสั่งของหน้าจ่ายออกต้องว่าง ไม่ใช่ค่าของใบเก่า',
-   /outH\.order = null/.test(codeOf('pickOutPo'))
-   && /outH\.order = null/.test(codeOf('clearOut'))
-   && /outH\.order = null/.test(codeOf('saveOut'))
+   /outH\.order = \(h && h\.order\) \|\| null/.test(codeOf('pickOutPo'))
+   && /outH\.order = outOrderOfPo\(\)/.test(codeOf('clearOut'))
+   && /outH\.order = outOrderOfPo\(\)/.test(codeOf('saveOut'))
+   // ล้าง/บันทึกแล้วเลข PO ยังอยู่บนหัวจอ → ตั้งจำนวนสั่งจากใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
+   && /const outOrderOfPo = \(\) => \(poHeader\(pos\.value, outH\.po\) \|\| \{\}\)\.order \|\| null/.test(appSrc)
    && !/switchedPo/.test(codeOf('pickOutPo')));
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
    /const inBomRows = computed\(\(\) => inH\.pn \? activeBomRowsOf\(/.test(appSrc)
@@ -313,9 +317,9 @@ ok('จำเลข PO ของรายการบนจอทุกครั
 // ⚠️ ต้องตัดเฉพาะเทมเพลตของหน้าจ่ายออกมาเช็ก — หน้ารับเข้ามีคอลัมน์ชื่อเดียวกันอยู่ก่อนแล้ว
 //    เช็กทั้งไฟล์จะเขียวทั้งที่คอลัมน์ของหน้าจ่ายออกถูกลบไป (เจอตอนย้อนโค้ดทดสอบเทสเอง)
 const outTpl = htmlSrc.slice(htmlSrc.indexOf("tab==='out'"));
-ok('หน้าจ่ายออกไม่ตั้งยอดเบิกให้ทุกทาง · โชว์ยอดที่ Delta จ่ายมาแทน',
+ok('หน้าจ่ายออกไม่ตั้งยอดเบิกให้ทุกทาง · โชว์ยอดที่ Delta ส่งมาแทน (หัวคอลัมน์เปลี่ยนจาก "จ่ายมา" · เจ้าของสั่ง 16 พ.ย. 2026 ไม่ให้สับสนกับ "จ่ายแล้ว")',
    !/l\.qty\s*=/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.issued = k.issue')
-   && outTpl.length > 500 && /<th[^>]*>Delta จ่ายมา<\/th>/.test(outTpl) && /l\.issued == null/.test(outTpl));
+   && outTpl.length > 500 && /<th[^>]*>Delta ส่งมา<\/th>/.test(outTpl) && /l\.issued == null/.test(outTpl));
 // ผู้ตรวจรอบสาม: บันทึกหรือกด "ล้าง" แล้วจอว่างแต่ยังจำ PO เดิม — คีย์บรรทัดต่อแล้วเปลี่ยน PO บรรทัดหาย
 ok('บันทึกหรือกด "ล้าง" แล้วลืมเลข PO เดิม ทั้งสองหน้า',
    /inShownPo = ''/.test(bodyOf('saveIn')) && /outShownPo = ''/.test(bodyOf('saveOut'))
