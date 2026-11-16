@@ -1216,6 +1216,9 @@ createApp({
      * เดิมช่องนี้เรียก expandOut ตรง ๆ PO ที่ยังไม่มี Kit List จึงไม่มี P/N ให้กางสูตร
      * หน้าจ่ายออกว่างทั้งที่หน้ารับเข้ากางได้ · ไม่เติมวันที่ เพราะวันจ่ายออกคือวันที่เบิก ไม่ใช่วันในไฟล์ PO
      */
+    /** จำนวนสั่งของ PO ที่อยู่บนหัวจอจ่ายออก — ไม่มีเลข PO หรือไม่มีในไฟล์ PO = null (ห้ามค้างค่าของใบก่อน) */
+    const outOrderOfPo = () => (poHeader(pos.value, outH.po) || {}).order || null;
+
     function pickOutPo() {
       const h = poHeader(pos.value, outH.po);
       // เติม P/N กับจำนวนสั่ง ไม่เติมวันที่ (จำนวนสั่ง: เจ้าของสั่ง 16 พ.ย. 2026 · กลับคำ 16 ก.ย. 2026)
@@ -1425,9 +1428,10 @@ createApp({
       Math.round((outBalOf(l) - (Number(l.qty) || 0)) * 1e5) / 1e5;
 
     /** ระบบเดาให้ว่าน่าจะหยิบจากล็อตไหน — ของเก่าก่อน */
+    // มีเลข PO = เดาล็อตและป้าย "ของไม่พอ" จากของของใบนี้ ให้ตรงกับคอลัมน์คงเหลือ PO (เจ้าของสั่ง 16 พ.ย. 2026)
     const outSuggestOf = l =>
       l.code && Number(l.qty) > 0 && entity.value
-        ? suggestLots(entries.value, entity.value, normCode(l.code), Number(l.qty)) : null;
+        ? suggestLots(entries.value, entity.value, normCode(l.code), Number(l.qty), outH.po) : null;
     function useSuggested(l) {
       const s = outSuggestOf(l);
       if (s && s.picks.length) { l.lot = s.picks[0].lot; l.inferred = true; }
@@ -1546,7 +1550,9 @@ createApp({
         db.announce('entries');
         flash(`บันทึกจ่ายออก ${posted.length} รายการ`
               + (outH.po ? ` · PO ${outH.po}` : ''));
-        outLines.value = []; outHint.value = ''; outH.order = null;
+        // เลข PO ยังอยู่บนหัวจอ — จำนวนสั่งต้องเป็นของใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
+        // ถ้าล้างเป็นว่าง จ่ายรอบสองของใบเดิม "ตามสูตร" กับ "ยังต้องจ่าย" ว่างจนกว่าจะสลับ PO ไปมา
+        outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo();
         outShownPo = '';  // บันทึกแล้วจอว่าง — ลืมใบเดิม ไม่งั้นบรรทัดที่คีย์ต่อจะถูกล้างตอนเปลี่ยน PO (#78)
       } catch (err) { flash(err.message, true); }
     }
@@ -3863,7 +3869,8 @@ createApp({
       inLines.value = []; bomHint.value = ''; inShownPo = '';
       inFile.value = ''; inFileMsg.value = '';
     }
-    function clearOut() { outLines.value = []; outHint.value = ''; outH.order = null; outShownPo = ''; }
+    // จำนวนสั่งตั้งจากใบที่อยู่บนหัวจอ ไม่ใช่ค้างค่าเดิม — ใบที่ไม่มีในไฟล์ PO หรือช่อง PO ว่าง = ว่าง (#170)
+    function clearOut() { outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo(); outShownPo = ''; }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
              mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,

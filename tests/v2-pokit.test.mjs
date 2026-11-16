@@ -266,8 +266,10 @@ ok('ทั้งสองหน้าเติมจำนวนสั่งจ�
 const codeOf = name => bodyOf(name).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 ok('ขึ้นใบใหม่แล้วจำนวนสั่งของหน้าจ่ายออกต้องว่าง ไม่ใช่ค่าของใบเก่า',
    /outH\.order = \(h && h\.order\) \|\| null/.test(codeOf('pickOutPo'))
-   && /outH\.order = null/.test(codeOf('clearOut'))
-   && /outH\.order = null/.test(codeOf('saveOut'))
+   && /outH\.order = outOrderOfPo\(\)/.test(codeOf('clearOut'))
+   && /outH\.order = outOrderOfPo\(\)/.test(codeOf('saveOut'))
+   // ล้าง/บันทึกแล้วเลข PO ยังอยู่บนหัวจอ → ตั้งจำนวนสั่งจากใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
+   && /const outOrderOfPo = \(\) => \(poHeader\(pos\.value, outH\.po\) \|\| \{\}\)\.order \|\| null/.test(appSrc)
    && !/switchedPo/.test(codeOf('pickOutPo')));
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
    /const inBomRows = computed\(\(\) => inH\.pn \? activeBomRowsOf\(/.test(appSrc)
