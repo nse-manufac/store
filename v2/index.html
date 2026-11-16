@@ -1381,7 +1381,8 @@ textarea{font:inherit}
           <div class="msg warn" v-if="outNegative.length" style="margin:10px 0 0">
             <b>{{ outNegative.length }} รายการที่ยอด{{ outH.po ? 'ของ PO ' + outH.po + ' ' : '' }}จะติดลบ</b> —
             <span class="mono">{{ outNegative.slice(0,5).map(l => l.code + ' → ' + outAfterOf(l)).join(' · ') }}</span><br>
-            <span class="hint">บันทึกได้อยู่ อาจเป็นเพราะยังไม่ได้คีย์รับเข้าย้อนหลัง</span>
+            <span class="hint" v-if="outH.po">บันทึกได้อยู่ — ยอดนี้นับเฉพาะของที่รับเข้าด้วยเลข PO นี้ ถ้าของรหัสนั้นรับเข้ามาด้วย PO อื่น หรือยกยอดมาตอนเริ่มระบบ จะไม่อยู่ในยอดนี้ · ดูยอดรวมได้ที่หน้ายอดคงคลัง · หรือยังไม่ได้คีย์รับเข้าของ PO นี้ย้อนหลัง</span>
+            <span class="hint" v-else>บันทึกได้อยู่ อาจเป็นเพราะยังไม่ได้คีย์รับเข้าย้อนหลัง</span>
           </div>
           <div class="hint" style="margin-top:8px">
             ล็อตที่กด "เดาให้" มาจากลำดับการรับเข้า (ของเก่าก่อน) เพราะของไม่ได้แยกกองตามล็อตในคลังจริง
