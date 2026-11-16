@@ -42,7 +42,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
-         pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
+         pendingScraps, fromScrapRow, buyRequest, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc, buyPrice, buySum,
          SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
@@ -3124,6 +3124,41 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    // ── ใบขอสั่งซื้อ (เจ้าของสั่ง 16 พ.ย. 2026) — ติ๊กของเสีย + หัวใบ แล้วตั้งเรื่องซื้อทีเดียวหลายรายการ ──
+    // ตรรกะอยู่ที่ master/follow.js buyRequest · ผู้ขอ · แผนก · ผู้อนุมัติเก็บที่เรื่อง (req_by · req_dept · req_approver)
+    // ⚠️ วันที่ขอ — ช่องนี้อยู่ถาวรบนจอ และหัวใบคงไว้หลังส่ง จอเปิดค้างข้ามคืนแล้วต้องเลื่อนเป็นวันนี้เอง
+    // (กติกาเดียวกับ fsDate · foDate · fbDate) · rollDay รักษาค่าที่คนตั้งเองไว้ เลื่อนให้เฉพาะช่องที่ไม่ได้แตะ
+    let fbReqDateOn = todayLocal();
+    const fbReq = reactive({ by: '', dept: '', approver: '', date: fbReqDateOn, pick: {} });
+    function fbReqDayNow() {
+      const t = todayLocal();
+      if (fbReqDateOn !== t) { fbReq.date = rollDay(fbReq.date, fbReqDateOn, t); fbReqDateOn = t; }
+      return fbReq.date || t;
+    }
+    const fbReqBusy = ref(false);
+    // แผนกที่เคยใช้ ไว้ให้เลือกซ้ำ — ไม่มีทะเบียนแผนก
+    const fbDeptList = computed(() => [...new Set(shorts.value
+      .filter(s => s.kind === 'buy' && s.entity === entity.value && s.req_dept).map(s => s.req_dept))].sort());
+    const fbReqPicked = computed(() => fbNew.value.filter(r => fbReq.pick[r.id]));
+    const fbReqAll = computed({
+      get: () => fbNew.value.length > 0 && fbNew.value.every(r => fbReq.pick[r.id]),
+      set: v => { for (const r of fbNew.value) fbReq.pick[r.id] = v; }
+    });
+    const fbReqMissing = computed(() => buyRequest([], fbReq).missing);
+    async function fbReqSubmit() {
+      if (fbReqBusy.value) return;
+      fbReqBusy.value = true;
+      try {
+        fbReqDayNow();                   // จอค้างในแท็บนี้ข้ามคืน ตัวเฝ้าแท็บไม่ทำงาน — เลื่อนก่อนอ่านค่า
+        const p = buyRequest(fbReqPicked.value, fbReq, { entity: entity.value, unitOf, follows: shorts.value });
+        if (!p.ok) { flash(p.why, true); return; }
+        for (const rec of p.recs) await fsPut(rec);
+        fbReq.pick = {};                 // หัวใบคงไว้ — ใบถัดไปมักเป็นคนเดิม
+        flash(`ส่งใบขอสั่งซื้อแล้ว — ตั้งเรื่องซื้อ ${p.recs.length} รายการ`);
+      } catch (err) { flash(err.message, true); }
+      finally { fbReqBusy.value = false; }
+    }
+
     /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) · ของเสียใบนั้นกลับมาให้ตั้งเรื่องใหม่ได้ */
     async function fbVoid(row) {
       const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
@@ -3147,6 +3182,8 @@ createApp({
       return fbDate.value || t;
     }
     watch(tab, k => { if (k === 'fbuy') fbDayNow(); });
+    // ช่องวันที่ขอของใบขอสั่งซื้ออยู่แท็บเดียวกัน แต่แยกตัวเฝ้าของตัวเอง — แต่ละช่องถือด่านข้ามวันของตัวเอง
+    watch(tab, k => { if (k === 'fbuy') fbReqDayNow(); });
     async function fbClose(row) {
       const raw = fbGot[row.id];
       try {
@@ -3872,7 +3909,7 @@ createApp({
       foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
-      fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, fbVoid, fbGot, fbDate, fbClose, fbReopen,
+      fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,
       fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShown, foStopShow, foRestart, foGot, foDate, foReturn, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
