@@ -1006,6 +1006,34 @@ createApp({
       } catch (err) { flash('ส่งออก Excel ไม่สำเร็จ: ' + err.message + ' — ลองกดใหม่อีกครั้ง', true); }
     }
 
+    /* วาดตารางยาวทีละช่วง (เจ้าของสั่ง 16 พ.ย. 2026) — เปิดแท็บแล้วขึ้นทันทีพร้อมแถวแรก ๆ
+     * แถวที่เหลือตามมาทีละก้อนจนครบ ไม่ตัดแถวทิ้ง (เจ้าของไม่เอาการจำกัดไว้ 300 แถว)
+     * ใช้กับ v-for ของตารางเท่านั้น · ตัวเลขนับบนจอยังนับจากรายการเต็ม
+     * keep = แถวที่ต้องขึ้นทันทีแม้อยู่ท้ายรายการ (ปุ่มที่พาไปเลื่อนหาแถวนั้น) */
+    const DRAW_FIRST = 60, DRAW_STEP = 200;
+    const drawN = ref(DRAW_FIRST);
+    let drawWant = 0, drawTimer = 0;
+    function drawMore() {
+      drawTimer = 0;
+      if (drawN.value >= drawWant) return;
+      drawN.value += DRAW_STEP;
+      // รอให้เบราว์เซอร์วาดก้อนเดิมขึ้นจอ (และรับคลิก) ก่อนต่อก้อนถัดไป
+      drawTimer = requestAnimationFrame(() => { drawTimer = setTimeout(drawMore, 0); });
+    }
+    // ⚠️ ห้ามล้าง drawWant ที่นี่ — drawWant เป็นแค่เพดาน "สูงสุดที่เคยต้องวาด"
+    // ถ้าล้าง แล้วสลับแท็บออกก่อนก้อนแรกมาถึง drawMore จะเจอ drawN >= drawWant แล้วตายไป
+    // พอกลับมาแท็บเดิม drawN ยังเป็น 60 เท่าเดิม → computed ไม่ dirty → ค้างที่ 60 แถวตลอดไป
+    watch(tab, () => { drawN.value = DRAW_FIRST; });
+    const drawing = (src, keep) => computed(() => {
+      const rows = src.value;
+      let n = drawN.value;
+      if (keep) for (let i = rows.length - 1; i >= n; i--) if (keep(rows[i])) { n = i + 1; break; }
+      if (rows.length <= n) return rows;
+      drawWant = Math.max(drawWant, rows.length);
+      if (!drawTimer) drawTimer = requestAnimationFrame(() => { drawTimer = setTimeout(drawMore, 0); });
+      return rows.slice(0, n);
+    });
+
     // ── รอเติมวันหมดอายุ ── รับเข้าที่บันทึกไปก่อนโดยยังไม่มีวันหมดอายุ (ไฟล์ของ Delta ไม่มีช่องนี้)
     // ตรรกะอยู่ที่ core/ledger.js (setExpiry · missingExpiry) · เติมได้ครั้งเดียวต่อรายการ
     // ⚠️ แก้แถวเดิมในสมุด — ซิงค์ปลอดภัยเพราะ stickyVoid (#106) ทุกเครื่องได้ไปตั้งแต่รุ่น 2026-09-24.2
@@ -1013,6 +1041,7 @@ createApp({
     const fxRows = computed(() => !entity.value ? []
       : missingExpiry(entries.value, entity.value, needsExp)
           .map(e => ({ e, m: matIndex.value.get(normCode(e.material_code)) || {} })));
+    const fxDraw = drawing(fxRows);
     const fxOther = computed(() => missingExpiryCounts(entries.value, needsExp).filter(x => x.entity !== entity.value));
     const fxDraft = reactive({});          // id รายการ → วันหมดอายุที่พิมพ์ไว้ ยังไม่บันทึก
     const fx = reactive({ by: '' });
@@ -2294,6 +2323,7 @@ createApp({
     const kitsVisible = computed(() => kits.value.filter(k => !isChemKit(k) && poVisibleTo(ownerOfPoNo(k.po), entity.value)));
 
     const poRows = computed(() => searchPos(posVisible.value, poQ.value, { limit: Infinity }));
+    const poDraw = drawing(poRows);
 
     /** จำนวนบรรทัด Kit List (22-H) ต่อ PO — นับรอบเดียวเก็บเป็น Map
      *  ⚠️ ห้ามให้เทมเพลตไล่ kits ทั้งตารางในทุกแถว — ตารางนี้แสดงครบทุกใบแล้ว ไม่ได้ตัดที่ 40 เหมือนเดิม
@@ -2494,6 +2524,7 @@ createApp({
     const mrpPin = ref('');
     watch([mrpQ, mrpFilter, mrpDone], () => { mrpPin.value = ''; });
     const mrpShown = computed(() => mrpKeep(mrpAll.value, mrpBase.value.filter(MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all), mrpPin.value));
+    const mrpDraw = drawing(mrpShown, r => r.po === mrpPin.value);   // ใบที่กดกลับมาจาก short/over ต้องขึ้นทันที
     // นับตามตัวกรองที่เลือกอยู่ด้วย — กด "มี Short" แล้วไม่ควรบอกว่ามีใบที่จบซ่อนอยู่ (ผู้ตรวจ #156 ข้อ 6)
     const mrpHidden = computed(() => (mrpDone.value ? 0 : mrpAll.value.filter(r => r.done && r.po !== mrpPin.value && mrpMatch(r, mrpQ.value)
       && (MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all)(r)).length));
@@ -2548,6 +2579,7 @@ createApp({
     const fsNew = computed(() =>
       shortPending(fsCalc.value.filter(r => !r.why && r.short > SHORT_MIN), shorts.value));
     const fsBlocked = computed(() => fsCalc.value.filter(r => r.why));
+    const fsNewDraw = drawing(fsNew);
     // ⚠️ คิดครั้งเดียวต่อแถวที่แสดง แล้วให้เทมเพลตหยิบจาก Map — เทมเพลตเรียกหลายครั้งต่อแถวทุกครั้งที่จอรีเฟรช
     //    เรียก shortCheckOf ตรง ๆ ในเทมเพลตทำตารางช้าลงสามเท่า (ผู้ตรวจ #115 ข้อ 1)
     const fsCheckById = computed(() => {
@@ -2595,6 +2627,7 @@ createApp({
     const foNew = computed(() =>
       overPending(foCalc.value.filter(r => !r.why), shorts.value));
     const foBlocked = computed(() => foCalc.value.filter(r => r.why));
+    const foNewDraw = drawing(foNew);
 
     /**
      * ใบแจ้งตัดยอด over ของ Delta — เทียบกับของเกินที่เรามีอยู่จริง (เจ้าของสั่ง 22 ก.ย. 2026)
@@ -3872,7 +3905,7 @@ createApp({
     // จำนวนสั่งตั้งจากใบที่อยู่บนหัวจอ ไม่ใช่ค้างค่าเดิม — ใบที่ไม่มีในไฟล์ PO หรือช่อง PO ว่าง = ว่าง (#170)
     function clearOut() { outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo(); outShownPo = ''; }
 
-    return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
+    return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpDraw, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
              mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
              planShip, planPull, planAtText, poDateOf, mrpSetWeek,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
@@ -3897,7 +3930,7 @@ createApp({
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,
              notice, noticeBox, noticeScroll, openNotice, closeNotice, noticeCanClose,
              lg, lgRows, lgShown, lgToday, lgExport, LG_MAX,
-             fx, fxRows, fxOther, fxDraft, fxReady, saveExpiry,
+             fx, fxRows, fxDraw, fxOther, fxDraft, fxReady, saveExpiry,
              inPoSum, inTogglePo, inAllPo, bomPnCodes, inReady, inNoExp,
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
@@ -3919,13 +3952,13 @@ createApp({
              onWkFile, wkBusy, wkMsg, wkTone, wkOver, wkNoExp, wkSeen, wkSkip,
              wkBomOf, wkPctOf, wkCheck, saveWeekly,
              pos, kits, shorts, imp, impBusy, impDrag, impChem, KIND_LABEL, onDropImp, onPickImp,
-             applyImp, openShorts, poToday, poQ, poRows, kitCountByPo,
+             applyImp, openShorts, poToday, poQ, poRows, poDraw, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
-      fsNew, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
+      fsNew, fsNewDraw, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
-      foSearch, foShowDone, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
+      foSearch, foShowDone, foCalc, foNew, foNewDraw, foBlocked, foRows, foAll, foOpen,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,

@@ -480,7 +480,7 @@ ok('หน้ารายการ PO ดึงข้อมูลผ่าน se
    /const poRows = computed\(\(\) => searchPos\(\w+\.value, poQ\.value, \{ limit: Infinity \}\)\)/.test(appSrc)
    && !/slice\(0, 40\)/.test(appSrc) && /v-model\.trim="poQ"/.test(htmlSrc));
 ok('ตารางมีคอลัมน์ลำดับเป็นคอลัมน์แรก และนับตามลำดับที่แสดงจริง',
-   /<thead><tr><th[^>]*>ลำดับ<\/th>/.test(htmlSrc) && /v-for="\(p,i\) in poRows"/.test(htmlSrc)
+   /<thead><tr><th[^>]*>ลำดับ<\/th>/.test(htmlSrc) && /v-for="\(p,i\) in poDraw"/.test(htmlSrc)
    && /\{\{ i \+ 1 \}\}/.test(htmlSrc));
 // ⚠️ ตารางนี้แสดงครบทุกใบแล้ว ถ้าเทมเพลตไล่ kits ทั้งตารางในทุกแถว จะกลายเป็นงานคูณกันสองตาราง
 ok('นับ Kit List ต่อ PO ไว้ล่วงหน้า ไม่ไล่ทั้งตารางในทุกแถว',
