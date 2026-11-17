@@ -2659,6 +2659,7 @@ createApp({
     }));
     const foRows = computed(() => foAll.value.slice(0, SHOW_MAX));
     const foOpen = computed(() => openFollow(shorts.value, { kind: 'over', entity: entity.value }));
+    const foSum = computed(() => sumFollow(foOpen.value));
 
     async function foStart(row) {
       try {
@@ -3963,7 +3964,7 @@ createApp({
       fsNew, fsNewDraw, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
-      foSearch, foShowDone, foCalc, foNew, foNewDraw, foBlocked, foRows, foAll, foOpen,
+      foSearch, foShowDone, foCalc, foNew, foNewDraw, foBlocked, foRows, foAll, foOpen, foSum,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,
