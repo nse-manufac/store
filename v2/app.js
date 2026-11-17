@@ -21,7 +21,7 @@ import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, ro
 import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, stillToIssue } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
-import { TABLES, dirtyRows, mergeIncoming, markSynced, chunk, toWire,
+import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl, syncBadge } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust, NOTICE_ID, noticeDue, noticeCanClose, atScrollEnd } from './core/version.js';
@@ -3602,11 +3602,13 @@ createApp({
           const waiting = dirtyRows(list.value);
           for (const part of chunk(waiting, 300)) {
             sync.msg = `กำลังส่ง ${TABLES[t].label} ${up + part.length}/${waiting.length}...`;
-            const res = await api('pushTable', { table: TABLES[t].sheet, rows: part.map(toWire) });
+            const sent = part.map(toWire);
+            const sentJson = sent.map(r => JSON.stringify(r));
+            const res = await api('pushTable', { table: TABLES[t].sheet, rows: sent });
             // เอาเวลาของเซิร์ฟเวอร์มาใช้ ไม่ใช่เวลาเครื่อง — ดูเหตุผลใน core/sync.js
-            const stamped = markSynced(part, res.serverTime);
-            stamped.forEach((r, i) => { part[i].dirty = false; part[i].updated_at = r.updated_at; });
-            await db.put(t, stamped.map(plain), { synced: true });
+            // แถวที่ถูกแก้ระหว่างรอเซิร์ฟเวอร์ คงธงไว้ ห้ามเขียนสำเนาตอนส่งทับ (settlePushed)
+            const { done } = settlePushed(list.value, part, sentJson, res.serverTime, key);
+            if (done.length) await db.put(t, done.map(plain), { synced: true });
             up += part.length;
           }
 
