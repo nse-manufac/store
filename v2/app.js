@@ -3903,8 +3903,13 @@ createApp({
       inLines.value = []; bomHint.value = ''; inShownPo = '';
       inFile.value = ''; inFileMsg.value = '';
     }
-    // จำนวนสั่งตั้งจากใบที่อยู่บนหัวจอ ไม่ใช่ค้างค่าเดิม — ใบที่ไม่มีในไฟล์ PO หรือช่อง PO ว่าง = ว่าง (#170)
-    function clearOut() { outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo(); outShownPo = ''; }
+    // ล้าง = ปิดใบนั้นทั้งใบ: เลข PO · P/N · จำนวนสั่ง ว่างด้วย (เจ้าของสั่ง 17 พ.ย. 2026)
+    // เดิม (#170) ค้างเลข PO ไว้แล้วตั้งจำนวนสั่งจากใบนั้น · วันที่กับผู้เบิกยังค้างไว้ คีย์ใบต่อไปได้เลย
+    // ⚠️ ปุ่มบันทึก (saveOut) ยังค้างเลข PO เหมือนเดิม — เปลี่ยนแค่ปุ่มล้าง
+    function clearOut() {
+      outLines.value = []; outHint.value = ''; outShownPo = '';
+      outH.po = ''; outH.pn = ''; outH.order = null;
+    }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpDraw, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
              mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
