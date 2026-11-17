@@ -466,6 +466,10 @@ ok('ปุ่มค้นเลข PO อยู่ทั้งหน้ารั
    /@click="openPoPick\('in'\)"/.test(htmlSrc) && /@click="openPoPick\('out'\)"/.test(htmlSrc));
 ok('กล่องค้นใช้ poPickResults และกดเลือกแล้วเรียก choosePo',
    /v-for="r in poPickResults"/.test(htmlSrc) && /@click="choosePo\(r\)"/.test(htmlSrc));
+// เจ้าของ 17 พ.ย. 2026 ขอ "สองคอลัมน์บนจอ" — ตรวจเทมเพลตด้วย ไม่ใช่แค่ค่าที่ poHistory คืน (ผู้ตรวจ #174 ข้อ 1)
+ok('ตารางค้น PO มีสองช่อง ที่มา กับ สถานะ',
+   /<th[^>]*>ที่มา<\/th><th>สถานะ<\/th>/.test(htmlSrc)
+   && /v-for="f in r\.from"/.test(htmlSrc) && /v-for="f in r\.status"/.test(htmlSrc));
 ok('เลือกใบแล้วเดินเส้นทางเดิมของแต่ละหน้า (เติม P/N · กางรายการ)',
    bodyOf('choosePo').includes('pickPo()') && bodyOf('choosePo').includes('pickOutPo()'));
 ok('รายการเลข PO มาจาก poHistory ที่ส่งนิติบุคคลที่เลือกอยู่ไปด้วย (A3)',
