@@ -285,6 +285,16 @@ ok('แถวไม่มีเจ้าของที่ปิดจบแล�
 const sum = sumFollow(openList, { today: TD });
 ok('สรุปสามตัวเลขถูก',
    sum.open === 2 && sum.partial === 1 && sum.late === 1, JSON.stringify(sum));
+/* ตัวเลขหัวตาราง "เรื่องที่ตั้งไว้แล้ว" ของหน้า over (foSum) — ต้องนับแค่เรื่องคืน
+ * ไม่งั้นเรื่อง short ทั้งร้อยกว่าเรื่องจะไหลมาโผล่เป็นยอดค้างคืน */
+const pool2 = [...pool,
+  row('o1', { kind: 'over' }),
+  row('o2', { kind: 'over', done_qty: 3 }),
+  row('o3', { kind: 'over', done: true, done_qty: 10 }),
+  row('o4', { kind: 'over', entity: 'TUE-H' })];
+const overSum = sumFollow(openFollow(pool2, { kind: 'over', entity: 'NSE' }));
+ok('หน้า over นับเฉพาะเรื่องคืนของนิติบุคคลนี้ที่ยังค้าง',
+   overSum.open === 2 && overSum.partial === 1, JSON.stringify(overSum));
 ok('ส่งกองว่างมาก็ไม่พัง',
    listFollow(null).length === 0 && openFollow(null).length === 0 &&
    orphanFollow(null).length === 0 && sumFollow(null).open === 0);
