@@ -651,9 +651,14 @@ export const nextShownPo = (shownPo, po) =>
   String(po ?? '').trim() || String(shownPo ?? '').trim();
 
 /**
- * เลข PO ทุกใบที่เคยมีประวัติในโปรแกรม — [{ po, pn, date, from }] ใบล่าสุดขึ้นก่อน (เจ้าของ 16 ก.ย. 2026)
+ * เลข PO ทุกใบที่เคยมีประวัติในโปรแกรม — [{ po, pn, date, from, status }] ใบล่าสุดขึ้นก่อน (เจ้าของ 16 ก.ย. 2026)
  *
  * รวมสี่ที่มา: ไฟล์ PO รายวัน · Kit List · ใบที่เคยคีย์รับ-จ่าย (สมุด) · รายการของขาด
+ * ป้ายแยกสองช่อง (เจ้าของสั่ง 17 พ.ย. 2026):
+ *   from   = เอกสารที่ใบนี้มาจาก — 'ไฟล์ PO' · 'Kit List'
+ *   status = ใบนี้เกิดอะไรไปแล้ว — 'เคยจ่าย' (มีจ่ายออกอ้างใบนี้) · 'ของขาด'
+ * ⚠️ เคยรับเข้าอย่างเดียวไม่มีป้าย (เจ้าของเลือก) แต่ใบยังอยู่ในรายการและได้วันที่ล่าสุดเหมือนเดิม
+ *    เดิมป้าย 'เคยคีย์' ขึ้นทุกชนิดรายการ — ห้ามเปลี่ยนชื่อเป็น 'เคยจ่าย' เฉย ๆ ใบที่แค่รับเข้าจะได้ป้ายผิดความหมาย
  * ⚠️ INVARIANTS A3 — สมุดกับรายการของขาดเป็นของราย**นิติบุคคล** จึงกรองด้วย entity เสมอ
  *    ถ้ายังไม่ได้เลือกนิติบุคคล จะไม่เอาสองที่มานั้นมาเลย (ไฟล์ PO กับ Kit List เป็นเอกสารกลาง ใช้ร่วมกัน)
  * วันที่เก็บวันล่าสุดที่เจอของใบนั้น ใช้เรียงลำดับให้ใบที่เพิ่งใช้อยู่บนสุด
@@ -661,14 +666,15 @@ export const nextShownPo = (shownPo, po) =>
 export function poHistory({ pos = [], kits = [], entries = [], shorts = [],
                             entity = '', known = null } = {}) {
   const seen = new Map();
-  const add = (po, pn, date, from) => {
+  const add = (po, pn, date, from, status) => {
     const key = String(po ?? '').trim();
     if (!key) return;
-    const hit = seen.get(key) || { po: key, pn: '', date: '', from: [] };
+    const hit = seen.get(key) || { po: key, pn: '', date: '', from: [], status: [] };
     if (!hit.pn && pn != null && String(pn).trim()) hit.pn = String(pn).trim();
     const d = String(date || '').slice(0, 10);
     if (d > hit.date) hit.date = d;
-    if (!hit.from.includes(from)) hit.from.push(from);
+    if (from && !hit.from.includes(from)) hit.from.push(from);
+    if (status && !hit.status.includes(status)) hit.status.push(status);
     seen.set(key, hit);
   };
   // เอกสารของ Delta ไม่มีช่องนิติบุคคลรายแถว — ดูจากรูปแบบเลขที่ PO อย่างเดียว
@@ -690,11 +696,11 @@ export function poHistory({ pos = [], kits = [], entries = [], shorts = [],
       // ตัดเฉพาะ count ออก ไม่ใช่เอาเฉพาะ doc_kind === 'po' เพราะแบบหลังจะทิ้งรายการที่ doc_kind ว่างไปด้วย
       if (e.doc_kind === 'count') continue;
       // ⚠️ at ของสมุดเป็น UTC — slice เอาเองจะได้ "เมื่อวาน" ทุกใบที่คีย์ก่อนเจ็ดโมง (localtime.js:11)
-      add(e.doc_ref, e.part_no, localDate(e.at), 'เคยคีย์');
+      add(e.doc_ref, e.part_no, localDate(e.at), '', e.kind === 'issue' ? 'เคยจ่าย' : '');
     }
     for (const s of shorts || []) {
       if (!s || s.voided || (s.entity && s.entity !== entity)) continue;
-      add(s.po, s.part_no, s.date, 'ของขาด');
+      add(s.po, s.part_no, s.date, '', 'ของขาด');
     }
   }
   return [...seen.values()]
