@@ -371,9 +371,17 @@ const hPoList = hist.map(r => r.po);
 ok('รวมทุกที่มา — ไฟล์ PO · Kit List · ใบที่เคยคีย์ · ของขาด',
    ['TM5269H001', 'TM5269H002', 'TM5269H003', 'TM5269H005'].every(p => hPoList.includes(p))
    && hist.length === 5, hPoList.join(','));
-ok('ใบเดียวกันจากหลายที่มา รวมเป็นแถวเดียว และบอกที่มาครบ',
+ok('ใบเดียวกันจากหลายที่มา รวมเป็นแถวเดียว · ที่มาเป็นเอกสาร สถานะแยกช่อง (เจ้าของ 17 พ.ย. 2026)',
    hPoList.filter(p => p === 'TM5269H001').length === 1
-   && hist.find(r => r.po === 'TM5269H001').from.join(',') === 'ไฟล์ PO,เคยคีย์');
+   && hist.find(r => r.po === 'TM5269H001').from.join(',') === 'ไฟล์ PO'
+   && hist.find(r => r.po === 'TM5269H001').status.join(',') === 'เคยจ่าย');
+ok('เคยรับเข้าอย่างเดียว = อยู่ในรายการแต่ไม่มีป้าย "เคยจ่าย" (เจ้าของเลือก)',
+   hist.find(r => r.po === 'TM5269H003').status.length === 0
+   && hist.find(r => r.po === 'TM5269H003').from.length === 0);
+ok('ของขาดอยู่ในช่องสถานะ ไม่ใช่ที่มา',
+   hist.find(r => r.po === 'TM5269H005').status.join(',') === 'ของขาด'
+   && hist.find(r => r.po === 'TM5269H005').from.length === 0);
+ok('ไม่มีป้าย "เคยคีย์" เหลือแล้ว', !hist.some(r => [...r.from, ...r.status].includes('เคยคีย์')));
 ok('ใบที่ใช้ล่าสุดอยู่บนสุด', hPoList[0] === 'TM5269H0031', hPoList.join(','));
 ok('เก็บ P/N ไว้ให้ดูก่อนเลือก', hist.find(r => r.po === 'TM5269H003').pn === '2873100003');
 // A3 — สมุดกับของขาดเป็นของรายนิติบุคคล ห้ามข้ามกัน
@@ -458,6 +466,10 @@ ok('ปุ่มค้นเลข PO อยู่ทั้งหน้ารั
    /@click="openPoPick\('in'\)"/.test(htmlSrc) && /@click="openPoPick\('out'\)"/.test(htmlSrc));
 ok('กล่องค้นใช้ poPickResults และกดเลือกแล้วเรียก choosePo',
    /v-for="r in poPickResults"/.test(htmlSrc) && /@click="choosePo\(r\)"/.test(htmlSrc));
+// เจ้าของ 17 พ.ย. 2026 ขอ "สองคอลัมน์บนจอ" — ตรวจเทมเพลตด้วย ไม่ใช่แค่ค่าที่ poHistory คืน (ผู้ตรวจ #174 ข้อ 1)
+ok('ตารางค้น PO มีสองช่อง ที่มา กับ สถานะ',
+   /<th[^>]*>ที่มา<\/th><th>สถานะ<\/th>/.test(htmlSrc)
+   && /v-for="f in r\.from"/.test(htmlSrc) && /v-for="f in r\.status"/.test(htmlSrc));
 ok('เลือกใบแล้วเดินเส้นทางเดิมของแต่ละหน้า (เติม P/N · กางรายการ)',
    bodyOf('choosePo').includes('pickPo()') && bodyOf('choosePo').includes('pickOutPo()'));
 ok('รายการเลข PO มาจาก poHistory ที่ส่งนิติบุคคลที่เลือกอยู่ไปด้วย (A3)',
