@@ -1154,6 +1154,7 @@ export function reopenOver(row, entries = [], { by = '', at = '' } = {}) {
  *   ขาด = ตามสูตร − รับแล้วสะสม (ถ้ามากกว่าศูนย์) · เกิน = รับแล้วสะสม − ตามสูตร (ถ้ามากกว่าศูนย์)
  *
  * rows = cardRows() ของรหัสเดียว **เรียงเก่าไปใหม่** (ไม่รวมรายการที่ยกเลิก) · คืนอาร์เรย์ยาวเท่า rows
+ * แต่ละช่องได้ { short, over, need } — need (ต้องใช้) = ตามสูตรของ PO แถวนั้น ขึ้นทุกแถวที่มี PO · บนจออย่างเดียว ไม่ลง Excel
  * ⚠️ ใช้สูตรกับจำนวนสั่ง "ของวันนี้" ทั้งการ์ด — ถ้าสูตรหรือจำนวนสั่งของ PO เปลี่ยนทีหลัง แถวเก่าก็เปลี่ยนตาม
  * ⚠️ PO ที่คิดไม่ได้ (ไม่รู้ P/N · จำนวนสั่ง · ไม่มีรหัสนี้ในสูตร) ได้ "-" เหมือนแถวที่ไม่เกี่ยว — ไม่เดา
  *    ไม่ใช้เกณฑ์ขั้นต่ำ (SHORT_MIN / OVER_MIN) เพราะคอลัมน์นี้คือยอดสะสมตามจริง ไม่ใช่การ์ดเตือน
@@ -1162,24 +1163,32 @@ export function cardShortOver(rows, { headerOf, usageOf } = {}) {
   if (typeof headerOf !== 'function' || typeof usageOf !== 'function') {
     throw new Error('ต้องส่ง headerOf และ usageOf เข้ามา');
   }
-  const NONE = { short: null, over: null };
-  const got = new Map();
-  return (rows || []).map(r => {
-    if (!r || r.voided || (r.kind !== 'receive' && r.kind !== 'sendback')) return NONE;
-    const po = txt(r.doc_ref);
-    if (!po) return NONE;
-    const have = round5((got.get(po) || 0) + (r.kind === 'receive' ? 1 : -1) * (Number(r.qty) || 0));
-    got.set(po, have);
+  const NONE = { short: null, over: null, need: null };
+  // ตามสูตรของ PO (ต่อชิ้น × จำนวนสั่ง) — คิดไม่ได้ = null ไม่เดา
+  const needOf = (po, code) => {
     const head = headerOf(po);
     const order = head ? Number(head.order) || 0 : 0;
-    if (!head || !txt(head.pn) || !order) return NONE;
-    const usage = usageOf(txt(head.pn), r.material_code);
-    if (usage == null || !isFinite(Number(usage))) return NONE;
+    if (!head || !txt(head.pn) || !order) return null;
+    const usage = usageOf(txt(head.pn), code);
+    if (usage == null || !isFinite(Number(usage))) return null;
+    return round5(Number(usage) * order);
+  };
+  const got = new Map();
+  return (rows || []).map(r => {
+    if (!r || r.voided) return NONE;
+    const po = txt(r.doc_ref);
+    if (!po) return NONE;
+    // ต้องใช้ = ตามสูตรของ PO แถวนั้น ขึ้นทุกแถวที่มี PO (จ่ายออกด้วย) ไว้เทียบบนจอ (เจ้าของสั่ง 16 พ.ย. 2026)
+    const need = needOf(po, r.material_code);
+    if (r.kind !== 'receive' && r.kind !== 'sendback') return { short: null, over: null, need };
+    const have = round5((got.get(po) || 0) + (r.kind === 'receive' ? 1 : -1) * (Number(r.qty) || 0));
+    got.set(po, have);
+    if (need == null) return NONE;
     /* ⚠️ ตัดไม่ให้ติดลบตอนเทียบ แบบเดียวกับ shortAll:490 (ยอดสะสมใน got ยังเก็บตามจริง)
      * ยอดคืนที่มากกว่ายอดรับเกิดได้ถ้าใบรับเข้าถูกยกเลิกทีหลัง — ปล่อยติดลบแล้วการ์ด
      * จะขึ้น "ขาด 14" ทั้งที่ทั้งใบสั่งมาแค่ 10 และไม่ตรงกับหน้า Mat Follow up (ผู้ตรวจ #117 รอบ 1 ข้อ 2) */
-    const d = round5(Math.max(0, have) - round5(Number(usage) * order));
-    return { short: d < 0 ? round5(-d) : null, over: d > 0 ? d : null };
+    const d = round5(Math.max(0, have) - need);
+    return { short: d < 0 ? round5(-d) : null, over: d > 0 ? d : null, need };
   });
 }
 

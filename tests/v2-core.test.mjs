@@ -311,6 +311,70 @@ ok('ไม่มีอะไรเลยก็ไม่พัง', logRows(null,
      && !src.includes("tab.value !== 'lgin'"));
 }
 
+console.log('\n=== วาดตารางยาวทีละช่วง (เจ้าของสั่ง 16 พ.ย. 2026 · ไม่ตัดแถวทิ้ง) ===');
+{
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const a = src.indexOf('    const DRAW_FIRST'), b = a + src.slice(a).search(/\r?\n\r?\n/);
+  // รันโค้ดจริงของตัววาดด้วย ref/computed/watch ปลอม · คิวจำลองเฟรมของเบราว์เซอร์
+  const env = () => {
+    const q = [], tab = {}; let onTab;
+    const make = new Function('ref', 'computed', 'watch', 'tab', 'requestAnimationFrame', 'setTimeout',
+      src.slice(a, b) + '\nreturn { drawing, drawN };');
+    const d = make(v => ({ value: v }), f => ({ get value() { return f(); } }), (s, cb) => { onTab = cb; }, tab,
+      cb => q.push(cb), cb => q.push(cb));
+    return { ...d, q, frames: () => { let k = 0; while (q.length && k < 1000) { q.shift()(); k++; } return k; },
+             switchTab: () => onTab() };
+  };
+  {
+    const e = env(), rows = Array.from({ length: 1234 }, (_, i) => i);
+    const v = e.drawing({ value: rows });
+    const first = v.value.length;
+    e.frames();
+    ok('เปิดแท็บแล้วขึ้นแถวแรก ๆ ก่อน แล้ววาดต่อจนครบทุกแถว ไม่มีแถวหาย',
+       first < rows.length && v.value.length === rows.length && v.value.every((x, i) => x === i), first + ' → ' + v.value.length);
+    e.switchTab();
+    ok('สลับแท็บแล้วเริ่มวาดจากแถวแรก ๆ ใหม่', v.value.length === first);
+  }
+  {
+    const e = env(), rows = Array.from({ length: 40 }, (_, i) => i);
+    ok('รายการสั้นแสดงครบทันที ไม่ตั้งรอบวาดต่อ', e.drawing({ value: rows }).value.length === 40 && e.q.length === 0);
+  }
+  {
+    const e = env(), rows = Array.from({ length: 900 }, (_, i) => 'PO' + i);
+    ok('แถวที่ต้องเลื่อนไปหา (keep) ขึ้นทันทีแม้อยู่ท้ายรายการ', e.drawing({ value: rows }, r => r === 'PO850').value.includes('PO850'));
+  }
+  {
+    // ⚠️ เคสนี้ต้องใช้ Vue ตัวจริง — computed ปลอมข้างบนไม่ cache (body รันใหม่ทุกครั้งที่อ่าน)
+    // จึงตั้งรอบวาดใหม่ให้เองเสมอ และมองไม่เห็นอาการ "ค้างที่ 60 แถว" ที่เจอจริงตอนสลับแท็บเร็ว ๆ
+    const Vue = new Function(fs.readFileSync(new URL('../v2/lib/vue.global.prod.js', import.meta.url), 'utf8') + '\nreturn Vue;')();
+    const { ref, computed, watch, effect, stop, nextTick } = Vue;
+    const q = [], tab = ref('ยาว');
+    const make = new Function('ref', 'computed', 'watch', 'tab', 'requestAnimationFrame', 'setTimeout',
+      src.slice(a, b) + '\nreturn { drawing };');
+    const { drawing } = make(ref, computed, watch, tab, cb => q.push(cb), cb => q.push(cb));
+    const frames = () => { let k = 0; while (q.length && k < 5000) { q.shift()(); k++; } };
+    const rows = ref(Array.from({ length: 3429 }, (_, i) => i));
+    const view = drawing(rows);
+    let seen = 0, r = null;
+    const mount = () => { r = effect(() => { seen = view.value.length; }); };   // ตารางที่อยู่ใน v-if ของแท็บ
+    mount();
+    const first = seen;
+    tab.value = 'สั้น'; await nextTick(); stop(r);    // สลับออกก่อนก้อนแรกมาถึง → ตารางถูกถอดออกจากจอ
+    frames();                                         // ปล่อยเฟรมที่ค้างไว้ให้หมด
+    tab.value = 'ยาว'; await nextTick(); mount();      // กลับมาแท็บเดิม ตารางถูกสร้างใหม่
+    frames();
+    ok('สลับแท็บออกก่อนก้อนแรกมาถึงแล้วกลับมา ยังวาดต่อจนครบทุกแถว ไม่ค้างที่ 60 แถว',
+       first === 60 && seen === rows.value.length, first + ' → ' + seen + ' จาก ' + rows.value.length);
+  }
+  ok('ตารางยาวทุกตารางวนจากตัววาด (MRP · PO · ขาดรอรับ · over · รอเติมวันหมดอายุ)',
+     ['r in mrpDraw"', '(p,i) in poDraw"', 'r in fsNewDraw"', 'r in foNewDraw"', 'r in fxDraw"'].every(k => html.includes('v-for="' + k)));
+  ok('ตัวเลขนับบนจอยังนับจากรายการเต็ม', html.includes('{{ fsNew.length }}') && html.includes('{{ foNew.length }}')
+     && html.includes('{{ fxRows.length }} รายการ') && html.includes('แสดง {{ poRows.length }} จาก'));
+  ok('ใบที่กดกลับมาจาก MRP ขึ้นทันที (ปุ่มกลับไป MRP เลื่อนหาแถวนั้น)',
+     src.includes("const mrpDraw = drawing(mrpShown, r => r.po === mrpPin.value);"));
+}
+
 console.log('\n=== หน้ารอเติมวันหมดอายุ (แท็บย่อยใน Log · เจ้าของเคาะ 28 ก.ย. 2026) ===');
 ok('นับรายการที่ขาดแยกตามนิติบุคคล — ไม่นับที่ยกเลิก/มีแล้ว/ไม่ต้องมี/ไม่ใช่รับเข้า',
    JSON.stringify(missingExpiryCounts(mx, needs)) === JSON.stringify([{ entity: base.entity, n: 2 }, { entity: 'อื่น', n: 1 }].sort((a, b) => a.entity.localeCompare(b.entity))),

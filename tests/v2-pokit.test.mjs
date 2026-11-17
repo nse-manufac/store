@@ -266,11 +266,17 @@ ok('ทั้งสองหน้าเติมจำนวนสั่งจ�
 const codeOf = name => bodyOf(name).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 ok('ขึ้นใบใหม่แล้วจำนวนสั่งของหน้าจ่ายออกต้องว่าง ไม่ใช่ค่าของใบเก่า',
    /outH\.order = \(h && h\.order\) \|\| null/.test(codeOf('pickOutPo'))
-   && /outH\.order = outOrderOfPo\(\)/.test(codeOf('clearOut'))
+   && /outH\.order = null/.test(codeOf('clearOut'))
    && /outH\.order = outOrderOfPo\(\)/.test(codeOf('saveOut'))
-   // ล้าง/บันทึกแล้วเลข PO ยังอยู่บนหัวจอ → ตั้งจำนวนสั่งจากใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
+   // บันทึกแล้วเลข PO ยังอยู่บนหัวจอ → ตั้งจำนวนสั่งจากใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
    && /const outOrderOfPo = \(\) => \(poHeader\(pos\.value, outH\.po\) \|\| \{\}\)\.order \|\| null/.test(appSrc)
    && !/switchedPo/.test(codeOf('pickOutPo')));
+// เจ้าของสั่ง 17 พ.ย. 2026: กด "ล้าง" หน้าจ่ายออก = ปิดใบนั้น เลข PO กับ P/N ต้องว่างด้วย
+// วันที่กับผู้เบิกค้างไว้ · ปุ่มบันทึกยังค้างเลข PO (#170) — ข้อนี้คุมไม่ให้สองปุ่มกลับมาเหมือนกัน
+ok('ปุ่มล้างหน้าจ่ายออกล้างเลข PO · P/N · จำนวนสั่ง แต่ไม่ล้างวันที่/ผู้เบิก · ปุ่มบันทึกไม่ล้างเลข PO',
+   /outH\.po = ''/.test(codeOf('clearOut')) && /outH\.pn = ''/.test(codeOf('clearOut'))
+   && !/outH\.(date|person)\s*=/.test(codeOf('clearOut'))
+   && !/outH\.po = ''/.test(codeOf('saveOut')));
 ok('สองหน้ากางสูตรผ่านตัวกรองเดียวกัน (ตัดบรรทัดสูตรที่ลบแล้ว)',
    /const inBomRows = computed\(\(\) => inH\.pn \? activeBomRowsOf\(/.test(appSrc)
    && /const outBomRows = computed\(\(\) => outH\.pn \? activeBomRowsOf\(/.test(appSrc)
@@ -480,7 +486,7 @@ ok('หน้ารายการ PO ดึงข้อมูลผ่าน se
    /const poRows = computed\(\(\) => searchPos\(\w+\.value, poQ\.value, \{ limit: Infinity \}\)\)/.test(appSrc)
    && !/slice\(0, 40\)/.test(appSrc) && /v-model\.trim="poQ"/.test(htmlSrc));
 ok('ตารางมีคอลัมน์ลำดับเป็นคอลัมน์แรก และนับตามลำดับที่แสดงจริง',
-   /<thead><tr><th[^>]*>ลำดับ<\/th>/.test(htmlSrc) && /v-for="\(p,i\) in poRows"/.test(htmlSrc)
+   /<thead><tr><th[^>]*>ลำดับ<\/th>/.test(htmlSrc) && /v-for="\(p,i\) in poDraw"/.test(htmlSrc)
    && /\{\{ i \+ 1 \}\}/.test(htmlSrc));
 // ⚠️ ตารางนี้แสดงครบทุกใบแล้ว ถ้าเทมเพลตไล่ kits ทั้งตารางในทุกแถว จะกลายเป็นงานคูณกันสองตาราง
 ok('นับ Kit List ต่อ PO ไว้ล่วงหน้า ไม่ไล่ทั้งตารางในทุกแถว',
