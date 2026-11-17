@@ -1070,6 +1070,12 @@ console.log('\n=== S. Short / Over บน Bin Card (เจ้าของสั�
      so.slice(0, 5).join(' ') === '4/- -/- -/1 -/- -/-', so.join(' '));
   ok('PO ที่คิดไม่ได้ / ไม่มีเลข PO → "-"', so[5] === '-/-' && so[6] === '-/-');
   ok('ยาวเท่าแถวการ์ด', cardShortOver(rows, opt).length === rows.length);
+  const need = cardShortOver(rows, opt).map(x => x.need ?? '-');
+  ok('ต้องใช้ = ตามสูตรของ PO แถวนั้น ขึ้นทั้งรับเข้า จ่ายออก ส่งคืน · คิดไม่ได้/ไม่มี PO → "-"',
+     need.join(' ') === '10 8 10 10 10 - -', need.join(' '));
+  const needV = cardShortOver([{ kind: 'issue', doc_ref: 'PA', material_code: 'M', qty: 3, voided: true },
+                               { kind: 'issue', doc_ref: 'PA', material_code: 'Z', qty: 3 }], opt);
+  ok('แถวที่ยกเลิก / รหัสที่ไม่อยู่ในสูตร → ไม่มีต้องใช้', needV.every(x => x.need === null), JSON.stringify(needV));
   throws('ไม่ส่งตัวช่วยมา = โยน', () => cardShortOver(rows), 'headerOf');
 
   const E = 'TUE-H';
