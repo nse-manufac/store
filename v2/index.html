@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-17.4">
+<meta name="app-version" content="2026-11-19.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -144,6 +144,8 @@ tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
 .mrp-bom .mrp-gap{padding-left:32px}
 .mrp-bom .mrp-gap > span,.mrp-bom .mrp-gap > button{position:relative;left:30%}
 .tag.mute{background:#eceff3;color:#5b6878}
+/* ยอดคงคลังราย P/N: ยอดติดลบราย PO กดได้ → แท็บ Log จ่ายออก */
+.bp-lnk{font:inherit;font-weight:700;color:var(--bad);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .msg{padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
 .msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
 .msg.warn{background:var(--warnbg);color:var(--warn);border:1px solid #f0d799}
@@ -1489,10 +1491,101 @@ textarea{font:inherit}
           <div class="card">
             <div class="row" style="margin-bottom:8px">
               <h2 style="margin:0">ยอดคงคลัง</h2>
+              <!-- ราย P/N = ค่าเริ่มต้น (เจ้าของสั่ง 18 พ.ย. 2026 — ที่นี่รับของเป็นของแต่ละ PO) · รายรหัสยังอยู่ (Bin Card ใช้) -->
+              <div class="mrp-seg" style="margin-left:12px">
+                <button :aria-pressed="balView==='pn'" @click="balView='pn'">ราย P/N</button>
+                <button :aria-pressed="balView==='code'" @click="balView='code'">รายรหัส</button>
+              </div>
               <div class="grow"></div>
-              <span class="hint">แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
+              <span v-if="balView==='code'" class="hint">แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
+              <template v-else>
+                <label class="row hint" style="gap:5px;flex-wrap:nowrap"><input type="checkbox" v-model="bpClosed" style="width:16px;height:16px">
+                  รวม PO ที่ปิดแล้ว</label>
+                <span class="hint">{{ bpShown.length }} P/N</span>
+              </template>
             </div>
-            <div class="scroll">
+            <div v-if="balView==='pn'" class="scroll" style="max-height:none">
+              <table class="mrp">
+                <thead><tr><th style="width:28px"></th><th>P/N</th><th>PO ที่นับ</th><th>PO Date เก่าสุด</th>
+                  <th class="mrp-st"><div class="mrp-stin">วัตถุดิบ</div></th></tr></thead>
+                <tbody>
+                  <template v-for="r in bpDraw" :key="r.pn">
+                    <tr v-if="bpOpen[r.pn]" class="mrp-space" aria-hidden="true"><td colspan="5"></td></tr>
+                    <tr class="mrp-po" :data-bpn="r.pn" :class="{ open: bpOpen[r.pn] }" @click="flip(bpOpen, r.pn)" :aria-expanded="!!bpOpen[r.pn]">
+                      <td><span class="fold-i">{{ bpOpen[r.pn] ? '▾' : '▸' }}</span></td>
+                      <td class="mono mrp-pono">{{ r.pn || 'ไม่รู้ P/N' }}</td>
+                      <td class="mono" :title="r.pos.map(p => p.po).join(' · ')">{{ r.pos.length }} ใบ</td>
+                      <td class="mono">{{ r.oldest || '—' }}</td>
+                      <td class="mrp-st"><div class="mrp-stin">
+                        <span class="tag">มีของ {{ r.nLeft }} รายการ</span>
+                        <span v-if="r.nNeg" class="tag bad" style="margin-left:4px">จ่ายเกินรับ {{ r.nNeg }} รายการ</span></div></td>
+                    </tr>
+                    <tr v-if="bpOpen[r.pn]" class="mrp-det"><td colspan="5"><div class="mrp-in">
+                      <div class="hint">PO ที่นับ: <span v-for="(p, i) in r.pos" :key="p.po" class="mono">{{ i ? ' · ' : '' }}{{ p.po }} ({{ p.date || 'ไม่มีวันที่' }})</span></div>
+                      <table class="mrp mrp-bom">
+                        <thead><tr><th style="width:24px"></th><th>รหัส</th><th>วัตถุดิบ</th><th class="r">รับเข้า</th>
+                          <th class="r">ส่งคืน Delta</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
+                        <tbody>
+                          <template v-for="l in r.lines.filter(x => bpFull[r.pn] || x.live)" :key="l.code">
+                            <tr class="mrp-po" @click="flip(bpCode, bpKey(r.pn, l.code))" :aria-expanded="!!bpCode[bpKey(r.pn, l.code)]">
+                              <td><span class="fold-i">{{ bpCode[bpKey(r.pn, l.code)] ? '▾' : '▸' }}</span></td>
+                              <td class="mono">{{ l.code }}</td>
+                              <td style="white-space:normal">{{ (matOf(l.code) || {}).description || '—' }}
+                                <span v-if="!l.inBom" class="tag warn" style="margin-left:4px">ไม่อยู่ใน BOM</span></td>
+                              <td class="mono r">{{ mrpNum(l.recv) }}</td>
+                              <td class="mono r hint">{{ l.sendback ? mrpNum(l.sendback) : '' }}</td>
+                              <td class="mono r">{{ mrpNum(l.issued) }}</td>
+                              <td class="mono r"><b :style="l.bal<0?'color:var(--bad)':''">{{ mrpNum(l.bal) }}</b>
+                                <span class="hint" style="margin-left:4px">{{ unitOf(l.code) }}</span></td>
+                            </tr>
+                            <!-- กางวัตถุดิบ = ยอดแยกราย PO · กาง PO = รายการเคลื่อนไหวของรหัสนี้ในใบนั้น -->
+                            <tr v-if="bpCode[bpKey(r.pn, l.code)]"><td></td><td colspan="6" style="padding:4px 0 12px">
+                              <table class="mrp mrp-bom" style="margin-top:0">
+                                <thead><tr><th style="width:24px"></th><th>PO No.</th><th>PO Date</th><th class="r">PO qty.</th><th class="r">รับเข้า</th>
+                                  <th class="r">ส่งคืน Delta</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
+                                <tbody>
+                                  <template v-for="p in l.byPo" :key="p.po">
+                                    <tr class="mrp-po" :data-bp="bpKey(p.po, l.code)" @click="flip(bpLine, bpKey(p.po, l.code))" :aria-expanded="!!bpLine[bpKey(p.po, l.code)]">
+                                      <td><span class="fold-i">{{ bpLine[bpKey(p.po, l.code)] ? '▾' : '▸' }}</span></td>
+                                      <td class="mono">{{ p.po }}</td><td class="mono">{{ p.date || '—' }}</td>
+                                      <td class="mono r">{{ p.order ? mrpNum(p.order) : '—' }}</td>
+                                      <td class="mono r">{{ mrpNum(p.recv) }}</td>
+                                      <td class="mono r hint">{{ p.sendback ? mrpNum(p.sendback) : '' }}</td>
+                                      <td class="mono r">{{ mrpNum(p.issued) }}</td>
+                                      <!-- ติดลบ = ลิงก์ไปแท็บ Log จ่ายออก ค้น PO + รหัส ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ (เจ้าของสั่ง 19 พ.ย. 2026) -->
+                                      <td class="mono r"><button v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"
+                                          title="ไปหน้า Log จ่ายออก เพื่อยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ">{{ mrpNum(p.bal) }}</button>
+                                        <b v-else>{{ mrpNum(p.bal) }}</b></td>
+                                    </tr>
+                                    <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="7" style="padding:4px 0 10px">
+                                      <table class="mrp mrp-bom" style="margin-top:0">
+                                        <thead><tr><th>วันที่</th><th>เวลา</th><th>รายการ</th><th class="r">จำนวน</th><th class="r">คงเหลือ</th>
+                                          <th>ล็อต</th><th>ผู้ทำรายการ</th></tr></thead>
+                                        <tbody><tr v-for="m in bpMoves[bpKey(p.po, l.code)] || []" :key="m.e.id">
+                                          <td class="mono">{{ m.day }}</td><td class="mono hint">{{ m.time }}</td><td>{{ m.label }}</td>
+                                          <td class="mono r" :style="m.qty<0?'color:var(--bad)':''">{{ m.qty > 0 ? '+' : '' }}{{ mrpNum(m.qty) }}</td>
+                                          <td class="mono r"><b>{{ mrpNum(m.run) }}</b></td>
+                                          <td class="mono hint">{{ m.e.lot || '' }}</td><td>{{ m.e.person || '' }}</td>
+                                        </tr></tbody>
+                                      </table>
+                                    </td></tr>
+                                  </template>
+                                  <tr v-if="!l.byPo.length"><td></td><td colspan="7" class="hint">ยังไม่มีรายการเคลื่อนไหวใน PO ที่นับ</td></tr>
+                                </tbody>
+                              </table>
+                            </td></tr>
+                          </template>
+                        </tbody>
+                      </table>
+                      <button class="btn" style="margin-top:8px;padding:2px 9px" @click="flip(bpFull, r.pn)">
+                        {{ bpFull[r.pn] ? 'แสดงเฉพาะที่ยังมีของ' : 'แสดงทุกรายการตาม BOM (' + r.lines.length + ')' }}</button>
+                    </div></td></tr>
+                  </template>
+                </tbody>
+              </table>
+              <p v-if="!bpShown.length" class="empty">ไม่มี P/N ที่ยังมีของใน PO ที่ยังไม่ปิด</p>
+            </div>
+            <div v-else class="scroll">
               <table>
                 <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
                   <th style="width:105px">หมวด</th><th style="width:110px">คงเหลือ</th>
@@ -3816,6 +3909,8 @@ textarea{font:inherit}
     <!-- มาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — กดกลับไปใบเดิม แถวเดิม -->
     <button v-if="mrpBack && (tab === 'fshort' || tab === 'fover')" class="btn primary mrp-back" @click="mrpGoBack">
       ‹ กลับไป MRP · {{ mrpBack.po }}</button>
+    <button v-if="bpBack && tab === 'lgout'" class="btn primary mrp-back" @click="bpGoBack">
+      ‹ กลับไปยอดคงคลัง · {{ bpBack.po }}</button>
   </template>
 </div>
 

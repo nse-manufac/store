@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
-         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap } from '../v2/master/mrp.js';
+         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, openPoKeep } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
          skipOver, cancelOver, overAll, overPending, fromOverRow,
          shortSettled, overSettled, stoppedShorts, sliceKeep } from '../v2/master/follow.js';
@@ -399,6 +399,124 @@ ok('จอ: กดไป / กลับ ตั้ง pin ให้แถวข�
      && a.includes('sliceKeep(fsAll.value, SHOW_MAX, r => r.s.id === followPin.value)')
      && a.includes('mrpKeep(mrpAll.value,') && a.includes('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ') && a.includes("watch([mrpQ, mrpFilter, mrpDone], () => { mrpPin.value = ''; });"))
    (readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
+
+console.log('\n=== ยอดคงคลังราย PO (เจ้าของสั่ง 18 พ.ย. 2026) ===');
+{
+  const { makeEntry, voidEntry } = await import('../v2/core/ledger.js');
+  const { poStocks, poMoves, poStockOf } = await import('../v2/core/balance.js');
+  const { poHeaderIndex } = await import('../v2/master/po-kit.js');
+  const mk = (kind, code, qty, po, x = {}) => makeEntry({ entity: EN, person: 'สมชาย', kind, material_code: code, qty, doc_ref: po,
+    ...(kind === 'receive' ? { lot: 'L1' } : {}), ...(kind === 'sendback' ? { reason_code: 'over' } : {}), ...x });
+  const P1 = 'TM0001H961', P2 = 'TM0001H962';
+  const es = [mk('receive', A, 20, P1, { at: '2026-11-02T01:00:00.000Z' }), mk('issue', A, 15, P1, { at: '2026-11-03T01:00:00.000Z' }),
+              mk('sendback', A, 2, P1, { at: '2026-11-04T01:00:00.000Z' }), mk('issue', B, 3, P1),
+              mk('receive', X, 4, P1), voidEntry(mk('issue', A, 99, P1), { by: 'ก', reason: 'คีย์ผิด' }),
+              mk('receive', A, 7, P2), mk('issue', A, 7, P2), mk('issue', A, 5, ''),
+              makeEntry({ entity: 'OTHER', person: 'ข', kind: 'issue', material_code: A, qty: 50, doc_ref: P1 })];
+  const st = poStocks(es, EN);
+  ok('ยอดราย PO = poStockOf ทุกใบทุกรหัส (หน้าจ่ายออกกับหน้ายอดคงคลังห้ามคนละเลข)',
+     [...st].every(([po, m]) => [...m].every(([c, r]) => JSON.stringify(r) === JSON.stringify(poStockOf(es, EN, po).get(c)))) && st.size === 2);
+  const head = poHeaderIndex(poList);
+  const [r1] = stockPnRows(st, { headerOf: head, bomRowsOf });
+  ok('P/N เดียวรวมทุก PO ของมัน · PO เรียงวันที่เก่าก่อน · วันที่เก่าสุด',
+     r1.pn === 'PN-A' && r1.pos.map(p => p.po).join() === [P1, P2].join() && r1.oldest === '2026-11-01');
+  ok('วัตถุดิบ: รหัสตาม BOM ก่อน แล้วรหัสนอก BOM', r1.lines.map(l => l.code + (l.inBom ? '' : '*')).join() === [A, B, X + '*'].join());
+  const la = r1.lines[0];
+  ok('ยอดของ P/N = ผลรวมยอดราย PO · ไม่นับที่ยกเลิก / นิติบุคคลอื่น / ไม่ใส่ PO (A3)',
+     la.bal === 3 && la.issued === 22 && la.recv === 27 && r1.lines[1].bal === -3 && r1.nNeg === 1 && r1.nLeft === 3, JSON.stringify(la));
+  ok('กางวัตถุดิบ: ยอดแยกราย PO ตรงกับ poStockOf ทุกใบ',
+     la.byPo.map(p => p.po + ':' + p.bal).join() === `${P1}:3,${P2}:0` && la.byPo.every(p => p.bal === poStockOf(es, EN, p.po).get(A).bal));
+  ok('แยกราย PO มี PO qty. จากไฟล์ PO', la.byPo[0].order === 10);
+  {
+    const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    ok('ยอดติดลบราย PO กดแล้วไปแท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ · มีปุ่มกลับไปยอดคงคลัง (เจ้าของสั่ง 19 พ.ย. 2026)',
+       html.includes('v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"')
+       && app.includes("Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });") && app.includes("tab.value = 'lgout';")
+       && html.includes('v-if="bpBack && tab === \'lgout\'"') && app.includes('Object.assign(lg, b.lg);'));
+    ok('กลับมาแล้วบรรทัดถูกซ่อน (ยกเลิกแล้วไม่ติดลบ) เลื่อนไปแถว P/N แทน', html.includes(':data-bpn="r.pn"') && app.includes('[data-bpn="${CSS.escape(b.pn)}"]'));
+  }
+  {
+    // จ่ายผิดใบ: ใบหนึ่งติดลบ อีกใบบวกหายกันพอดี — ยอดรวม 0 แต่ห้ามหายจากจอ และต้องขึ้นป้าย "จ่ายเกินรับ"
+    const es2 = [mk('receive', A, 20, P1), mk('issue', A, 25, P1), mk('receive', A, 20, P2), mk('issue', A, 15, P2)];
+    const [r2] = stockPnRows(poStocks(es2, EN), { headerOf: head, bomRowsOf }), l2 = r2.lines[0];
+    ok('จ่ายผิดใบ: ยอดรวม 0 แต่ใบหนึ่งติดลบ → ไม่ถูกซ่อน และนับเป็น "จ่ายเกินรับ"',
+       l2.bal === 0 && l2.byPo.map(p => p.bal).join() === '-5,5' && l2.live && l2.neg
+       && !r2.empty && r2.nLeft === 1 && r2.nNeg === 1,
+       JSON.stringify({ bal: l2.bal, live: l2.live, neg: l2.neg, nLeft: r2.nLeft, nNeg: r2.nNeg, empty: r2.empty }));
+    const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    ok('จอ: ตัวกรองบรรทัดวัตถุดิบกับช่องค้นหาใช้ l.live (ไม่ใช่ยอดรวม) จะได้ไม่ซ่อนใบที่ติดลบ',
+       html.includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
+       && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.some(l => l.live && l.code.includes(q))'));
+  }
+  {
+    /* ใบที่แท็บ MRP ไม่มีแถวให้เลย ไม่ใช่ "ใบที่ปิดแล้ว" แต่คือใบที่ MRP ตัดสินไม่ได้ — ห้ามซ่อน (B4 · ผู้ตรวจ #175 รอบ 2)
+     * มีแต่รายการจ่ายออก จึงไม่อยู่ใน started · มี plan แต่ไม่มีใบนี้ใน plan → mrpRows ไม่สร้างแถว */
+    const BAD = 'TM0001H888', P4 = 'TM0001H964';   // BAD = พิมพ์เลข PO ผิด (ไม่อยู่ในไฟล์ PO) · P4 = อยู่ในไฟล์ PO แต่ยังไม่เคยรับเข้า
+    const es3 = [mk('issue', A, 5, BAD), mk('issue', A, 5, P4), mk('receive', A, 1, 'TM0001H961'), mk('receive', A, 1, 'TM0001H967')];
+    const PL3 = planMap([{ po: 'TM0001H961', week: 'WK1', qty: 10, shipped: 0, left: 10 },
+                         { po: 'TM0001H967', week: 'WK1', qty: 10, shipped: 10, left: 0 }]);   // ส่งครบ = จบ (จอซ่อน)
+    const app0 = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+    const rs3 = mrpRows(es3, EN, { poList, bomRowsOf, plan: PL3, today: TODAY });
+    ok('ใบที่มีแต่จ่ายออก (เลข PO ผิด / จ่ายก่อนรับ) แท็บ MRP ไม่มีแถวให้',
+       !rs3.some(r => r.po === BAD || r.po === P4), rs3.map(r => r.po).join());
+    const keep = openPoKeep(rs3);
+    ok('ตัวกรอง "ยังไม่ปิด" ปล่อยใบที่ MRP ไม่มีแถวให้ผ่าน (ปิดแล้ว ≠ ตัดสินไม่ได้)',
+       keep(BAD) && keep(P4) && keep('TM0001H961') && !keep('TM0001H967'));
+    const got = stockPnRows(poStocks(es3, EN), { headerOf: head, bomRowsOf, keepPo: keep });
+    const poBal = pn => (got.find(r => r.pn === pn)?.lines.find(l => l.code === A)?.byPo || []).map(p => p.po + ':' + p.bal).join();
+    ok('ยอดติดลบของใบที่พิมพ์เลข PO ผิด ยังเห็นในมุมมองเริ่มต้น', poBal('') === BAD + ':-5', poBal(''));
+    ok('ยอดติดลบของใบที่คีย์จ่ายก่อนรับ (ไม่มีใน plan) ยังเห็น · ใบที่ plan บอกว่าส่งครบยังถูกซ่อนตามเดิม',
+       poBal('PN-A') === 'TM0001H961:1,' + P4 + ':-5', poBal('PN-A'));
+    ok('ต่อสายตัวกรองเข้าหน้ายอดคงคลัง (openPoKeep ไม่ใช่ Set ของใบที่ยังไม่ปิด)',
+       app0.includes('mrpErr.value ? null : openPoKeep(mrpAll.value)') && app0.includes('keepPo: bpClosed.value ? null : bpOpenPos.value'));
+  }
+  {
+    /* กดแถวแล้ว "กาง" ได้จริงไหม — ของที่เทสแบบอ่านซอร์สจับไม่ได้ (ผู้ตรวจ #175 รอบ 3 ข้อ 1)
+     * เดิมตัวเก็บสถานะเป็น ref() แล้วเทมเพลตส่งตัวมันเข้า flip() · Vue แกะ ref ให้ก่อนส่งเข้าฟังก์ชันเสมอ
+     * (proxyRefs — กับดักเดียวกับ CLAUDE.md §8.1) ฟังก์ชันจึงได้อ็อบเจกต์ธรรมดา แล้ว r.value เป็น undefined
+     * → TypeError เงียบ ๆ ทั้งสี่ชั้น เพราะ vue.global.prod.js ไม่เตือนอะไร
+     * ที่นี่จึงเอา @click จริงจากเทมเพลต มาคอมไพล์ด้วย Vue ตัวจริงแล้ว "กด" — ไม่ต้องเปิดเบราว์เซอร์ */
+    const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+    const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    const Vue = new Function(readFileSync(new URL('../v2/lib/vue.global.prod.js', import.meta.url), 'utf8') + '\nreturn Vue;')();
+    globalThis.Vue = Vue;   // โค้ดที่ compile() สร้างอ้าง Vue ตัวโกลบอล เหมือนตอนรันในเบราว์เซอร์
+    const { ref, reactive, computed, proxyRefs, compile } = Vue;
+    const srcLine = k => {
+      const i = app.indexOf(k);
+      if (i < 0) throw new Error('หาไม่เจอใน app.js: ' + k);
+      return app.slice(app.lastIndexOf('\n', i) + 1, app.indexOf('\n', i));
+    };
+    const make = new Function('ref', 'reactive',
+      [srcLine('bpOpen = '), srcLine('const bpKey = '), srcLine('const flip = ')].join('\n')
+      + '\nreturn { bpOpen, bpCode, bpLine, bpFull, bpKey, flip };');
+    // ctx = สิ่งที่เทมเพลตเห็นจริง (ค่าที่ setup() คืน ถูก proxyRefs แกะ ref ให้ก่อนเสมอ)
+    const ctx = proxyRefs({ ...make(ref, reactive), r: { pn: 'PN-A' }, l: { code: 'AC01' }, p: { po: P1 } });
+    const press = ex => { compile(`<button @click="${ex}"></button>`)(ctx).props.onClick(); };
+    const shown = computed(() => [ctx.bpOpen['PN-A'], ctx.bpCode[ctx.bpKey('PN-A', 'AC01')],
+                                  ctx.bpLine[ctx.bpKey(P1, 'AC01')], ctx.bpFull['PN-A']].map(v => !!v).join());
+    const clicks = [...html.matchAll(/@click(?:\.stop)?="(flip\([^"]*\))"/g)].map(m => m[1]);
+    ok('เทมเพลตมีจุดกดกางครบสี่ชั้น (P/N · วัตถุดิบ · ราย PO · แสดงทุกรายการตาม BOM)',
+       clicks.length === 4 && new Set(clicks).size === 4, clicks.join(' · '));
+    const before = shown.value;   // ต้องอ่านก่อนกด ให้ computed ติด cache — ตัวเก็บที่ไม่ reactive จะไม่แจ้งให้วาดใหม่
+    let err = '';
+    try { clicks.forEach(press); } catch (e) { err = String(e.message); }
+    ok('กดแถวแล้วกางได้จริงทั้งสี่ชั้น และจอรู้ว่าค่าเปลี่ยน (เทมเพลตแกะ ref ให้ก่อนส่งเข้า flip)',
+       before === 'false,false,false,false' && !err && shown.value === 'true,true,true,true', err || before + ' → ' + shown.value);
+    let err2 = '';
+    try { clicks.forEach(press); } catch (e) { err2 = String(e.message); }
+    ok('กดซ้ำพับกลับได้', !err2 && shown.value === 'false,false,false,false', err2 || shown.value);
+  }
+  ok('นับเฉพาะ PO ที่ส่ง keepPo (ใบที่ยังไม่ปิด)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].lines[0].bal === 0);
+  ok('ทุกรหัสเหลือ 0 = ของหมดแล้ว (จอซ่อนไว้)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].empty && !r1.empty);
+  ok('รหัสใน BOM ที่ยังไม่เคยรับ ขึ้นเป็น 0', stockPnRows(new Map([[P1, new Map()]]), { headerOf: head, bomRowsOf })[0].lines.length === 2);
+  ok('PO ที่ยังไม่นำเข้าไฟล์ (ไม่รู้ P/N) รวมไว้ท้ายสุด',
+     stockPnRows(new Map([['TM9', new Map()], [P1, new Map()]]), { headerOf: head, bomRowsOf }).map(r => r.pn).join() === 'PN-A,');
+  const mv = poMoves(es, EN, P1, A);
+  ok('รายการเคลื่อนไหวของรหัสใน PO: เรียงเก่าไปใหม่ · คงเหลือสะสมจบที่ยอดของใบ',
+     mv.map(m => m.qty).join() === '20,-15,-2' && mv[mv.length - 1].run === la.byPo[0].bal, JSON.stringify(mv.map(m => [m.qty, m.run])));
+  throws('poStocks ลืมส่ง entity ไม่ได้ (A3)', () => poStocks(es, ''), 'นิติบุคคล');
+  throws('poMoves ลืมส่ง entity ไม่ได้ (A3)', () => poMoves(es, '', P1, A), 'นิติบุคคล');
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
