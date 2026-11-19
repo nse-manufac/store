@@ -1771,7 +1771,7 @@ createApp({
     const bpShown = computed(() => {
       const q = balQ.value.trim().toUpperCase();
       return bpAll.value.filter(r => !r.empty && (!q || r.pn.toUpperCase().includes(q)
-        || r.pos.some(p => p.po.toUpperCase().includes(q)) || r.lines.some(l => l.bal !== 0 && l.code.includes(q))));
+        || r.pos.some(p => p.po.toUpperCase().includes(q)) || r.lines.some(l => l.live && l.code.includes(q))));
     });
     const bpDraw = drawing(bpShown, r => !!bpOpen.value[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที (ปุ่มกลับเลื่อนหาแถวนั้น)
     /* กดยอดติดลบราย PO → แท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำได้ทันที (เจ้าของสั่ง 19 พ.ย. 2026)

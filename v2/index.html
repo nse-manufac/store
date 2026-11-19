@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-19.1">
+<meta name="app-version" content="2026-11-19.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1526,7 +1526,7 @@ textarea{font:inherit}
                         <thead><tr><th style="width:24px"></th><th>รหัส</th><th>วัตถุดิบ</th><th class="r">รับเข้า</th>
                           <th class="r">ส่งคืน Delta</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
                         <tbody>
-                          <template v-for="l in r.lines.filter(x => bpFull[r.pn] || x.bal !== 0)" :key="l.code">
+                          <template v-for="l in r.lines.filter(x => bpFull[r.pn] || x.live)" :key="l.code">
                             <tr class="mrp-po" @click="flip(bpCode, bpKey(r.pn, l.code))" :aria-expanded="!!bpCode[bpKey(r.pn, l.code)]">
                               <td><span class="fold-i">{{ bpCode[bpKey(r.pn, l.code)] ? '▾' : '▸' }}</span></td>
                               <td class="mono">{{ l.code }}</td>

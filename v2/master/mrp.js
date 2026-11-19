@@ -449,10 +449,12 @@ export function mrpMatch(row, q) {
  *   keepPo(po) = PO ที่นับ (จอส่ง "ยังไม่ปิด" ตามกฎแท็บ MRP) · ไม่ส่ง = ทุกใบ
  * คืน [{ pn, pos, oldest, lines, nLeft, nNeg, empty }] เรียงตาม P/N
  *   pos   = [{ po, date, order }] PO ของ P/N นี้ที่มีการเคลื่อนไหว เรียงวันที่เก่าก่อน · oldest = วันที่ PO เก่าสุด
- *   lines = [{ code, inBom, recv, sendback, issued, bal, byPo }] ยอดรวมทุก PO ของ P/N นี้
+ *   lines = [{ code, inBom, recv, sendback, issued, bal, byPo, live, neg }] ยอดรวมทุก PO ของ P/N นี้
+ *           live / neg = ยังมีของ / ติดลบ โดยดู**ยอดราย PO ด้วย** (จ่ายผิดใบแล้วยอดรวมหายกันพอดี ก็ยังต้องเห็น)
  *           รหัสในสูตรทุกตัว (ยังไม่รับก็ขึ้นเป็น 0) + รหัสนอกสูตร (inBom = false) · เรียงตามหมวดแบบ MRP
  *           byPo = [{ po, date, order, recv, sendback, issued, bal }] ใบที่รหัสนี้เคลื่อนไหว — ยอดของใบตาม poStockOf
- *   empty = ทุกรหัสเหลือ 0 · PO ที่ไม่รู้ P/N (ยังไม่นำเข้าไฟล์ PO) รวมไว้ใต้ pn = ''
+ *   nLeft / nNeg = จำนวนบรรทัดที่ live / neg · empty = ไม่มีบรรทัด live เลย
+ *   PO ที่ไม่รู้ P/N (ยังไม่นำเข้าไฟล์ PO) รวมไว้ใต้ pn = ''
  * ⚠️ ยอดของแต่ละใบมาจาก poStocks ตัวเดียว — ห้ามคิดใหม่ในนี้ ไม่งั้นหน้าจ่ายออกกับหน้านี้บอกคนละเลข
  */
 export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', keepPo = null } = {}) {
@@ -480,9 +482,15 @@ export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', kee
     }
     const ls = [...lines.values()].sort((a, b) =>
       (a.inBom === b.inBom ? 0 : a.inBom ? -1 : 1) || catRank(a.code) - catRank(b.code) || a.code.localeCompare(b.code));
-    const nLeft = ls.filter(l => l.bal !== 0).length;
+    /* ⚠️ live / neg ดูยอดราย PO ด้วย ไม่ใช่แค่ยอดรวม — จ่ายผิดใบแล้วอีกใบบวกหายกันพอดี ยอดรวมจะเป็น 0
+     * ถ้านับจากยอดรวมอย่างเดียว แถวนั้นจะถูกซ่อนทั้ง P/N และป้าย "จ่ายเกินรับ" จะไม่ขึ้น ทั้งที่นี่คือเคสที่หน้านี้ตั้งใจจับ */
+    for (const l of ls) {
+      l.live = l.bal !== 0 || l.byPo.some(p => p.bal !== 0);
+      l.neg  = l.bal < 0 || l.byPo.some(p => p.bal < 0);
+    }
+    const nLeft = ls.filter(l => l.live).length;
     out.push({ pn, pos: list.map(({ po, date, order }) => ({ po, date, order })), oldest: list.find(p => p.date)?.date || '',
-               lines: ls, nLeft, nNeg: ls.filter(l => l.bal < 0).length, empty: !nLeft });
+               lines: ls, nLeft, nNeg: ls.filter(l => l.neg).length, empty: !nLeft });
   }
   const num = (x, y) => x.localeCompare(y, 'en', { numeric: true, sensitivity: 'base' });
   return out.sort((a, b) => (!a.pn) - (!b.pn) || num(a.pn, b.pn));

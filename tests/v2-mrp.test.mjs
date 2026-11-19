@@ -435,6 +435,19 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        && html.includes('v-if="bpBack && tab === \'lgout\'"') && app.includes('Object.assign(lg, b.lg);'));
     ok('กลับมาแล้วบรรทัดถูกซ่อน (ยกเลิกแล้วไม่ติดลบ) เลื่อนไปแถว P/N แทน', html.includes(':data-bpn="r.pn"') && app.includes('[data-bpn="${CSS.escape(b.pn)}"]'));
   }
+  {
+    // จ่ายผิดใบ: ใบหนึ่งติดลบ อีกใบบวกหายกันพอดี — ยอดรวม 0 แต่ห้ามหายจากจอ และต้องขึ้นป้าย "จ่ายเกินรับ"
+    const es2 = [mk('receive', A, 20, P1), mk('issue', A, 25, P1), mk('receive', A, 20, P2), mk('issue', A, 15, P2)];
+    const [r2] = stockPnRows(poStocks(es2, EN), { headerOf: head, bomRowsOf }), l2 = r2.lines[0];
+    ok('จ่ายผิดใบ: ยอดรวม 0 แต่ใบหนึ่งติดลบ → ไม่ถูกซ่อน และนับเป็น "จ่ายเกินรับ"',
+       l2.bal === 0 && l2.byPo.map(p => p.bal).join() === '-5,5' && l2.live && l2.neg
+       && !r2.empty && r2.nLeft === 1 && r2.nNeg === 1,
+       JSON.stringify({ bal: l2.bal, live: l2.live, neg: l2.neg, nLeft: r2.nLeft, nNeg: r2.nNeg, empty: r2.empty }));
+    const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    ok('จอ: ตัวกรองบรรทัดวัตถุดิบกับช่องค้นหาใช้ l.live (ไม่ใช่ยอดรวม) จะได้ไม่ซ่อนใบที่ติดลบ',
+       html.includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
+       && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.some(l => l.live && l.code.includes(q))'));
+  }
   ok('นับเฉพาะ PO ที่ส่ง keepPo (ใบที่ยังไม่ปิด)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].lines[0].bal === 0);
   ok('ทุกรหัสเหลือ 0 = ของหมดแล้ว (จอซ่อนไว้)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].empty && !r1.empty);
   ok('รหัสใน BOM ที่ยังไม่เคยรับ ขึ้นเป็น 0', stockPnRows(new Map([[P1, new Map()]]), { headerOf: head, bomRowsOf })[0].lines.length === 2);
