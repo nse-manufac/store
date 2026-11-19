@@ -470,6 +470,42 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
     ok('ต่อสายตัวกรองเข้าหน้ายอดคงคลัง (openPoKeep ไม่ใช่ Set ของใบที่ยังไม่ปิด)',
        app0.includes('mrpErr.value ? null : openPoKeep(mrpAll.value)') && app0.includes('keepPo: bpClosed.value ? null : bpOpenPos.value'));
   }
+  {
+    /* กดแถวแล้ว "กาง" ได้จริงไหม — ของที่เทสแบบอ่านซอร์สจับไม่ได้ (ผู้ตรวจ #175 รอบ 3 ข้อ 1)
+     * เดิมตัวเก็บสถานะเป็น ref() แล้วเทมเพลตส่งตัวมันเข้า flip() · Vue แกะ ref ให้ก่อนส่งเข้าฟังก์ชันเสมอ
+     * (proxyRefs — กับดักเดียวกับ CLAUDE.md §8.1) ฟังก์ชันจึงได้อ็อบเจกต์ธรรมดา แล้ว r.value เป็น undefined
+     * → TypeError เงียบ ๆ ทั้งสี่ชั้น เพราะ vue.global.prod.js ไม่เตือนอะไร
+     * ที่นี่จึงเอา @click จริงจากเทมเพลต มาคอมไพล์ด้วย Vue ตัวจริงแล้ว "กด" — ไม่ต้องเปิดเบราว์เซอร์ */
+    const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+    const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    const Vue = new Function(readFileSync(new URL('../v2/lib/vue.global.prod.js', import.meta.url), 'utf8') + '\nreturn Vue;')();
+    globalThis.Vue = Vue;   // โค้ดที่ compile() สร้างอ้าง Vue ตัวโกลบอล เหมือนตอนรันในเบราว์เซอร์
+    const { ref, reactive, computed, proxyRefs, compile } = Vue;
+    const srcLine = k => {
+      const i = app.indexOf(k);
+      if (i < 0) throw new Error('หาไม่เจอใน app.js: ' + k);
+      return app.slice(app.lastIndexOf('\n', i) + 1, app.indexOf('\n', i));
+    };
+    const make = new Function('ref', 'reactive',
+      [srcLine('bpOpen = '), srcLine('const bpKey = '), srcLine('const flip = ')].join('\n')
+      + '\nreturn { bpOpen, bpCode, bpLine, bpFull, bpKey, flip };');
+    // ctx = สิ่งที่เทมเพลตเห็นจริง (ค่าที่ setup() คืน ถูก proxyRefs แกะ ref ให้ก่อนเสมอ)
+    const ctx = proxyRefs({ ...make(ref, reactive), r: { pn: 'PN-A' }, l: { code: 'AC01' }, p: { po: P1 } });
+    const press = ex => { compile(`<button @click="${ex}"></button>`)(ctx).props.onClick(); };
+    const shown = computed(() => [ctx.bpOpen['PN-A'], ctx.bpCode[ctx.bpKey('PN-A', 'AC01')],
+                                  ctx.bpLine[ctx.bpKey(P1, 'AC01')], ctx.bpFull['PN-A']].map(v => !!v).join());
+    const clicks = [...html.matchAll(/@click(?:\.stop)?="(flip\([^"]*\))"/g)].map(m => m[1]);
+    ok('เทมเพลตมีจุดกดกางครบสี่ชั้น (P/N · วัตถุดิบ · ราย PO · แสดงทุกรายการตาม BOM)',
+       clicks.length === 4 && new Set(clicks).size === 4, clicks.join(' · '));
+    const before = shown.value;   // ต้องอ่านก่อนกด ให้ computed ติด cache — ตัวเก็บที่ไม่ reactive จะไม่แจ้งให้วาดใหม่
+    let err = '';
+    try { clicks.forEach(press); } catch (e) { err = String(e.message); }
+    ok('กดแถวแล้วกางได้จริงทั้งสี่ชั้น และจอรู้ว่าค่าเปลี่ยน (เทมเพลตแกะ ref ให้ก่อนส่งเข้า flip)',
+       before === 'false,false,false,false' && !err && shown.value === 'true,true,true,true', err || before + ' → ' + shown.value);
+    let err2 = '';
+    try { clicks.forEach(press); } catch (e) { err2 = String(e.message); }
+    ok('กดซ้ำพับกลับได้', !err2 && shown.value === 'false,false,false,false', err2 || shown.value);
+  }
   ok('นับเฉพาะ PO ที่ส่ง keepPo (ใบที่ยังไม่ปิด)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].lines[0].bal === 0);
   ok('ทุกรหัสเหลือ 0 = ของหมดแล้ว (จอซ่อนไว้)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].empty && !r1.empty);
   ok('รหัสใน BOM ที่ยังไม่เคยรับ ขึ้นเป็น 0', stockPnRows(new Map([[P1, new Map()]]), { headerOf: head, bomRowsOf })[0].lines.length === 2);
