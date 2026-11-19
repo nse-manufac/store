@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
@@ -1756,17 +1756,17 @@ createApp({
 
     /* ยอดคงคลังราย P/N (เจ้าของสั่ง 18 พ.ย. 2026) — กาง P/N = วัตถุดิบ (รวมทุก PO) · กางวัตถุดิบ = แยกราย PO · กาง PO = รายการเคลื่อนไหว
      * ตัวคิดอยู่ที่ poStocks / poMoves (core/balance.js) กับ stockPnRows (master/mrp.js)
-     * นับเฉพาะ PO ที่ยังไม่ปิด = ใบที่แท็บ MRP ยังไม่นับว่าจบ (กฎเดียวกัน) · ติ๊กแล้วรวมใบที่ปิดแล้ว */
+     * นับเฉพาะ PO ที่ยังไม่ปิด = ใบที่แท็บ MRP ยังไม่นับว่าจบ (กฎเดียวกัน · openPoKeep) · ติ๊กแล้วรวมใบที่ปิดแล้ว
+     * ใบที่ MRP ไม่มีแถวให้เลย (เลข PO ผิด · จ่ายก่อนรับ) ไม่ใช่ใบที่ปิด — openPoKeep ปล่อยผ่าน ห้ามซ่อน */
     const balView = ref('pn');
     const bpClosed = ref(false), bpOpen = ref({}), bpCode = ref({}), bpLine = ref({}), bpFull = ref({});
     const bpKey = (a, b) => a + '|' + b;
     const flip = (r, k) => { r.value = { ...r.value, [k]: !r.value[k] }; };
-    const bpOpenPos = computed(() => (mrpErr.value ? null : new Set(mrpAll.value.filter(r => !r.done).map(r => r.po))));
+    const bpOpenPos = computed(() => (mrpErr.value ? null : openPoKeep(mrpAll.value)));
     const bpAll = computed(() => {
       if (!entity.value) return [];
-      const open = bpClosed.value ? null : bpOpenPos.value;
       return stockPnRows(poStocks(entries.value, entity.value), { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf, catOf,
-                                                                  keepPo: open ? po => open.has(po) : null });
+                                                                  keepPo: bpClosed.value ? null : bpOpenPos.value });
     });
     const bpShown = computed(() => {
       const q = balQ.value.trim().toUpperCase();

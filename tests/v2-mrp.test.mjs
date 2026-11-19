@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
-         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows } from '../v2/master/mrp.js';
+         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, openPoKeep } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
          skipOver, cancelOver, overAll, overPending, fromOverRow,
          shortSettled, overSettled, stoppedShorts, sliceKeep } from '../v2/master/follow.js';
@@ -447,6 +447,28 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
     ok('จอ: ตัวกรองบรรทัดวัตถุดิบกับช่องค้นหาใช้ l.live (ไม่ใช่ยอดรวม) จะได้ไม่ซ่อนใบที่ติดลบ',
        html.includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
        && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.some(l => l.live && l.code.includes(q))'));
+  }
+  {
+    /* ใบที่แท็บ MRP ไม่มีแถวให้เลย ไม่ใช่ "ใบที่ปิดแล้ว" แต่คือใบที่ MRP ตัดสินไม่ได้ — ห้ามซ่อน (B4 · ผู้ตรวจ #175 รอบ 2)
+     * มีแต่รายการจ่ายออก จึงไม่อยู่ใน started · มี plan แต่ไม่มีใบนี้ใน plan → mrpRows ไม่สร้างแถว */
+    const BAD = 'TM0001H888', P4 = 'TM0001H964';   // BAD = พิมพ์เลข PO ผิด (ไม่อยู่ในไฟล์ PO) · P4 = อยู่ในไฟล์ PO แต่ยังไม่เคยรับเข้า
+    const es3 = [mk('issue', A, 5, BAD), mk('issue', A, 5, P4), mk('receive', A, 1, 'TM0001H961'), mk('receive', A, 1, 'TM0001H967')];
+    const PL3 = planMap([{ po: 'TM0001H961', week: 'WK1', qty: 10, shipped: 0, left: 10 },
+                         { po: 'TM0001H967', week: 'WK1', qty: 10, shipped: 10, left: 0 }]);   // ส่งครบ = จบ (จอซ่อน)
+    const app0 = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+    const rs3 = mrpRows(es3, EN, { poList, bomRowsOf, plan: PL3, today: TODAY });
+    ok('ใบที่มีแต่จ่ายออก (เลข PO ผิด / จ่ายก่อนรับ) แท็บ MRP ไม่มีแถวให้',
+       !rs3.some(r => r.po === BAD || r.po === P4), rs3.map(r => r.po).join());
+    const keep = openPoKeep(rs3);
+    ok('ตัวกรอง "ยังไม่ปิด" ปล่อยใบที่ MRP ไม่มีแถวให้ผ่าน (ปิดแล้ว ≠ ตัดสินไม่ได้)',
+       keep(BAD) && keep(P4) && keep('TM0001H961') && !keep('TM0001H967'));
+    const got = stockPnRows(poStocks(es3, EN), { headerOf: head, bomRowsOf, keepPo: keep });
+    const poBal = pn => (got.find(r => r.pn === pn)?.lines.find(l => l.code === A)?.byPo || []).map(p => p.po + ':' + p.bal).join();
+    ok('ยอดติดลบของใบที่พิมพ์เลข PO ผิด ยังเห็นในมุมมองเริ่มต้น', poBal('') === BAD + ':-5', poBal(''));
+    ok('ยอดติดลบของใบที่คีย์จ่ายก่อนรับ (ไม่มีใน plan) ยังเห็น · ใบที่ plan บอกว่าส่งครบยังถูกซ่อนตามเดิม',
+       poBal('PN-A') === 'TM0001H961:1,' + P4 + ':-5', poBal('PN-A'));
+    ok('ต่อสายตัวกรองเข้าหน้ายอดคงคลัง (openPoKeep ไม่ใช่ Set ของใบที่ยังไม่ปิด)',
+       app0.includes('mrpErr.value ? null : openPoKeep(mrpAll.value)') && app0.includes('keepPo: bpClosed.value ? null : bpOpenPos.value'));
   }
   ok('นับเฉพาะ PO ที่ส่ง keepPo (ใบที่ยังไม่ปิด)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].lines[0].bal === 0);
   ok('ทุกรหัสเหลือ 0 = ของหมดแล้ว (จอซ่อนไว้)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].empty && !r1.empty);

@@ -444,9 +444,24 @@ export function mrpMatch(row, q) {
 }
 
 /**
+ * ตัวกรอง keepPo ของหน้ายอดคงคลัง — "PO ที่ยังไม่ปิด" ใช้กฎเดียวกับแท็บ MRP (ใบที่ MRP นับว่าจบ = ปิดแล้ว)
+ *   rows = ผลของ mrpRows (mrpAll) · คืนฟังก์ชัน keepPo(po) ส่งต่อให้ stockPnRows
+ * ⚠️ ใบที่ MRP **ไม่มีแถวให้เลย** ไม่ใช่ "ใบที่ปิดแล้ว" แต่คือใบที่ MRP ตัดสินไม่ได้ จึงห้ามซ่อน
+ *   (แนวเดียวกับ lockLeaks — INVARIANTS B4 ห้ามซ่อนของที่ตัดสินไม่ได้)
+ *   mrpRows สร้างแถวจาก "ใบที่เคยรับเข้า ∪ ไฟล์ PO" และเมื่อมี plan ยังตัดอีกชั้น
+ *   ใบที่มีแต่รายการจ่ายออก (พิมพ์เลข PO ผิด · คีย์จ่ายก่อนรับและยังไม่มีใน plan) จึงไม่มีแถว
+ *   ถ้ากรองออก ยอดติดลบของใบพวกนั้นมองไม่เห็นทั้งหน้า ทั้งที่เป็นเคสที่หน้านี้ตั้งใจจับ (ผู้ตรวจ #175 รอบ 2)
+ */
+export function openPoKeep(rows) {
+  const open = new Set(), known = new Set();
+  for (const r of rows || []) { known.add(r.po); if (!r.done) open.add(r.po); }
+  return po => open.has(po) || !known.has(po);
+}
+
+/**
  * ยอดคงคลังราย P/N (เจ้าของสั่ง 18 พ.ย. 2026 · หน้ายอดคงคลัง) — แถวละ P/N → วัตถุดิบ → แยกราย PO
  *   stocks = poStocks(entries, entity) · headerOf = poHeaderIndex(posVisible) · bomRowsOf(pn) · catOf(code)
- *   keepPo(po) = PO ที่นับ (จอส่ง "ยังไม่ปิด" ตามกฎแท็บ MRP) · ไม่ส่ง = ทุกใบ
+ *   keepPo(po) = PO ที่นับ (จอส่ง openPoKeep = "ยังไม่ปิด" ตามกฎแท็บ MRP) · ไม่ส่ง = ทุกใบ
  * คืน [{ pn, pos, oldest, lines, nLeft, nNeg, empty }] เรียงตาม P/N
  *   pos   = [{ po, date, order }] PO ของ P/N นี้ที่มีการเคลื่อนไหว เรียงวันที่เก่าก่อน · oldest = วันที่ PO เก่าสุด
  *   lines = [{ code, inBom, recv, sendback, issued, bal, byPo, live, neg }] ยอดรวมทุก PO ของ P/N นี้
