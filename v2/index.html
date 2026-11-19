@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-19.4">
+<meta name="app-version" content="2026-11-19.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3308,7 +3308,7 @@ textarea{font:inherit}
               <thead><tr>
                 <th>วันที่</th><th>เวลา</th><th>ชนิด</th><th>PO</th><th>P/N</th><th>รหัส</th><th>ชื่อ</th>
                 <th>หมวดหมู่</th><th style="text-align:right">จำนวน</th><th>หน่วย</th><th>ล็อต</th>
-                <th>หมดอายุ</th><th>ผู้บันทึก</th><th>หมายเหตุ</th>
+                <th>หมดอายุ</th><th>ผู้บันทึก</th><th>หมายเหตุ</th><th class="noprint"></th>
               </tr></thead>
               <tbody><tr v-for="r in lgShown" :key="r.id" :style="r.voided ? 'opacity:.55' : ''"
                          :title="r.voided ? 'ยกเลิกแล้ว — ' + (r.void_reason || '') + (r.void_by ? ' โดย ' + r.void_by : '') : ''">
@@ -3322,6 +3322,8 @@ textarea{font:inherit}
                 <td class="mono">{{ r.unit }}</td><td class="mono" style="white-space:nowrap">{{ r.lot }}</td>
                 <td class="mono" style="white-space:nowrap">{{ r.expiry_date || '' }}</td><td>{{ r.person }}</td>
                 <td class="hint">{{ r.memo }}<span v-if="r.voided"> · ยกเลิก: {{ r.void_reason }}</span></td>
+                <!-- ยกเลิกจากหน้า Log ได้เลย (เจ้าของสั่ง 19 พ.ย. 2026) — กล่องยืนยันตัวเดียวกับในการ์ด (ต้องใส่เหตุผล + ชื่อคนสั่ง) -->
+                <td class="noprint"><button v-if="!r.voided" class="btn" style="padding:2px 8px" @click="askVoid(r)">ยกเลิก</button></td>
               </tr></tbody>
             </table>
           </div>

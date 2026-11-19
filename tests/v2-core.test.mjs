@@ -375,6 +375,20 @@ console.log('\n=== วาดตารางยาวทีละช่วง (�
      src.includes("const mrpDraw = drawing(mrpShown, r => r.po === mrpPin.value);"));
 }
 
+console.log('\n=== ยกเลิกรายการจากหน้า Log (เจ้าของสั่ง 19 พ.ย. 2026) ===');
+{
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const a = html.indexOf('<tr v-for="r in lgShown"'), row = html.slice(a, html.indexOf('</tr></tbody>', a));
+  ok('ทุกแถวในหน้า Log ที่ยังไม่ยกเลิกมีปุ่มยกเลิก · แถวที่ยกเลิกแล้วไม่มี',
+     a > 0 && row.includes('<button v-if="!r.voided" class="btn" style="padding:2px 8px" @click="askVoid(r)">ยกเลิก</button>'));
+  ok('หัวตาราง Log มีช่องของปุ่ม (คอลัมน์ไม่เลื่อน)', /<th>หมายเหตุ<\/th><th class="noprint"><\/th>\s*<\/tr><\/thead>/.test(html));
+  // กล่องยืนยันตัวเดียวกับการ์ด: ต้องอยู่นอกแท็บ ไม่งั้นกดจากหน้า Log แล้วไม่มีอะไรขึ้น
+  const box = html.indexOf('<div class="modal" v-if="voidBox.row"'), lastTab = html.lastIndexOf("v-else-if=\"tab==='");
+  ok('กล่องยืนยันยกเลิกอยู่นอกแท็บ (ขึ้นได้จากทุกหน้า)', box > lastTab && box > 0);
+  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /async function doVoid\(\)[\s\S]*?voidEntry\(src,[\s\S]*?entries\.value\.splice\(entries\.value\.indexOf\(src\), 1, v\)/.test(src));
+}
+
 console.log('\n=== หน้ารอเติมวันหมดอายุ (แท็บย่อยใน Log · เจ้าของเคาะ 28 ก.ย. 2026) ===');
 ok('นับรายการที่ขาดแยกตามนิติบุคคล — ไม่นับที่ยกเลิก/มีแล้ว/ไม่ต้องมี/ไม่ใช่รับเข้า',
    JSON.stringify(missingExpiryCounts(mx, needs)) === JSON.stringify([{ entity: base.entity, n: 2 }, { entity: 'อื่น', n: 1 }].sort((a, b) => a.entity.localeCompare(b.entity))),
