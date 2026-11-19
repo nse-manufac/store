@@ -442,3 +442,71 @@ export function mrpMatch(row, q) {
     || txt(row.week).toUpperCase().includes(s)
     || row.lines.some(l => l.code.includes(s));
 }
+
+/**
+ * ตัวกรอง keepPo ของหน้ายอดคงคลัง — "PO ที่ยังไม่ปิด" ใช้กฎเดียวกับแท็บ MRP (ใบที่ MRP นับว่าจบ = ปิดแล้ว)
+ *   rows = ผลของ mrpRows (mrpAll) · คืนฟังก์ชัน keepPo(po) ส่งต่อให้ stockPnRows
+ * ⚠️ ใบที่ MRP **ไม่มีแถวให้เลย** ไม่ใช่ "ใบที่ปิดแล้ว" แต่คือใบที่ MRP ตัดสินไม่ได้ จึงห้ามซ่อน
+ *   (แนวเดียวกับ lockLeaks — INVARIANTS B4 ห้ามซ่อนของที่ตัดสินไม่ได้)
+ *   mrpRows สร้างแถวจาก "ใบที่เคยรับเข้า ∪ ไฟล์ PO" และเมื่อมี plan ยังตัดอีกชั้น
+ *   ใบที่มีแต่รายการจ่ายออก (พิมพ์เลข PO ผิด · คีย์จ่ายก่อนรับและยังไม่มีใน plan) จึงไม่มีแถว
+ *   ถ้ากรองออก ยอดติดลบของใบพวกนั้นมองไม่เห็นทั้งหน้า ทั้งที่เป็นเคสที่หน้านี้ตั้งใจจับ (ผู้ตรวจ #175 รอบ 2)
+ */
+export function openPoKeep(rows) {
+  const open = new Set(), known = new Set();
+  for (const r of rows || []) { known.add(r.po); if (!r.done) open.add(r.po); }
+  return po => open.has(po) || !known.has(po);
+}
+
+/**
+ * ยอดคงคลังราย P/N (เจ้าของสั่ง 18 พ.ย. 2026 · หน้ายอดคงคลัง) — แถวละ P/N → วัตถุดิบ → แยกราย PO
+ *   stocks = poStocks(entries, entity) · headerOf = poHeaderIndex(posVisible) · bomRowsOf(pn) · catOf(code)
+ *   keepPo(po) = PO ที่นับ (จอส่ง openPoKeep = "ยังไม่ปิด" ตามกฎแท็บ MRP) · ไม่ส่ง = ทุกใบ
+ * คืน [{ pn, pos, oldest, lines, nLeft, nNeg, empty }] เรียงตาม P/N
+ *   pos   = [{ po, date, order }] PO ของ P/N นี้ที่มีการเคลื่อนไหว เรียงวันที่เก่าก่อน · oldest = วันที่ PO เก่าสุด
+ *   lines = [{ code, inBom, recv, sendback, issued, bal, byPo, live, neg }] ยอดรวมทุก PO ของ P/N นี้
+ *           live / neg = ยังมีของ / ติดลบ โดยดู**ยอดราย PO ด้วย** (จ่ายผิดใบแล้วยอดรวมหายกันพอดี ก็ยังต้องเห็น)
+ *           รหัสในสูตรทุกตัว (ยังไม่รับก็ขึ้นเป็น 0) + รหัสนอกสูตร (inBom = false) · เรียงตามหมวดแบบ MRP
+ *           byPo = [{ po, date, order, recv, sendback, issued, bal }] ใบที่รหัสนี้เคลื่อนไหว — ยอดของใบตาม poStockOf
+ *   nLeft / nNeg = จำนวนบรรทัดที่ live / neg · empty = ไม่มีบรรทัด live เลย
+ *   PO ที่ไม่รู้ P/N (ยังไม่นำเข้าไฟล์ PO) รวมไว้ใต้ pn = ''
+ * ⚠️ ยอดของแต่ละใบมาจาก poStocks ตัวเดียว — ห้ามคิดใหม่ในนี้ ไม่งั้นหน้าจ่ายออกกับหน้านี้บอกคนละเลข
+ */
+export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', keepPo = null } = {}) {
+  const catRank = c => { const i = CATEGORIES.indexOf(txt(catOf(c)).toUpperCase()); return i < 0 ? CATEGORIES.length : i; };
+  const groups = new Map();
+  for (const [po, codes] of stocks) {
+    if (keepPo && !keepPo(po)) continue;
+    const head = headerOf ? headerOf(po) : null, pn = head ? txt(head.pn) : '';
+    if (!groups.has(pn)) groups.set(pn, []);
+    groups.get(pn).push({ po, date: head ? txt(head.date) : '', order: head ? head.order || 0 : 0, codes });
+  }
+  const out = [];
+  for (const [pn, list] of groups) {
+    list.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.po.localeCompare(b.po));
+    const lines = new Map();
+    const line = (code, inBom) => {
+      if (!lines.has(code)) lines.set(code, { code, inBom, recv: 0, sendback: 0, issued: 0, bal: 0, byPo: [] });
+      return lines.get(code);
+    };
+    for (const b of (pn && bomRowsOf ? bomRowsOf(pn) : null) || []) { const c = txt(b && b.code); if (c) line(c, true); }
+    for (const p of list) for (const [code, s] of p.codes) {
+      const l = line(code, false);
+      for (const k of ['recv', 'sendback', 'issued', 'bal']) l[k] = round5(l[k] + s[k]);
+      l.byPo.push({ po: p.po, date: p.date, order: p.order, ...s });
+    }
+    const ls = [...lines.values()].sort((a, b) =>
+      (a.inBom === b.inBom ? 0 : a.inBom ? -1 : 1) || catRank(a.code) - catRank(b.code) || a.code.localeCompare(b.code));
+    /* ⚠️ live / neg ดูยอดราย PO ด้วย ไม่ใช่แค่ยอดรวม — จ่ายผิดใบแล้วอีกใบบวกหายกันพอดี ยอดรวมจะเป็น 0
+     * ถ้านับจากยอดรวมอย่างเดียว แถวนั้นจะถูกซ่อนทั้ง P/N และป้าย "จ่ายเกินรับ" จะไม่ขึ้น ทั้งที่นี่คือเคสที่หน้านี้ตั้งใจจับ */
+    for (const l of ls) {
+      l.live = l.bal !== 0 || l.byPo.some(p => p.bal !== 0);
+      l.neg  = l.bal < 0 || l.byPo.some(p => p.bal < 0);
+    }
+    const nLeft = ls.filter(l => l.live).length;
+    out.push({ pn, pos: list.map(({ po, date, order }) => ({ po, date, order })), oldest: list.find(p => p.date)?.date || '',
+               lines: ls, nLeft, nNeg: ls.filter(l => l.neg).length, empty: !nLeft });
+  }
+  const num = (x, y) => x.localeCompare(y, 'en', { numeric: true, sensitivity: 'base' });
+  return out.sort((a, b) => (!a.pn) - (!b.pn) || num(a.pn, b.pn));
+}
