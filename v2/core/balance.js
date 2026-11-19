@@ -117,6 +117,36 @@ export function poStockOf(entries, entity, docRef) {
   return m;
 }
 
+/* ยอดคงคลังราย PO (เจ้าของสั่ง 18 พ.ย. 2026) — สูตรเดียวกับ poStockOf ทุกตัว
+ * แยกสูตรเมื่อไหร่ หน้าจ่ายออกกับหน้ายอดคงคลังจะบอกยอด PO คนละเลข */
+const PO_FIELD = { receive: 'recv', sendback: 'sendback', issue: 'issued' };
+
+/** ยอดของทุก PO เดินสมุดรอบเดียว — Map<po, Map<code, { recv, sendback, issued, bal }>> · รายการไม่ใส่ PO ไม่อยู่ในนี้ */
+export function poStocks(entries, entity) {
+  need(entity);
+  const out = new Map();
+  for (const e of entries) {
+    if (e.entity !== entity || !counts(e) || !PO_FIELD[e.kind]) continue;
+    const po = String(e.doc_ref || ''), c = String(e.material_code);
+    if (!po) continue;
+    if (!out.has(po)) out.set(po, new Map());
+    const m = out.get(po), r = m.get(c) || { recv: 0, sendback: 0, issued: 0, bal: 0 };
+    r[PO_FIELD[e.kind]] = round5(r[PO_FIELD[e.kind]] + (e.qty || 0));
+    r.bal = round5(r.recv - r.sendback - r.issued);
+    m.set(c, r);
+  }
+  return out;
+}
+
+/** รายการเคลื่อนไหวของรหัสหนึ่งใน PO หนึ่ง เรียงเก่าไปใหม่ พร้อมคงเหลือสะสม — [{ e, qty, run }] · qty มีเครื่องหมาย */
+export function poMoves(entries, entity, docRef, code) {
+  const po = String(docRef || ''), c = String(code);
+  let run = 0;
+  return po ? live(entries, entity)
+    .filter(e => PO_FIELD[e.kind] && String(e.doc_ref) === po && String(e.material_code) === c)
+    .map(e => { const qty = e.kind === 'receive' ? e.qty : -e.qty; run = round5(run + qty); return { e, qty, run }; }) : [];
+}
+
 /** ยังต้องจ่ายอีก = ตามสูตร − จ่ายแล้ว · null ถ้ายังไม่รู้ยอดตามสูตร (ไม่เดาเป็น 0) · ติดลบ = จ่ายเกินสูตรแล้ว */
 export function stillToIssue(reqmt, issued) {
   if (reqmt === null || reqmt === undefined || reqmt === '' || !isFinite(Number(reqmt))) return null;

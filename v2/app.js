@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, stillToIssue } from './core/balance.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
@@ -1752,6 +1752,59 @@ createApp({
         (!balCat.value || r.category === balCat.value) &&
         (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
       return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
+    });
+
+    /* ยอดคงคลังราย P/N (เจ้าของสั่ง 18 พ.ย. 2026) — กาง P/N = วัตถุดิบ (รวมทุก PO) · กางวัตถุดิบ = แยกราย PO · กาง PO = รายการเคลื่อนไหว
+     * ตัวคิดอยู่ที่ poStocks / poMoves (core/balance.js) กับ stockPnRows (master/mrp.js)
+     * นับเฉพาะ PO ที่ยังไม่ปิด = ใบที่แท็บ MRP ยังไม่นับว่าจบ (กฎเดียวกัน) · ติ๊กแล้วรวมใบที่ปิดแล้ว */
+    const balView = ref('pn');
+    const bpClosed = ref(false), bpOpen = ref({}), bpCode = ref({}), bpLine = ref({}), bpFull = ref({});
+    const bpKey = (a, b) => a + '|' + b;
+    const flip = (r, k) => { r.value = { ...r.value, [k]: !r.value[k] }; };
+    const bpOpenPos = computed(() => (mrpErr.value ? null : new Set(mrpAll.value.filter(r => !r.done).map(r => r.po))));
+    const bpAll = computed(() => {
+      if (!entity.value) return [];
+      const open = bpClosed.value ? null : bpOpenPos.value;
+      return stockPnRows(poStocks(entries.value, entity.value), { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf, catOf,
+                                                                  keepPo: open ? po => open.has(po) : null });
+    });
+    const bpShown = computed(() => {
+      const q = balQ.value.trim().toUpperCase();
+      return bpAll.value.filter(r => !r.empty && (!q || r.pn.toUpperCase().includes(q)
+        || r.pos.some(p => p.po.toUpperCase().includes(q)) || r.lines.some(l => l.bal !== 0 && l.code.includes(q))));
+    });
+    const bpDraw = drawing(bpShown, r => !!bpOpen.value[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที (ปุ่มกลับเลื่อนหาแถวนั้น)
+    /* กดยอดติดลบราย PO → แท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำได้ทันที (เจ้าของสั่ง 19 พ.ย. 2026)
+     * ปุ่ม "กลับไปยอดคงคลัง" มุมซ้ายล่าง (แบบปุ่มกลับไป MRP) คืนตัวกรองของ Log ที่ตั้งไว้เดิม แล้วเลื่อนกลับไปแถวเดิม */
+    const bpBack = ref(null);
+    watch(tab, k => { if (k !== 'lgout') bpBack.value = null; });
+    function bpGoLog(po, code, pn) {
+      bpBack.value = { po, code, pn, lg: { from: lg.from, to: lg.to, q: lg.q, voided: lg.voided } };
+      Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });
+      tab.value = 'lgout';
+      window.scrollTo(0, 0);
+    }
+    function bpGoBack() {
+      const b = bpBack.value;
+      if (!b) return;
+      Object.assign(lg, b.lg);
+      balView.value = 'pn';
+      tab.value = 'bal';
+      // ยกเลิกแล้วบรรทัดอาจไม่ติดลบ (ถูกซ่อน) → เลื่อนไปแถว P/N แทน
+      nextTick(() => (document.querySelector(`[data-bp="${CSS.escape(bpKey(b.po, b.code))}"]`)
+        || document.querySelector(`[data-bpn="${CSS.escape(b.pn)}"]`))?.scrollIntoView({ block: 'center' }));
+    }
+    // รายการเคลื่อนไหว — คิดเฉพาะ PO × รหัสที่กางอยู่ (แถวที่พับไม่คิด)
+    const bpMoves = computed(() => {
+      const out = {};
+      if (!entity.value) return out;
+      for (const k of Object.keys(bpLine.value)) {
+        if (!bpLine.value[k]) continue;
+        const i = k.indexOf('|');
+        out[k] = poMoves(entries.value, entity.value, k.slice(0, i), k.slice(i + 1)).map(m => ({ ...m,
+          day: localDate(m.e.at), time: localTime(m.e.at), label: KINDS[m.e.kind].label }));
+      }
+      return out;
     });
 
     const balSum = computed(() => {
@@ -3951,7 +4004,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
-             balQ, balCat, balZero, balShown, balSum, oddRows,
+             balQ, balCat, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard, goIssue,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,

@@ -442,3 +442,48 @@ export function mrpMatch(row, q) {
     || txt(row.week).toUpperCase().includes(s)
     || row.lines.some(l => l.code.includes(s));
 }
+
+/**
+ * ยอดคงคลังราย P/N (เจ้าของสั่ง 18 พ.ย. 2026 · หน้ายอดคงคลัง) — แถวละ P/N → วัตถุดิบ → แยกราย PO
+ *   stocks = poStocks(entries, entity) · headerOf = poHeaderIndex(posVisible) · bomRowsOf(pn) · catOf(code)
+ *   keepPo(po) = PO ที่นับ (จอส่ง "ยังไม่ปิด" ตามกฎแท็บ MRP) · ไม่ส่ง = ทุกใบ
+ * คืน [{ pn, pos, oldest, lines, nLeft, nNeg, empty }] เรียงตาม P/N
+ *   pos   = [{ po, date, order }] PO ของ P/N นี้ที่มีการเคลื่อนไหว เรียงวันที่เก่าก่อน · oldest = วันที่ PO เก่าสุด
+ *   lines = [{ code, inBom, recv, sendback, issued, bal, byPo }] ยอดรวมทุก PO ของ P/N นี้
+ *           รหัสในสูตรทุกตัว (ยังไม่รับก็ขึ้นเป็น 0) + รหัสนอกสูตร (inBom = false) · เรียงตามหมวดแบบ MRP
+ *           byPo = [{ po, date, order, recv, sendback, issued, bal }] ใบที่รหัสนี้เคลื่อนไหว — ยอดของใบตาม poStockOf
+ *   empty = ทุกรหัสเหลือ 0 · PO ที่ไม่รู้ P/N (ยังไม่นำเข้าไฟล์ PO) รวมไว้ใต้ pn = ''
+ * ⚠️ ยอดของแต่ละใบมาจาก poStocks ตัวเดียว — ห้ามคิดใหม่ในนี้ ไม่งั้นหน้าจ่ายออกกับหน้านี้บอกคนละเลข
+ */
+export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', keepPo = null } = {}) {
+  const catRank = c => { const i = CATEGORIES.indexOf(txt(catOf(c)).toUpperCase()); return i < 0 ? CATEGORIES.length : i; };
+  const groups = new Map();
+  for (const [po, codes] of stocks) {
+    if (keepPo && !keepPo(po)) continue;
+    const head = headerOf ? headerOf(po) : null, pn = head ? txt(head.pn) : '';
+    if (!groups.has(pn)) groups.set(pn, []);
+    groups.get(pn).push({ po, date: head ? txt(head.date) : '', order: head ? head.order || 0 : 0, codes });
+  }
+  const out = [];
+  for (const [pn, list] of groups) {
+    list.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.po.localeCompare(b.po));
+    const lines = new Map();
+    const line = (code, inBom) => {
+      if (!lines.has(code)) lines.set(code, { code, inBom, recv: 0, sendback: 0, issued: 0, bal: 0, byPo: [] });
+      return lines.get(code);
+    };
+    for (const b of (pn && bomRowsOf ? bomRowsOf(pn) : null) || []) { const c = txt(b && b.code); if (c) line(c, true); }
+    for (const p of list) for (const [code, s] of p.codes) {
+      const l = line(code, false);
+      for (const k of ['recv', 'sendback', 'issued', 'bal']) l[k] = round5(l[k] + s[k]);
+      l.byPo.push({ po: p.po, date: p.date, order: p.order, ...s });
+    }
+    const ls = [...lines.values()].sort((a, b) =>
+      (a.inBom === b.inBom ? 0 : a.inBom ? -1 : 1) || catRank(a.code) - catRank(b.code) || a.code.localeCompare(b.code));
+    const nLeft = ls.filter(l => l.bal !== 0).length;
+    out.push({ pn, pos: list.map(({ po, date, order }) => ({ po, date, order })), oldest: list.find(p => p.date)?.date || '',
+               lines: ls, nLeft, nNeg: ls.filter(l => l.bal < 0).length, empty: !nLeft });
+  }
+  const num = (x, y) => x.localeCompare(y, 'en', { numeric: true, sensitivity: 'base' });
+  return out.sort((a, b) => (!a.pn) - (!b.pn) || num(a.pn, b.pn));
+}

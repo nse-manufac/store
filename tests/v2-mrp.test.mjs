@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
-         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap } from '../v2/master/mrp.js';
+         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
          skipOver, cancelOver, overAll, overPending, fromOverRow,
          shortSettled, overSettled, stoppedShorts, sliceKeep } from '../v2/master/follow.js';
@@ -399,6 +399,53 @@ ok('จอ: กดไป / กลับ ตั้ง pin ให้แถวข�
      && a.includes('sliceKeep(fsAll.value, SHOW_MAX, r => r.s.id === followPin.value)')
      && a.includes('mrpKeep(mrpAll.value,') && a.includes('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ') && a.includes("watch([mrpQ, mrpFilter, mrpDone], () => { mrpPin.value = ''; });"))
    (readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
+
+console.log('\n=== ยอดคงคลังราย PO (เจ้าของสั่ง 18 พ.ย. 2026) ===');
+{
+  const { makeEntry, voidEntry } = await import('../v2/core/ledger.js');
+  const { poStocks, poMoves, poStockOf } = await import('../v2/core/balance.js');
+  const { poHeaderIndex } = await import('../v2/master/po-kit.js');
+  const mk = (kind, code, qty, po, x = {}) => makeEntry({ entity: EN, person: 'สมชาย', kind, material_code: code, qty, doc_ref: po,
+    ...(kind === 'receive' ? { lot: 'L1' } : {}), ...(kind === 'sendback' ? { reason_code: 'over' } : {}), ...x });
+  const P1 = 'TM0001H961', P2 = 'TM0001H962';
+  const es = [mk('receive', A, 20, P1, { at: '2026-11-02T01:00:00.000Z' }), mk('issue', A, 15, P1, { at: '2026-11-03T01:00:00.000Z' }),
+              mk('sendback', A, 2, P1, { at: '2026-11-04T01:00:00.000Z' }), mk('issue', B, 3, P1),
+              mk('receive', X, 4, P1), voidEntry(mk('issue', A, 99, P1), { by: 'ก', reason: 'คีย์ผิด' }),
+              mk('receive', A, 7, P2), mk('issue', A, 7, P2), mk('issue', A, 5, ''),
+              makeEntry({ entity: 'OTHER', person: 'ข', kind: 'issue', material_code: A, qty: 50, doc_ref: P1 })];
+  const st = poStocks(es, EN);
+  ok('ยอดราย PO = poStockOf ทุกใบทุกรหัส (หน้าจ่ายออกกับหน้ายอดคงคลังห้ามคนละเลข)',
+     [...st].every(([po, m]) => [...m].every(([c, r]) => JSON.stringify(r) === JSON.stringify(poStockOf(es, EN, po).get(c)))) && st.size === 2);
+  const head = poHeaderIndex(poList);
+  const [r1] = stockPnRows(st, { headerOf: head, bomRowsOf });
+  ok('P/N เดียวรวมทุก PO ของมัน · PO เรียงวันที่เก่าก่อน · วันที่เก่าสุด',
+     r1.pn === 'PN-A' && r1.pos.map(p => p.po).join() === [P1, P2].join() && r1.oldest === '2026-11-01');
+  ok('วัตถุดิบ: รหัสตาม BOM ก่อน แล้วรหัสนอก BOM', r1.lines.map(l => l.code + (l.inBom ? '' : '*')).join() === [A, B, X + '*'].join());
+  const la = r1.lines[0];
+  ok('ยอดของ P/N = ผลรวมยอดราย PO · ไม่นับที่ยกเลิก / นิติบุคคลอื่น / ไม่ใส่ PO (A3)',
+     la.bal === 3 && la.issued === 22 && la.recv === 27 && r1.lines[1].bal === -3 && r1.nNeg === 1 && r1.nLeft === 3, JSON.stringify(la));
+  ok('กางวัตถุดิบ: ยอดแยกราย PO ตรงกับ poStockOf ทุกใบ',
+     la.byPo.map(p => p.po + ':' + p.bal).join() === `${P1}:3,${P2}:0` && la.byPo.every(p => p.bal === poStockOf(es, EN, p.po).get(A).bal));
+  ok('แยกราย PO มี PO qty. จากไฟล์ PO', la.byPo[0].order === 10);
+  {
+    const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    ok('ยอดติดลบราย PO กดแล้วไปแท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ · มีปุ่มกลับไปยอดคงคลัง (เจ้าของสั่ง 19 พ.ย. 2026)',
+       html.includes('v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"')
+       && app.includes("Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });") && app.includes("tab.value = 'lgout';")
+       && html.includes('v-if="bpBack && tab === \'lgout\'"') && app.includes('Object.assign(lg, b.lg);'));
+    ok('กลับมาแล้วบรรทัดถูกซ่อน (ยกเลิกแล้วไม่ติดลบ) เลื่อนไปแถว P/N แทน', html.includes(':data-bpn="r.pn"') && app.includes('[data-bpn="${CSS.escape(b.pn)}"]'));
+  }
+  ok('นับเฉพาะ PO ที่ส่ง keepPo (ใบที่ยังไม่ปิด)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].lines[0].bal === 0);
+  ok('ทุกรหัสเหลือ 0 = ของหมดแล้ว (จอซ่อนไว้)', stockPnRows(st, { headerOf: head, bomRowsOf, keepPo: po => po === P2 })[0].empty && !r1.empty);
+  ok('รหัสใน BOM ที่ยังไม่เคยรับ ขึ้นเป็น 0', stockPnRows(new Map([[P1, new Map()]]), { headerOf: head, bomRowsOf })[0].lines.length === 2);
+  ok('PO ที่ยังไม่นำเข้าไฟล์ (ไม่รู้ P/N) รวมไว้ท้ายสุด',
+     stockPnRows(new Map([['TM9', new Map()], [P1, new Map()]]), { headerOf: head, bomRowsOf }).map(r => r.pn).join() === 'PN-A,');
+  const mv = poMoves(es, EN, P1, A);
+  ok('รายการเคลื่อนไหวของรหัสใน PO: เรียงเก่าไปใหม่ · คงเหลือสะสมจบที่ยอดของใบ',
+     mv.map(m => m.qty).join() === '20,-15,-2' && mv[mv.length - 1].run === la.byPo[0].bal, JSON.stringify(mv.map(m => [m.qty, m.run])));
+  throws('poStocks ลืมส่ง entity ไม่ได้ (A3)', () => poStocks(es, ''), 'นิติบุคคล');
+  throws('poMoves ลืมส่ง entity ไม่ได้ (A3)', () => poMoves(es, '', P1, A), 'นิติบุคคล');
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
