@@ -3037,11 +3037,14 @@ createApp({
       else fsSeg.value = 'stop';
       if (over) foSearch.value = po; else fsSearch.value = po;
       followPin.value = v.id;   // แถวนี้ขึ้นเสมอแม้อยู่เลย SHOW_MAX แถว (sliceKeep)
+      // ใบที่พับไว้ไม่มีแถวใน DOM — กางใบเป้าหมายก่อนเสมอ แบบที่ mrpGoBack กาง mrpOpen (ผู้ตรวจ #177 รอบ 2)
+      if (over) foFold[po] = false; else fsFold[po] = false;
       tab.value = over ? 'fover' : 'fshort';
       mrpBack.value = { po, code: l.code };
       nextTick(() => {
         const el = document.querySelector(`tr[data-fid="${CSS.escape(String(v.id))}"]`);
-        // เหตุเดียวที่เหลือ: เรื่องยังไม่มีเจ้าของ (เลข PO ไม่เข้ารูปแบบ entityOfPo) — การ์ดยกเลิกไม่โชว์ · ช่องค้นหาไม่เกี่ยว (รีวิว #165 รอบ 3)
+        // ใบเป้าหมายถูกกางไว้แล้ว (ข้างบน) และค้นด้วยเลข PO แล้ว — เหตุที่หาไม่เจอคือเรื่องยังไม่มีเจ้าของ
+        // (เลข PO ไม่เข้ารูปแบบ entityOfPo) จึงไม่อยู่ในรายการของนิติบุคคลนี้ (รีวิว #165 รอบ 3 · #177 รอบ 2)
         if (!el) { flash('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ เพราะเลข PO ไม่เข้ารูปแบบ', true); return; }
         el.scrollIntoView({ block: 'center' });
         el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
