@@ -37,8 +37,8 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
-         listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
-         FOLLOW_SEG, followCounts, groupByPo, followNote, newestDone, stopWhy,
+         listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
+         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
@@ -2726,7 +2726,6 @@ createApp({
       kind: 'over', entity: entity.value, q: foSearch.value, showDone: foShowDone.value, headerOf: poIdx.value
     }).filter(r => (r.st === 'done') === foShowDone.value)));
     const foRows = computed(() => foAll.value.slice(0, SHOW_MAX));
-    const foOpen = computed(() => openFollow(shorts.value, { kind: 'over', entity: entity.value }));
 
     async function foStart(row) {
       try {
@@ -2940,7 +2939,9 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     const fsStopped = computed(() => stoppedShorts(shorts.value, { entity: entity.value }));
-    const fsStopShown = computed(() => sliceKeep(fsStopped.value, SHOW_MAX, x => x.s.id === followPin.value));
+    // ค้นก่อนตัดที่ SHOW_MAX (ผู้ตรวจ #177) — pickStory ประกาศทีหลัง เรียกตอนคิดจึงไม่ติด
+    const fsStopHit = computed(() => filterPick(fsStopped.value, { pick: x => pickStory(x.s), q: fsSearch.value }));
+    const fsStopShown = computed(() => sliceKeep(fsStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
     async function fsRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่อง short ใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
@@ -2983,7 +2984,8 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     const foStopped = computed(() => stoppedOvers(shorts.value, { entity: entity.value }));
-    const foStopShown = computed(() => sliceKeep(foStopped.value, SHOW_MAX, x => x.s.id === followPin.value));
+    const foStopHit = computed(() => filterPick(foStopped.value, { pick: x => pickStory(x.s), q: foSearch.value }));
+    const foStopShown = computed(() => sliceKeep(foStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
 
     /* ── หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026) ── กฎอยู่ที่ master/follow.js groupByPo
      * ปุ่มกรองเลือกว่าจะจัดกลุ่มรายการไหน · ค่าตั้งต้นกางทุกใบ (fold[po] = true คือพับ) · ช่องค้นใช้ได้ทุกปุ่ม */
@@ -2994,7 +2996,7 @@ createApp({
     const pickStory = s => ({ po: s.po, pn: partNoOf(s, poIdx.value).pn, code: s.code, text: s.void_reason });
     const groupsOf = (seg, q, calc, rows, stopped) =>
       seg === 'new' ? groupByPo(calc, { pick: r => r, q })
-      : seg === 'stop' ? groupByPo(stopped, { pick: x => pickStory(x.s), q })
+      : seg === 'stop' ? groupByPo(stopped, { pick: x => pickStory(x.s) })   // ค้นไปแล้วใน fsStopHit / foStopHit
       : groupByPo(rows, { pick: r => pickStory(r.s) });   // ค้นไปแล้วใน listFollow
     const fsGroups = computed(() => groupsOf(fsSeg.value, fsSearch.value, fsNew.value, fsRows.value, fsStopShown.value));
     const foGroups = computed(() => groupsOf(foSeg.value, foSearch.value, foNew.value, foRows.value, foStopShown.value));
@@ -4054,7 +4056,7 @@ createApp({
       fsNew, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
-      foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, foOpen,
+      foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
       FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,

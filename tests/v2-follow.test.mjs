@@ -12,7 +12,7 @@ import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from 
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
-import { FOLLOW_SEG, followCounts, groupByPo, followNote, newestDone, stopWhy } from '../v2/master/follow.js';
+import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -286,7 +286,7 @@ ok('แถวไม่มีเจ้าของที่ปิดจบแล�
 const sum = sumFollow(openList, { today: TD });
 ok('สรุปสามตัวเลขถูก',
    sum.open === 2 && sum.partial === 1 && sum.late === 1, JSON.stringify(sum));
-/* ตัวเลขหัวตาราง "เรื่องที่ตั้งไว้แล้ว" ของหน้า over (foSum) — ต้องนับแค่เรื่องคืน
+/* ตัวเลขของหน้า over (เดิม foSum · ตั้งแต่ 21 พ.ย. 2026 คือปุ่มกรองรอคืน foCounts) — ต้องนับแค่เรื่องคืน
  * ไม่งั้นเรื่อง short ทั้งร้อยกว่าเรื่องจะไหลมาโผล่เป็นยอดค้างคืน */
 const pool2 = [...pool,
   row('o1', { kind: 'over' }),
@@ -2307,6 +2307,19 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
      && groupByPo([{ po: 'P3', code: 'Z', text: 'ยอดน้อย' }], { pick: r => r, q: 'ยอดน้อย' }).length === 1
      && groupByPo(items, { pick: r => r, q: 'ไม่มี' }).length === 0);
 
+  {
+    // ผู้ตรวจ #177 ข้อสังเกต 1: ปุ่ม ยกเลิก / ไม่ติดตาม เคยตัดที่ 300 ก่อนค้น — เรื่องเก่ากว่านั้นค้นไม่เจอ
+    const many = Array.from({ length: 450 }, (_, i) => ({ po: 'TM91' + String(i).padStart(5, '0'), code: 'C' + i }));
+    const hit = filterPick(many, { pick: r => r, q: 'TM9100420' });
+    ok('ค้นก่อนตัด: เรื่องที่อยู่เลยแถวที่ 300 ยังค้นเจอ · ไม่มีคำค้น = คืนครบทุกแถว (สำเนา ไม่ใช่ตัวเดิม)',
+       hit.length === 1 && hit[0].code === 'C420' && filterPick(many, { pick: r => r }).length === 450
+       && filterPick(many, { pick: r => r }) !== many);
+    const appQ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+    ok('จอ: ปุ่ม ยกเลิก / ไม่ติดตาม ค้นก่อนตัดที่ SHOW_MAX ทั้ง short และ over',
+       appQ.includes('const fsStopShown = computed(() => sliceKeep(fsStopHit.value, SHOW_MAX,')
+       && appQ.includes('const foStopShown = computed(() => sliceKeep(foStopHit.value, SHOW_MAX,')
+       && appQ.includes("q: fsSearch.value }));") && appQ.includes("q: foSearch.value }));"));
+  }
   ok('หมายเหตุ: ตัดข้อความที่ระบบใส่ให้ทุกเรื่อง · เก็บส่วนที่คนพิมพ์และร่องรอยเอากลับ',
      followNote({ note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)' }) === ''
      && followNote({ note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า) · เอากลับ 2026-11-20' }) === 'เอากลับ 2026-11-20'

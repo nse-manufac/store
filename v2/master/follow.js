@@ -479,15 +479,25 @@ export function followCounts(rows, { kind = '', entity = '' } = {}) {
   return c;
 }
 
+/** ช่องค้น · pick(แถว) → { po, pn, code, text } · ค้นด้วย PO · P/N · รหัส · ข้อความ ไม่สนตัวพิมพ์
+ *  ⚠️ ต้องค้นก่อนตัดที่ SHOW_MAX เสมอ — ตัดก่อนแล้วเรื่องที่อยู่เลยเพดานจะค้นไม่เจอแบบเงียบ ๆ (ผู้ตรวจ #177) */
+export function filterPick(items, { pick, q = '' } = {}) {
+  const needle = txt(q).toLowerCase();
+  if (!needle) return [...(items || [])];
+  return (items || []).filter(it => {
+    const k = pick(it);
+    return [k.po, k.pn, k.code, k.text].join(' ').toLowerCase().includes(needle);
+  });
+}
+
 /**
- * จัดกลุ่มราย PO + ช่องค้น · pick(แถว) → { po, pn, code, text }
+ * จัดกลุ่มราย PO + ช่องค้น (filterPick) · pick(แถว) → { po, pn, code, text }
  * ลำดับกลุ่ม = แถวแรกที่เจอ — คงลำดับเดิมของรายการไว้ (เช่น listFollow เอาเรื่องที่เลย ETA ขึ้นก่อน)
  */
 export function groupByPo(items, { pick, q = '' } = {}) {
-  const needle = txt(q).toLowerCase(), groups = new Map();
-  for (const it of items || []) {
+  const groups = new Map();
+  for (const it of filterPick(items, { pick, q })) {
     const k = pick(it);
-    if (needle && ![k.po, k.pn, k.code, k.text].join(' ').toLowerCase().includes(needle)) continue;
     const po = txt(k.po);
     let g = groups.get(po);
     if (!g) groups.set(po, g = { po, pn: txt(k.pn), items: [] });
