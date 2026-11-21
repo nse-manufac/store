@@ -385,9 +385,9 @@ ok('PO ที่กางอยู่ติดคลาส open + แถวร�
 
 ok('จอ: ป้ายที่มี via เป็นปุ่มเรียก mrpGoSettled · ตาราง short / ยกเลิก short / ยกเลิก over ติด data-fid ให้หาแถวเจอ',
    mrpHtml.includes('@click="mrpGoSettled(l, r.po)"')
-   && html.includes('<tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}" :data-fid="r.s.id">')
-   && html.includes('<tr v-for="x in fsStopShown" :key="x.s.id" :data-fid="x.s.id">')
-   && html.includes('<tr v-for="x in foStopShown" :key="x.s.id" :data-fid="x.s.id">'));
+   // หน้า short / over จัดกลุ่มราย PO (21 พ.ย. 2026): แถวเรื่องทุกปุ่มกรอง (รอของ · ปิดแล้ว · ยกเลิก) ติด data-fid
+   && (html.match(/<tr v-for="r in g\.items" :key="r\.s\.id" class="fol-it" :data-fid="r\.s\.id">/g) || []).length === 4
+   && (html.match(/<tr v-for="x in g\.items" :key="x\.s\.id" class="fol-it" :data-fid="x\.s\.id">/g) || []).length === 2);
 
 ok('จอ: ปุ่มกลับไป MRP ขึ้นเฉพาะตอนอยู่แท็บ short / over · แถวรหัสใน MRP ติด data-mrp-line ให้กลับมาถึงแถวเดิม',
    html.includes(`v-if="mrpBack && (tab === 'fshort' || tab === 'fover')"`) && html.includes('@click="mrpGoBack"')

@@ -131,15 +131,16 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
   // ชื่อปุ่ม/ช่องที่ประกาศอ้างถึง ต้องมีอยู่จริงบนจอ — ประกาศชี้ปุ่มที่ไม่มี = พนักงานหาไม่เจอ (G3)
   // จุดยึดเจาะจง (ผู้ตรวจ #139 ข้อสังเกต 2) — ชื่อปุ่มเฉย ๆ โผล่หลายที่บนจอ ให้ยึดทั้ง @click
   const named = ["label: 'Mat Follow up'", "label: 'short รอส่ง'", "label: 'over รอคืน'", 'ผู้บันทึก',
-                 '<h2 style="margin:0">ยังรับไม่ครบตาม BOM</h2>', '@click="fsSkip(r)">ไม่ติดตาม</button>',
-                 '<h2>ของขาด / รอส่ง</h2>', '@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>',
-                 'ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }} เรื่อง', 'ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง',
+                 // หน้า short / over ใช้ปุ่มกรองแทนการ์ด (21 พ.ย. 2026) — ชื่อปุ่มกรองอยู่ที่ FOLLOW_SEG ใน follow.js
+                 "{ k: 'new', label: 'ต้องตั้งเรื่อง'", '@click="fsSkip(r)">ไม่ติดตาม</button>',
+                 "{ k: 'open', label: 'รอของ'", '@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>',
+                 "label: 'ยกเลิก / ไม่ติดตาม'", '@click="fsSeg = f.k"', '@click="foSeg = f.k"',
                  '@click="fsRestart(x.s)">กลับมาติดตาม</button>', '@click="foRestart(x.s)">กลับมาติดตาม</button>',
-                 '<h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>', '@click="foSkip(r)">ไม่ติดตาม</button>',
-                 '@click="foVoid(r.s)">ยกเลิกเรื่อง</button>', '@click.prevent="askReturn(r.s)">รายละเอียด…</a>', '>วันที่คืน',
+                 "{ k: 'open', label: 'รอคืน'", '@click="foSkip(r)">ไม่ติดตาม</button>',
+                 '@click="foVoid(r.s)">ยกเลิกเรื่อง</button>', '@click="askReturn(r.s)">รายละเอียด…</button>', '>วันที่คืน',
                  'Delta ตัดจากยอด over — เทียบกับของที่เรามี', 'v-if="rbExceed"'];
   const js0 = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  const rest = html.replace(box, '') + js0;
+  const rest = html.replace(box, '') + js0 + fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8');
   ok('ทุกชื่อปุ่ม/หัวข้อที่ประกาศอ้าง มีอยู่จริงบนจอ', named.every(n => rest.includes(n)),
      named.filter(n => !rest.includes(n)).join(', '));
 }

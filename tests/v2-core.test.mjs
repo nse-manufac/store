@@ -368,8 +368,10 @@ console.log('\n=== วาดตารางยาวทีละช่วง (�
        first === 60 && seen === rows.value.length, first + ' → ' + seen + ' จาก ' + rows.value.length);
   }
   ok('ตารางยาวทุกตารางวนจากตัววาด (MRP · PO · ขาดรอรับ · over · รอเติมวันหมดอายุ)',
-     ['r in mrpDraw"', '(p,i) in poDraw"', 'r in fsNewDraw"', 'r in foNewDraw"', 'r in fxDraw"'].every(k => html.includes('v-for="' + k)));
-  ok('ตัวเลขนับบนจอยังนับจากรายการเต็ม', html.includes('{{ fsNew.length }}') && html.includes('{{ foNew.length }}')
+     ['r in mrpDraw"', '(p,i) in poDraw"', 'g in fsDraw"', 'g in foDraw"', 'r in fxDraw"'].every(k => html.includes('v-for="' + k)));
+  // หน้า short / over (21 พ.ย. 2026): ตัวเลขอยู่บนปุ่มกรอง นับจาก fsNew / foNew เต็ม ไม่ใช่จากที่วาดแล้ว
+  ok('ตัวเลขนับบนจอยังนับจากรายการเต็ม', html.includes('{{ fsCounts[f.k] }}') && html.includes('{{ foCounts[f.k] }}')
+     && src.includes('new: fsNew.value.length') && src.includes('new: foNew.value.length')
      && html.includes('{{ fxRows.length }} รายการ') && html.includes('แสดง {{ poRows.length }} จาก'));
   ok('ใบที่กดกลับมาจาก MRP ขึ้นทันที (ปุ่มกลับไป MRP เลื่อนหาแถวนั้น)',
      src.includes("const mrpDraw = drawing(mrpShown, r => r.po === mrpPin.value);"));

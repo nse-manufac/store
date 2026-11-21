@@ -12,6 +12,7 @@ import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from 
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
+import { FOLLOW_SEG, followCounts, groupByPo, followNote, newestDone, stopWhy } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -350,10 +351,11 @@ console.log('\n=== I. ปุ่ม 🔍 ในการ์ด "เพิ่ม�
  *    ผู้ตรวจ #68 รอบ 2 วัดในเบราว์เซอร์จริง: ปุ่ม x 235..271 · ช่อง PO x 233..373
  *    node เรนเดอร์ไม่ได้ จึงตรวจที่ตัวโค้ดว่ามี min-width:0 ให้ช่องหดได้ */
 const htmlSrc = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-const iCard = htmlSrc.indexOf('<h2>เพิ่มเรื่องเอง</h2>');
-ok('หาการ์ด "เพิ่มเรื่องเอง" ใน index.html เจอ', iCard >= 0);
-const cardSrc = iCard < 0 ? '' : htmlSrc.slice(iCard, htmlSrc.indexOf('</div>\n\n', iCard));
-ok('การ์ดนี้มีปุ่ม 🔍 เปิดทะเบียนจริง', /🔍/.test(cardSrc) && /openPick\(fu\)/.test(cardSrc));
+// 21 พ.ย. 2026: การ์ดกลายเป็นแผงที่เปิดจากปุ่ม "เพิ่มเรื่องเอง" (class fol-add) · ปุ่ม 🔍 เปลี่ยนเป็นคำว่า "ค้น"
+const iCard = htmlSrc.indexOf('<div v-if="fuShow" class="fol-add">');
+ok('หาการ์ด "เพิ่มเรื่องเอง" ใน index.html เจอ', iCard >= 0 && htmlSrc.includes('@click="fuShow = !fuShow"'));
+const cardSrc = iCard < 0 ? '' : htmlSrc.slice(iCard, htmlSrc.indexOf('@click="fuSave"', iCard));
+ok('การ์ดนี้มีปุ่ม 🔍 เปิดทะเบียนจริง', /@click="openPick\(fu\)">ค้น<\/button>/.test(cardSrc));
 const codeInput = (cardSrc.match(/<input[^>]*fu\.code[^>]*>/) || [''])[0];
 ok('ช่องรหัสวัตถุดิบหดลงมาให้พอดี label ได้ (min-width:0) ปุ่ม 🔍 จึงไม่ถูกช่อง PO ทับ',
    /min-width:\s*0/.test(codeInput),
@@ -625,7 +627,7 @@ ok('foStart ส่งวันที่ตามเวลาไทยเข้�
 // ปุ่มนี้ตัดของจริงออกจากคลัง ห้ามเป็นปุ่มติ๊กเดียวจบ
 // เจ้าของสั่ง 5 พ.ย. 2026: คืนแล้วกดทีเดียวแบบ "มาแล้ว" ของ short · กล่องเดิมยังอยู่ที่ลิงก์ "รายละเอียด…"
 ok('ปุ่มคืนแล้วกดทีเดียว · ลิงก์รายละเอียดยังเปิดกล่องเดิมได้',
-   /@click="foReturn\(r\.s\)">คืนแล้ว<\/button>/.test(htmlOver) && /@click\.prevent="askReturn\(r\.s\)">รายละเอียด…<\/a>/.test(htmlOver)
+   /@click="foReturn\(r\.s\)">คืนแล้ว<\/button>/.test(htmlOver) && /@click="askReturn\(r\.s\)">รายละเอียด…<\/button>/.test(htmlOver)
    && /v-if="rb\.row"/.test(htmlOver));
 ok('กล่องคืนของให้เลือกล็อตจากของที่มีจริง และไม่ใช้ datalist (issue #26)',
    /rbLots/.test(htmlOver) && /@click="rb\.lot = l\.lot"/.test(htmlOver)
@@ -844,7 +846,7 @@ for (const tab of ['fshort', 'fover', 'fbuy', 'fmat']) {
   const tables = blockOf(tab).split('<table').slice(1);
   const bad = [];
   tables.forEach((t, k) => {
-    const head = (t.match(/<thead>[\s\S]*?<\/thead>/) || [''])[0];
+    const head = (t.match(/<thead>[\s\S]*?<\/thead>/) || t.match(/<tr[^>]*class="fol-th">[\s\S]*?<\/tr>/) || [''])[0];
     const th = (head.match(/<th[ >]/g) || []).length;
     for (const m of t.matchAll(/colspan="(\d+)"/g)) {
       if (+m[1] !== th) bad.push(`ตารางที่ ${k + 1}: colspan=${m[1]} แต่หัวมี ${th}`);
@@ -1036,8 +1038,10 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      shortCheckOf({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H001', code: 'A', qty: 0, done: false }, all0).same === null
      && shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0).calc === 8,
      JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
+  // 21 พ.ย. 2026: ตรง = ตัวจาง (ไม่มีป้าย) · ต่าง = ป้าย — same null (ไม่มียอดเทียบ) ต้องไม่ได้ป้าย "ต่าง"
   ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
-     /same !== null/.test(htmlSrc.split('ระบบคิดได้')[1].slice(0, 1400)));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+     htmlSrc.includes('<span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
+     && htmlSrc.includes(':class="{ hint: fsCheck(r.s).same !== false }"'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
      /ยังไม่มีการรับเข้า/.test(shortCheckOf({ po: 'TM9269H002', code: 'A', qty: 1 }, all0).why)
@@ -1437,7 +1441,7 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   ok('จอ: เช็กข้ามวันตอนกด "มาแล้ว" และตอนเปิดหน้า short', /fsDateOn !== t\) \{ fsDate\.value = rollDay\(/.test(app)
      && /watch\(tab, k => \{ if \(k === 'fshort'\) fsDayNow\(\); \}\)/.test(app));
   ok('จอ: วันปิดเรื่องโชว์ตามวันที่ไทย ไม่สไลซ์ ISO แบบ UTC (ผู้ตรวจ #130 รอบ 2 ข้อ 3)',
-     fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8').includes("ปิด {{ localDate(r.s.done_at) }}"));
+     fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8').includes("{{ localDate(r.s.done_at) }}") && !/done_at[^}]*\.slice\(0,\s*10\)/.test(fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8')));
   {
     // กดตี 5 ครึ่งเวลาไทย เลือกวันที่ 8 → ISO เป็นวันที่ 7 ตาม UTC แต่ต้องโชว์วันที่ 8
     const early = atFrom('2026-10-08', new Date(2026, 9, 10, 5, 30));
@@ -1607,7 +1611,7 @@ console.log('\n=== W. ล้างเรื่องซ้ำที่ค้า�
   ok('จอ: การ์ดเรื่องซ้ำทั้งหน้า short และ over · ติ๊กไว้เป็นค่าตั้งต้น · ยกเลิกด้วย voidFollow ไม่ลบ',
      html.includes(`@click="dupVoid('short')"`) && html.includes(`@click="dupVoid('over')"`)
      && html.includes(':checked="!dupSkip[d.row.id]"') && /voidFollow\(plain\(d\.row\)/.test(app) && html.includes('v-if="foDouble.length"')
-     && (html.match(/\{\{ d\.row\.eta \|\| '—' \}\}/g) || []).length === 2);
+     && !/d\.row\.eta/.test(html));
 }
 
 console.log('\n=== X. ซื้อทดแทน — หน่วยจากทะเบียนก่อน · หมายเหตุรายรหัส (เจ้าของสั่ง 10 ต.ค. 2026) ===');
@@ -1817,7 +1821,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   const htmlS = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ปุ่มยกเลิกเรื่องในตาราง short · ไม่ติดตามในการ์ดคิดได้ · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม',
      htmlS.includes('@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>') && htmlS.includes('@click="fsSkip(r)">ไม่ติดตาม</button>')
-     && htmlS.includes('ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }} เรื่อง') && htmlS.includes('@click="fsRestart(x.s)">กลับมาติดตาม</button>')
+     && appS.includes('stop: fsStopped.value.length') && htmlS.includes("<template v-if=\"fsSeg === 'stop'\">") && htmlS.includes('@click="fsRestart(x.s)">กลับมาติดตาม</button>')
      && /fsStopped = computed\(\(\) => stoppedShorts\(shorts\.value, \{ entity: entity\.value \}\)\)/.test(appS));
 }
 
@@ -2028,7 +2032,9 @@ console.log('\n=== OR. over: คืนแล้วกดทีเดียว (�
      && (htmlR.match(/v-model="foDate" type="date"/g) || []).length === 1);
   {
     // เจ้าของสั่ง 15 พ.ย. 2026: ของเกินที่ยังไม่ตั้งเรื่อง ต้องตั้งเรื่องก่อน ห้ามคืนข้ามขั้น
-    const card = htmlR.slice(htmlR.indexOf('<h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>'), htmlR.indexOf('<div class="card" v-if="foDouble.length">'));
+    // 21 พ.ย. 2026: การ์ดนี้กลายเป็นปุ่มกรอง "ต้องตั้งเรื่อง" ในตารางจัดกลุ่มราย PO
+    const iNew = htmlR.indexOf("<template v-if=\"foSeg === 'new'\">");
+    const card = iNew < 0 ? '' : htmlR.slice(iNew, htmlR.indexOf("<template v-if=\"foSeg === 'open'\">", iNew));
     ok('จอ: การ์ดของเกินที่ยังไม่ตั้งเรื่อง ไม่มีปุ่มคืนแล้ว · มีตั้งเรื่องคืน + ไม่ติดตาม',
        card.length > 0 && !card.includes('คืนแล้ว</button>') && !card.includes('foDate')
        && card.includes('@click="foStart(r)"') && card.includes('@click="foSkip(r)">ไม่ติดตาม</button>')
@@ -2084,7 +2090,7 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   const htmlO = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ไม่ติดตามในการ์ดคิดได้ · ยกเลิกเรื่องจาง · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม · เตือนก่อนยกเลิก',
      htmlO.includes('@click="foSkip(r)">ไม่ติดตาม</button>') && htmlO.includes(`:disabled="starting.has('fovoid|' + r.s.id)"`)
-     && htmlO.includes('ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง') && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
+     && htmlO.includes("<template v-if=\"foSeg === 'stop'\">") && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
      && /const warn = cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\);\s*if \(warn && !confirm\(/.test(appO) && /cancelOver\(plain\(row\), \{ by: fsBy\.value, why \}\)/.test(appO));
 }
 
@@ -2139,20 +2145,23 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
 
   const appP = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlP = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-  const tbl = htmlP.slice(htmlP.indexOf('<h2>ของขาด / รอส่ง</h2>'), htmlP.indexOf('<h2>เพิ่มเรื่องเอง</h2>'));
-  const stop = htmlP.slice(htmlP.indexOf('ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }}'), htmlP.indexOf('ซื้อแมททดแทน (Mat Follow up 7/8)'));
+  // 21 พ.ย. 2026: หน้า short จัดกลุ่มราย PO — PO · วันที่ PO · P/N อยู่ที่หัว PO ของทุกปุ่มกรอง (รอของ · ยกเลิก / ไม่ติดตาม ด้วย)
+  const iSh = htmlP.indexOf("<template v-else-if=\"tab==='fshort'\">");
+  const tbl = htmlP.slice(htmlP.indexOf('<table class="fol">', iSh), htmlP.indexOf('</table>', htmlP.indexOf('<table class="fol">', iSh)));
   ok('จอ: ตารางของขาด / รอส่ง มีคอลัมน์ PO · วันที่ PO · P/N · แถวว่างกินครบทุกคอลัมน์ · ช่องค้นบอกว่าค้น P/N ได้',
-     tbl.includes('<th style="width:120px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th>') && tbl.includes("{{ fsPn(r.s).pn || '—' }}")
-     && tbl.includes(':class="{hint: fsPn(r.s).fromPo}"') && tbl.includes('colspan="13"') && tbl.includes('ค้นหา PO · P/N · รหัส')
-     && (tbl.match(/<th[\s>]/g) || []).length === 13);
-  ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N', stop.includes("{{ fsPn(x.s).pn || '—' }}") && stop.includes('<th style="width:80px">P/N</th>'));
+     tbl.includes("{{ poDateOf(g.po) || 'ไม่มีวันที่' }}") && tbl.includes("{{ g.po || '(ไม่มีเลข PO)' }}") && tbl.includes("{{ g.pn || '—' }}")
+     && tbl.includes(':class="{ hint: g.items[0].s && fsPn(g.items[0].s).fromPo }"') && tbl.includes('colspan="8"')
+     && htmlP.includes('<input v-model.trim="fsSearch" placeholder="ค้น PO · P/N · รหัส"'));
+  ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N',
+     appP.includes('const pickStory = s => ({ po: s.po, pn: partNoOf(s, poIdx.value).pn')
+     && /seg === 'stop' \? groupByPo\(stopped, \{ pick: x => pickStory\(x\.s\)/.test(appP));
   ok('จอ: ตาราง short / over ส่งตัวหา PO ให้ช่องค้น', (appP.match(/showDone: [^\n]*headerOf: poIdx\.value/g) || []).length === 2);
   // ตาราง buy แสดง part_no ของเรื่องเอง และ listFollow ค้น part_no · note อยู่แล้ว — ป้ายต้องบอก (ผู้ตรวจ #151 รอบ 2 ข้อ 1)
   ok('จอ: ป้ายช่องค้นของตาราง ซื้อแมททดแทน บอกว่าค้น P/N · ข้อความได้',
      htmlP.includes('ค้นหา รหัส · PO · P/N · ข้อความ\n              <input v-model="fbSearch"')
      || htmlP.includes('ค้นหา รหัส · PO · P/N · ข้อความ\r\n              <input v-model="fbSearch"'));
   ok('จอ: ป้ายช่องค้นของตาราง over บอกว่าค้น P/N ได้ด้วย (ผู้ตรวจ #151 ข้อ 2)',
-     (htmlP.match(/ค้นหา PO · P\/N · รหัส · ข้อความ/g) || []).length === 2 && !/ค้นหา PO · รหัส\r?\n/.test(htmlP));
+     htmlP.includes('<input v-model.trim="foSearch" placeholder="ค้น PO · P/N · รหัส"') && !/ค้นหา PO · รหัส\r?\n/.test(htmlP));
   const fsrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   ok('คำอธิบายของ listFollow อยู่ติดตัวมัน ไม่ไปค้างเหนือ partNoOf (ผู้ตรวจ #151 ข้อ 1)',
      /ไม่กรองแล้วเรื่องของเกิน\/ซื้อทดแทนจะไหลมาโผล่ในหน้าของขาด\n \*\/\nexport function listFollow/.test(fsrc));
@@ -2215,17 +2224,19 @@ console.log('=== วันที่ PO ในหน้า short / over (เจ�
   const block = k => { const a = htmlSrc.indexOf(`<template v-else-if="tab==='${k}'">`); return htmlSrc.slice(a, htmlSrc.indexOf('\n      <template v-else', a + 1)); };
   const sh = block('fshort'), ov = block('fover');
   const cnt = (src, re) => (src.match(re) || []).length;
-  ok('short: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g) >= 2
-     && sh.includes("poDateOf(r.po) || '—'") && sh.includes("poDateOf(r.s.po) || '—'"));
-  ok('over: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g) >= 2
-     && ov.includes("poDateOf(r.po) || '—'") && ov.includes("poDateOf(r.s.po) || '—'"));
+  // 21 พ.ย. 2026: ตารางหลักจัดกลุ่มราย PO — วันที่ PO อยู่ที่หัว PO (ใช้ร่วมทุกปุ่มกรอง: ต้องตั้งเรื่อง · รอของ · ปิดแล้ว · ยกเลิก)
+  ok('short: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', sh.includes("{{ poDateOf(g.po) || 'ไม่มีวันที่' }}")
+     && sh.includes('<tbody v-for="g in fsDraw"'));
+  ok('over: ยังไม่ตั้งเรื่อง + ตั้งเรื่องแล้ว มีคอลัมน์วันที่ PO', ov.includes("{{ poDateOf(g.po) || 'ไม่มีวันที่' }}")
+     && ov.includes('<tbody v-for="g in foDraw"'));
   // เจ้าของขอเพิ่ม 14 พ.ย. 2026 — ทุกตารางในสองหน้านี้ที่มีคอลัมน์ PO ต้องมีวันที่ PO ด้วย (เรื่องซ้ำ · ยังไม่รู้นิติบุคคล · คืนซ้ำ · ติดอยู่ · ยกเลิก / ไม่ติดตาม)
-  ok('short: ทุกตารางที่มีคอลัมน์ PO มีวันที่ PO (5 ตาราง)', cnt(sh, /<th[^>]*>PO<\/th>/g) === 5 && cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g) === 5,
+  // ตารางที่ยังมีหัวคอลัมน์ PO: short = เรื่องซ้ำ · ยังไม่รู้นิติบุคคล · over = คืนซ้ำ · เรื่องซ้ำ · ติดอยู่ (ที่เหลือจัดกลุ่มราย PO แล้ว)
+  ok('short: ทุกตารางที่มีคอลัมน์ PO มีวันที่ PO (2 ตาราง)', cnt(sh, /<th[^>]*>PO<\/th>/g) === 2 && cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g) === 2,
      cnt(sh, /<th[^>]*>PO<\/th>/g) + ' / ' + cnt(sh, /<th[^>]*>วันที่ PO<\/th>/g));
-  ok('over: ทุกตารางที่มีคอลัมน์ PO มีวันที่ PO (6 ตาราง)', cnt(ov, /<th[^>]*>PO<\/th>/g) === 6 && cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g) === 6,
+  ok('over: ทุกตารางที่มีคอลัมน์ PO มีวันที่ PO (3 ตาราง)', cnt(ov, /<th[^>]*>PO<\/th>/g) === 3 && cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g) === 3,
      cnt(ov, /<th[^>]*>PO<\/th>/g) + ' / ' + cnt(ov, /<th[^>]*>วันที่ PO<\/th>/g));
-  ok('ช่องวันที่ PO ของตารางที่เพิ่มต่อสายถูกตัว', ["poDateOf(d.row.po) || '—'", "poDateOf(s.po) || '—'", "poDateOf(x.s.po) || '—'"].every(t => sh.includes(t))
-     && ["poDateOf(d.row.po) || '—'", "poDateOf(g.po) || '—'", "poDateOf(r.po) || '—'", "poDateOf(x.s.po) || '—'"].every(t => ov.includes(t)));
+  ok('ช่องวันที่ PO ของตารางที่เพิ่มต่อสายถูกตัว', ["poDateOf(d.row.po) || '—'", "poDateOf(s.po) || '—'", "poDateOf(g.po) || 'ไม่มีวันที่'"].every(t => sh.includes(t))
+     && ["poDateOf(d.row.po) || '—'", "poDateOf(g.po) || '—'", "poDateOf(r.po) || '—'", "poDateOf(g.po) || 'ไม่มีวันที่'"].every(t => ov.includes(t)));
   ok('วันที่ PO มาจากไฟล์ PO (poHeaderIndex) และต่อสายออกจาก setup', /const poDateOf = po => \(poIdx\.value\(po\) \|\| \{\}\)\.date \|\| ''/.test(appSrc)
      && /planAtText, poDateOf,/.test(appSrc));
 }
@@ -2268,6 +2279,59 @@ console.log('\n=== ใบขอสั่งซื้อ — ผู้ขอ · �
      /fbReqDateOn !== t\) \{ fbReq\.date = rollDay\(/.test(appJs)
      && /watch\(tab, k => \{ if \(k === 'fbuy'\) fbReqDayNow\(\); \}\)/.test(appJs)
      && /async function fbReqSubmit\(\)[\s\S]{0,300}?fbReqDayNow\(\);[\s\S]{0,200}?buyRequest\(fbReqPicked/.test(appJs));
+}
+
+console.log('\n=== หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026) ===');
+{
+  // เลขทั้งหมดสมมติขึ้นมา ไม่ใช่ของจริงจากงาน
+  const E = 'TUE-H';
+  const f = (id, o) => ({ id, kind: 'short', entity: E, po: 'TM9100H001', code: 'C1', qty: 10, done_qty: 0, done: false, voided: false, ...o });
+  const rows = [
+    f('a'), f('b', { done_qty: 4 }), f('c', { done: true, done_qty: 10, done_at: '2026-11-20T03:00:00.000Z' }),
+    f('d', { done: true, done_qty: 10, done_at: '2026-11-21T03:00:00.000Z' }), f('e', { voided: true }),
+    f('x', { entity: 'TUE-P' }), f('o', { kind: 'over' })
+  ];
+  const c = followCounts(rows, { kind: 'short', entity: E });
+  ok('ตัวนับปุ่มกรอง: รอของนับรวมที่มาบางส่วน · ปิดแล้วแยก · ยกเลิกไม่นับ · ไม่ปนนิติบุคคลอื่น (A3) · ไม่ปนชนิดอื่น',
+     c.open === 2 && c.partial === 1 && c.done === 2, JSON.stringify(c));
+  ok('ปุ่มกรองเรียงตามขั้นของงาน และคีย์ตรงกับตัวนับ',
+     ['short', 'over'].every(k => FOLLOW_SEG[k].map(x => x.k).join() === 'new,open,done,stop'));
+
+  const items = [{ po: 'P2', pn: '', code: 'A' }, { po: 'P1', pn: 'N1', code: 'B' }, { po: 'P2', pn: 'N2', code: 'C' }];
+  const g = groupByPo(items, { pick: r => r });
+  ok('จัดกลุ่มราย PO: ลำดับกลุ่มตามแถวแรกที่เจอ (คงลำดับเดิม เช่นเลยกำหนดขึ้นก่อน) · แถวในกลุ่มเรียงตามเดิม',
+     g.map(x => x.po).join() === 'P2,P1' && g[0].items.map(x => x.code).join() === 'A,C');
+  ok('P/N ของกลุ่ม = ตัวแรกที่มีค่า (แถวแรกไม่มี P/N ก็ไม่ว่าง)', g[0].pn === 'N2' && g[1].pn === 'N1');
+  ok('ช่องค้น: ค้นด้วย PO · P/N · รหัส · ข้อความ ไม่สนตัวพิมพ์',
+     groupByPo(items, { pick: r => r, q: 'n1' }).length === 1 && groupByPo(items, { pick: r => r, q: 'c' })[0].items.length === 1
+     && groupByPo([{ po: 'P3', code: 'Z', text: 'ยอดน้อย' }], { pick: r => r, q: 'ยอดน้อย' }).length === 1
+     && groupByPo(items, { pick: r => r, q: 'ไม่มี' }).length === 0);
+
+  ok('หมายเหตุ: ตัดข้อความที่ระบบใส่ให้ทุกเรื่อง · เก็บส่วนที่คนพิมพ์และร่องรอยเอากลับ',
+     followNote({ note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)' }) === ''
+     && followNote({ note: 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า) · เอากลับ 2026-11-20' }) === 'เอากลับ 2026-11-20'
+     && followNote({ note: 'แจ้งทางไลน์' }) === 'แจ้งทางไลน์' && followNote({}) === '');
+  ok('ปิดแล้ว: ปิดล่าสุดขึ้นก่อน และไม่แก้ลำดับของรายการเดิม',
+     (() => { const src = [{ s: rows[2] }, { s: rows[3] }]; const out = newestDone(src);
+              return out[0].s.id === 'd' && out[1].s.id === 'c' && src[0].s.id === 'c'; })());
+  const sk = skipShort({ po: 'TM9100H002', code: 'C2', short: 3 }, { entity: E, person: 'ก', date: '2026-11-21', why: 'ยอดน้อย' });
+  ok('เหตุผลที่หยุด: ตัดคำนำหน้าของปุ่มออก (จอแสดงป้ายชื่อปุ่มแยกอยู่แล้ว) · ไม่มีเหตุผล = ว่าง · ยกเลิกแบบอื่นคงข้อความเดิม',
+     stopWhy(sk) === 'ยอดน้อย' && stopWhy({ void_reason: CANCEL_MARK }) === ''
+     && stopWhy({ void_reason: 'เรื่องซ้ำ — ตั้งซ้ำ' }) === 'เรื่องซ้ำ — ตั้งซ้ำ', stopWhy(sk));
+
+  const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const htmlG = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: ตัวนับบนปุ่มกรองนับจากรายการเต็ม · ปุ่มกรองแทนช่องติ๊กแสดงที่ปิดแล้ว',
+     appG.includes('const fsCounts = computed(() => ({ new: fsNew.value.length, stop: fsStopped.value.length,')
+     && appG.includes("const fsShowDone = computed(() => fsSeg.value === 'done');") && !htmlG.includes('v-model="fsShowDone"')
+     && !htmlG.includes('v-model="foShowDone"'));
+  ok('จอ: พับ / กาง ใช้ reactive ไม่ส่ง ref เข้าฟังก์ชัน (บทเรียน #175) · ค่าตั้งต้นกางทุกใบ',
+     appG.includes('const fsFold = reactive({}), foFold = reactive({});') && htmlG.includes('@click="foldFlip(fsFold, g.po)"')
+     && htmlG.includes('<template v-if="!fsFold[g.po]">'));
+  ok('จอ: ป้ายจาก MRP เปิดปุ่มกรองที่เรื่องนั้นอยู่ แล้วค้นด้วยเลข PO',
+     /if \(v\.how === 'done'\) fsSeg\.value = 'done';\s*else if \(over\) foSeg\.value = 'stop';\s*else fsSeg\.value = 'stop';/.test(appG));
+  ok('จอ: ไม่โชว์ ETA ในหน้า short / over แล้ว (เจ้าของแจ้ง 21 พ.ย. 2026 — ช่องรับ short จากใบ PO ปิดไปแล้ว)',
+     !htmlG.includes('v-model="fu.eta"') && !htmlG.includes('เลย ETA'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

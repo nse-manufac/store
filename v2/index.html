@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-19.5">
+<meta name="app-version" content="2026-11-21.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -146,6 +146,53 @@ tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
 .tag.mute{background:#eceff3;color:#5b6878}
 /* ยอดคงคลังราย P/N: ยอดติดลบราย PO กดได้ → แท็บ Log จ่ายออก */
 .bp-lnk{font:inherit;font-weight:700;color:var(--bad);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+/* หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026) — สีและแถบซ้ายแบบแท็บ MRP
+   ตัวใหญ่ทั้งหน้า + หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ให้ผู้สูงอายุอ่านง่าย (เจ้าของขอ 21 พ.ย. 2026) */
+.fol-bar{gap:10px 14px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);align-items:flex-end}
+.fol-bar label.f{font-size:14px}
+.fol-chk{display:flex;align-items:center;gap:8px;font-size:15px;height:38px}
+.fol-chk input{width:18px;height:18px}
+.fol-add{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#f8fafc}
+/* ปุ่มกรองตัวใหญ่ เต็มแถว ปุ่มที่เลือกเป็นสีน้ำเงินทึบ (เจ้าของขอ 21 พ.ย. 2026 — แบบ MRP เล็กเกินไปสำหรับผู้สูงอายุ) */
+.fol-seg{display:flex;flex:1 1 100%;gap:8px;padding:6px;border-radius:12px}
+.fol-seg button{flex:1 1 0;justify-content:center;height:56px;padding:0 16px;font-size:18px;font-weight:600;color:var(--ink);
+  background:#fff;box-shadow:0 0 0 1px var(--line);border-radius:8px;gap:10px}
+.fol-seg button:hover{box-shadow:0 0 0 2px var(--brand)}
+.fol-seg button:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+.fol-seg button[aria-pressed="true"]{background:var(--brand);color:#fff;box-shadow:none}
+.fol-seg .mrp-dot{width:12px;height:12px}
+.fol-seg button[aria-pressed="true"] .mrp-dot{box-shadow:0 0 0 2px #fff}
+.fol-seg .hint{font-size:18px;font-weight:700;color:inherit;opacity:.8}
+table.fol{table-layout:fixed;width:100%;font-size:16px}
+table.fol td{vertical-align:middle;padding-top:10px;padding-bottom:10px}
+table.fol .hint{font-size:14px}
+table.fol .tag{font-size:13px;padding:2px 10px}
+.fol .r{text-align:right}
+.fol .mono{font-variant-numeric:tabular-nums}
+tr.fol-th > th{position:static;background:#fff;font-size:14px;font-weight:600;color:#3d4b5c;padding:8px 8px 6px;
+  border-bottom:2px solid var(--line);white-space:normal}
+tr.fol-th > th.r{text-align:right}
+tr.fol-po{cursor:pointer}
+tr.fol-po > td{background:var(--soft);border-top:20px solid var(--panel);padding-top:10px;padding-bottom:10px}
+tbody:first-of-type > tr.fol-po > td{border-top:0}
+tr.fol-po:hover > td{background:#dde8f3}
+tr.fol-po > td:first-child,tr.fol-th > th:first-child,tr.fol-it > td:first-child{box-shadow:inset 4px 0 0 var(--brand)}
+tbody.shut tr.fol-po > td:first-child{box-shadow:inset 4px 0 0 #c5ced8}
+.fol-head{display:flex;gap:20px;align-items:baseline;flex-wrap:wrap}
+.fol-head b{font-size:19px;color:var(--brand)}
+.fol-head .hint{font-size:15px}
+.fol-n{margin-left:auto}
+.fol-key{font-weight:600;font-size:17px}
+.fol-act{white-space:normal}
+.fol-act .btn{font-size:15px;padding:6px 16px}
+.fol-qty{width:96px;padding:6px 8px;margin-right:4px;font-size:15px}
+.btn-q{font:inherit;font-size:14px;background:none;border:0;color:var(--muted);padding:6px 8px;cursor:pointer;border-radius:6px}
+.btn-q:hover:not(:disabled){color:var(--ink);background:var(--soft)}
+.btn-q:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.btn-q:disabled{opacity:.5;cursor:default}
+.fol-help{margin-top:16px;font-size:14px;color:var(--muted)}
+.fol-help summary{cursor:pointer;color:var(--brand);font-size:15px}
+.fol-help p{margin:8px 0 0;line-height:1.7}
 .msg{padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
 .msg.ok{background:var(--okbg);color:var(--ok);border:1px solid #b9e2cb}
 .msg.warn{background:var(--warnbg);color:var(--warn);border:1px solid #f0d799}
@@ -2363,12 +2410,64 @@ textarea{font:inherit}
 
       <!-- ════════ Mat Follow up · short รอส่ง ════════ -->
       <template v-else-if="tab==='fshort'">
+        <!-- จัดกลุ่มราย PO แบบแท็บ MRP · ปุ่มกรองแทนช่องติ๊กกับการ์ดท้ายหน้า (เจ้าของสั่ง 21 พ.ย. 2026) -->
+        <div class="card">
+          <h2 style="margin:0 0 4px;font-size:19px">short รอส่ง</h2>
+          <p class="hint" style="margin:0 0 12px;font-size:14px">ของที่ Delta ส่งมาไม่ครบตาม BOM · จัดกลุ่มราย PO</p>
+          <div class="row" style="gap:10px 14px">
+            <div class="mrp-seg fol-seg" role="group" aria-label="กรองตามสถานะ">
+              <button v-for="f in FOLLOW_SEG.short" :key="f.k" type="button" :aria-pressed="fsSeg === f.k" @click="fsSeg = f.k">
+                <span v-if="f.dot" class="mrp-dot" :class="f.dot"></span>{{ f.label }}
+                <span class="mono hint">{{ fsCounts[f.k] }}</span></button>
+            </div>
+          </div>
+          <div class="row fol-bar">
+            <label class="f" style="width:160px">ผู้บันทึก
+              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
+            <template v-if="fsSeg === 'open'">
+              <label class="f" style="width:150px" title="ของมาเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่ของมาจริง">วันที่ของมา
+                <input v-model="fsDate" type="date"></label>
+              <label class="fol-chk" title="ติ๊กออกเมื่อของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ">
+                <input type="checkbox" v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย</label>
+            </template>
+            <span v-if="fsCounts.partial" class="tag warn">ได้มาบางส่วน {{ fsCounts.partial }}</span>
+            <div class="grow"></div>
+            <input v-model.trim="fsSearch" placeholder="ค้น PO · P/N · รหัส" style="width:200px">
+            <button class="btn" @click="foldAll(fsFold, fsGroups, false)">กางทั้งหมด</button>
+            <button class="btn" @click="foldAll(fsFold, fsGroups, true)">พับทั้งหมด</button>
+            <button class="btn" :aria-expanded="fuShow" @click="fuShow = !fuShow">{{ fuShow ? 'ปิดแผงเพิ่มเรื่อง' : 'เพิ่มเรื่องเอง' }}</button>
+          </div>
+          <div v-if="fuShow" class="fol-add">
+            <p class="hint" style="margin:0 0 8px">ของที่ Delta แจ้งทางโทรหรือ LINE · ดูปุ่ม <b>ต้องตั้งเรื่อง</b> ก่อน กันตั้งเรื่องซ้ำ</p>
+            <div class="row">
+              <label class="f" style="width:190px">รหัสวัตถุดิบ
+                <div class="row" style="gap:4px;flex-wrap:nowrap">
+                  <input v-model.trim="fu.code" class="mono grow" style="min-width:0" @change="onFuCode">
+                  <button class="btn" style="padding:6px 10px" title="ค้นจากทะเบียน" @click="openPick(fu)">ค้น</button>
+                </div></label>
+              <label class="f" style="width:140px">PO
+                <input v-model.trim="fu.po" class="mono"></label>
+              <label class="f" style="width:120px">จำนวนที่ขาด
+                <input v-model.number="fu.qty" type="number" step="any" class="mono"></label>
+              <label class="f" style="width:120px">ประเภท
+                <select v-model="fu.type">
+                  <option v-for="t in SHORT_TYPES" :key="t" :value="t">{{ t }}</option>
+                </select></label>
+              <label class="f grow">หมายเหตุ
+                <input v-model="fu.note" placeholder="เช่น แจ้งทางไลน์ 10 ก.ย."></label>
+              <button class="btn primary" style="align-self:flex-end" :disabled="!fuReady" @click="fuSave">เพิ่มเรื่อง</button>
+            </div>
+            <p class="hint" style="margin:8px 0 0" v-if="fu.code">
+              {{ fu.known ? fu.desc : 'ไม่มีรหัสนี้ในทะเบียน — เพิ่มได้ แต่ตรวจให้แน่ก่อน' }}
+              <span v-if="fu.unit">· หน่วย {{ fu.unit }}</span></p>
+            <p class="hint" style="margin:8px 0 0" v-if="!entity">ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — เพิ่มเรื่องไม่ได้</p>
+          </div>
+        </div>
+
         <div class="card" v-if="dupLists.short.length">
           <div class="row">
             <h2 style="margin:0">เรื่องซ้ำที่ค้างอยู่ — {{ dupLists.short.length }} เรื่อง</h2>
             <div class="grow"></div>
-            <label class="f" style="width:150px">ผู้บันทึก
-              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
             <button class="btn" @click="dupShow.short = !dupShow.short">{{ dupShow.short ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
             <button class="btn primary" :disabled="!dupPicked('short').length || starting.has('dupvoid|short')"
                     @click="dupVoid('short')">ยกเลิกที่ติ๊ก {{ dupPicked('short').length }} เรื่อง</button>
@@ -2379,14 +2478,14 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.short">
             <table>
               <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
-                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
+                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
                 <tr v-for="d in dupShown('short')" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
                   <td class="mono">{{ d.row.po }}</td><td class="mono hint">{{ poDateOf(d.row.po) || '—' }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
                   <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
-                  <td class="mono hint">{{ d.row.eta || '—' }}</td><td class="hint">{{ d.row.note || '—' }}</td>
+                  <td class="hint">{{ d.row.note || '—' }}</td>
                   <td class="hint">{{ d.why }}</td>
                 </tr>
               </tbody>
@@ -2394,7 +2493,6 @@ textarea{font:inherit}
           </div>
           <p class="hint" style="margin:6px 0 0" v-if="dupShow.short && dupLists.short.length > SHOW_MAX">แสดง {{ SHOW_MAX }} จาก {{ dupLists.short.length }} เรื่อง — "ยกเลิกที่ติ๊ก" ทำเฉพาะที่แสดง · ยกเลิกชุดนี้แล้วชุดถัดไปจะขึ้นมา</p>
         </div>
-
 
         <div class="card" v-if="fsNoEntity.length">
           <div class="msg warn">ยังไม่รู้ว่าเป็นของนิติบุคคลไหน <b>{{ fsNoEntity.length }}</b> เรื่อง —
@@ -2418,187 +2516,108 @@ textarea{font:inherit}
         </div>
 
         <div class="card">
-          <!-- ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) — ขึ้นให้ดู คนกดตั้งเรื่องเอง -->
-          <div class="row">
-            <h2 style="margin:0">ยังรับไม่ครบตาม BOM</h2>
-            <span class="hint">ต่อชิ้น × จำนวนสั่ง − (รับเข้า − ส่งคืน) · เฉพาะ PO ที่เริ่มรับแล้ว</span>
-            <div class="grow"></div>
-            <div><div class="hint">ยังไม่มีเรื่อง</div>
-              <div class="big" :class="fsNew.length ? 'warn' : ''">{{ fsNew.length }}</div></div>
-          </div>
-          <p class="hint" style="margin:6px 0 0">
-            ของมาเป็นรอบ — ยอดขาดตรงนี้รวมของที่ยังไม่ถึงรอบด้วย · <b>กดตั้งเรื่องเมื่อแน่ใจว่าใบนั้นไม่มีของมาเพิ่มแล้ว</b>
-            · PO+รหัสที่มีเรื่องเปิดอยู่แล้ว (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ ·
-            คู่ที่เพิ่งปิดเรื่องไปด้วยยอดเท่ากับยอดขาดตอนนี้ก็ไม่ขึ้น (ยอดต่างจากเดิมจะขึ้นให้ตั้งเรื่องได้) ·
-            ถ้าต้องตั้งเรื่องคู่ที่ถูกซ่อน ใช้แผง <b>เพิ่มเรื่องเอง</b> ด้านล่าง · นับทุกยอดที่ขาด แม้ไม่ถึง 1 หน่วย ·
-            กด <b>ไม่ติดตาม</b> = ไม่ขึ้นอีกจนกว่ายอดขาดจะมากกว่ายอดในแถวตอนกด
-            <span v-if="fsBlocked.length"> · คิดไม่ได้ {{ fsBlocked.length }} ใบ:
-              {{ fsBlocked.slice(0, 3).map(r => r.po + ' (' + r.why + ')').join(' · ') }}{{ fsBlocked.length > 3 ? ' …' : '' }}</span></p>
-          <div class="scroll" style="max-height:32vh;margin-top:8px" v-if="fsNew.length">
-            <table>
-              <thead><tr>
-                <th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:90px">P/N</th><th style="width:125px">รหัส</th>
-                <th style="width:105px">หมวดหมู่</th><th style="width:85px">สั่ง</th><th style="width:100px">ตามสูตร</th>
-                <th style="width:100px">รับแล้ว</th><th style="width:95px">ขาด</th><th style="width:210px"></th></tr></thead>
-              <tbody><tr v-for="r in fsNewDraw" :key="r.po + r.code">
-                <td class="mono">{{ r.po }}</td><td class="mono hint">{{ poDateOf(r.po) || '—' }}</td><td class="mono hint">{{ r.pn }}</td>
-                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
-                <td class="mono hint">{{ r.order }}</td><td class="mono hint">{{ r.need }}</td>
-                <td class="mono">{{ r.have }}</td><td class="mono"><b>{{ r.short }}</b></td>
-                <td><button class="btn" style="padding:2px 9px" :disabled="!entity || isStarting('short', r)"
-                            @click="fsStart(r)">ตั้งเรื่อง short</button>
-                  <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="!entity || isStarting('short', r)"
-                          @click="fsSkip(r)">ไม่ติดตาม</button></td>
-              </tr></tbody>
-            </table>
-          </div>
-          <p v-else class="empty" style="margin:8px 0 14px">ไม่มี PO ที่รับไม่ครบตาม BOM โดยยังไม่มีเรื่อง</p>
-
-          <h2>ของขาด / รอส่ง</h2>
-          <div class="row" style="gap:26px;align-items:flex-end">
-            <div><div class="hint">ยังไม่ได้ของ</div><div class="big">{{ fsSum.open }}</div></div>
-            <div><div class="hint">ได้มาบางส่วน</div>
-              <div class="big" :class="fsSum.partial?'warn':''">{{ fsSum.partial }}</div></div>
-            <div><div class="hint">เลย ETA แล้ว</div>
-              <div class="big" :class="fsSum.late?'bad':''">{{ fsSum.late }}</div></div>
-            <div class="grow"></div>
-            <label class="f" style="width:220px">ค้นหา PO · P/N · รหัส · ข้อความ
-              <input v-model="fsSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
-            <label class="f" style="width:150px">ผู้บันทึก
-              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
-            <label style="font-weight:600;font-size:12.5px" title="ติ๊กออกเมื่อของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ">
-              <input type="checkbox" v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย</label>
-            <label class="f" style="width:145px" title="ของมาเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่ของมาจริง">วันที่ของมา
-              <input v-model="fsDate" type="date"></label>
-            <label style="font-weight:600;font-size:12.5px">
-              <input type="checkbox" v-model="fsShowDone"> แสดงที่ปิดแล้ว</label>
-          </div>
-
-          <div class="scroll" style="max-height:52vh;margin-top:10px">
-            <table>
-              <thead><tr>
-                <th style="width:105px">แจ้งวันที่</th><th style="width:120px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th>
-                <th style="width:120px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:80px">ประเภท</th>
-                <th style="width:100px">ที่แจ้งมา</th><th style="width:110px">ระบบคิดได้</th><th style="width:100px">ยังค้าง</th>
-                <th style="width:150px">ETA</th><th>ข้อความเต็ม</th>
-                <th style="width:250px"></th></tr></thead>
-              <tbody>
-                <tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}" :data-fid="r.s.id">
-                  <td class="mono hint">{{ r.s.date }}</td>
-                  <td class="mono">{{ r.s.po }}</td>
-                  <td class="mono hint">{{ poDateOf(r.s.po) || '—' }}</td>
-                  <td class="mono" :class="{hint: fsPn(r.s).fromPo}" :title="fsPn(r.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(r.s).pn || '—' }}</td>
-                  <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
-                  <td><span class="tag" :class="r.s.type==='ขาด'?'bad':'warn'">{{ r.s.type }}</span></td>
-                  <td class="mono">{{ r.s.qty || '—' }} {{ r.s.unit }}</td>
-                  <td class="mono" :title="fsCheck(r.s).why ||
-                       (fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ' : '')">
-                    <template v-if="fsCheck(r.s).calc !== null">{{ fsCheck(r.s).calc }}
-                      <span v-if="fsCheck(r.s).same !== null" class="tag"
-                            :class="fsCheck(r.s).same ? 'ok' : 'warn'">{{ fsCheck(r.s).same ? 'ตรง' : 'ต่าง' }}</span>
-                      <span v-else class="hint">ไม่มียอดเทียบ</span></template>
-                    <span v-else class="hint">—</span></td>
-                  <td class="mono">
-                    <b v-if="r.st==='partial'">{{ r.remain }}</b>
-                    <span v-else-if="r.st==='done'" class="tag ok">ครบแล้ว</span>
-                    <span v-else class="hint">—</span></td>
-                  <td class="mono hint">{{ r.s.eta || '—' }}
-                    <span v-if="r.late" class="tag bad">เลยแล้ว</span></td>
-                  <td class="hint">{{ r.s.note }}</td>
-                  <td style="white-space:nowrap">
-                    <template v-if="r.st==='done'">
-                      <span class="hint">ปิด {{ localDate(r.s.done_at) }}
-                        {{ r.s.done_by }}</span>
-                      <button class="btn" style="padding:2px 8px;margin-left:5px"
-                              @click="fsReopen(r.s)">เอากลับ</button>
-                    </template>
-                    <template v-else>
+          <div class="scroll" style="max-height:none">
+          <table class="fol">
+            <!-- คอลัมน์ตายตัวทุกปุ่มกรอง — ตัวเลขของทุกใบอยู่แนวเดียวกัน -->
+            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:128px"><col style="width:128px"><col style="width:136px"><col style="width:360px"></colgroup>
+            <tbody v-for="g in fsDraw" :key="g.po" :class="{ shut: fsFold[g.po] }">
+              <tr class="fol-po" @click="foldFlip(fsFold, g.po)" :aria-expanded="!fsFold[g.po]">
+                <td colspan="8"><span class="fol-head">
+                  <span class="fold-i">{{ fsFold[g.po] ? '▸' : '▾' }}</span>
+                  <span class="mono hint">{{ poDateOf(g.po) || 'ไม่มีวันที่' }}</span>
+                  <b class="mono">{{ g.po || '(ไม่มีเลข PO)' }}</b>
+                  <span class="mono" :class="{ hint: g.items[0].s && fsPn(g.items[0].s).fromPo }"
+                        :title="g.items[0].s && fsPn(g.items[0].s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ g.pn || '—' }}</span>
+                  <span v-if="fsSeg === 'new' && g.items[0].order" class="hint">สั่ง <span class="mono">{{ mrpNum(g.items[0].order) }}</span></span>
+                  <span class="fol-n hint">{{ g.items.length }} รายการ</span></span></td>
+              </tr>
+              <template v-if="!fsFold[g.po]">
+                <!-- หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ตัวใหญ่ (เจ้าของขอ 21 พ.ย. 2026 — หัวเล็ก ๆ บนสุดผู้สูงอายุมองไม่เห็น) -->
+                <tr v-if="fsSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับแล้ว</th><th class="r">ขาด</th><th></th></tr>
+                <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตั้งเรื่อง</th><th class="r">ระบบคิดได้</th><th class="r">ค้าง</th><th>ยอดที่มา (เว้นว่าง = มาครบ)</th></tr>
+                <tr v-if="fsSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตั้งเรื่อง</th><th class="r">ปิดเรื่อง</th><th class="r">ยอด</th><th></th></tr>
+                <tr v-if="fsSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">หยุดเมื่อ</th><th>โดย</th><th class="r">ค้างตอนหยุด</th><th></th></tr>
+                <template v-if="fsSeg === 'new'">
+                  <tr v-for="r in g.items" :key="r.code" class="fol-it">
+                    <td></td><td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td><td>{{ mrpName(r.code) }}</td>
+                    <td class="mono r hint">{{ mrpNum(r.need) }}</td><td class="mono r">{{ mrpNum(r.have) }}</td>
+                    <td class="mono r fol-key">{{ mrpNum(r.short) }} <span class="hint">{{ mrpUnit(r.code) }}</span></td>
+                    <td class="fol-act"><button class="btn primary" :disabled="!entity || isStarting('short', r)" @click="fsStart(r)">ตั้งเรื่อง short</button>
+                      <button class="btn-q" :disabled="!entity || isStarting('short', r)" @click="fsSkip(r)">ไม่ติดตาม</button></td>
+                  </tr>
+                </template>
+                <template v-if="fsSeg === 'open'">
+                  <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
+                    <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
+                    <td>{{ mrpName(r.s.code) }}
+                      <!-- ไม่โชว์ ETA แล้ว — ช่องรับ short จากใบ PO (ที่มี ETA) ปิดไปแล้ว (เจ้าของแจ้ง 21 พ.ย. 2026) -->
+                      <div v-if="followNote(r.s)" class="hint">{{ followNote(r.s) }}</div></td>
+                    <td class="mono r hint">{{ r.s.date }}<div v-if="r.s.created_by">{{ r.s.created_by }}</div></td>
+                    <!-- ตรงกับยอดค้าง = ตัวจาง · ไม่ตรง = ป้าย ต่าง ให้สะดุดตา -->
+                    <td class="mono r" :class="{ hint: fsCheck(r.s).same !== false }" :title="fsCheck(r.s).why || (fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ' : fsCheck(r.s).same ? 'ตรงกับยอดที่แจ้งไว้' : '')">
+                      <template v-if="fsCheck(r.s).calc !== null"><span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> {{ mrpNum(fsCheck(r.s).calc) }}</template>
+                      <template v-else>—</template></td>
+                    <td class="mono r fol-key">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span class="hint">{{ r.s.unit }}</span>
+                      <div v-if="r.st === 'partial'" class="hint">จาก {{ mrpNum(r.s.qty) }}</div></td>
+                    <td class="fol-act">
                       <!-- ช่องจำนวนทุกแถว ไม่บังคับ (เจ้าของสั่ง 10 ต.ค. 2026) · เรื่องที่ไม่ระบุจำนวน + เว้นว่าง = ปิดเฉย ๆ ไม่รับเข้า -->
-                      <input v-model="fsGot[r.s.id]" type="number" step="any"
-                             class="mono" style="width:76px" :placeholder="r.s.qty > 0 ? 'ทั้งใบ' : 'จำนวน'"
+                      <input v-model="fsGot[r.s.id]" type="number" step="any" class="mono fol-qty"
+                             :placeholder="r.s.qty > 0 ? 'ทั้งใบ' : 'จำนวน'"
                              :title="r.s.qty > 0 ? '' : 'ไฟล์ PO ไม่ได้บอกจำนวน — ใส่จำนวนที่มา ถ้าอยากรับเข้าคลังด้วย'"
                              @keyup.enter="fsClose(r.s)">
-                      <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fsclose|' + r.s.id)"
-                              @click="fsClose(r.s)">มาแล้ว</button>
-                      <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fsvoid|' + r.s.id)"
-                              @click="fsVoid(r.s)">ยกเลิกเรื่อง</button>
-                    </template>
-                  </td>
-                </tr>
-                <tr v-if="!fsRows.length"><td colspan="13" class="empty">
-                  ไม่มีเรื่องค้าง 🎉<span v-if="fsSearch"> — หรือคำค้นไม่ตรงกับอะไรเลย</span>
-                  <span v-else-if="!fsShowDone"> · ที่ปิดแล้วดูได้จากช่องติ๊กด้านบน</span></td></tr>
-              </tbody>
-            </table>
+                      <button class="btn primary" :disabled="starting.has('fsclose|' + r.s.id)" @click="fsClose(r.s)">มาแล้ว</button>
+                      <button class="btn-q" :disabled="starting.has('fsvoid|' + r.s.id)" @click="fsVoid(r.s)">ยกเลิกเรื่อง</button></td>
+                  </tr>
+                </template>
+                <template v-if="fsSeg === 'done'">
+                  <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
+                    <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td><td>{{ mrpName(r.s.code) }}</td>
+                    <td class="mono r hint">{{ r.s.date }}</td>
+                    <td class="mono r hint">{{ localDate(r.s.done_at) }}<div v-if="r.s.done_by">{{ r.s.done_by }}</div></td>
+                    <td class="mono r">{{ mrpNum(r.s.done_qty || r.s.qty) }} <span class="hint">{{ r.s.unit }}</span></td>
+                    <td class="fol-act"><button class="btn-q" @click="fsReopen(r.s)">เอากลับ</button></td>
+                  </tr>
+                </template>
+                <template v-if="fsSeg === 'stop'">
+                  <tr v-for="x in g.items" :key="x.s.id" class="fol-it" :data-fid="x.s.id">
+                    <td></td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
+                    <td>{{ mrpName(x.s.code) }}
+                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) }}</div></td>
+                    <td class="mono r hint">{{ localDate(x.s.void_at) }}</td><td class="hint">{{ x.s.void_by }}</td>
+                    <td class="mono r">{{ mrpNum(remainOf(x.s)) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ mrpNum(x.s.qty) }}</span></td>
+                    <td class="fol-act"><button class="btn" :disabled="starting.has('fsrestart|' + x.s.id)" @click="fsRestart(x.s)">กลับมาติดตาม</button></td>
+                  </tr>
+                </template>
+              </template>
+            </tbody>
+            <tbody v-if="!fsGroups.length"><tr><td colspan="8" class="empty">
+              {{ fsSearch ? 'ไม่มีเรื่องที่ตรงกับคำค้น' : fsSeg === 'new' ? 'ไม่มี PO ที่รับไม่ครบตาม BOM โดยยังไม่มีเรื่อง'
+                 : fsSeg === 'open' ? 'ไม่มีเรื่องค้าง' : 'ยังไม่มีเรื่องในกลุ่มนี้' }}</td></tr></tbody>
+          </table>
           </div>
-          <p class="hint" style="margin:8px 0 0" v-if="fsAll.length > fsRows.length">
+          <p class="hint" style="margin:8px 0 0" v-if="(fsSeg === 'open' || fsSeg === 'done') && fsAll.length > fsRows.length">
             แสดง {{ fsRows.length }} จาก {{ fsAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
-          <p class="hint" style="margin:8px 0 0">
-            เว้นช่องยอดไว้แล้วกด <b>มาแล้ว</b> = ปิดทั้งเรื่อง ·
-            ใส่ยอดก่อนกด (หรือกด Enter ในช่อง) = ของมาบางส่วน แล้วจะเหลือค้างตามส่วนต่าง<br>
-            ติ๊ก <b>รับเข้าคลังด้วย</b> ไว้ = บันทึกรับเข้าให้เลย อ้าง PO ของเรื่อง · ล็อต = <b>วันที่ของมา</b> (ค่าตั้งต้นคือวันนี้ แก้ย้อนหลังได้) — ไม่ต้องไปคีย์ที่หน้ารับเข้าซ้ำ ·
-            กด <b>เอากลับ</b> = ยกเลิกรายการรับเข้านั้นให้ด้วย<br>
-            แถวที่ไฟล์ PO ไม่ได้บอกจำนวน (ช่องขึ้นว่า "จำนวน") ใส่จำนวนที่มาเพื่อรับเข้าคลัง · เว้นว่าง = ปิดเรื่องเฉย ๆ</p>
-        </div>
-
-        <div class="card">
-          <h2>เพิ่มเรื่องเอง</h2>
-          <p class="hint" style="margin:0 0 10px">ของที่ Delta แจ้งทางโทรหรือ LINE ·
-            ตรวจการ์ด <b>ยังรับไม่ครบตาม BOM</b> ก่อน กันตั้งเรื่องซ้ำ</p>
-          <div class="row">
-            <label class="f" style="width:190px">รหัสวัตถุดิบ
-              <div class="row" style="gap:3px;flex-wrap:nowrap">
-                <input v-model.trim="fu.code" class="mono grow" style="min-width:0" @change="onFuCode">
-                <button class="btn" style="padding:6px 9px" @click="openPick(fu)">🔍</button>
-              </div></label>
-            <label class="f" style="width:140px">PO
-              <input v-model.trim="fu.po" class="mono"></label>
-            <label class="f" style="width:125px">จำนวนที่ขาด
-              <input v-model.number="fu.qty" type="number" step="any" class="mono"></label>
-            <label class="f" style="width:120px">ประเภท
-              <select v-model="fu.type">
-                <option v-for="t in SHORT_TYPES" :key="t" :value="t">{{ t }}</option>
-              </select></label>
-            <label class="f" style="width:155px">ETA ที่ Delta แจ้ง
-              <input v-model="fu.eta" type="date"></label>
-          </div>
-          <div class="row" style="margin-top:8px">
-            <label class="f grow">หมายเหตุ
-              <input v-model="fu.note" placeholder="เช่น แจ้งทางไลน์ 10 ก.ย."></label>
-            <button class="btn primary" :disabled="!fuReady" @click="fuSave">เพิ่มเรื่อง</button>
-          </div>
-          <p class="hint" style="margin:8px 0 0" v-if="fu.code">
-            {{ fu.known ? fu.desc : 'ไม่มีรหัสนี้ในทะเบียน — เพิ่มได้ แต่ตรวจให้แน่ก่อน' }}
-            <span v-if="fu.unit">· หน่วย {{ fu.unit }}</span></p>
-          <p class="hint" style="margin:8px 0 0" v-if="!entity">
-            ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — เพิ่มเรื่องไม่ได้</p>
-        </div>
-        <!-- ยกเลิก / ไม่ติดตามแล้ว (เจ้าของสั่ง 4 พ.ย. 2026) — สองปุ่มมาอยู่ที่เดียวกัน · พับไว้ -->
-        <div class="card" v-if="fsStopped.length">
-          <div class="row">
-            <h2 style="margin:0">ยกเลิก / ไม่ติดตามแล้ว — {{ fsStopped.length }} เรื่อง</h2>
-            <div class="grow"></div>
-            <button class="btn" @click="fsStopShow = !fsStopShow">{{ fsStopShow ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
-          </div>
-          <p class="hint" style="margin:6px 0 0">เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง ·
-            ไม่ขึ้นในการ์ด "ยังรับไม่ครบตาม BOM" จนกว่ายอดขาดจะมากกว่า <b>ยอดค้าง</b> ตอนกด (คอลัมน์ข้างล่าง) ·
-            กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
-          <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="fsStopShow">
-            <table>
-              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th><th style="width:125px">รหัส</th>
-                <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
-                <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in fsStopShown" :key="x.s.id" :data-fid="x.s.id">
-                <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
-                <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono" :class="{hint: fsPn(x.s).fromPo}" :title="fsPn(x.s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ fsPn(x.s).pn || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
-                <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td><td class="hint">{{ x.s.void_reason }}</td>
-                <td class="hint">{{ x.s.void_by }} · {{ localDate(x.s.void_at) }}</td>
-                <td><button class="btn" style="padding:2px 8px" :disabled="starting.has('fsrestart|' + x.s.id)"
-                            @click="fsRestart(x.s)">กลับมาติดตาม</button></td>
-              </tr></tbody>
-            </table>
-          </div>
-          <p class="hint" style="margin:6px 0 0" v-if="fsStopShow && fsStopped.length > SHOW_MAX">แสดง {{ fsStopShown.length }} จาก {{ fsStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
+          <p class="hint" style="margin:8px 0 0" v-if="fsSeg === 'stop' && fsStopped.length > SHOW_MAX">แสดง {{ fsStopShown.length }} จาก {{ fsStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
+          <p class="hint" style="margin:8px 0 0" v-if="fsSeg === 'new' && fsBlocked.length">คิดไม่ได้ {{ fsBlocked.length }} ใบ:
+            {{ fsBlocked.slice(0, 3).map(r => r.po + ' (' + r.why + ')').join(' · ') }}{{ fsBlocked.length > 3 ? ' …' : '' }}</p>
+          <details class="fol-help">
+            <summary>วิธีคิดยอด และปุ่มแต่ละปุ่ม</summary>
+            <p><b>ต้องตั้งเรื่อง</b> = ต่อชิ้น × จำนวนสั่ง − (รับเข้า − ส่งคืน) · เฉพาะ PO ที่เริ่มรับแล้ว ·
+              ของมาเป็นรอบ ยอดขาดตรงนี้รวมของที่ยังไม่ถึงรอบด้วย · <b>กดตั้งเรื่องเมื่อแน่ใจว่าใบนั้นไม่มีของมาเพิ่มแล้ว</b><br>
+              PO+รหัสที่มีเรื่องเปิดอยู่แล้ว (รวมที่ Delta แจ้ง) ไม่ขึ้นซ้ำ ·
+              คู่ที่เพิ่งปิดเรื่องไปด้วยยอดเท่ากับยอดขาดตอนนี้ก็ไม่ขึ้น (ยอดต่างจากเดิมจะขึ้นให้ตั้งเรื่องได้) ·
+              ถ้าต้องตั้งเรื่องคู่ที่ถูกซ่อน ใช้ปุ่ม <b>เพิ่มเรื่องเอง</b> · นับทุกยอดที่ขาด แม้ไม่ถึง 1 หน่วย ·
+              กด <b>ไม่ติดตาม</b> = ไม่ขึ้นอีกจนกว่ายอดขาดจะมากกว่ายอดในแถวตอนกด</p>
+            <p><b>มาแล้ว</b> เว้นช่องยอดไว้ = ปิดทั้งเรื่อง ·
+              ใส่ยอดก่อนกด (หรือกด Enter ในช่อง) = ของมาบางส่วน แล้วจะเหลือค้างตามส่วนต่าง<br>
+              ติ๊ก <b>รับเข้าคลังด้วย</b> ไว้ = บันทึกรับเข้าให้เลย อ้าง PO ของเรื่อง · ล็อต = <b>วันที่ของมา</b> (ค่าตั้งต้นคือวันนี้ แก้ย้อนหลังได้) — ไม่ต้องไปคีย์ที่หน้ารับเข้าซ้ำ ·
+              กด <b>เอากลับ</b> = ยกเลิกรายการรับเข้านั้นให้ด้วย<br>
+              แถวที่ไฟล์ PO ไม่ได้บอกจำนวน (ช่องขึ้นว่า "จำนวน") ใส่จำนวนที่มาเพื่อรับเข้าคลัง · เว้นว่าง = ปิดเรื่องเฉย ๆ<br>
+              <b>ระบบคิดได้</b> = ยอดขาดที่คิดจากการรับเข้าตอนนี้ เทียบกับยอดที่แจ้งไว้ (ตรง / ต่าง)</p>
+            <p><b>ยกเลิก / ไม่ติดตาม</b> = เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง ·
+              ไม่ขึ้นในปุ่ม "ต้องตั้งเรื่อง" จนกว่ายอดขาดจะมากกว่า <b>ยอดค้าง</b> ตอนกด ·
+              กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
+          </details>
         </div>
       </template>
 
@@ -3063,53 +3082,35 @@ textarea{font:inherit}
           </div>
         </div>
 
+        <!-- จัดกลุ่มราย PO แบบแท็บ MRP · ปุ่มกรองแทนช่องติ๊กกับการ์ดท้ายหน้า (เจ้าของสั่ง 21 พ.ย. 2026) -->
         <div class="card">
-          <div class="row">
-            <h2 style="margin:0">ของเกินที่ระบบคำนวณได้</h2>
-            <span class="hint">รับเข้าตามใบ − ที่คืนไปแล้ว − ยอดตามสูตรของใบนั้น</span>
-            <div class="grow"></div>
-            <label class="f" style="width:150px">ผู้บันทึก
+          <h2 style="margin:0 0 4px;font-size:19px">over รอคืน</h2>
+          <p class="hint" style="margin:0 0 12px;font-size:14px">ของที่รับมาเกิน BOM ต้องส่งคืน Delta · จัดกลุ่มราย PO</p>
+          <div class="row" style="gap:10px 14px">
+            <div class="mrp-seg fol-seg" role="group" aria-label="กรองตามสถานะ">
+              <button v-for="f in FOLLOW_SEG.over" :key="f.k" type="button" :aria-pressed="foSeg === f.k" @click="foSeg = f.k">
+                <span v-if="f.dot" class="mrp-dot" :class="f.dot"></span>{{ f.label }}
+                <span class="mono hint">{{ foCounts[f.k] }}</span></button>
+            </div>
+          </div>
+          <div class="row fol-bar">
+            <label class="f" style="width:160px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
-            <div><div class="hint">รอตั้งเรื่อง</div>
-              <div class="big" :class="foNew.length ? 'warn' : ''">{{ foNew.length }}</div></div>
+            <label v-if="foSeg === 'open'" class="f" style="width:150px" title="คืนเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่คืนจริง">วันที่คืน
+              <input v-model="foDate" type="date"></label>
+            <span v-if="foCounts.partial" class="tag warn">คืนไปบางส่วน {{ foCounts.partial }}</span>
+            <div class="grow"></div>
+            <input v-model.trim="foSearch" placeholder="ค้น PO · P/N · รหัส" style="width:200px">
+            <button class="btn" @click="foldAll(foFold, foGroups, false)">กางทั้งหมด</button>
+            <button class="btn" @click="foldAll(foFold, foGroups, true)">พับทั้งหมด</button>
           </div>
-          <p class="hint" style="margin:6px 0 0" v-if="!entity">
-            ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — คิดยอดเกินไม่ได้</p>
-
-          <div class="scroll" style="max-height:38vh;margin-top:10px" v-if="foNew.length">
-            <table>
-              <thead><tr>
-                <th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:80px">P/N</th>
-                <th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th style="width:95px">สั่ง</th>
-                <th style="width:110px">ตามสูตร</th><th style="width:110px">รับมาแล้ว</th>
-                <th style="width:105px">คืนไปแล้ว</th><th style="width:105px">เกิน</th>
-                <th style="width:210px"></th></tr></thead>
-              <tbody><tr v-for="r in foNewDraw" :key="r.po + r.code">
-                <td class="mono">{{ r.po }}</td>
-                <td class="mono hint">{{ poDateOf(r.po) || '—' }}</td>
-                <td class="mono hint">{{ r.pn }}</td>
-                <td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td>
-                <td class="mono hint">{{ r.order }}</td>
-                <td class="mono hint">{{ r.bom_qty }}</td>
-                <td class="mono">{{ r.recv }}</td>
-                <td class="mono hint">{{ r.sentBack || '—' }}</td>
-                <td class="mono"><b>{{ r.over }}</b></td>
-                <td><button class="btn primary" style="padding:2px 9px" :disabled="!entity || isStarting('over', r)"
-                          @click="foStart(r)" title="ตั้งเรื่องก่อน · คืนของจริงแล้วค่อยกด คืนแล้ว ในตารางเรื่องที่ตั้งไว้แล้ว">ตั้งเรื่องคืน</button>
-                  <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="!entity || isStarting('over', r)"
-                          @click="foSkip(r)">ไม่ติดตาม</button></td>
-              </tr></tbody>
-            </table>
-          </div>
-          <p v-else class="empty" style="margin-top:10px">
-            ไม่มีของเกินที่ต้องคืน 🎉
-            <span class="hint">— ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน</span></p>
+          <p class="hint" style="margin:8px 0 0" v-if="!entity">ยังไม่ได้เลือกนิติบุคคลที่หัวจอ — คิดยอดเกินไม่ได้</p>
         </div>
 
         <div class="card" v-if="foDouble.length">
           <h2>ตรวจด้วยตา: คืนของไปแล้วมากกว่าหนึ่งเรื่อง — {{ foDouble.length }} คู่</h2>
           <p class="hint" style="margin:0 0 8px">PO + รหัสเดียวกันมีหลายเรื่องที่กด <b>คืนแล้ว</b> ไปแล้ว — อาจตัดสต็อกซ้ำ ·
-            ถ้าคืนของจริงครั้งเดียว ให้กด <b>เอากลับ</b> ที่เรื่องที่เกินในตารางข้างล่าง (ติ๊ก "แสดงที่คืนแล้ว")
+            ถ้าคืนของจริงครั้งเดียว ให้กด <b>เอากลับ</b> ที่เรื่องที่เกิน (ปุ่มกรอง <b>คืนแล้ว</b> ข้างบน)
             รายการส่งคืนจะถูกยกเลิก ยอดคงคลังกลับมา แล้วกด <b>ยกเลิกเรื่อง</b> ที่เรื่องนั้นต่อ</p>
           <table>
             <thead><tr><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th><th>เรื่องที่คืนแล้ว</th><th style="width:110px">คืนรวม</th></tr></thead>
@@ -3126,8 +3127,6 @@ textarea{font:inherit}
           <div class="row">
             <h2 style="margin:0">เรื่องซ้ำที่ค้างอยู่ — {{ dupLists.over.length }} เรื่อง</h2>
             <div class="grow"></div>
-            <label class="f" style="width:150px">ผู้บันทึก
-              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
             <button class="btn" @click="dupShow.over = !dupShow.over">{{ dupShow.over ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
             <button class="btn primary" :disabled="!dupPicked('over').length || starting.has('dupvoid|over')"
                     @click="dupVoid('over')">ยกเลิกที่ติ๊ก {{ dupPicked('over').length }} เรื่อง</button>
@@ -3138,14 +3137,14 @@ textarea{font:inherit}
           <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="dupShow.over">
             <table>
               <thead><tr><th style="width:34px"></th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
-                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th style="width:100px">ETA</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
+                <th style="width:90px">ยอด</th><th style="width:105px">ตั้งวันที่</th><th style="width:110px">ตั้งโดย</th><th>หมายเหตุ</th><th>ซ้ำกับ</th></tr></thead>
               <tbody>
                 <tr v-for="d in dupShown('over')" :key="d.row.id">
                   <td><input type="checkbox" :checked="!dupSkip[d.row.id]" @change="dupSkip[d.row.id] = !$event.target.checked"></td>
                   <td class="mono">{{ d.row.po }}</td><td class="mono hint">{{ poDateOf(d.row.po) || '—' }}</td><td class="mono">{{ d.row.code }}</td><td class="hint">{{ catOf(d.row.code) || '—' }}</td>
                   <td class="mono">{{ d.row.qty || '—' }} {{ d.row.unit }}</td>
                   <td class="mono hint">{{ d.row.date }}</td><td class="hint">{{ d.row.created_by || '—' }}</td>
-                  <td class="mono hint">{{ d.row.eta || '—' }}</td><td class="hint">{{ d.row.note || '—' }}</td>
+                  <td class="hint">{{ d.row.note || '—' }}</td>
                   <td class="hint">{{ d.why }}</td>
                 </tr>
               </tbody>
@@ -3155,81 +3154,95 @@ textarea{font:inherit}
         </div>
 
         <div class="card">
-          <h2>เรื่องที่ตั้งไว้แล้ว</h2>
-          <!-- ตัวเลขแบบเดียวกับหน้า short (เจ้าของขอ 17 พ.ย. 2026) · เรื่องคืนไม่มี ETA จึงไม่มีช่องเลย ETA -->
-          <div class="row" style="gap:26px;align-items:flex-end">
-            <div><div class="hint">ยังไม่ได้คืน</div><div class="big">{{ foSum.open }}</div></div>
-            <div><div class="hint">คืนไปบางส่วน</div>
-              <div class="big" :class="foSum.partial?'warn':''">{{ foSum.partial }}</div></div>
-            <div class="grow"></div>
-            <label class="f" style="width:220px">ค้นหา PO · P/N · รหัส · ข้อความ
-              <input v-model="foSearch" placeholder="พิมพ์บางส่วนก็ได้"></label>
-            <label class="f" style="width:150px">ผู้บันทึก
-              <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
-            <label class="f" style="width:145px" title="คืนเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่คืนจริง">วันที่คืน
-              <input v-model="foDate" type="date"></label>
-            <label style="font-weight:600;font-size:12.5px">
-              <input type="checkbox" v-model="foShowDone"> แสดงที่คืนแล้ว</label>
-          </div>
-
-          <div class="scroll" style="max-height:44vh;margin-top:10px">
-            <table>
-              <thead><tr>
-                <th style="width:105px">ตั้งวันที่</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th>
-                <th style="width:80px">P/N</th><th style="width:125px">รหัส</th><th style="width:105px">หมวดหมู่</th>
-                <th style="width:100px">ต้องคืน</th><th style="width:100px">ยังค้าง</th>
-                <th>ยอดที่แช่แข็งไว้ตอนตั้งเรื่อง</th>
-                <th style="width:330px"></th></tr></thead>
-              <tbody>
-                <tr v-for="r in foRows" :key="r.s.id">
-                  <td class="mono hint">{{ r.s.date }}</td>
-                  <td class="mono">{{ r.s.po }}</td>
-                  <td class="mono hint">{{ poDateOf(r.s.po) || '—' }}</td>
-                  <td class="mono hint">{{ r.s.part_no }}</td>
-                  <td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
-                  <td class="mono">{{ r.s.qty }} {{ r.s.unit }}</td>
-                  <td class="mono">
-                    <b v-if="r.st==='partial'">{{ r.remain }}</b>
-                    <span v-else-if="r.st==='done'" class="tag ok">คืนครบแล้ว</span>
-                    <span v-else class="hint">—</span></td>
-                  <td class="hint mono">สั่ง {{ r.s.order_qty }} · ตามสูตร {{ r.s.bom_qty }} ·
-                    รับมา {{ r.s.recv_qty }}</td>
-                  <td style="white-space:nowrap">
-                    <template v-if="r.st==='done'">
-                      <span class="hint">คืน {{ localDate(r.s.done_at) }}
-                        {{ r.s.done_by }}</span>
-                      <button class="btn" style="padding:2px 8px;margin-left:5px" :disabled="starting.has('foreopen|' + r.s.id)"
-                              @click="foReopen(r.s)">เอากลับ</button>
-                    </template>
-                    <template v-else>
+          <div class="scroll" style="max-height:none">
+          <table class="fol">
+            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:128px"><col style="width:128px"><col style="width:136px"><col style="width:400px"></colgroup>
+            <tbody v-for="g in foDraw" :key="g.po" :class="{ shut: foFold[g.po] }">
+              <tr class="fol-po" @click="foldFlip(foFold, g.po)" :aria-expanded="!foFold[g.po]">
+                <td colspan="8"><span class="fol-head">
+                  <span class="fold-i">{{ foFold[g.po] ? '▸' : '▾' }}</span>
+                  <span class="mono hint">{{ poDateOf(g.po) || 'ไม่มีวันที่' }}</span>
+                  <b class="mono">{{ g.po || '(ไม่มีเลข PO)' }}</b>
+                  <span class="mono" :class="{ hint: g.items[0].s && fsPn(g.items[0].s).fromPo }"
+                        :title="g.items[0].s && fsPn(g.items[0].s).fromPo ? 'เรื่องนี้ไม่ได้จด P/N — ได้มาจากไฟล์ PO ที่นำเข้าไว้' : ''">{{ g.pn || '—' }}</span>
+                  <span v-if="foSeg === 'new' && g.items[0].order" class="hint">สั่ง <span class="mono">{{ mrpNum(g.items[0].order) }}</span></span>
+                  <span class="fol-n hint">{{ g.items.length }} รายการ</span></span></td>
+              </tr>
+              <template v-if="!foFold[g.po]">
+                <!-- หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ตัวใหญ่ (เจ้าของขอ 21 พ.ย. 2026 — หัวเล็ก ๆ บนสุดผู้สูงอายุมองไม่เห็น) -->
+                <tr v-if="foSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับมาแล้ว</th><th class="r">เกิน</th><th></th></tr>
+                <tr v-if="foSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตั้งเรื่อง</th><th class="r">ต้องคืน</th><th class="r">ค้าง</th><th>ยอดที่คืน (เว้นว่าง = คืนครบ)</th></tr>
+                <tr v-if="foSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตั้งเรื่อง</th><th class="r">คืนเมื่อ</th><th class="r">ยอด</th><th></th></tr>
+                <tr v-if="foSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">หยุดเมื่อ</th><th>โดย</th><th class="r">ค้างตอนหยุด</th><th></th></tr>
+                <template v-if="foSeg === 'new'">
+                  <tr v-for="r in g.items" :key="r.code" class="fol-it">
+                    <td></td><td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td><td>{{ mrpName(r.code) }}</td>
+                    <td class="mono r hint">{{ mrpNum(r.bom_qty) }}</td>
+                    <td class="mono r">{{ mrpNum(r.recv) }}<div v-if="r.sentBack" class="hint">คืนไป {{ mrpNum(r.sentBack) }}</div></td>
+                    <td class="mono r fol-key">{{ mrpNum(r.over) }} <span class="hint">{{ mrpUnit(r.code) }}</span></td>
+                    <td class="fol-act"><button class="btn primary" :disabled="!entity || isStarting('over', r)" @click="foStart(r)"
+                              title="ตั้งเรื่องก่อน · คืนของจริงแล้วค่อยกด คืนแล้ว ที่ปุ่มกรอง รอคืน">ตั้งเรื่องคืน</button>
+                      <button class="btn-q" :disabled="!entity || isStarting('over', r)" @click="foSkip(r)">ไม่ติดตาม</button></td>
+                  </tr>
+                </template>
+                <template v-if="foSeg === 'open'">
+                  <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
+                    <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
+                    <td>{{ mrpName(r.s.code) }}
+                      <div class="hint">ตอนตั้งเรื่อง: ตามสูตร {{ mrpNum(r.s.bom_qty) }} · รับมา {{ mrpNum(r.s.recv_qty) }}</div></td>
+                    <td class="mono r hint">{{ r.s.date }}<div v-if="r.s.created_by">{{ r.s.created_by }}</div></td>
+                    <td class="mono r hint">{{ mrpNum(r.s.qty) }}</td>
+                    <td class="mono r fol-key">{{ mrpNum(r.remain) }} <span class="hint">{{ r.s.unit }}</span></td>
+                    <td class="fol-act">
                       <!-- คืนแล้วกดทีเดียว (เจ้าของสั่ง 5 พ.ย. 2026) · เว้นว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน -->
-                      <input v-model="foGot[r.s.id]" type="number" step="any" class="mono" style="width:76px"
-                             placeholder="ทั้งหมด" @keyup.enter="foReturn(r.s)">
-                      <button class="btn primary" style="padding:2px 9px;margin-left:4px" :disabled="starting.has('foreturn|' + r.s.id)"
-                              @click="foReturn(r.s)">คืนแล้ว</button>
-                      <a href="#" style="margin-left:6px;font-size:12px" @click.prevent="askReturn(r.s)">รายละเอียด…</a>
-                      <button v-if="r.st==='partial'" class="btn" style="padding:2px 8px;margin-left:4px"
-                              :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
-                      <button class="btn" style="padding:2px 8px;margin-left:4px" :disabled="starting.has('fovoid|' + r.s.id)"
-                              @click="foVoid(r.s)">ยกเลิกเรื่อง</button>
-                    </template>
-                  </td>
-                </tr>
-                <tr v-if="!foRows.length"><td colspan="10" class="empty">
-                  ยังไม่มีเรื่องที่ตั้งไว้
-                  <span v-if="!foShowDone" class="hint">· ที่คืนแล้วดูได้จากช่องติ๊กด้านบน</span>
-                </td></tr>
-              </tbody>
-            </table>
+                      <input v-model="foGot[r.s.id]" type="number" step="any" class="mono fol-qty" placeholder="ทั้งหมด" @keyup.enter="foReturn(r.s)">
+                      <button class="btn primary" :disabled="starting.has('foreturn|' + r.s.id)" @click="foReturn(r.s)">คืนแล้ว</button>
+                      <button class="btn-q" @click="askReturn(r.s)">รายละเอียด…</button>
+                      <button v-if="r.st==='partial'" class="btn-q" :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
+                      <button class="btn-q" :disabled="starting.has('fovoid|' + r.s.id)" @click="foVoid(r.s)">ยกเลิกเรื่อง</button></td>
+                  </tr>
+                </template>
+                <template v-if="foSeg === 'done'">
+                  <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
+                    <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td><td>{{ mrpName(r.s.code) }}</td>
+                    <td class="mono r hint">{{ r.s.date }}</td>
+                    <td class="mono r hint">คืน {{ localDate(r.s.done_at) }}<div v-if="r.s.done_by">{{ r.s.done_by }}</div></td>
+                    <td class="mono r">{{ mrpNum(r.s.done_qty || r.s.qty) }} <span class="hint">{{ r.s.unit }}</span></td>
+                    <td class="fol-act"><button class="btn-q" :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button></td>
+                  </tr>
+                </template>
+                <template v-if="foSeg === 'stop'">
+                  <tr v-for="x in g.items" :key="x.s.id" class="fol-it" :data-fid="x.s.id">
+                    <td></td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
+                    <td>{{ mrpName(x.s.code) }}
+                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) }}</div></td>
+                    <td class="mono r hint">{{ localDate(x.s.void_at) }}</td><td class="hint">{{ x.s.void_by }}</td>
+                    <td class="mono r">{{ mrpNum(remainOf(x.s)) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ mrpNum(x.s.qty) }}</span></td>
+                    <td class="fol-act"><button class="btn" :disabled="starting.has('forestart|' + x.s.id)" @click="foRestart(x.s)">กลับมาติดตาม</button></td>
+                  </tr>
+                </template>
+              </template>
+            </tbody>
+            <tbody v-if="!foGroups.length"><tr><td colspan="8" class="empty">
+              {{ foSearch ? 'ไม่มีเรื่องที่ตรงกับคำค้น' : foSeg === 'new' ? 'ไม่มีของเกินที่ต้องคืน — ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน'
+                 : foSeg === 'open' ? 'ไม่มีเรื่องรอคืน' : 'ยังไม่มีเรื่องในกลุ่มนี้' }}</td></tr></tbody>
+          </table>
           </div>
-          <p class="hint" style="margin:8px 0 0" v-if="foAll.length > foRows.length">
+          <p class="hint" style="margin:8px 0 0" v-if="(foSeg === 'open' || foSeg === 'done') && foAll.length > foRows.length">
             แสดง {{ foRows.length }} จาก {{ foAll.length }} เรื่อง — พิมพ์ค้นให้แคบลงเพื่อดูตัวอื่น</p>
-          <p class="hint" style="margin:8px 0 0">
-            ยอดสามตัวที่แช่แข็งไว้คือค่า ณ วันที่ตั้งเรื่อง — ใบรับเข้าที่คีย์ทีหลังจะไม่ทำให้ยอดของเรื่องนี้ขยับเอง<br>
-            กด <b>คืนแล้ว</b> = <b>ตัดของออกจากคลังจริงทันที</b> (เว้นช่องว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน) ·
-            ถ้ายอดจะติดลบ · ใบยังรับไม่ครบตามสูตร · หรือคืนมากกว่ายอดเกินที่ระบบคิดได้ จะมีกล่องเตือนก่อน · อยากใส่ล็อต / เหตุผลอื่น กด <b>รายละเอียด…</b>
-            และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า<br>
-            กด <b>เอากลับ</b> (คืนผิด หรือคืนซ้ำ) = เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ — ยอดคงคลังกลับมา</p>
+          <p class="hint" style="margin:8px 0 0" v-if="foSeg === 'stop' && foStopped.length > SHOW_MAX">แสดง {{ foStopShown.length }} จาก {{ foStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
+          <details class="fol-help">
+            <summary>วิธีคิดยอด และปุ่มแต่ละปุ่ม</summary>
+            <p><b>ต้องตั้งเรื่อง</b> = รับเข้าตามใบ − ที่คืนไปแล้ว − ยอดตามสูตรของใบนั้น · ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน</p>
+            <p>ยอดตอนตั้งเรื่องคือค่า ณ วันที่ตั้งเรื่อง — ใบรับเข้าที่คีย์ทีหลังจะไม่ทำให้ยอดของเรื่องนี้ขยับเอง<br>
+              กด <b>คืนแล้ว</b> = <b>ตัดของออกจากคลังจริงทันที</b> (เว้นช่องว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน) ·
+              ถ้ายอดจะติดลบ · ใบยังรับไม่ครบตามสูตร · หรือคืนมากกว่ายอดเกินที่ระบบคิดได้ จะมีกล่องเตือนก่อน · อยากใส่ล็อต / เหตุผลอื่น กด <b>รายละเอียด…</b>
+              และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า<br>
+              กด <b>เอากลับ</b> (คืนผิด หรือคืนซ้ำ) = เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ — ยอดคงคลังกลับมา</p>
+            <p><b>ยกเลิก / ไม่ติดตาม</b> = เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง · ของยังอยู่ในคลัง ·
+              ไม่ขึ้นในปุ่ม "ต้องตั้งเรื่อง" จนกว่ายอดเกินจะมากกว่า <b>ยอดค้าง</b> ตอนกด ·
+              กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
+          </details>
         </div>
 
         <div class="card" v-if="foBlocked.length">
@@ -3252,35 +3265,6 @@ textarea{font:inherit}
               </tr></tbody>
             </table>
           </div>
-        </div>
-        <!-- ยกเลิก / ไม่ติดตามแล้ว (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ short) · พับไว้ -->
-        <div class="card" v-if="foStopped.length">
-          <div class="row">
-            <h2 style="margin:0">ยกเลิก / ไม่ติดตามแล้ว — {{ foStopped.length }} เรื่อง</h2>
-            <div class="grow"></div>
-            <button class="btn" @click="foStopShow = !foStopShow">{{ foStopShow ? 'ซ่อนรายการ' : 'ดูรายการ' }}</button>
-          </div>
-          <p class="hint" style="margin:6px 0 0">เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง · ของยังอยู่ในคลัง ·
-            ไม่ขึ้นในการ์ด "ของเกินที่ระบบคำนวณได้" จนกว่ายอดเกินจะมากกว่า <b>ยอดค้าง</b> ตอนกด (คอลัมน์ข้างล่าง) ·
-            กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · การ์ดเทียบใบตัดยอดของ Delta ยังนับของพวกนี้ ·
-            นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
-          <div class="scroll" style="max-height:40vh;margin-top:8px" v-if="foStopShow">
-            <table>
-              <thead><tr><th style="width:100px">ปุ่ม</th><th style="width:125px">PO</th><th style="width:100px">วันที่ PO</th><th style="width:125px">รหัส</th>
-                <th style="width:105px">หมวดหมู่</th><th style="width:95px">ยอดค้าง</th><th>เหตุผล</th>
-                <th style="width:150px">โดย / วันที่</th><th style="width:130px"></th></tr></thead>
-              <tbody><tr v-for="x in foStopShown" :key="x.s.id" :data-fid="x.s.id">
-                <td><span class="tag" :class="x.mark === 'skip' ? '' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span></td>
-                <td class="mono">{{ x.s.po }}</td><td class="mono hint">{{ poDateOf(x.s.po) || '—' }}</td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
-                <td class="mono">{{ remainOf(x.s) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ x.s.qty }}</span></td>
-                <td class="hint">{{ x.s.void_reason }}</td>
-                <td class="hint">{{ x.s.void_by }} · {{ localDate(x.s.void_at) }}</td>
-                <td><button class="btn" style="padding:2px 8px" :disabled="starting.has('forestart|' + x.s.id)"
-                            @click="foRestart(x.s)">กลับมาติดตาม</button></td>
-              </tr></tbody>
-            </table>
-          </div>
-          <p class="hint" style="margin:6px 0 0" v-if="foStopShow && foStopped.length > SHOW_MAX">แสดง {{ foStopShown.length }} จาก {{ foStopped.length }} เรื่อง (ใหม่สุดก่อน)</p>
         </div>
       </template>
 
@@ -3623,20 +3607,20 @@ textarea{font:inherit}
           <div class="notice-body" ref="noticeBox" tabindex="0" @scroll="noticeScroll">
             <h3>short รอส่ง: ปุ่ม "ไม่ติดตาม" และ "ยกเลิกเรื่อง"</h3>
             <p>Mat Follow up → short รอส่ง · ใส่ชื่อในช่อง <b>ผู้บันทึก</b> ก่อน</p>
-            <p>การ์ด <b>ยังรับไม่ครบตาม BOM</b> มีปุ่ม <b>ไม่ติดตาม</b> — ของขาดยอดน้อยที่ไม่ตาม กดแล้วแถวหาย
+            <p>ปุ่มกรอง <b>ต้องตั้งเรื่อง</b> มีปุ่ม <b>ไม่ติดตาม</b> — ของขาดยอดน้อยที่ไม่ตาม กดแล้วแถวหาย
               ไม่ขึ้นอีกจนกว่ายอดขาดจะมากกว่าตอนกด</p>
-            <p>ตาราง <b>ของขาด / รอส่ง</b> มีปุ่ม <b>ยกเลิกเรื่อง</b> — เรื่องที่ตั้งไว้แล้วแต่ไม่ตามต่อ</p>
-            <p>ทั้งสองปุ่มย้ายเรื่องไปการ์ด <b>ยกเลิก / ไม่ติดตามแล้ว</b> ท้ายแท็บ · กด <b>กลับมาติดตาม</b> = ตั้งเรื่องใหม่ด้วยยอดที่ยังค้าง</p>
+            <p>ปุ่มกรอง <b>รอของ</b> มีปุ่ม <b>ยกเลิกเรื่อง</b> — เรื่องที่ตั้งไว้แล้วแต่ไม่ตามต่อ</p>
+            <p>ทั้งสองปุ่มย้ายเรื่องไปปุ่มกรอง <b>ยกเลิก / ไม่ติดตาม</b> · กด <b>กลับมาติดตาม</b> = ตั้งเรื่องใหม่ด้วยยอดที่ยังค้าง</p>
             <h3>over รอคืน: กด "คืนแล้ว" ทีเดียวจบ</h3>
             <p>Mat Follow up → over รอคืน · ไม่ต้องเปิดกล่องกรอกทุกครั้งแล้ว</p>
-            <p>ตาราง <b>เรื่องที่ตั้งไว้แล้ว</b>: เว้นช่องยอดแล้วกด <b>คืนแล้ว</b> = คืนที่ค้างทั้งหมด · ใส่ยอดก่อนกด = คืนบางส่วน ·
+            <p>ปุ่มกรอง <b>รอคืน</b>: เว้นช่องยอดแล้วกด <b>คืนแล้ว</b> = คืนที่ค้างทั้งหมด · ใส่ยอดก่อนกด = คืนบางส่วน ·
               ต้องใส่ล็อต / เหตุผลอื่น กด <b>รายละเอียด…</b></p>
             <p>ช่อง <b>วันที่คืน</b> ใส่วันนี้ไว้ให้ แก้ย้อนหลังได้ (แบบเดียวกับวันที่ของมาของ short)</p>
             <p>⚠️ คืนแล้ว = ตัดของออกจากคลังจริงทันที · ระบบถามก่อนบันทึกเฉพาะตอนมีเรื่องน่าสงสัย:
               สต็อกจะติดลบ · PO ใบนั้นรับยังไม่ครบตามสูตร · คืนมากกว่ายอดเกินที่ระบบคิดได้ — อ่านก่อนกดยืนยัน</p>
             <h3>over รอคืน: ปุ่ม "ไม่ติดตาม" และ "ยกเลิกเรื่อง" แบบเดียวกับ short</h3>
-            <p>การ์ด <b>ของเกินที่ระบบคำนวณได้</b> มีปุ่ม <b>ไม่ติดตาม</b> · ปุ่ม <b>ยกเลิกเรื่อง</b> ในตารางต้องใส่ชื่อผู้บันทึกแล้ว</p>
-            <p>เรื่องที่หยุดไว้อยู่การ์ด <b>ยกเลิก / ไม่ติดตามแล้ว</b> ท้ายแท็บ · กด <b>กลับมาติดตาม</b> ได้</p>
+            <p>ปุ่มกรอง <b>ต้องตั้งเรื่อง</b> มีปุ่ม <b>ไม่ติดตาม</b> · ปุ่ม <b>ยกเลิกเรื่อง</b> ในตารางต้องใส่ชื่อผู้บันทึกแล้ว</p>
+            <p>เรื่องที่หยุดไว้อยู่ปุ่มกรอง <b>ยกเลิก / ไม่ติดตาม</b> · กด <b>กลับมาติดตาม</b> ได้</p>
             <p>การ์ด <b>Delta ตัดจากยอด over — เทียบกับของที่เรามี</b> ยังนับของที่ไม่ติดตาม เพราะของยังอยู่ในคลัง</p>
             <p>แท็บ over รอคืน เปิดเร็วขึ้นแล้ว</p>
           </div>
