@@ -1448,7 +1448,7 @@ createApp({
       l.reqmt = reqmtOf(outBomRows.value, l.code, outH.order);
       l.issued = outSentOf(l.code);   // "Delta ส่งมา" ทุกแถว ไม่ว่าแถวนั้นจะมาจากไหน
     }
-    /* ยอดที่ Delta ส่งมาของ PO บนหัวจอ — ยอดที่จดตอนรับเข้า + Kit List ที่เก็บไว้ (deltaSentOfPo · เจ้าของสั่ง 22 พ.ย. 2026) */
+    /* ยอดที่ Delta ส่งมาของ PO บนหัวจอ — Kit List ที่เก็บไว้ก่อน · รหัสที่ไม่มี Kit List ใช้ยอดที่จดตอนรับเข้า (deltaSentOfPo · เจ้าของสั่ง 22 พ.ย. 2026) */
     const outSent = computed(() => outH.po && entity.value
       ? deltaSentOfPo({ kits: kits.value, entries: entries.value, entity: entity.value, po: outH.po }) : null);
     const outSentOf = code => (outSent.value && outSent.value.has(normCode(code))) ? outSent.value.get(normCode(code)) : null;
