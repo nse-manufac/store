@@ -468,6 +468,64 @@ export const kitsOfPo = (kits, po) =>
   kits.filter(k => k.po === String(po || '').trim() && !isChemKit(k));
 
 /**
+ * Kit List ของ PO นี้ รวมรหัสเดียวกันจากหลายไฟล์เป็นบรรทัดเดียว — ยอด Delta บวกกัน
+ * ⚠️ ของทยอยมาหลายรอบ = หลายไฟล์ต่อ PO (ข้อมูลจริง ต.ค.–พ.ย. 2026: 135 จาก 487 PO)
+ * ไม่รวม = รหัสเดียวกันขึ้นซ้ำหลายบรรทัดทั้งหน้ารับเข้าและหน้าจ่ายออก
+ */
+export function kitLinesOfPo(kits, po) {
+  const by = new Map();
+  for (const k of kitsOfPo(kits, po)) {
+    const hit = by.get(String(k.code));
+    if (!hit) by.set(String(k.code), { ...k });
+    else if (k.issue != null) hit.issue = r6((hit.issue || 0) + k.issue);
+  }
+  return [...by.values()];
+}
+
+/**
+ * ยอดที่ตั้งให้ในช่องรับจริงตอนกาง Kit List ที่เก็บไว้ — รหัสที่เคยรับกับ PO นี้แล้วปล่อยว่าง (เจ้าของสั่ง 22 พ.ย. 2026)
+ * ตั้งแต่เก็บ Kit List ทุกไฟล์ที่รับเข้า เปิด PO เดิมมาคีย์ของรอบใหม่ ถ้าตั้งยอดเต็มใบให้ทุกบรรทัด กดบันทึกโดยไม่ดู = รับซ้ำ
+ * `recv` = Map จาก receivedOfDoc (คีย์คือรหัส)
+ */
+export const kitPrefill = (k, recv) => (recv && recv.has(String(k.code))) ? null : k.issue;
+
+/**
+ * บรรทัด Kit List ของไฟล์ที่ต้องเก็บลงเครื่องหลังกดบันทึกรับเข้า (เจ้าของสั่ง 22 พ.ย. 2026)
+ * เฉพาะ PO ที่บันทึกในรอบนี้ · id ซ้ำ (วันที่เอกสาร + PO + รหัส) ไม่เก็บซ้ำ — เปิดไฟล์เดิมกี่รอบก็ได้ชุดเดียว
+ */
+export function kitsToKeep(fileRows = [], existing = [], savedPos = []) {
+  const have = new Set(existing.map(k => String(k.id)));
+  const pos = new Set(savedPos.map(p => String(p || '').trim()));
+  return fileRows.filter(r => pos.has(String(r.po || '').trim()) && !have.has(String(r.id)));
+}
+
+/**
+ * ยอดที่ Delta ส่งมาของ PO นี้ รายรหัส — คอลัมน์ "Delta ส่งมา" หน้าจ่ายออก (เจ้าของสั่ง 22 พ.ย. 2026)
+ * 1. Kit List ที่เก็บไว้ (รวมทุกไฟล์ · id ซ้ำไม่ถูกเก็บซ้ำ) — ยอดตามเอกสาร Delta ถูกเสมอแม้คีย์รับหลายรอบ
+ * 2. รหัสที่ไม่มีแถว Kit List เลย ใช้ issued_qty ของรายการรับเข้าบวกทุกรอบ
+ *    = PO ที่รับด้วยไฟล์ก่อนเริ่มเก็บ Kit List (ต.ค.–พ.ย. 2026) · ทุกรอบจดยอดเต็มใบซ้ำ ถ้ารับหลายรอบเลขจะเบิ้ล (แยกไม่ได้)
+ * ห้ามเอา issued_qty มาก่อน Kit List — ผู้ตรวจ #181: คีย์รับสองรอบ (7 แล้ว 3) จด 10 ทั้งสองรอบ → ขึ้น 20
+ * ไม่บวกสองทางเข้าด้วยกัน
+ */
+export function deltaSentOfPo({ kits = [], entries = [], entity = '', po = '' } = {}) {
+  if (!entity) throw new Error('deltaSentOfPo: ต้องระบุนิติบุคคล (A3)');
+  const P = String(po || '').trim();
+  const key = c => String(c == null ? '' : c).trim().toUpperCase();
+  const out = new Map();
+  if (!P) return out;
+  const kitLines = kitLinesOfPo(kits, P);
+  const inKit = new Set(kitLines.map(k => key(k.code)));
+  for (const k of kitLines) if (k.issue != null) out.set(key(k.code), k.issue);
+  for (const e of entries) {
+    if (e.kind !== 'receive' || e.voided || e.entity !== entity || String(e.doc_ref || '').trim() !== P) continue;
+    if (e.issued_qty == null || e.issued_qty === '' || !Number.isFinite(Number(e.issued_qty))) continue;
+    if (inKit.has(key(e.material_code))) continue;
+    out.set(key(e.material_code), r6((out.get(key(e.material_code)) || 0) + Number(e.issued_qty)));
+  }
+  return out;
+}
+
+/**
  * บรรทัดรับเข้าจากไฟล์ Kit List (22-H) ทั้งใบ — หลาย PO ในตารางเดียว
  *
  * ⚠️ Delta เข้าตรวจแล้วสั่งให้เลิกคีย์มือ เปลี่ยนเป็นดึงจากไฟล์ (เจ้าของแจ้ง 23 ก.ย. 2026)

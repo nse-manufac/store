@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitNameInfo, kitContentKind, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
+import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitNameInfo, kitContentKind, kitFileCheck, kitEntityMismatch, kitsOfPo, kitLinesOfPo, kitPrefill, kitsToKeep, deltaSentOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
          parseThaiDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -324,7 +324,7 @@ ok('จำเลข PO ของรายการบนจอทุกครั
 //    เช็กทั้งไฟล์จะเขียวทั้งที่คอลัมน์ของหน้าจ่ายออกถูกลบไป (เจอตอนย้อนโค้ดทดสอบเทสเอง)
 const outTpl = htmlSrc.slice(htmlSrc.indexOf("tab==='out'"));
 ok('หน้าจ่ายออกไม่ตั้งยอดเบิกให้ทุกทาง · โชว์ยอดที่ Delta ส่งมาแทน (หัวคอลัมน์เปลี่ยนจาก "จ่ายมา" · เจ้าของสั่ง 16 พ.ย. 2026 ไม่ให้สับสนกับ "จ่ายแล้ว")',
-   !/l\.qty\s*=/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.issued = k.issue')
+   !/l\.qty\s*=/.test(bodyOf('expandOut')) && bodyOf('fillOutLine').includes('l.issued = outSentOf(l.code)')
    && outTpl.length > 500 && /<th[^>]*>Delta ส่งมา<\/th>/.test(outTpl) && /l\.issued == null/.test(outTpl));
 // เจ้าของสั่ง 22 พ.ย. 2026: ลำดับ ตามสูตร · Delta ส่งมา · จ่ายแล้ว · ยังต้องจ่าย · ซ่อนคอลัมน์คงเหลือไว้ก่อน (ไม่ลบ) · จัดกลาง
 {
@@ -938,6 +938,47 @@ ok('หน้ารับเข้ากับแท็บรับเข้า�
    (() => { const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
             return /kitFileCheck\(file\.name, sheets, \{[^}]*want: \['mat'\]/.test(src)
                 && /kitFileCheck\(file\.name, sheets, \{[^}]*want: \['chem', 'packing'\]/.test(src); })());
+
+console.log('\n=== เก็บ Kit List จากการรับเข้า · ยอด Delta ส่งมาหน้าจ่ายออก (เจ้าของสั่ง 22 พ.ย. 2026) ===');
+{
+  const K = (id, po, code, issue, src = '') => ({ id, po, code, issue, src, pn: 'PN-1', desc: 'd', unit: 'PCE' });
+  const kitsX = [K('K1-PO-9001-A', 'PO-9001', 'A', 10), K('K2-PO-9001-A', 'PO-9001', 'A', 5),
+                 K('K1-PO-9001-B', 'PO-9001', 'B', 3), K('K9', 'PO-9001', 'C', 2, 'chem')];
+  const lines = kitLinesOfPo(kitsX, 'PO-9001');
+  ok('Kit List หลายไฟล์ของ PO เดียว: รหัสเดียวกันรวมเป็นบรรทัดเดียว ยอดบวกกัน · ไม่เอากลุ่มจ่ายรวม (chem)',
+     lines.length === 2 && lines.find(l => l.code === 'A').issue === 15 && kitsX[0].issue === 10, JSON.stringify(lines));
+  ok('กาง Kit List หน้ารับเข้า: รหัสที่เคยรับกับ PO นี้แล้วไม่ตั้งยอดให้ (กันรับซ้ำ) · ที่ยังไม่รับตั้งเท่ายอด Delta',
+     kitPrefill({ code: 'A', issue: 15 }, new Map([['A', { qty: 15 }]])) === null
+     && kitPrefill({ code: 'B', issue: 3 }, new Map([['A', { qty: 15 }]])) === 3 && kitPrefill({ code: 'B', issue: 3 }, null) === 3);
+  const fileRows = [K('K3-PO-9001-A', 'PO-9001', 'A', 1), K('K1-PO-9001-B', 'PO-9001', 'B', 3), K('K3-PO-9002-A', 'PO-9002', 'A', 4)];
+  const keep = kitsToKeep(fileRows, kitsX, ['PO-9001']);
+  ok('เก็บ Kit List หลังบันทึกรับเข้า: เฉพาะ PO ที่บันทึกรอบนี้ · id ที่มีอยู่แล้วไม่เก็บซ้ำ',
+     keep.length === 1 && keep[0].id === 'K3-PO-9001-A', JSON.stringify(keep.map(k => k.id)));
+  const E = (o) => ({ kind: 'receive', entity: 'TUE-H', doc_ref: 'PO-9001', voided: false, ...o });
+  const es = [E({ material_code: 'A', issued_qty: 4 }), E({ material_code: 'a', issued_qty: 6 }),
+              E({ material_code: 'A', issued_qty: 99, voided: true }), E({ material_code: 'A', issued_qty: 99, entity: 'TUE-U' }),
+              E({ material_code: 'A', issued_qty: 99, kind: 'issue' }), E({ material_code: 'D', issued_qty: '' }),
+              E({ material_code: 'E', issued_qty: 7, doc_ref: 'PO-9002' }),
+              E({ material_code: 'F', issued_qty: 2 }), E({ material_code: 'f ', issued_qty: 3 })];
+  const sent = deltaSentOfPo({ kits: kitsX, entries: es, entity: 'TUE-H', po: 'PO-9001' });
+  ok('Delta ส่งมา: Kit List ก่อน · รหัสที่ไม่มีแถว Kit List ใช้ยอดที่จดตอนรับเข้าบวกทุกรอบ · ไม่บวกสองทางซ้อน · ไม่นับรายการยกเลิก / นิติบุคคลอื่น / ไม่ใช่รับเข้า / PO อื่น',
+     sent.get('A') === 15 && sent.get('B') === 3 && sent.get('F') === 5 && !sent.has('C') && !sent.has('D') && !sent.has('E') && sent.size === 3,
+     JSON.stringify([...sent]));
+  // ผู้ตรวจ #181: ทุกรอบรับเข้าจดยอดเต็มใบซ้ำ (ของมา 7 แล้ว 3 → จด 10 ทั้งสองรอบ) ต้องไม่ขึ้น 20
+  const twice = deltaSentOfPo({ kits: [K('K1-PO-9003-A', 'PO-9003', 'A', 10)], entity: 'TUE-H', po: 'PO-9003',
+    entries: [E({ doc_ref: 'PO-9003', material_code: 'A', issued_qty: 10 }), E({ doc_ref: 'PO-9003', material_code: 'A', issued_qty: 10 })] });
+  ok('Delta ส่งมา: คีย์รับรหัสเดียวสองรอบ (จด 10 ซ้ำ) แต่ Kit List บอก 10 → ขึ้น 10 ไม่ใช่ 20',
+     twice.get('A') === 10 && twice.size === 1, JSON.stringify([...twice]));
+  let threw = false; try { deltaSentOfPo({ kits: kitsX, entries: es, entity: '', po: 'PO-9001' }); } catch (e) { threw = /นิติบุคคล/.test(e.message); }
+  ok('deltaSentOfPo ลืมส่งนิติบุคคลไม่ได้ (A3)', threw);
+  ok('จอ: บันทึกรับเข้าจากไฟล์แล้วเก็บ Kit List (try ของตัวเอง) · ล้างแล้วลืมไฟล์เดิม',
+     /if \(inFile\.value\) try \{\s*const keep = kitsToKeep\(inKitRows, kits\.value, posted\.map\(e => e\.doc_ref\)\)/.test(bodyOf('saveIn'))
+     && bodyOf('saveIn').indexOf('kitsToKeep(') > bodyOf('saveIn').indexOf("await db.put('entries', posted)")
+     && /inKitRows = \[\]/.test(bodyOf('clearIn')));
+  ok('จอ: สองหน้ากาง Kit List แบบรวมหลายไฟล์ · หน้ารับเข้าใช้ kitPrefill',
+     /kitLinesOfPo\(kits\.value, inH\.po\)/.test(bodyOf('expandBom')) && /kitLinesOfPo\(kits\.value, outH\.po\)/.test(bodyOf('expandOut'))
+     && /l\.qty = kitPrefill\(k, recv\)/.test(bodyOf('expandBom')) && !/l\.qty = k\.issue/.test(bodyOf('expandBom')));
+}
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
