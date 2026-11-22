@@ -380,6 +380,15 @@ export const MRP_SEG = [
 export const mrpNum = n => (n == null || !isFinite(Number(n)) ? '—'
   : round5(Number(n)).toLocaleString('en-US', { maximumFractionDigits: 4 }));
 
+/** ป้ายช่อง "จ่ายเทียบ BOM" ของหน้ายอดคงคลัง — d = issueDiff ของ stockPnRows · คืน [ข้อความ, คลาสสี]
+ *  ส่วนต่างที่ปัดแล้วเป็น 0 (เศษทศนิยมหลักที่ 5) นับว่าครบ ไม่ขึ้น "จ่ายเกิน 0" */
+export function bpDiffLabel(d) {
+  if (d == null || !isFinite(Number(d))) return ['—', ''];
+  const t = mrpNum(Math.abs(d));
+  if (t === '0') return ['ครบ', 'ok'];
+  return d > 0 ? ['จ่ายเกิน ' + t, 'bad'] : ['ค้างจ่าย ' + t, 'warn'];
+}
+
 /** ป้ายสถานะของรหัสหนึ่งในตาราง BOM — คืน [ข้อความ, คลาสสี] */
 export function mrpLineLabel(l) {
   if (!l) return ['', 'mute'];
@@ -469,6 +478,11 @@ export function openPoKeep(rows) {
  *           live / neg = ยังมีของ / ติดลบ โดยดู**ยอดราย PO ด้วย** (จ่ายผิดใบแล้วยอดรวมหายกันพอดี ก็ยังต้องเห็น)
  *           รหัสในสูตรทุกตัว (ยังไม่รับก็ขึ้นเป็น 0) + รหัสนอกสูตร (inBom = false) · เรียงตามหมวดแบบ MRP
  *           byPo = [{ po, date, order, recv, sendback, issued, bal }] ใบที่รหัสนี้เคลื่อนไหว — ยอดของใบตาม poStockOf
+ *           usage / need = ใช้ต่อชิ้นตามสูตร / ยอดตามสูตรรวมทุก PO (usage × PO qty.) · byPo[].need = ของใบนั้น
+ *             (เจ้าของสั่ง 22 พ.ย. 2026 — ให้เห็นว่าจ่ายถูกจ่ายผิด) · usage เลือกบรรทัดแบบ mrpRows (บรรทัดแรกที่ใช้ > 0)
+ *             นอกสูตร → null · ใบที่ไม่รู้ PO qty. → need ของใบ = null และยอดรวมเป็น null ด้วย (ไม่เดาเป็น 0)
+ *             issueDiff = จ่ายออก − ตามสูตร (บวก = จ่ายเกินสูตร · ลบ = ยังจ่ายไม่ครบ) · null เมื่อ need เป็น null
+ *           รหัสในสูตรที่ใช้ > 0 ขึ้นครบทุก PO ของ P/N นี้ แม้ใบนั้นยังไม่เคลื่อนไหว (ยอด 0 · จะได้เห็นว่ายังไม่จ่าย)
  *   nLeft / nNeg = จำนวนบรรทัดที่ live / neg · empty = ไม่มีบรรทัด live เลย
  *   PO ที่ไม่รู้ P/N (ยังไม่นำเข้าไฟล์ PO) รวมไว้ใต้ pn = ''
  * ⚠️ ยอดของแต่ละใบมาจาก poStocks ตัวเดียว — ห้ามคิดใหม่ในนี้ ไม่งั้นหน้าจ่ายออกกับหน้านี้บอกคนละเลข
@@ -487,14 +501,42 @@ export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', kee
     list.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.po.localeCompare(b.po));
     const lines = new Map();
     const line = (code, inBom) => {
-      if (!lines.has(code)) lines.set(code, { code, inBom, recv: 0, sendback: 0, issued: 0, bal: 0, byPo: [] });
+      if (!lines.has(code)) lines.set(code, { code, inBom, usage: null, need: null, issueDiff: null,
+                                              recv: 0, sendback: 0, issued: 0, bal: 0, byPo: [] });
       return lines.get(code);
     };
-    for (const b of (pn && bomRowsOf ? bomRowsOf(pn) : null) || []) { const c = txt(b && b.code); if (c) line(c, true); }
+    for (const b of (pn && bomRowsOf ? bomRowsOf(pn) : null) || []) {
+      const c = txt(b && b.code), u = Number(b && b.usage) || 0;
+      if (!c) continue;
+      const l = line(c, true);
+      if (l.usage === null) l.usage = 0;
+      if (u > 0 && !(l.usage > 0)) l.usage = u;   // บรรทัดแรกที่ใช้ > 0 แบบ mrpRows
+    }
+    /* ⚠️ จดรหัสในสูตรไว้ก่อน แล้วลูปล่างข้ามจากเซ็ตนี้ ห้ามเช็ก lines.has(code)
+     * เพราะลูปล่างใส่รหัสนอกสูตรเข้า lines เอง → ใบที่ 2 ขึ้นไปของรหัสนั้นจะถูกข้ามทั้งก้อน (ผู้ตรวจ #184 รอบ 1) */
+    const bomCodes = new Set(lines.keys());
+    const zero = { recv: 0, sendback: 0, issued: 0, bal: 0 };
+    for (const p of list) for (const l of lines.values()) {
+      const s = p.codes.get(l.code);
+      if (!s && !(l.usage > 0)) continue;
+      if (s) for (const k of ['recv', 'sendback', 'issued', 'bal']) l[k] = round5(l[k] + s[k]);
+      l.byPo.push({ po: p.po, date: p.date, order: p.order, ...(s || zero) });
+    }
     for (const p of list) for (const [code, s] of p.codes) {
+      if (bomCodes.has(code)) continue;
       const l = line(code, false);
       for (const k of ['recv', 'sendback', 'issued', 'bal']) l[k] = round5(l[k] + s[k]);
       l.byPo.push({ po: p.po, date: p.date, order: p.order, ...s });
+    }
+    for (const l of lines.values()) {
+      for (const b of l.byPo) {
+        b.need = l.usage === null || !(b.order > 0) ? null : round5(l.usage * b.order);
+        b.issueDiff = b.need === null ? null : round5(b.issued - b.need);
+      }
+      if (l.usage !== null && l.byPo.length && l.byPo.every(b => b.need !== null)) {
+        l.need = round5(l.byPo.reduce((t, b) => t + b.need, 0));
+        l.issueDiff = round5(l.issued - l.need);
+      }
     }
     const ls = [...lines.values()].sort((a, b) =>
       (a.inBom === b.inBom ? 0 : a.inBom ? -1 : 1) || catRank(a.code) - catRank(b.code) || a.code.localeCompare(b.code));
