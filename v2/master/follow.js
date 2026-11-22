@@ -714,6 +714,8 @@ export const SHORT_MIN = 0;
  * min = ขาดตั้งแต่เท่าไหร่ถึงคืนออกมา · ค่าตั้งต้น SHORT_MIN = นับทุกยอดที่ขาดมากกว่าศูนย์
  * tolOf(code) = เกณฑ์เศษของรหัสนั้น (fracTolOf ของหน่วย · core/ledger.js) — ขาดต่ำกว่านี้ = เศษจากสูตร ไม่ใช่ของขาดจริง
  *   ไม่คืนออกมา · ตอน all: true คืนพร้อม tiny: true ให้ผู้เรียกกรองเอง (เจ้าของเคาะ 22 พ.ย. 2026)
+ *   ⚠️ นับเป็นเศษเฉพาะเมื่อรับมาแล้วบ้าง (have > 0) — ยังไม่ได้รับเลยแม้ยอดตามสูตรไม่ถึงเกณฑ์ = ของขาดจริงทั้งก้อน
+ *      (เช่นกล่อง 1/12 ต่อชิ้น สั่ง 10 = 0.83 ใบ ยังไม่มา · ผู้ตรวจ #182 รอบ 2 · เจ้าของเคาะ)
  * all: true = คืนทุกรหัสในสูตรรวมที่ไม่ขาด (short 0) ใช้เทียบกับยอดที่ Delta แจ้ง
  *
  * คืน [{ po, pn, code, order, need, have, short, why }] เรียงตาม PO แล้วรหัส
@@ -750,7 +752,7 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN
       const code = txt(b.code).toUpperCase();
       const have = round5(Math.max(0, got.get(pairKey(po, code)) || 0));
       const short = round5(Math.max(0, need - have));
-      const tiny = short > 0 && short < (Number(tolOf(code)) || 0);
+      const tiny = short > 0 && have > 0 && short < (Number(tolOf(code)) || 0);
       if (!all && (!(short > 0 && short >= min) || tiny)) continue;
       out.push({ po, pn: txt(head.pn), code, order, need, have, short, tiny, why: '' });
     }

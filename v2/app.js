@@ -17,7 +17,7 @@ import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
-         setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, isFracAdj } from './core/ledger.js';
+         setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
 import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, fracSweep } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
@@ -4024,7 +4024,7 @@ createApp({
     }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpDraw, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
-             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN, FRAC_TOL,
              planShip, planPull, planAtText, poDateOf, mrpSetWeek,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,

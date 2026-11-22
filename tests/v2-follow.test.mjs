@@ -1010,6 +1010,14 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
   ok('all: true ยังคืนแถวเศษ แต่ติด tiny ให้ผู้เรียกกรอง · ขาดเต็มหน่วยไม่ติด',
      shortAll(tinyLed, E, { ...opt, tolOf, all: true }).map(r => r.code + (r.tiny ? '~' : '')).join() === 'A~,B~,C'
      && shortAll([en('receive', 'TM9269H001', 'A', 18.9)], E, { ...opt, tolOf, all: true }).find(r => r.code === 'A').tiny === false);
+  // ผู้ตรวจ #182: กล่องช่วยเหลือต้องบอกกฎใหม่ · ตัวเลขดึงจาก FRAC_TOL ไม่พิมพ์ซ้ำในหน้าจอ
+  ok('จอ: กล่องช่วยเหลือการ์ดขาด + แท็บ MRP บอกว่าเศษจากสูตรไม่ขึ้น · ตัวเลขมาจาก FRAC_TOL',
+     !/แม้ไม่ถึง 1 หน่วย/.test(htmlSrc) && (htmlSrc.match(/\{\{ FRAC_TOL\.PCE \}\}/g) || []).length === 2
+     && /\{\{ FRAC_TOL\.KGM \}\}/.test(htmlSrc) && /\{\{ FRAC_TOL\.MTR \}\}/.test(htmlSrc) && /OVER_MIN, FRAC_TOL,/.test(appSrc));
+  ok('ยังไม่ได้รับเลยแม้ยอดตามสูตรไม่ถึงเกณฑ์ = ขาดจริง ไม่ใช่เศษ (ผู้ตรวจ #182 รอบ 2 · เจ้าของเคาะ)',
+     (() => { const r = shortAll([en('receive', 'TM9269H001', 'A', 20), en('receive', 'TM9269H001', 'B', 10)], E,
+                                 { headerOf: po => ({ pn: 'PN1', order: 10 }), bomRowsOf: () => [{ code: 'A', usage: 2 }, { code: 'B', usage: 1 }, { code: 'C', usage: 1 / 12 }], tolOf: () => 1 });
+              return r.length === 1 && r[0].code === 'C' && r[0].have === 0 && r[0].tiny === false; })());
   ok('ไม่ส่ง tolOf = เหมือนเดิมทุกอย่าง', shortAll(tinyLed, E, opt).map(r => r.code).join() === 'A,B,C');
   ok('จอ: การ์ดขาดกรองแถวเศษออก · ส่งเกณฑ์ตามหน่วยในทะเบียนเข้า shortAll',
      /all: true, tolOf: fracTolAt \}\)/.test(appSrc) && /r\.short > SHORT_MIN && !r\.tiny/.test(appSrc)
