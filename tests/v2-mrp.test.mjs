@@ -64,6 +64,17 @@ ok('รับเกินตั้งแต่ OVER_MIN = Over · รหัส�
 ok('รหัสนอกสูตรอยู่ท้ายตาราง', at('TM0001H963').lines[at('TM0001H963').lines.length - 1].code === X);
 const tiny = run({ ents: [mk('receive', 'TM0001H961', A, 20 + OVER_MIN / 2), mk('receive', 'TM0001H961', B, 5)] });
 ok('เกินไม่ถึงเกณฑ์การ์ด over = ครบ (เกณฑ์เดียวกับการ์ด — เจ้าของเคาะ)', tiny.find(r => r.po === 'TM0001H961').state === 'ok');
+// เจ้าของเคาะ 22 พ.ย. 2026: ขาดต่ำกว่าเกณฑ์เศษของหน่วย = ครบ (เกณฑ์เดียวกับการ์ด short)
+const fracEnts = [mk('receive', 'TM0001H961', A, 19.4), mk('receive', 'TM0001H961', B, 4.9995)];
+const fracTol = c => ({ [A]: 1, [B]: 0.001 })[c] || 0;
+const frc = run({ ents: fracEnts, opt: { tolOf: fracTol } }).find(r => r.po === 'TM0001H961');
+ok('ขาดต่ำกว่าเกณฑ์เศษ (ชิ้นขาด 0.6 · กิโลขาด 0.0005) = ครบ · ส่วนต่างยังโชว์ตามจริง',
+   frc.state === 'ok' && frc.nShort === 0 && line('TM0001H961', A, [frc]).state === 'ok' && line('TM0001H961', A, [frc]).diff === -0.6,
+   JSON.stringify(frc.lines));
+ok('ไม่ส่ง tolOf = Short เหมือนเดิม', run({ ents: fracEnts }).find(r => r.po === 'TM0001H961').nShort === 2);
+ok('ขาดเต็มหน่วยยังเป็น Short แม้ส่ง tolOf', run({ ents: [mk('receive', 'TM0001H961', A, 19), mk('receive', 'TM0001H961', B, 5)], opt: { tolOf: fracTol } })
+   .find(r => r.po === 'TM0001H961').nShort === 1);
+ok('ต่อสายเกณฑ์เศษเข้า mrpRows', /weeks: poWeekMap\(poWeeks\.value\), tolOf: fracTolAt/.test(readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8')));
 ok('ใบนิติบุคคลอื่น / รายการที่ยกเลิก ไม่นับ (A3 · B)', line('TM0001H961', A).have === 20 && line('TM0001H961', B).have === 5);
 throws('ไม่ระบุนิติบุคคล = โยน (A3)', () => mrpRows(ents, '', { poList, bomRowsOf }), 'A3');
 

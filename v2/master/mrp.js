@@ -5,7 +5,7 @@
  *   ต้องใช้ = ต่อชิ้นในสูตร × จำนวนสั่งของใบ
  *   รับแล้ว = รับเข้าด้วยเลข PO นี้ − ส่งคืน Delta ตาม PO นี้ (ตัวเดียวกับ shortAll / overAll)
  *             **ไม่หักยอดจ่าย** (เจ้าของเคาะ)
- *   Short = รับแล้ว < ต้องใช้ · นับทุกยอดที่ขาด (SHORT_MIN = 0 แบบการ์ด short)
+ *   Short = รับแล้ว < ต้องใช้ · นับทุกยอดที่ขาด (SHORT_MIN = 0 แบบการ์ด short) · ยกเว้นเศษต่ำกว่า tolOf(code) (FRAC_TOL ของหน่วย)
  *           ยอดขาดที่ "จบเรื่องแล้ว" (ปิดเรื่องตรงยอด · ยกเลิกเรื่อง · ไม่ติดตาม) = skip นับว่าครบ
  *           กฎเดียวกับการ์ด "ยังรับไม่ครบตาม BOM" (shortSettled)
  *   Over  = รับเกินตั้งแต่ OVER_MIN แบบการ์ด over (เจ้าของเคาะ) · เกินไม่ถึงเกณฑ์ = ครบ
@@ -78,7 +78,7 @@ function daysBefore(date, n) {
  * weeks = Map จาก poWeekMap(rows) · null = ไม่มี WK ที่พิมพ์เอง
  */
 export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [], today = '', plan = null, catOf = () => '', weeks = null,
-                                           freshDays = MRP_FRESH_DAYS, overMin = OVER_MIN } = {}) {
+                                           freshDays = MRP_FRESH_DAYS, overMin = OVER_MIN, tolOf = () => 0 } = {}) {
   if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
   if (typeof bomRowsOf !== 'function') throw new Error('ต้องส่ง bomRowsOf เข้ามา');
   // ไม่ส่ง today = ตัดใบทุกใบที่มีวันที่ทิ้งเงียบ ๆ — โยนให้รู้แทน (ผู้ตรวจ #156 รอบ 4 ข้อ 1)
@@ -175,7 +175,7 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       const k = pairKey(po, code);
       const need = round5(usage * row.order), have = haveOf(k), issued = usedOf(k), diff = round5(have - need);
       let state = 'ok', via = null;
-      if (diff < 0) state = (via = settled(po, code, -diff)) ? 'skip' : 'short';
+      if (diff < 0 && -diff >= (Number(tolOf(code)) || 0)) state = (via = settled(po, code, -diff)) ? 'skip' : 'short';   // ขาดต่ำกว่าเกณฑ์เศษ = ครบ
       else if (diff >= overMin) state = (via = oSettled(po, code, diff)) ? 'oskip' : 'over';
       row.lines.push({ code, usage, need, have, issued, diff, state, via });
     }
