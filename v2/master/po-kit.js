@@ -501,10 +501,11 @@ export function kitsToKeep(fileRows = [], existing = [], savedPos = []) {
 
 /**
  * ยอดที่ Delta ส่งมาของ PO นี้ รายรหัส — คอลัมน์ "Delta ส่งมา" หน้าจ่ายออก (เจ้าของสั่ง 22 พ.ย. 2026)
- * 1. ยอดที่จดไว้ตอนรับเข้า (issued_qty ของรายการรับเข้า) บวกทุกรอบ — ตรงกับของที่มาถึงจริงทีละรอบ
- *    PO ที่รับด้วยไฟล์ก่อนเริ่มเก็บ Kit List (ต.ค.–พ.ย. 2026) ได้ยอดจากทางนี้ทางเดียว
- * 2. รหัสที่ไม่มีในข้อ 1 ใช้ Kit List ที่เก็บไว้ (รวมทุกไฟล์) — เช่นบรรทัดที่ยังไม่ได้รับ
- * ไม่บวกสองทางเข้าด้วยกัน — ไฟล์ที่รับหลังจากนี้มีทั้งสองทาง บวกกัน = ยอดเบิ้ล
+ * 1. Kit List ที่เก็บไว้ (รวมทุกไฟล์ · id ซ้ำไม่ถูกเก็บซ้ำ) — ยอดตามเอกสาร Delta ถูกเสมอแม้คีย์รับหลายรอบ
+ * 2. รหัสที่ไม่มีแถว Kit List เลย ใช้ issued_qty ของรายการรับเข้าบวกทุกรอบ
+ *    = PO ที่รับด้วยไฟล์ก่อนเริ่มเก็บ Kit List (ต.ค.–พ.ย. 2026) · ทุกรอบจดยอดเต็มใบซ้ำ ถ้ารับหลายรอบเลขจะเบิ้ล (แยกไม่ได้)
+ * ห้ามเอา issued_qty มาก่อน Kit List — ผู้ตรวจ #181: คีย์รับสองรอบ (7 แล้ว 3) จด 10 ทั้งสองรอบ → ขึ้น 20
+ * ไม่บวกสองทางเข้าด้วยกัน
  */
 export function deltaSentOfPo({ kits = [], entries = [], entity = '', po = '' } = {}) {
   if (!entity) throw new Error('deltaSentOfPo: ต้องระบุนิติบุคคล (A3)');
@@ -512,13 +513,15 @@ export function deltaSentOfPo({ kits = [], entries = [], entity = '', po = '' } 
   const key = c => String(c == null ? '' : c).trim().toUpperCase();
   const out = new Map();
   if (!P) return out;
+  const kitLines = kitLinesOfPo(kits, P);
+  const inKit = new Set(kitLines.map(k => key(k.code)));
+  for (const k of kitLines) if (k.issue != null) out.set(key(k.code), k.issue);
   for (const e of entries) {
     if (e.kind !== 'receive' || e.voided || e.entity !== entity || String(e.doc_ref || '').trim() !== P) continue;
     if (e.issued_qty == null || e.issued_qty === '' || !Number.isFinite(Number(e.issued_qty))) continue;
+    if (inKit.has(key(e.material_code))) continue;
     out.set(key(e.material_code), r6((out.get(key(e.material_code)) || 0) + Number(e.issued_qty)));
   }
-  for (const k of kitLinesOfPo(kits, P))
-    if (!out.has(key(k.code)) && k.issue != null) out.set(key(k.code), k.issue);
   return out;
 }
 

@@ -944,11 +944,17 @@ console.log('\n=== เก็บ Kit List จากการรับเข้า
   const es = [E({ material_code: 'A', issued_qty: 4 }), E({ material_code: 'a', issued_qty: 6 }),
               E({ material_code: 'A', issued_qty: 99, voided: true }), E({ material_code: 'A', issued_qty: 99, entity: 'TUE-U' }),
               E({ material_code: 'A', issued_qty: 99, kind: 'issue' }), E({ material_code: 'D', issued_qty: '' }),
-              E({ material_code: 'E', issued_qty: 7, doc_ref: 'PO-9002' })];
+              E({ material_code: 'E', issued_qty: 7, doc_ref: 'PO-9002' }),
+              E({ material_code: 'F', issued_qty: 2 }), E({ material_code: 'f ', issued_qty: 3 })];
   const sent = deltaSentOfPo({ kits: kitsX, entries: es, entity: 'TUE-H', po: 'PO-9001' });
-  ok('Delta ส่งมา: ยอดที่จดตอนรับเข้าบวกทุกรอบ ก่อน Kit List · ไม่บวกสองทางซ้อน · ไม่นับรายการยกเลิก / นิติบุคคลอื่น / ไม่ใช่รับเข้า / PO อื่น',
-     sent.get('A') === 10 && sent.get('B') === 3 && !sent.has('C') && !sent.has('D') && !sent.has('E') && sent.size === 2,
+  ok('Delta ส่งมา: Kit List ก่อน · รหัสที่ไม่มีแถว Kit List ใช้ยอดที่จดตอนรับเข้าบวกทุกรอบ · ไม่บวกสองทางซ้อน · ไม่นับรายการยกเลิก / นิติบุคคลอื่น / ไม่ใช่รับเข้า / PO อื่น',
+     sent.get('A') === 15 && sent.get('B') === 3 && sent.get('F') === 5 && !sent.has('C') && !sent.has('D') && !sent.has('E') && sent.size === 3,
      JSON.stringify([...sent]));
+  // ผู้ตรวจ #181: ทุกรอบรับเข้าจดยอดเต็มใบซ้ำ (ของมา 7 แล้ว 3 → จด 10 ทั้งสองรอบ) ต้องไม่ขึ้น 20
+  const twice = deltaSentOfPo({ kits: [K('K1-PO-9003-A', 'PO-9003', 'A', 10)], entity: 'TUE-H', po: 'PO-9003',
+    entries: [E({ doc_ref: 'PO-9003', material_code: 'A', issued_qty: 10 }), E({ doc_ref: 'PO-9003', material_code: 'A', issued_qty: 10 })] });
+  ok('Delta ส่งมา: คีย์รับรหัสเดียวสองรอบ (จด 10 ซ้ำ) แต่ Kit List บอก 10 → ขึ้น 10 ไม่ใช่ 20',
+     twice.get('A') === 10 && twice.size === 1, JSON.stringify([...twice]));
   let threw = false; try { deltaSentOfPo({ kits: kitsX, entries: es, entity: '', po: 'PO-9001' }); } catch (e) { threw = /นิติบุคคล/.test(e.message); }
   ok('deltaSentOfPo ลืมส่งนิติบุคคลไม่ได้ (A3)', threw);
   ok('จอ: บันทึกรับเข้าจากไฟล์แล้วเก็บ Kit List (try ของตัวเอง) · ล้างแล้วลืมไฟล์เดิม',
