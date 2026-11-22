@@ -25,7 +25,7 @@ import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
          normalizeScriptUrl, syncBadge } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust, NOTICE_ID, noticeDue, noticeCanClose, atScrollEnd } from './core/version.js';
-import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, poHeaderIndex, receivedOutsideList, switchedPo, nextShownPo,
+import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, kitLinesOfPo, kitPrefill, kitsToKeep, deltaSentOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, poHeaderIndex, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
 import { readIncomeBook, pickLatest, conflictsWithinPn, peerOutliers, flaggedKeys,
          makeIncomeRows, summarizeIncome, incomePlan, parseDataSheet } from './master/income-bom.js';
@@ -1088,6 +1088,7 @@ createApp({
     // ── รับเข้า ────────────────────────────────────────────────────
     const inH = reactive({ po: '', pn: '', order: null, date: todayLocal(), person: '' });
     const inLines = ref([]);
+    let inKitRows = [];   // บรรทัด Kit List ของไฟล์ที่กางอยู่ — เก็บลงเครื่องหลังบันทึกรับเข้า (saveIn)
     const bomHint = ref('');
     let lineSeq = 0;
 
@@ -1168,7 +1169,7 @@ createApp({
     function expandBom() {
       const poSwitched = switchedPo(inShownPo, inH.po);
       inShownPo = nextShownPo(inShownPo, inH.po);
-      const kit = inH.po ? kitsOfPo(kits.value, inH.po) : [];
+      const kit = inH.po ? kitLinesOfPo(kits.value, inH.po) : [];   // หลายไฟล์ต่อ PO รวมเป็นบรรทัดเดียว
       const recv = inH.po && entity.value
         ? receivedOfDoc(entries.value, entity.value, inH.po) : new Map();
       // ตัวเดียวกับหน้าจ่ายออก — ตัดบรรทัดสูตรที่ลบแล้ว (#78 · เดิมหน้านี้ไม่ตัด สองหน้าจึงกางไม่เท่ากัน)
@@ -1184,14 +1185,16 @@ createApp({
           fillInLine(l);                            // ยอดตามสูตรมาจาก BOM ไม่ใช่จาก Kit List
           if (!l.known) { l.desc = k.desc; l.unit = k.unit; }
           l.issued = k.issue;                       // Delta จ่ายมาเท่าไหร่
-          l.qty = k.issue;                          // ตั้งไว้ให้ก่อน พนักงานแก้ทับเป็นยอดนับจริง
+          l.qty = kitPrefill(k, recv);              // ตั้งไว้ให้ก่อน แก้ทับเป็นยอดนับจริง · รหัสที่เคยรับแล้วปล่อยว่าง กันรับซ้ำ
           const b = bomOf.get(String(k.code));
           l.uomConfirmed = b ? b.uomConfirmed : true;
           return l;
         });
         // รายการที่สูตรบอกว่าต้องใช้ แต่ Kit List ไม่ได้จ่ายมา — บอกไว้ ไม่ใช่เติมให้เอง
         const missing = rows.filter(r => !kit.some(k => String(k.code) === String(r.code)));
-        bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ (เติมยอดที่ Delta ส่งมาให้แล้ว)`
+        const left = kit.filter(k => recv.has(String(k.code))).length;   // รหัสที่เคยรับแล้ว — kitPrefill ปล่อยว่าง
+        bomHint.value = `ดึงจาก Kit List ${kit.length} รายการ`
+          + (left ? ` · ${left} รายการเคยรับแล้ว ช่องรับจริงปล่อยว่าง — ใส่เฉพาะของที่มาเพิ่ม` : ' (เติมยอดที่ Delta ส่งมาให้แล้ว)')
           + (missing.length ? ` · อีก ${missing.length} รายการมีในสูตรแต่ Kit List ไม่ได้ส่งมา` : '');
         markReceived(recv);
         return;
@@ -1319,6 +1322,7 @@ createApp({
           return l;
         });
         inFile.value = file.name;
+        inKitRows = kit.rows;
         inShownPo = '';
         bomHint.value = '';
         const dup = inLines.value.filter(l => l.recv).length;
@@ -1394,6 +1398,12 @@ createApp({
         db.announce('entries');
         const where = inPos.value.length > 1 ? `${inPos.value.length} PO` : `PO ${inPos.value[0] || ''}`;
         flash(`บันทึกรับเข้า ${posted.length} รายการ · ${where}`);
+        // เก็บ Kit List ของไฟล์ด้วย หน้าจ่ายออกจะได้เห็นยอดที่ Delta ส่งมา (เจ้าของสั่ง 22 พ.ย. 2026 · กฎอยู่ใน po-kit.js)
+        // try ของตัวเอง — รับเข้าบันทึกไปแล้ว ถ้าตกไป catch ข้างนอกจะดูเหมือนบันทึกไม่สำเร็จ (บทเรียนผู้ตรวจ #101)
+        if (inFile.value) try {
+          const keep = kitsToKeep(inKitRows, kits.value, posted.map(e => e.doc_ref)).map(plain);
+          if (keep.length) { await db.put('kits', keep); kits.value.push(...keep); }
+        } catch (err) { flash('รับเข้าบันทึกแล้ว แต่เก็บ Kit List ไม่สำเร็จ: ' + err.message, true); }
         if (inFile.value) {
           // ⚠️ กางจากไฟล์ = ของอาจทยอยมา (เจ้าของ 23 ก.ย. 2026 "แล้วแต่รอบ ไม่แน่นอน")
           // บรรทัดที่ยังไม่ได้รับต้องคาไว้บนจอ ไม่ใช่ล้างทั้งใบแล้วให้ไปอัปโหลดไฟล์ใหม่
@@ -1436,7 +1446,12 @@ createApp({
       l.unit = m ? m.unit : '';
       // ยอดตามสูตรมาจาก BOM ทุกแถว ไม่ว่าแถวนั้นจะมาจากไหน (เจ้าของ 16 ก.ย. 2026)
       l.reqmt = reqmtOf(outBomRows.value, l.code, outH.order);
+      l.issued = outSentOf(l.code);   // "Delta ส่งมา" ทุกแถว ไม่ว่าแถวนั้นจะมาจากไหน
     }
+    /* ยอดที่ Delta ส่งมาของ PO บนหัวจอ — ยอดที่จดตอนรับเข้า + Kit List ที่เก็บไว้ (deltaSentOfPo · เจ้าของสั่ง 22 พ.ย. 2026) */
+    const outSent = computed(() => outH.po && entity.value
+      ? deltaSentOfPo({ kits: kits.value, entries: entries.value, entity: entity.value, po: outH.po }) : null);
+    const outSentOf = code => (outSent.value && outSent.value.has(normCode(code))) ? outSent.value.get(normCode(code)) : null;
     const addOutLine = () => outLines.value.push(outBlank());
 
     /* ยอดของ PO บนหัวจอ — รับ − ส่งคืน Delta − จ่ายออก ของใบนี้ (core/balance.js · เจ้าของสั่ง 16 พ.ย. 2026)
@@ -1503,7 +1518,7 @@ createApp({
     function expandOut() {
       const poSwitched = switchedPo(outShownPo, outH.po);
       outShownPo = nextShownPo(outShownPo, outH.po);
-      const kit = outH.po ? kitsOfPo(kits.value, outH.po) : [];
+      const kit = outH.po ? kitLinesOfPo(kits.value, outH.po) : [];
       const rows = outBomRows.value;
       const order = Number(outH.order) || 0;
 
@@ -1515,8 +1530,7 @@ createApp({
           if (!l.known) { l.desc = k.desc; l.unit = k.unit; }
           // ไม่ตั้งยอดเบิกให้ แม้ใบนี้มี Kit List (เจ้าของ 16 ก.ย. 2026)
           // ของที่เบิกทำ P/N หนึ่งไม่ได้จ่ายครบทุกรหัสในรอบเดียว ยอดที่ตั้งให้ทั้งใบกลายเป็นงานนั่งลบ
-          // ยอดที่ Delta จ่ายมาโชว์ไว้ในคอลัมน์ของมันเอง ให้ดูเทียบได้โดยไม่ถูกบันทึกเอง
-          l.issued = k.issue;
+          // ยอดที่ Delta จ่ายมาโชว์ไว้ในคอลัมน์ของมันเอง ให้ดูเทียบได้โดยไม่ถูกบันทึกเอง — fillOutLine เติมให้ (outSentOf)
           return l;
         });
         outHint.value = `ดึงจาก Kit List ${kit.length} รายการ — ใส่ยอดเบิกตามที่หยิบจริง`
@@ -3988,7 +4002,7 @@ createApp({
     // จำนวนสั่งของหน้าจ่ายออกต้องหายไปพร้อมใบด้วย (ผู้ตรวจรอบสองของ #81) — ไม่มีใครเติมค่านี้ให้แล้ว
     // ถ้าค้างไว้ ยอด "ตามสูตร" ของใบถัดไป (หรือของแถวที่เคยกด "ไปเบิก" จากหน้าการ์ด · ปุ่มนั้นถอดแล้ว 22 พ.ย. 2026) จะคิดจากจำนวนสั่งของใบเมื่อกี้
     function clearIn() {
-      inLines.value = []; bomHint.value = ''; inShownPo = '';
+      inLines.value = []; bomHint.value = ''; inShownPo = ''; inKitRows = [];
       inFile.value = ''; inFileMsg.value = '';
     }
     // ล้าง = ปิดใบนั้นทั้งใบ: เลข PO · P/N · จำนวนสั่ง ว่างด้วย (เจ้าของสั่ง 17 พ.ย. 2026)
