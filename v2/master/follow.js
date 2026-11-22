@@ -712,11 +712,15 @@ export const SHORT_MIN = 0;
  * ⚠️ ยอดรับหักยอดที่ส่งคืนแล้ว และตัดไม่ให้ติดลบ — เงื่อนไขเดียวกับ shortOfPo (มีเทสยืนยัน)
  * ⚠️ PO ที่คิดไม่ได้คืนแถวเดียวพร้อม why (ไม่มี code) ไม่ใช่หายเงียบ — แบบเดียวกับ overAll
  * min = ขาดตั้งแต่เท่าไหร่ถึงคืนออกมา · ค่าตั้งต้น SHORT_MIN = นับทุกยอดที่ขาดมากกว่าศูนย์
+ * tolOf(code) = เกณฑ์เศษของรหัสนั้น (fracTolOf ของหน่วย · core/ledger.js) — ขาดต่ำกว่านี้ = เศษจากสูตร ไม่ใช่ของขาดจริง
+ *   ไม่คืนออกมา · ตอน all: true คืนพร้อม tiny: true ให้ผู้เรียกกรองเอง (เจ้าของเคาะ 22 พ.ย. 2026)
+ *   ⚠️ นับเป็นเศษเฉพาะเมื่อรับมาแล้วบ้าง (have > 0) — ยังไม่ได้รับเลยแม้ยอดตามสูตรไม่ถึงเกณฑ์ = ของขาดจริงทั้งก้อน
+ *      (เช่นกล่อง 1/12 ต่อชิ้น สั่ง 10 = 0.83 ใบ ยังไม่มา · ผู้ตรวจ #182 รอบ 2 · เจ้าของเคาะ)
  * all: true = คืนทุกรหัสในสูตรรวมที่ไม่ขาด (short 0) ใช้เทียบกับยอดที่ Delta แจ้ง
  *
  * คืน [{ po, pn, code, order, need, have, short, why }] เรียงตาม PO แล้วรหัส
  */
-export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN, all = false } = {}) {
+export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN, all = false, tolOf = () => 0 } = {}) {
   if (!txt(entity)) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
   if (typeof headerOf !== 'function' || typeof bomRowsOf !== 'function') {
     throw new Error('ต้องส่ง headerOf และ bomRowsOf เข้ามา');
@@ -748,8 +752,9 @@ export function shortAll(entries, entity, { headerOf, bomRowsOf, min = SHORT_MIN
       const code = txt(b.code).toUpperCase();
       const have = round5(Math.max(0, got.get(pairKey(po, code)) || 0));
       const short = round5(Math.max(0, need - have));
-      if (!all && !(short > 0 && short >= min)) continue;
-      out.push({ po, pn: txt(head.pn), code, order, need, have, short, why: '' });
+      const tiny = short > 0 && have > 0 && short < (Number(tolOf(code)) || 0);
+      if (!all && (!(short > 0 && short >= min) || tiny)) continue;
+      out.push({ po, pn: txt(head.pn), code, order, need, have, short, tiny, why: '' });
     }
   }
   out.sort((a, b) => String(a.po).localeCompare(String(b.po)) || String(a.code).localeCompare(String(b.code)));

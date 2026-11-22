@@ -17,7 +17,7 @@ import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
-         setExpiry, missingExpiry, missingExpiryCounts } from './core/ledger.js';
+         setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL } from './core/ledger.js';
 import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
@@ -985,6 +985,8 @@ createApp({
       const m = matIndex.value.get(normCode(code));
       return m && m.category ? m.category : '';
     };
+    /** เกณฑ์เศษของรหัส ตามหน่วยในทะเบียน — ตัวเลขอยู่ที่ FRAC_TOL (core/ledger.js) */
+    const fracTolAt = code => fracTolOf(matIndex.value.get(normCode(code))?.unit);
 
     // ── Log รับเข้า / จ่ายออก ── เปิดมาเห็นของวันนี้ · ตรรกะอยู่ที่ core/ledger.js
     const lg = reactive({ from: todayLocal(), to: todayLocal(), q: '', voided: false });
@@ -2596,7 +2598,7 @@ createApp({
         return { rows: mrpRows(entries.value, entity.value, { poList: posVisible.value, bomRowsOf: bomIdx.value.rowsOf,
                                                               follows: shorts.value, today: todayLocal(),
                                                               plan: planMap(planShip.list), catOf,
-                                                              weeks: poWeekMap(poWeeks.value) }), err: '' };
+                                                              weeks: poWeekMap(poWeeks.value), tolOf: fracTolAt }), err: '' };
       } catch (e) { return { rows: [], err: 'คิด MRP ไม่ได้ — ' + e.message + ' · แจ้งเจ้าของพร้อมข้อความนี้' }; }
     });
     const mrpAll = computed(() => mrpCalc.value.rows);
@@ -2657,11 +2659,11 @@ createApp({
       if (!entity.value) return [];
       try {
         return shortAll(entries.value, entity.value, { headerOf: poIdx.value,
-                        bomRowsOf: bomIdx.value.rowsOf, all: true });
+                        bomRowsOf: bomIdx.value.rowsOf, all: true, tolOf: fracTolAt });
       } catch (err) { console.error(err); return []; }
     });
     const fsNew = computed(() =>
-      shortPending(fsCalc.value.filter(r => !r.why && r.short > SHORT_MIN), shorts.value));
+      shortPending(fsCalc.value.filter(r => !r.why && r.short > SHORT_MIN && !r.tiny), shorts.value));
     const fsBlocked = computed(() => fsCalc.value.filter(r => r.why));
     // ⚠️ คิดครั้งเดียวต่อแถวที่แสดง แล้วให้เทมเพลตหยิบจาก Map — เทมเพลตเรียกหลายครั้งต่อแถวทุกครั้งที่จอรีเฟรช
     //    เรียก shortCheckOf ตรง ๆ ในเทมเพลตทำตารางช้าลงสามเท่า (ผู้ตรวจ #115 ข้อ 1)
@@ -4014,7 +4016,7 @@ createApp({
     }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpDraw, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
-             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN, FRAC_TOL,
              planShip, planPull, planAtText, poDateOf, mrpSetWeek,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,
