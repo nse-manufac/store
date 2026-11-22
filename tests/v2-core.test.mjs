@@ -377,6 +377,18 @@ console.log('\n=== วาดตารางยาวทีละช่วง (�
      src.includes("const mrpDraw = drawing(mrpShown, r => r.po === mrpPin.value);"));
 }
 
+console.log('\n=== หน้ายอดคงคลังไม่มีปุ่มจ่ายออก (เจ้าของสั่ง 22 พ.ย. 2026) ===');
+{
+  // พนักงานกดจ่ายออกจากหน้ายอดคงคลัง (รายรหัส · การ์ด) แล้วสับสน — จ่ายออกที่หน้าจ่ายออกที่เดียว
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const i = html.indexOf(`<template v-else-if="tab==='bal'">`);
+  const bal = html.slice(i, html.indexOf('<template v-else-if="tab===', i + 10));
+  ok('หน้ายอดคงคลัง (รายรหัส + การ์ด) ไม่มีปุ่มจ่ายออก · ปุ่มเปิดการ์ดยังอยู่',
+     i >= 0 && !/goIssue|จ่ายออกรหัสนี้|>จ่ายออก<\/button>/.test(bal) && bal.includes('@click="openCard(r.code)">การ์ด</button>'));
+  ok('ไม่มีฟังก์ชันพาไปจ่ายออกค้างอยู่ใน app.js', !/goIssue/.test(src));
+}
+
 console.log('\n=== ยกเลิกรายการจากหน้า Log (เจ้าของสั่ง 19 พ.ย. 2026) ===');
 {
   const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
