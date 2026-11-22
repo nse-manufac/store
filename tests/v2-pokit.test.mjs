@@ -326,6 +326,16 @@ const outTpl = htmlSrc.slice(htmlSrc.indexOf("tab==='out'"));
 ok('หน้าจ่ายออกไม่ตั้งยอดเบิกให้ทุกทาง · โชว์ยอดที่ Delta ส่งมาแทน (หัวคอลัมน์เปลี่ยนจาก "จ่ายมา" · เจ้าของสั่ง 16 พ.ย. 2026 ไม่ให้สับสนกับ "จ่ายแล้ว")',
    !/l\.qty\s*=/.test(bodyOf('expandOut')) && bodyOf('expandOut').includes('l.issued = k.issue')
    && outTpl.length > 500 && /<th[^>]*>Delta ส่งมา<\/th>/.test(outTpl) && /l\.issued == null/.test(outTpl));
+// เจ้าของสั่ง 22 พ.ย. 2026: ลำดับ ตามสูตร · Delta ส่งมา · จ่ายแล้ว · ยังต้องจ่าย · ตัดคอลัมน์คงเหลือออก · จัดกลาง
+{
+  const tbl = outTpl.slice(outTpl.indexOf('<table class="out-tbl">'), outTpl.indexOf('</thead>'));
+  const at = t => tbl.indexOf('>' + t + '</th>');
+  ok('หน้าจ่ายออก: หัวคอลัมน์เรียง ตามสูตร → Delta ส่งมา → จ่ายแล้ว → ยังต้องจ่าย → จ่ายออก',
+     tbl.length > 100 && at('ตามสูตร') > 0 && at('ตามสูตร') < at('Delta ส่งมา') && at('Delta ส่งมา') < at('จ่ายแล้ว')
+     && at('จ่ายแล้ว') < at('ยังต้องจ่าย') && at('ยังต้องจ่าย') < at('จ่ายออก'));
+  ok('หน้าจ่ายออก: ไม่มีคอลัมน์คงเหลือ', !/คงเหลือ/.test(tbl) && !/outBalOf/.test(outTpl.slice(0, outTpl.indexOf('</table>'))));
+  ok('หน้าจ่ายออก: ตั้งแต่คอลัมน์หน่วยจัดกลาง', /table\.out-tbl th:nth-child\(n\+3\),table\.out-tbl td:nth-child\(n\+3\)\{text-align:center\}/.test(htmlSrc));
+}
 // ผู้ตรวจรอบสาม: บันทึกหรือกด "ล้าง" แล้วจอว่างแต่ยังจำ PO เดิม — คีย์บรรทัดต่อแล้วเปลี่ยน PO บรรทัดหาย
 ok('บันทึกหรือกด "ล้าง" แล้วลืมเลข PO เดิม ทั้งสองหน้า',
    /inShownPo = ''/.test(bodyOf('saveIn')) && /outShownPo = ''/.test(bodyOf('saveOut'))
