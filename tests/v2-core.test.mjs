@@ -520,6 +520,12 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
      /fracSweep\(entries\.value, entity\.value, outH\.po, posted\.map\(e => e\.material_code\), fracTolAt,/.test(so)
      && so.indexOf('fracSweep(') > so.indexOf("await db.put('entries', posted)") && /if \(outH\.po\) try \{/.test(so)
      && /REASONS\[mk\.kind\] \|\| \[\]\)\.filter\(r => !r\.auto\)/.test(app) && /!isFracAdj\(e\)\) \? 'นับได้ '/.test(app));
+  // atFrom หยิบมิลลิวินาทีของนาฬิกาขณะเรียก — เรียกใหม่ทุกบรรทัดใน .map() แล้วบรรทัดที่ 2 ขึ้นไป
+  // จะมี at ต่างจากรายการล้างเศษ (วัดได้ 0.26–4.3% ตามจำนวนบรรทัด) แล้ว fracTwins ผูกคู่ไม่เจอ
+  ok('จอ: จ่ายออกคิดเวลาครั้งเดียวต่อการบันทึก ทุกบรรทัดกับล้างเศษใช้ at ตัวเดียวกัน (ผู้ตรวจ #185 รอบ 4)',
+     /const at = atFrom\(outH\.date\);/.test(so) && (so.match(/atFrom\(/g) || []).length === 1
+     && so.indexOf('atFrom(') < so.indexOf('outReady.value.map(') && !so.includes('posted[0].at'),
+     JSON.stringify(so.match(/at[,:] ?[^\n]*/g)));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

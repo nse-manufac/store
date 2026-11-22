@@ -1587,11 +1587,15 @@ createApp({
          neg.slice(0, 5).map(l => l.code + ' → ' + outAfterOf(l)).join('\n'),
          '', 'ยืนยันบันทึกไหม'].join('\n'))) return;
       try {
+        // เวลาเดียวต่อการบันทึก — คิดก่อน map (ผู้ตรวจรอบ 4 ข้อ 1)
+        // atFrom หยิบมิลลิวินาทีของนาฬิกาขณะนั้น ถ้าเรียกใหม่ทุกบรรทัด บรรทัดที่ 2 ขึ้นไป
+        // จะมี at ต่างจากรายการล้างเศษ แล้ว fracTwins ผูกคู่ไม่เจอ (ยกเลิกจ่ายออกแล้วเศษค้าง)
+        const at = atFrom(outH.date);
         const posted = outReady.value.map(l => makeEntry({
           entity: entity.value, kind: 'issue', material_code: l.code, qty: Number(l.qty),
           lot: l.lot, lot_inferred: l.inferred && !!l.lot,
           doc_kind: outH.po ? 'po' : '', doc_ref: outH.po, part_no: outH.pn,
-          at: atFrom(outH.date), person: outH.person, device: device.value
+          at, person: outH.person, device: device.value
         }));
         await db.put('entries', posted);
         entries.value.push(...posted);
@@ -1599,7 +1603,7 @@ createApp({
         let crumbs = [], crumbErr = '';
         if (outH.po) try {
           crumbs = fracSweep(entries.value, entity.value, outH.po, posted.map(e => e.material_code), fracTolAt,
-                             { person: outH.person, device: device.value, at: posted[0].at, part_no: outH.pn });
+                             { person: outH.person, device: device.value, at, part_no: outH.pn });
           if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
         } catch (err) { crumbs = []; crumbErr = err.message; }
         db.announce('entries');

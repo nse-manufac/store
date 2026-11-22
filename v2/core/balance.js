@@ -181,7 +181,9 @@ export function fracSweep(entries, entity, po, codes, tolOf, { person, device = 
 }
 
 /** รายการล้างเศษที่เกิดพร้อมจ่ายออกรายการนี้ (ยังไม่ยกเลิก) — ยกเลิกจ่ายออกแล้วต้องยกเลิกคู่กัน (เจ้าของเคาะ 23 พ.ย. 2026)
- *  ผูกด้วย PO + รหัส + เวลา: saveOut ส่งเวลาของจ่ายออกให้ fracSweep ตรง ๆ จึงเท่ากันทุกตัวอักษร · ไม่ต้องเพิ่มช่องในสมุด (E2) */
+ *  ผูกด้วย PO + รหัส + เวลา: saveOut คิดเวลา (atFrom) ครั้งเดียวต่อการบันทึก แล้วส่งตัวเดียวกันนั้นให้ทุกบรรทัด
+ *  และให้ fracSweep จึงเท่ากันทุกตัวอักษร (เรียก atFrom ใหม่ทุกบรรทัดจะได้มิลลิวินาทีต่างกัน แล้วการผูกขาดเงียบ ๆ)
+ *  ไม่ต้องเพิ่มช่องในสมุด (E2) */
 export function fracTwins(entries, e) {
   if (!e || e.kind !== 'issue' || !e.doc_ref) return [];
   return entries.filter(x => x.entity === e.entity && isFracAdj(x) && !x.voided && x.at === e.at
