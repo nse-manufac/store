@@ -175,7 +175,8 @@ export function mrpRows(entries, entity, { poList = [], bomRowsOf, follows = [],
       const k = pairKey(po, code);
       const need = round5(usage * row.order), have = haveOf(k), issued = usedOf(k), diff = round5(have - need);
       let state = 'ok', via = null;
-      if (diff < 0 && -diff >= (Number(tolOf(code)) || 0)) state = (via = settled(po, code, -diff)) ? 'skip' : 'short';   // ขาดต่ำกว่าเกณฑ์เศษ = ครบ
+      // ขาดต่ำกว่าเกณฑ์เศษ = ครบ · เฉพาะที่รับมาแล้วบ้าง — ยังไม่ได้รับเลย = ขาดจริง (แบบ shortAll)
+      if (diff < 0 && !(have > 0 && -diff < (Number(tolOf(code)) || 0))) state = (via = settled(po, code, -diff)) ? 'skip' : 'short';
       else if (diff >= overMin) state = (via = oSettled(po, code, diff)) ? 'oskip' : 'over';
       row.lines.push({ code, usage, need, have, issued, diff, state, via });
     }

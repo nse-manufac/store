@@ -71,6 +71,8 @@ const frc = run({ ents: fracEnts, opt: { tolOf: fracTol } }).find(r => r.po === 
 ok('ขาดต่ำกว่าเกณฑ์เศษ (ชิ้นขาด 0.6 · กิโลขาด 0.0005) = ครบ · ส่วนต่างยังโชว์ตามจริง',
    frc.state === 'ok' && frc.nShort === 0 && line('TM0001H961', A, [frc]).state === 'ok' && line('TM0001H961', A, [frc]).diff === -0.6,
    JSON.stringify(frc.lines));
+ok('ยังไม่ได้รับรหัสนั้นเลย แม้ยอดตามสูตรไม่ถึงเกณฑ์ = ยัง Short (ผู้ตรวจ #182 รอบ 2)',
+   run({ ents: [mk('receive', 'TM0001H961', A, 20)], opt: { tolOf: () => 10 } }).find(r => r.po === 'TM0001H961').lines.find(l => l.code === B).state === 'short');
 ok('ไม่ส่ง tolOf = Short เหมือนเดิม', run({ ents: fracEnts }).find(r => r.po === 'TM0001H961').nShort === 2);
 ok('ขาดเต็มหน่วยยังเป็น Short แม้ส่ง tolOf', run({ ents: [mk('receive', 'TM0001H961', A, 19), mk('receive', 'TM0001H961', B, 5)], opt: { tolOf: fracTol } })
    .find(r => r.po === 'TM0001H961').nShort === 1);
