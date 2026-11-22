@@ -3982,18 +3982,11 @@ createApp({
 
     function openCard(code) { cardCode.value = String(code); traceOf.value = ''; tab.value = 'bal'; }
     function closeCard() { cardCode.value = ''; traceOf.value = ''; }
-    function goIssue(code) {
-      const l = outBlank(String(code));
-      fillOutLine(l);
-      outLines.value.push(l);
-      outHint.value = 'เพิ่ม ' + code + ' เข้าใบเบิกแล้ว';
-      tab.value = 'out';
-    }
 
     // ปุ่ม "ล้าง" ของสองหน้า — จอว่างแล้วไม่มีบรรทัดของใบไหนเหลือ จึงลืมเลข PO เดิมด้วย (#78)
     // เดิมเขียนไว้ในเทมเพลตตรง ๆ ซึ่งแตะตัวแปรที่จำเลข PO ไม่ได้
     // จำนวนสั่งของหน้าจ่ายออกต้องหายไปพร้อมใบด้วย (ผู้ตรวจรอบสองของ #81) — ไม่มีใครเติมค่านี้ให้แล้ว
-    // ถ้าค้างไว้ ยอด "ตามสูตร" ของใบถัดไป (หรือของแถวที่กด "ไปเบิก" จากหน้าการ์ด) จะคิดจากจำนวนสั่งของใบเมื่อกี้
+    // ถ้าค้างไว้ ยอด "ตามสูตร" ของใบถัดไป (หรือของแถวที่เคยกด "ไปเบิก" จากหน้าการ์ด · ปุ่มนั้นถอดแล้ว 22 พ.ย. 2026) จะคิดจากจำนวนสั่งของใบเมื่อกี้
     function clearIn() {
       inLines.value = []; bomHint.value = ''; inShownPo = '';
       inFile.value = ''; inFileMsg.value = '';
@@ -4040,7 +4033,7 @@ createApp({
              outReady, outNegative, saveOut, addFromOutLine,
              balQ, balCat, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
-             openCard, closeCard, goIssue,
+             openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
              homeTasks, homeAlerts, strangeKinds, homeIn, homeOut, homeToday,
              sync, pending, wiringGap, urlNote, onSyncUrl, saveSyncCfg, testConnection, syncNow, resync, pushAll, TABLES,

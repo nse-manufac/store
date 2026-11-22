@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-21.1">
+<meta name="app-version" content="2026-11-22.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1636,7 +1636,7 @@ textarea{font:inherit}
                 <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
                   <th style="width:105px">หมวด</th><th style="width:110px">คงเหลือ</th>
                   <th style="width:55px">หน่วย</th><th style="width:110px">เคลื่อนไหวล่าสุด</th>
-                  <th style="width:130px"></th></tr></thead>
+                  <th style="width:80px"></th></tr></thead>
                 <tbody><tr v-for="r in balShown.rows" :key="r.code">
                   <td class="mono"><b>{{ r.code }}</b></td>
                   <td>{{ r.desc }}
@@ -1645,10 +1645,8 @@ textarea{font:inherit}
                   <td class="mono"><b :style="r.qty<0?'color:var(--bad)':''">{{ r.qty }}</b></td>
                   <td class="mono hint">{{ r.unit }}</td>
                   <td class="mono hint">{{ r.last ? localDate(r.last) : '—' }}</td>
-                  <td class="row" style="gap:4px;flex-wrap:nowrap">
-                    <button class="btn" style="padding:2px 9px" @click="openCard(r.code)">การ์ด</button>
-                    <button class="btn" style="padding:2px 9px" @click="goIssue(r.code)">จ่ายออก</button>
-                  </td>
+                  <!-- ไม่มีปุ่มจ่ายออกจากหน้านี้แล้ว — พนักงานกดจ่ายออกจากตรงนี้แล้วสับสน จ่ายออกที่หน้าจ่ายออกที่เดียว (เจ้าของสั่ง 22 พ.ย. 2026) -->
+                  <td><button class="btn" style="padding:2px 9px" @click="openCard(r.code)">การ์ด</button></td>
                 </tr></tbody>
               </table>
               <p v-if="!balShown.rows.length" class="empty">
@@ -1664,7 +1662,6 @@ textarea{font:inherit}
             <div class="row">
               <button class="btn" @click="closeCard">← กลับไปรายการ</button>
               <div class="grow"></div>
-              <button class="btn" @click="goIssue(cardCode)">จ่ายออกรหัสนี้</button>
               <button class="btn" @click="printSheet">พิมพ์</button>
               <button class="btn primary" @click="exportOneCard" :disabled="expBusy || !card.length">
                 {{ expBusy ? 'กำลังทำไฟล์...' : 'เซฟเป็น Excel' }}</button>
