@@ -3738,6 +3738,8 @@ textarea{font:inherit}
                     <span class="mono hint">{{ voidBox.row.lot ? '· ล็อต ' + voidBox.row.lot : '' }}</span></td></tr>
             <tr><td class="hint">ผู้บันทึก</td><td>{{ voidBox.row.person }}</td></tr>
           </tbody></table>
+          <p class="hint" v-if="voidTwins.length" style="margin:12px 0 0">รายการล้างเศษ PO {{ voidTwins[0].doc_ref }}
+            (ส่วนต่าง {{ voidTwins[0].delta }}) ที่ระบบทำพร้อมจ่ายออกรายการนี้ จะถูกยกเลิกไปด้วย</p>
           <div class="msg warn" v-if="voidAfterAdjust" style="margin:12px 0 0">
             <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ localDate(voidAfterAdjust.at) }}</b><br>
             <!-- ล้างเศษไม่ได้นับจริง — ห้ามเขียน "ที่เคยนับได้ 0" (ผู้ตรวจ #185) -->

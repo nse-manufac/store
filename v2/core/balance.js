@@ -170,12 +170,22 @@ export function fracSweep(entries, entity, po, codes, tolOf, { person, device = 
   const st = poStockOf(entries, entity, ref), out = [];
   for (const c of new Set((codes || []).map(String))) {
     const r = st.get(c), tol = Number(tolOf(c)) || 0;
-    if (!r || !r.bal || Math.abs(r.bal) >= tol) continue;
+    // ยังไม่ได้รับเข้าเลย = ไม่ใช่เศษ ห้ามล้าง (กฎเดียวกับ #182 · เจ้าของเคาะ 23 พ.ย. 2026)
+    // จ่าย 0.8 ก่อนคีย์รับ → ล้าง +0.8 แล้วพอรับเข้าทีหลัง ยอดที่จ่ายไปจะหายทั้งก้อน
+    if (!r || !(r.recv > 0) || !r.bal || Math.abs(r.bal) >= tol) continue;
     out.push(makeEntry({ entity, kind: 'adjust', material_code: c, reason_code: FRAC_REASON,
                          counted_qty: 0, book_qty: r.bal, doc_kind: 'po', doc_ref: ref, part_no, person, device, at,
                          note: `ล้างเศษ PO ${ref}: คงเหลือ ${r.bal} ต่ำกว่าเกณฑ์ ${tol}` }));
   }
   return out;
+}
+
+/** รายการล้างเศษที่เกิดพร้อมจ่ายออกรายการนี้ (ยังไม่ยกเลิก) — ยกเลิกจ่ายออกแล้วต้องยกเลิกคู่กัน (เจ้าของเคาะ 23 พ.ย. 2026)
+ *  ผูกด้วย PO + รหัส + เวลา: saveOut ส่งเวลาของจ่ายออกให้ fracSweep ตรง ๆ จึงเท่ากันทุกตัวอักษร · ไม่ต้องเพิ่มช่องในสมุด (E2) */
+export function fracTwins(entries, e) {
+  if (!e || e.kind !== 'issue' || !e.doc_ref) return [];
+  return entries.filter(x => x.entity === e.entity && isFracAdj(x) && !x.voided && x.at === e.at
+                             && String(x.doc_ref) === String(e.doc_ref) && String(x.material_code) === String(e.material_code));
 }
 
 /** ยังต้องจ่ายอีก = ตามสูตร − จ่ายแล้ว · null ถ้ายังไม่รู้ยอดตามสูตร (ไม่เดาเป็น 0) · ติดลบ = จ่ายเกินสูตรแล้ว */

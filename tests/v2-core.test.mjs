@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, poStocks, poMoves, fracSweep } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, poStocks, poMoves, fracSweep, fracTwins } from '../v2/core/balance.js';
 import { poLotsOf } from '../v2/core/lots.js';
 import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
 
@@ -402,7 +402,7 @@ console.log('\n=== ยกเลิกรายการจากหน้า Log
   // กล่องยืนยันตัวเดียวกับการ์ด: ต้องอยู่นอกแท็บ ไม่งั้นกดจากหน้า Log แล้วไม่มีอะไรขึ้น
   const box = html.indexOf('<div class="modal" v-if="voidBox.row"'), lastTab = html.lastIndexOf("v-else-if=\"tab==='");
   ok('กล่องยืนยันยกเลิกอยู่นอกแท็บ (ขึ้นได้จากทุกหน้า)', box > lastTab && box > 0);
-  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /async function doVoid\(\)[\s\S]*?voidEntry\(src,[\s\S]*?entries\.value\.splice\(entries\.value\.indexOf\(src\), 1, v\)/.test(src));
+  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /async function doVoid\(\)[\s\S]*?voidEntry\(src,[\s\S]*?for \(const x of \[v, \.\.\.tw\]\) entries\.value\.splice\(entries\.value\.findIndex\(e => e\.id === x\.id\), 1, x\)/.test(src));
 }
 
 console.log('\n=== หน้ารอเติมวันหมดอายุ (แท็บย่อยใน Log · เจ้าของเคาะ 28 ก.ย. 2026) ===');
@@ -486,6 +486,20 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
      && fracSweep(rows, E, '', [P], tolOf, by).length === 0
      && fracSweep([mk({ material_code: P, kind: 'receive', qty: 5, lot: 'L', doc_ref: 'POG' }), mk({ material_code: P, kind: 'issue', qty: 5, doc_ref: 'POG' })],
                   E, 'POG', [P], tolOf, by).length === 0);
+  ok('PO ที่ยังไม่ได้รับเข้าเลย = ไม่ใช่เศษ ไม่ล้าง ทั้งจ่ายเกินเศษหรือส่งคืน (กฎเดียวกับ #182 · เจ้าของเคาะ 23 พ.ย.)',
+     fracSweep([mk({ material_code: P, kind: 'issue', qty: 0.8, doc_ref: 'POH' })], E, 'POH', [P], tolOf, by).length === 0
+     && fracSweep([mk({ material_code: K, kind: 'issue', qty: 0.0004, doc_ref: 'POH' })], E, 'POH', [K], tolOf, by).length === 0);
+  {
+    const iss = rows[1], sw2 = fracSweep(rows, E, 'POF', [P, K], tolOf, { ...by, at: iss.at }), all = [...rows, ...sw2];
+    const tw = fracTwins(all, iss);
+    ok('ล้างเศษที่ทำพร้อมจ่ายออก ผูกกับจ่ายออกรายการนั้น (PO + รหัส + เวลาเดียวกัน) · รหัสอื่น / เวลาอื่น / รับเข้า ไม่ผูก',
+       tw.length === 1 && tw[0].material_code === P && tw[0].at === iss.at
+       && fracTwins([...rows, ...sw], iss).length === 0 && fracTwins(all, rows[0]).length === 0 && fracTwins(all, null).length === 0,
+       JSON.stringify(tw.map(e => [e.material_code, e.at])));
+    ok('ล้างเศษคู่กันที่ยกเลิกไปแล้วไม่นับซ้ำ · ยกเลิกทั้งคู่แล้วยอด PO กลับเหมือนก่อนจ่าย',
+       fracTwins([...rows, ...sw2.map(e => e.material_code === P ? voidEntry(e, { by: 'ก', reason: 'ข' }) : e)], iss).length === 0
+       && poStockOf([...rows.filter(e => e !== iss), voidEntry(iss, { by: 'ก', reason: 'ข' }), ...sw2.map(e => e.material_code === P ? voidEntry(e, { by: 'ก', reason: 'ข' }) : e)], E, 'POF').get(P).bal === 438);
+  }
   ok('ปรับยอดชนิดอื่นที่อ้าง PO ยังไม่นับเข้ายอด PO เหมือนเดิม (เจ้าของเคาะ 16 พ.ย.)',
      poStockOf([...rows, mk({ material_code: M, kind: 'adjust', reason_code: 'count', counted_qty: 0, book_qty: 0.5, doc_ref: 'POF' })], E, 'POF').get(M).bal === 0.5);
   ok('ยกเลิกรายการล้างเศษ = เศษกลับมา (B1)',
@@ -498,7 +512,10 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
   const htmlV = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: กล่องยกเลิกรายการ ถ้าการปรับยอดที่อยู่หลังเป็นล้างเศษ ไม่เขียน "ที่เคยนับได้" (ผู้ตรวจ #185)',
      /v-if="isFracAdj\(voidAfterAdjust\)">รายการนั้นคือ <b>ล้างเศษ PO/.test(htmlV) && /<span class="hint" v-else>ส่วนต่างของการปรับยอด/.test(htmlV)
-     && /noteCell, isFracAdj \};/.test(app));
+     && /voidTwins, reasonLabel, noteCell, isFracAdj \};/.test(app));
+  ok('จอ: ยกเลิกจ่ายออกแล้วยกเลิกล้างเศษที่คู่กันในรอบเดียวกัน · กล่องยืนยันบอกก่อน (เจ้าของเคาะ 23 พ.ย.)',
+     /const tw = fracTwins\(entries\.value, src\)\.map\(t => voidEntry\(t,/.test(app) && /await db\.put\('entries', \[v, \.\.\.tw\]\)/.test(app)
+     && /<p class="hint" v-if="voidTwins\.length"/.test(htmlV));
   ok('จอ: บันทึกจ่ายออกแล้วล้างเศษของ PO นั้น (try ของตัวเอง) · ช่องเลือกเหตุผลกรองของ auto ออก · "นับได้" ไม่ขึ้นกับล้างเศษ',
      /fracSweep\(entries\.value, entity\.value, outH\.po, posted\.map\(e => e\.material_code\), fracTolAt,/.test(so)
      && so.indexOf('fracSweep(') > so.indexOf("await db.put('entries', posted)") && /if \(outH\.po\) try \{/.test(so)
