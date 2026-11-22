@@ -27,7 +27,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
 import { receivedOfDoc, balanceOf } from '../v2/core/balance.js';
 import { normCode } from '../v2/master/materials.js';
 import { makeManualRow, activeBomRowsOf } from '../v2/master/bom.js';
-import { signedQty, KINDS, round5, makeEntry } from '../v2/core/ledger.js';
+import { signedQty, KINDS, round5, makeEntry, fracTolOf, FRAC_TOL } from '../v2/core/ledger.js';
 import { localDate, atFrom, rollDay } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
@@ -998,6 +998,30 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      !shortAll([en('receive', 'TM9269H001', 'A', 20), en('receive', 'TM9269H001', 'B', 10), en('receive', 'TM9269H001', 'C', 5)], E, opt)
        .some(r => !r.why));
   ok('ส่ง min มาเองได้', shortAll([en('receive', 'TM9269H001', 'A', 19.5)], E, { ...opt, min: 1 }).map(r => r.code).join() === 'B,C');
+  // เจ้าของเคาะ 22 พ.ย. 2026: ขาดต่ำกว่าเกณฑ์เศษของหน่วย = เศษจากสูตร ไม่ตั้งเรื่อง (ข้อมูลจริง: short อัตโนมัติไม่ถึง 1 หน่วย 3,338 เรื่อง)
+  ok('เกณฑ์เศษต่อหน่วย: ชิ้น 1 · กิโล 1 กรัม · เมตร 1 ซม. · หน่วยอื่น 0 · ไม่สนตัวพิมพ์/ช่องว่าง',
+     fracTolOf('PCE') === 1 && fracTolOf(' kgm ') === 0.001 && fracTolOf('MTR') === 0.01
+     && fracTolOf('NPR') === 0 && fracTolOf('') === 0 && fracTolOf(undefined) === 0 && Object.isFrozen(FRAC_TOL));
+  const tolOf = c => ({ A: 1, B: 0.001 })[c] || 0;   // A = ชิ้น · B = กิโล · C = หน่วยอื่น
+  const tinyLed = [en('receive', 'TM9269H001', 'A', 19.5), en('receive', 'TM9269H001', 'B', 9.9995), en('receive', 'TM9269H001', 'C', 4.9995)];
+  ok('ขาดต่ำกว่าเกณฑ์เศษไม่คืนออกมา (ชิ้นขาด 0.5 · กิโลขาด 0.0005) · หน่วยที่ไม่มีเกณฑ์ยังนับทุกยอด',
+     shortAll(tinyLed, E, { ...opt, tolOf }).map(r => r.code + ':' + r.short).join() === 'C:0.0005',
+     JSON.stringify(shortAll(tinyLed, E, { ...opt, tolOf })));
+  ok('all: true ยังคืนแถวเศษ แต่ติด tiny ให้ผู้เรียกกรอง · ขาดเต็มหน่วยไม่ติด',
+     shortAll(tinyLed, E, { ...opt, tolOf, all: true }).map(r => r.code + (r.tiny ? '~' : '')).join() === 'A~,B~,C'
+     && shortAll([en('receive', 'TM9269H001', 'A', 18.9)], E, { ...opt, tolOf, all: true }).find(r => r.code === 'A').tiny === false);
+  // ผู้ตรวจ #182: กล่องช่วยเหลือต้องบอกกฎใหม่ · ตัวเลขดึงจาก FRAC_TOL ไม่พิมพ์ซ้ำในหน้าจอ
+  ok('จอ: กล่องช่วยเหลือการ์ดขาด + แท็บ MRP บอกว่าเศษจากสูตรไม่ขึ้น · ตัวเลขมาจาก FRAC_TOL',
+     !/แม้ไม่ถึง 1 หน่วย/.test(htmlSrc) && (htmlSrc.match(/\{\{ FRAC_TOL\.PCE \}\}/g) || []).length === 2
+     && /\{\{ FRAC_TOL\.KGM \}\}/.test(htmlSrc) && /\{\{ FRAC_TOL\.MTR \}\}/.test(htmlSrc) && /OVER_MIN, FRAC_TOL,/.test(appSrc));
+  ok('ยังไม่ได้รับเลยแม้ยอดตามสูตรไม่ถึงเกณฑ์ = ขาดจริง ไม่ใช่เศษ (ผู้ตรวจ #182 รอบ 2 · เจ้าของเคาะ)',
+     (() => { const r = shortAll([en('receive', 'TM9269H001', 'A', 20), en('receive', 'TM9269H001', 'B', 10)], E,
+                                 { headerOf: po => ({ pn: 'PN1', order: 10 }), bomRowsOf: () => [{ code: 'A', usage: 2 }, { code: 'B', usage: 1 }, { code: 'C', usage: 1 / 12 }], tolOf: () => 1 });
+              return r.length === 1 && r[0].code === 'C' && r[0].have === 0 && r[0].tiny === false; })());
+  ok('ไม่ส่ง tolOf = เหมือนเดิมทุกอย่าง', shortAll(tinyLed, E, opt).map(r => r.code).join() === 'A,B,C');
+  ok('จอ: การ์ดขาดกรองแถวเศษออก · ส่งเกณฑ์ตามหน่วยในทะเบียนเข้า shortAll',
+     /all: true, tolOf: fracTolAt \}\)/.test(appSrc) && /r\.short > SHORT_MIN && !r\.tiny/.test(appSrc)
+     && /const fracTolAt = code => fracTolOf\(matIndex\.value\.get\(normCode\(code\)\)\?\.unit\)/.test(appSrc));
   ok('all: true คืนทุกรหัสในสูตร รวมที่ไม่ขาด', shortAll([en('receive', 'TM9269H001', 'C', 5)], E, { ...opt, all: true })
        .map(r => r.code + r.short).join() === 'A20,B10,C0');
   throws('ไม่บอกนิติบุคคล = โยน (A3)', () => shortAll(led, '', opt), 'A3');
@@ -1988,7 +2012,7 @@ console.log('\n=== SP2. ความเร็ว — การ์ดยังร
   ok(`cardShortOver (Short / Over บนการ์ด) ผ่านดัชนี = ของเดิม ทุกรหัส · ${rowsN} บรรทัด`, same === CODES.length && rowsN > 0);
   const appSP = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('จอ: การ์ดยังรับไม่ครบตาม BOM และ Short / Over บนการ์ด ใช้ดัชนีจริง',
-     /shortAll\(entries\.value, entity\.value, \{ headerOf: poIdx\.value,\s+bomRowsOf: bomIdx\.value\.rowsOf, all: true \}\)/.test(appSP)
+     /shortAll\(entries\.value, entity\.value, \{ headerOf: poIdx\.value,\s+bomRowsOf: bomIdx\.value\.rowsOf, all: true, tolOf: fracTolAt \}\)/.test(appSP)
      && /cardShortOver\(rows, \{ headerOf: poIdx\.value, usageOf: bomUsageOf \}\)/.test(appSP));
 }
 
