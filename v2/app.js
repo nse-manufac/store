@@ -4029,7 +4029,7 @@ createApp({
              addInLine, expandBom, pickPo, fillLine, fillInLine, saveIn, addFromLine,
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
-             outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
+             outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
              balQ, balCat, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
