@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-23.2">
+<meta name="app-version" content="2026-11-23.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1616,7 +1616,8 @@ textarea{font:inherit}
                                       <!-- ติดลบ = ลิงก์ไปแท็บ Log จ่ายออก ค้น PO + รหัส ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ (เจ้าของสั่ง 19 พ.ย. 2026) -->
                                       <td class="mono r"><button v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"
                                           title="ไปหน้า Log จ่ายออก เพื่อยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ">{{ mrpNum(p.bal) }}</button>
-                                        <b v-else>{{ mrpNum(p.bal) }}</b></td>
+                                        <b v-else>{{ mrpNum(p.bal) }}</b>
+                                        <span v-if="bpFrac(p, l.code)" class="tag warn" style="margin-left:4px">เศษ</span></td>
                                     </tr>
                                     <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="8" style="padding:4px 0 10px">
                                       <table class="mrp mrp-bom" style="margin-top:0">
@@ -1629,7 +1630,13 @@ textarea{font:inherit}
                                           <td class="mono r" :style="m.e.kind === 'sendback' ? 'color:var(--warn);font-weight:600' : m.qty<0 ? 'color:var(--bad)' : ''">{{ m.qty > 0 ? '+' : '' }}{{ mrpNum(m.qty) }}</td>
                                           <td class="mono r"><b>{{ mrpNum(m.run) }}</b></td>
                                           <td class="mono hint">{{ m.e.lot || '' }}</td><td>{{ m.e.person || '' }}</td>
-                                        </tr></tbody>
+                                        </tr>
+                                        <!-- ค้างเศษ = ปุ่มล้างอยู่ท้ายรายการเคลื่อนไหวของใบนั้น (เจ้าของเคาะ 23 พ.ย. 2026) -->
+                                        <tr v-if="bpFrac(p, l.code)" class="noprint"><td colspan="7" class="hint">
+                                          คงเหลือ {{ mrpNum(p.bal) }} {{ unitOf(l.code) }} ต่ำกว่าเกณฑ์ {{ fracTolAt(l.code) }} = เศษจากสูตร ไม่ใช่ของจริง
+                                          <button class="btn" style="margin-left:8px;padding:2px 9px" @click.stop="bpFracClean(p.po, l.code)">ล้างเศษ</button>
+                                          <span style="margin-left:6px">(บันทึกปรับยอด "ล้างเศษ" แยกเป็นรายการ ยอดที่จ่ายไปไม่เปลี่ยน)</span></td></tr>
+                                        </tbody>
                                       </table>
                                     </td></tr>
                                   </template>

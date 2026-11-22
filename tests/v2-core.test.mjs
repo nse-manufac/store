@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, poStocks, poMoves, fracSweep, fracTwins } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft } from '../v2/core/balance.js';
 import { poLotsOf } from '../v2/core/lots.js';
 import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
 
@@ -504,6 +504,28 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
      poStockOf([...rows, mk({ material_code: M, kind: 'adjust', reason_code: 'count', counted_qty: 0, book_qty: 0.5, doc_ref: 'POF' })], E, 'POF').get(M).bal === 0.5);
   ok('ยกเลิกรายการล้างเศษ = เศษกลับมา (B1)',
      poStockOf([...rows, voidEntry(of(P), { by: 'เจ้าของ', reason: 'ทดสอบ' })], E, 'POF').get(P).bal === 0.89975);
+  // ── ล้างเศษของเก่า: ปุ่มในรายการเคลื่อนไหวหน้ายอดคงคลังราย P/N (ใบที่ 3 · เจ้าของเคาะ 23 พ.ย.) ──
+  ok('isFracLeft: รับเข้าแล้ว และ 0 < |คงเหลือ| < เกณฑ์ เท่านั้น',
+     isFracLeft({ recv: 438, bal: 0.89975 }, 1) && isFracLeft({ recv: 1.2, bal: -0.0005 }, 0.001)
+     && !isFracLeft({ recv: 0, bal: -0.8 }, 1) && !isFracLeft({ recv: 5, bal: 0 }, 1) && !isFracLeft({ recv: 10, bal: 0.5 }, 0.01)
+     && !isFracLeft({ recv: 5, bal: 1 }, 1) && !isFracLeft(null, 1) && !isFracLeft({ recv: 5, bal: 0.5 }, 0));
+  ok('ปุ่มขึ้นตรงกับที่ fracSweep ล้างจริง (ตัวตัดสินตัวเดียวกัน)',
+     [...poStockOf(rows, E, 'POF')].filter(([c, r]) => isFracLeft(r, tolOf(c))).map(([c]) => c).sort().join()
+     === sw.map(e => e.material_code).sort().join());
+  ok('สองเครื่องกดล้างพร้อมกันก่อนซิงค์ ได้เลขรายการเดียวกัน (ซิงค์แล้วรวมเป็นรายการเดียว ไม่หักซ้อน)',
+     fracSweep(rows, E, 'POF', [P], tolOf, { ...by, device: 'PC-2' })[0].id === of(P).id && of(P).id !== of(K).id);
+  ok('ยกเลิกรายการล้างเศษแล้วล้างใหม่ ได้เลขใหม่ ไม่ทับประวัติที่ยกเลิก (B1)',
+     (() => { const again = fracSweep([...rows, voidEntry(of(P), { by: 'เจ้าของ', reason: 'ทดสอบ' })], E, 'POF', [P], tolOf, by);
+              return again.length === 1 && again[0].id !== of(P).id; })());
+  {
+    const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+    const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    ok('จอ: ค้างเศษ = ปุ่ม "ล้างเศษ" ท้ายรายการเคลื่อนไหวของ PO นั้น (ไม่ทำตารางแยก) · ปุ่มเรียก fracSweep รหัสเดียว · ป้าย "ล้างเศษ" ในรายการ',
+       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracClean\(p\.po, l\.code\)">ล้างเศษ<\/button>/.test(htmlB)
+       && /const bpFrac = \(p, code\) => isFracLeft\(p, fracTolAt\(code\)\);/.test(appB)
+       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person: who/.test(appB)
+       && /label: isFracAdj\(m\.e\) \? 'ล้างเศษ' : KINDS/.test(appB) && !/fracLeftovers|balView==='frac'/.test(appB + htmlB));
+  }
   throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');
   ok('"ล้างเศษ" ระบบทำเอง — อยู่ในรายการเหตุผล (ป้ายในการ์ด) แต่ติด auto ไม่ให้คนเลือก',
      REASONS.adjust.some(r => r.code === FRAC_REASON && r.auto === true) && REASONS.adjust.filter(r => r.auto).length === 1);
