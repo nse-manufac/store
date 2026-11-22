@@ -383,11 +383,19 @@ ok('ใบที่กาง: WK · วันที่ · PO · P/N · PO Qty. �
 ok('PO ที่กางอยู่ติดคลาส open + แถวรายละเอียดมีคลาสของตัวเอง ให้ CSS แยกให้เห็นชัด',
    mrpHtml.includes(':class="{ open: mrpOpen[r.po] }"') && mrpHtml.includes('class="mrp-det"') && /tr\.mrp-po\.open > td\{/.test(html));
 
+{
+  // ผู้ตรวจ #177 รอบ 2: ใบที่พับไว้ในหน้า short / over ไม่มีแถวใน DOM — กดป้ายจาก MRP แล้วต้องกางใบนั้นก่อนหาแถว
+  const appF = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const go = appF.slice(appF.indexOf('function mrpGoSettled('), appF.indexOf('async function foRestart('));
+  ok('จอ: ป้ายจบเรื่องแล้วกางใบเป้าหมายทั้ง short (fsFold) และ over (foFold) ก่อนสลับแท็บ',
+     /if \(over\) foFold\[po\] = false; else fsFold\[po\] = false;/.test(go)
+     && go.indexOf('foFold[po] = false') < go.indexOf("tab.value = over ? 'fover' : 'fshort'"));
+}
 ok('จอ: ป้ายที่มี via เป็นปุ่มเรียก mrpGoSettled · ตาราง short / ยกเลิก short / ยกเลิก over ติด data-fid ให้หาแถวเจอ',
    mrpHtml.includes('@click="mrpGoSettled(l, r.po)"')
-   && html.includes('<tr v-for="r in fsRows" :key="r.s.id" :class="{late: r.late}" :data-fid="r.s.id">')
-   && html.includes('<tr v-for="x in fsStopShown" :key="x.s.id" :data-fid="x.s.id">')
-   && html.includes('<tr v-for="x in foStopShown" :key="x.s.id" :data-fid="x.s.id">'));
+   // หน้า short / over จัดกลุ่มราย PO (21 พ.ย. 2026): แถวเรื่องทุกปุ่มกรอง (รอของ · ปิดแล้ว · ยกเลิก) ติด data-fid
+   && (html.match(/<tr v-for="r in g\.items" :key="r\.s\.id" class="fol-it" :data-fid="r\.s\.id">/g) || []).length === 4
+   && (html.match(/<tr v-for="x in g\.items" :key="x\.s\.id" class="fol-it" :data-fid="x\.s\.id">/g) || []).length === 2);
 
 ok('จอ: ปุ่มกลับไป MRP ขึ้นเฉพาะตอนอยู่แท็บ short / over · แถวรหัสใน MRP ติด data-mrp-line ให้กลับมาถึงแถวเดิม',
    html.includes(`v-if="mrpBack && (tab === 'fshort' || tab === 'fover')"`) && html.includes('@click="mrpGoBack"')

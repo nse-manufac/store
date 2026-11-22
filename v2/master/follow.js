@@ -454,6 +454,68 @@ export function sumFollow(rows, { today = '' } = {}) {
   };
 }
 
+/* ══════════ หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026 · แบบเดียวกับแท็บ MRP) ══════════ */
+
+/** ปุ่มกรองบนหัวหน้า — ลำดับตามขั้นของงาน · k ตรงกับคีย์ของ followCounts */
+export const FOLLOW_SEG = {
+  short: [{ k: 'new', label: 'ต้องตั้งเรื่อง', dot: 'warn' }, { k: 'open', label: 'รอของ', dot: 'bad' },
+          { k: 'done', label: 'ปิดแล้ว', dot: 'ok' }, { k: 'stop', label: 'ยกเลิก / ไม่ติดตาม', dot: '' }],
+  over:  [{ k: 'new', label: 'ต้องตั้งเรื่อง', dot: 'warn' }, { k: 'open', label: 'รอคืน', dot: 'bad' },
+          { k: 'done', label: 'คืนแล้ว', dot: 'ok' }, { k: 'stop', label: 'ยกเลิก / ไม่ติดตาม', dot: '' }]
+};
+
+/** ตัวเลขบนปุ่มกรอง — open นับรวมที่ได้มาบางส่วน (partial) · กรองชนิดและนิติบุคคลแบบเดียวกับ listFollow */
+export function followCounts(rows, { kind = '', entity = '' } = {}) {
+  const c = { open: 0, partial: 0, done: 0 };
+  for (const s of rows || []) {
+    if (!matchKind(s, kind) || !sameEntity(s, entity)) continue;
+    const st = statusOf(s);
+    if (st === 'done') c.done++;
+    else if (st === 'open' || st === 'partial') {
+      c.open++;
+      if (st === 'partial') c.partial++;
+    }
+  }
+  return c;
+}
+
+/** ช่องค้น · pick(แถว) → { po, pn, code, text } · ค้นด้วย PO · P/N · รหัส · ข้อความ ไม่สนตัวพิมพ์
+ *  ⚠️ ต้องค้นก่อนตัดที่ SHOW_MAX เสมอ — ตัดก่อนแล้วเรื่องที่อยู่เลยเพดานจะค้นไม่เจอแบบเงียบ ๆ (ผู้ตรวจ #177) */
+export function filterPick(items, { pick, q = '' } = {}) {
+  const needle = txt(q).toLowerCase();
+  if (!needle) return [...(items || [])];
+  return (items || []).filter(it => {
+    const k = pick(it);
+    return [k.po, k.pn, k.code, k.text].join(' ').toLowerCase().includes(needle);
+  });
+}
+
+/**
+ * จัดกลุ่มราย PO + ช่องค้น (filterPick) · pick(แถว) → { po, pn, code, text }
+ * ลำดับกลุ่ม = แถวแรกที่เจอ — คงลำดับเดิมของรายการไว้ (เช่น listFollow เอาเรื่องที่เลย ETA ขึ้นก่อน)
+ */
+export function groupByPo(items, { pick, q = '' } = {}) {
+  const groups = new Map();
+  for (const it of filterPick(items, { pick, q })) {
+    const k = pick(it);
+    const po = txt(k.po);
+    let g = groups.get(po);
+    if (!g) groups.set(po, g = { po, pn: txt(k.pn), items: [] });
+    else if (!g.pn) g.pn = txt(k.pn);
+    g.items.push(it);
+  }
+  return [...groups.values()];
+}
+
+/** ปุ่ม "ปิดแล้ว" / "คืนแล้ว" — ปิดล่าสุดขึ้นก่อน · listFollow เรียงตาม ETA ซึ่งเรื่องที่ปิดแล้วไม่มีความหมาย
+ *  เรื่องที่ปิดสะสมเป็นพันเรื่อง ตัดที่ SHOW_MAX แล้วต้องเห็นของล่าสุด ไม่ใช่ของเก่าสุด */
+export const newestDone = rows => [...(rows || [])]
+  .sort((a, b) => txt(b.s.done_at).localeCompare(txt(a.s.done_at)));
+
+/** หมายเหตุที่ควรขึ้นจอ — ตัดข้อความที่ระบบใส่ให้ทุกเรื่องที่ตั้งจากการ์ด (ซ้ำกันทุกแถว ไม่บอกอะไร) */
+export const followNote = s => txt(s && s.note).split(NOTE_SEP)
+  .filter(p => p && p !== SYS_SHORT_NOTE).join(NOTE_SEP);
+
 /** ซ่อมทั้งกอง — คืนเฉพาะแถวที่เปลี่ยนจริง ให้ผู้เรียกเอาไปเขียนลงฐานข้อมูล */
 export function migrateAll(rows, opts = {}) {
   const out = [], changed = [];
@@ -818,6 +880,15 @@ export function stopMarkOf(f) {
   return '';
 }
 const stopReason = (mark, why) => txt(why) ? mark + MARK_SEP + txt(why) : mark;
+/** เหตุผลที่คนพิมพ์ โดยไม่มีคำนำหน้าของปุ่ม — จอแสดงชื่อปุ่มเป็นป้ายแยกอยู่แล้ว (หน้า short / over 21 พ.ย. 2026) */
+export function stopWhy(f) {
+  const s = txt(f && f.void_reason);
+  for (const m of [CANCEL_MARK, SKIP_MARK]) {
+    if (s === m) return '';
+    if (s.startsWith(m + MARK_SEP)) return s.slice((m + MARK_SEP).length);
+  }
+  return s;
+}
 
 /**
  * คำเตือนก่อน "ยกเลิกเรื่อง" — คืน '' ถ้าไม่ต้องเตือน (เจ้าของเลือกแบบ ก 4 พ.ย. 2026 · ผู้ตรวจ #146 รอบ 5)

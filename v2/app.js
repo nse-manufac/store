@@ -37,7 +37,8 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
-         listFollow, partNoOf, openFollow, orphanFollow, sumFollow, voidFollow,
+         listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
+         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
@@ -2407,7 +2408,10 @@ createApp({
      * ย้ายมาจากการ์ดที่เคยแปะอยู่ท้ายหน้า PO / Kit List
      * ที่นั่นเห็นได้เฉพาะตอนเข้าไปนำเข้าไฟล์ ทั้งที่เป็นงานที่ต้องไล่ทุกวัน */
     const fsSearch = ref('');
-    const fsShowDone = ref(false);
+    // ปุ่มกรองบนหัวหน้า (เจ้าของสั่ง 21 พ.ย. 2026) — แทนช่องติ๊ก "แสดงที่ปิดแล้ว" กับการ์ดยกเลิกท้ายหน้า · ค่าตั้งต้น = เรื่องที่รอของ
+    const fsSeg = ref('open');
+    const fsShowDone = computed(() => fsSeg.value === 'done');
+    const doneFirst = (done, rows) => done ? newestDone(rows) : rows;   // ปุ่มปิดแล้ว = ปิดล่าสุดก่อน
     const fsBy = ref('');
     // บันทึกตอนออกจากช่อง ไม่ใช่ทุกครั้งที่กดแป้น — แบบเดียวกับ saveStore
     const saveFsBy = () => db.setMeta('followBy', fsBy.value || '')
@@ -2421,17 +2425,17 @@ createApp({
 
     /* ⚠️ เก็บกองเต็มไว้ แล้วค่อยตัดตอนแสดง — ตัดที่ SHOW_MAX เงียบ ๆ แล้วแถวที่เกิน
        จะหายไปโดยไม่มีอะไรบอก (ผู้ตรวจ #67) · หน้าจอต้องรู้ยอดเต็มถึงจะบอกได้ว่าถูกตัด */
-    const fsAll = computed(() => listFollow(shorts.value, {
+    // ปุ่ม "ปิดแล้ว" = เฉพาะที่ปิดแล้ว · ปุ่ม "รอของ" = ที่ยังค้าง (listFollow ไม่คืนเรื่องที่ยกเลิกอยู่แล้ว)
+    const fsAll = computed(() => doneFirst(fsShowDone.value, listFollow(shorts.value, {
       kind: 'short', entity: entity.value, q: fsSearch.value,
       showDone: fsShowDone.value, today: todayLocal(), headerOf: poIdx.value
-    }));
+    }).filter(r => (r.st === 'done') === fsShowDone.value)));
     /** P/N ที่ตาราง short แสดง — ไม่มีในเรื่อง = หาจากไฟล์ PO (ตัวจาง) · ตรรกะอยู่ที่ partNoOf */
     const fsPn = s => partNoOf(s, poIdx.value);
     // แถวที่กดมาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — ขึ้นเสมอแม้เลย SHOW_MAX (sliceKeep) · ออกจากแท็บ short / over = ล้าง
     const followPin = ref('');
     const fsRows = computed(() => sliceKeep(fsAll.value, SHOW_MAX, r => r.s.id === followPin.value));
 
-    const fsSum = computed(() => sumFollow(openShorts.value, { today: todayLocal() }));
 
     /** เขียนแถวที่แก้แล้วกลับเข้าที่เดิม — ธง dirty ต้องติดบนตัวที่หน้าจอถืออยู่ */
     async function fsPut(rec) {
@@ -2519,7 +2523,8 @@ createApp({
      *    ไม่โชว์ไว้ มันจะหายจากจอโดยไม่มีใครรู้ว่าตกหล่น */
     const unitOf = code => (matOf(code) || {}).unit || '';   // ดัชนี ไม่ไล่ทั้งทะเบียน — เรียกทุกแถวของการ์ด
     const foSearch = ref('');
-    const foShowDone = ref(false);
+    const foSeg = ref('open');   // แบบเดียวกับ fsSeg
+    const foShowDone = computed(() => foSeg.value === 'done');
 
     /** ยอดต่อชิ้นจากสูตร — ⚠️ ต้องคืน "ตัวเลข" ไม่ใช่อ็อบเจกต์ทั้งแถว
      *  ส่ง byPn() ของ bom.js เข้าไปแล้วจะคูณได้ NaN เงียบ ๆ
@@ -2644,7 +2649,6 @@ createApp({
     const fsNew = computed(() =>
       shortPending(fsCalc.value.filter(r => !r.why && r.short > SHORT_MIN), shorts.value));
     const fsBlocked = computed(() => fsCalc.value.filter(r => r.why));
-    const fsNewDraw = drawing(fsNew);
     // ⚠️ คิดครั้งเดียวต่อแถวที่แสดง แล้วให้เทมเพลตหยิบจาก Map — เทมเพลตเรียกหลายครั้งต่อแถวทุกครั้งที่จอรีเฟรช
     //    เรียก shortCheckOf ตรง ๆ ในเทมเพลตทำตารางช้าลงสามเท่า (ผู้ตรวจ #115 ข้อ 1)
     const fsCheckById = computed(() => {
@@ -2692,7 +2696,6 @@ createApp({
     const foNew = computed(() =>
       overPending(foCalc.value.filter(r => !r.why), shorts.value));
     const foBlocked = computed(() => foCalc.value.filter(r => r.why));
-    const foNewDraw = drawing(foNew);
 
     /**
      * ใบแจ้งตัดยอด over ของ Delta — เทียบกับของเกินที่เรามีอยู่จริง (เจ้าของสั่ง 22 ก.ย. 2026)
@@ -2719,12 +2722,10 @@ createApp({
       pending: ocPending.value, follows: shorts.value, entity: entity.value,
       date: ocDate.value, known: entCodes.value }));
 
-    const foAll = computed(() => listFollow(shorts.value, {
+    const foAll = computed(() => doneFirst(foShowDone.value, listFollow(shorts.value, {
       kind: 'over', entity: entity.value, q: foSearch.value, showDone: foShowDone.value, headerOf: poIdx.value
-    }));
+    }).filter(r => (r.st === 'done') === foShowDone.value)));
     const foRows = computed(() => foAll.value.slice(0, SHOW_MAX));
-    const foOpen = computed(() => openFollow(shorts.value, { kind: 'over', entity: entity.value }));
-    const foSum = computed(() => sumFollow(foOpen.value));
 
     async function foStart(row) {
       try {
@@ -2938,8 +2939,9 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     const fsStopped = computed(() => stoppedShorts(shorts.value, { entity: entity.value }));
-    const fsStopShow = ref(false);
-    const fsStopShown = computed(() => sliceKeep(fsStopped.value, SHOW_MAX, x => x.s.id === followPin.value));
+    // ค้นก่อนตัดที่ SHOW_MAX (ผู้ตรวจ #177) — pickStory ประกาศทีหลัง เรียกตอนคิดจึงไม่ติด
+    const fsStopHit = computed(() => filterPick(fsStopped.value, { pick: x => pickStory(x.s), q: fsSearch.value }));
+    const fsStopShown = computed(() => sliceKeep(fsStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
     async function fsRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       if (!confirm(`กลับมาติดตาม ${row.po} · ${row.code} — ตั้งเรื่อง short ใหม่ ยอด ${remainOf(row)} (ยอดที่ยังค้างตอนหยุด)?`)) return;
@@ -2982,8 +2984,29 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     const foStopped = computed(() => stoppedOvers(shorts.value, { entity: entity.value }));
-    const foStopShow = ref(false);
-    const foStopShown = computed(() => sliceKeep(foStopped.value, SHOW_MAX, x => x.s.id === followPin.value));
+    const foStopHit = computed(() => filterPick(foStopped.value, { pick: x => pickStory(x.s), q: foSearch.value }));
+    const foStopShown = computed(() => sliceKeep(foStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
+
+    /* ── หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026) ── กฎอยู่ที่ master/follow.js groupByPo
+     * ปุ่มกรองเลือกว่าจะจัดกลุ่มรายการไหน · ค่าตั้งต้นกางทุกใบ (fold[po] = true คือพับ) · ช่องค้นใช้ได้ทุกปุ่ม */
+    const fsCounts = computed(() => ({ new: fsNew.value.length, stop: fsStopped.value.length,
+      ...followCounts(shorts.value, { kind: 'short', entity: entity.value }) }));
+    const foCounts = computed(() => ({ new: foNew.value.length, stop: foStopped.value.length,
+      ...followCounts(shorts.value, { kind: 'over', entity: entity.value }) }));
+    const pickStory = s => ({ po: s.po, pn: partNoOf(s, poIdx.value).pn, code: s.code, text: s.void_reason });
+    const groupsOf = (seg, q, calc, rows, stopped) =>
+      seg === 'new' ? groupByPo(calc, { pick: r => r, q })
+      : seg === 'stop' ? groupByPo(stopped, { pick: x => pickStory(x.s) })   // ค้นไปแล้วใน fsStopHit / foStopHit
+      : groupByPo(rows, { pick: r => pickStory(r.s) });   // ค้นไปแล้วใน listFollow
+    const fsGroups = computed(() => groupsOf(fsSeg.value, fsSearch.value, fsNew.value, fsRows.value, fsStopShown.value));
+    const foGroups = computed(() => groupsOf(foSeg.value, foSearch.value, foNew.value, foRows.value, foStopShown.value));
+    // แถวที่กดมาจาก MRP ต้องถูกวาดเสมอ แม้อยู่ท้ายรายการ (ตัววาดทีละช่วง)
+    const hasPin = g => g.items.some(it => it.s && it.s.id === followPin.value);
+    const fsDraw = drawing(fsGroups, hasPin), foDraw = drawing(foGroups, hasPin);
+    const fsFold = reactive({}), foFold = reactive({});
+    const foldFlip = (o, k) => { o[k] = !o[k]; };
+    const foldAll = (o, groups, shut) => { for (const g of groups) o[g.po] = shut; };
+    const fuShow = ref(false);
     /* ป้าย "จบเรื่องแล้ว" ในแท็บ MRP กดแล้วไปแถวของเรื่องที่ทำให้จบ (เจ้าของสั่ง 15 พ.ย. 2026)
      * ยกเลิก / ไม่ติดตาม = การ์ดท้ายแท็บ short / over · ปิดเรื่องตรงยอด = ตารางเรื่องที่ปิดแล้วของแท็บ short
      * เรื่องไหนทำให้จบ ตัดสินที่ shortSettledBy / overSettledBy (follow.js) — ตรงนี้แค่เปิดแท็บแล้วเลื่อนไปหา */
@@ -3008,15 +3031,20 @@ createApp({
       const v = l && l.via;
       if (!v) return;
       const over = l.state === 'oskip';
-      if (v.how === 'done') { fsShowDone.value = true; fsSearch.value = po; }
-      else if (over) foStopShow.value = true;
-      else fsStopShow.value = true;
+      // เปิดปุ่มกรองที่เรื่องนั้นอยู่ แล้วค้นด้วยเลข PO ให้เหลือใบเดียว
+      if (v.how === 'done') fsSeg.value = 'done';
+      else if (over) foSeg.value = 'stop';
+      else fsSeg.value = 'stop';
+      if (over) foSearch.value = po; else fsSearch.value = po;
       followPin.value = v.id;   // แถวนี้ขึ้นเสมอแม้อยู่เลย SHOW_MAX แถว (sliceKeep)
+      // ใบที่พับไว้ไม่มีแถวใน DOM — กางใบเป้าหมายก่อนเสมอ แบบที่ mrpGoBack กาง mrpOpen (ผู้ตรวจ #177 รอบ 2)
+      if (over) foFold[po] = false; else fsFold[po] = false;
       tab.value = over ? 'fover' : 'fshort';
       mrpBack.value = { po, code: l.code };
       nextTick(() => {
         const el = document.querySelector(`tr[data-fid="${CSS.escape(String(v.id))}"]`);
-        // เหตุเดียวที่เหลือ: เรื่องยังไม่มีเจ้าของ (เลข PO ไม่เข้ารูปแบบ entityOfPo) — การ์ดยกเลิกไม่โชว์ · ช่องค้นหาไม่เกี่ยว (รีวิว #165 รอบ 3)
+        // ใบเป้าหมายถูกกางไว้แล้ว (ข้างบน) และค้นด้วยเลข PO แล้ว — เหตุที่หาไม่เจอคือเรื่องยังไม่มีเจ้าของ
+        // (เลข PO ไม่เข้ารูปแบบ entityOfPo) จึงไม่อยู่ในรายการของนิติบุคคลนี้ (รีวิว #165 รอบ 3 · #177 รอบ 2)
         if (!el) { flash('หาแถวของเรื่องนี้ไม่เจอ — เรื่องนี้อาจยังไม่มีเจ้าของ เพราะเลข PO ไม่เข้ารูปแบบ', true); return; }
         el.scrollIntoView({ block: 'center' });
         el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit');
@@ -4027,15 +4055,16 @@ createApp({
              pos, kits, shorts, imp, impBusy, impDrag, impChem, KIND_LABEL, onDropImp, onPickImp,
              applyImp, openShorts, poToday, poQ, poRows, poDraw, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
-      fsSearch, fsShowDone, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows, fsSum,
-      fsNew, fsNewDraw, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
+      fsSearch, fsSeg, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows,
+      fsNew, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
-      foSearch, foShowDone, foCalc, foNew, foNewDraw, foBlocked, foRows, foAll, foOpen, foSum,
+      foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
+      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsStopShow, fsRestart, foSkip, foStopped, foStopShown, foStopShow, foRestart, foGot, foDate, foReturn, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
+      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsRestart, foSkip, foStopped, foStopShown, foRestart, foGot, foDate, foReturn, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
       rbReasons, doReturn,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
