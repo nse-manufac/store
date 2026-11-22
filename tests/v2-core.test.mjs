@@ -8,7 +8,9 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, poStocks, poMoves, fracSweep } from '../v2/core/balance.js';
+import { poLotsOf } from '../v2/core/lots.js';
+import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -447,6 +449,56 @@ console.log('\n=== ยอดของ PO ใบเดียวบนหน้า
   ok('ยังต้องจ่าย = ตามสูตร − จ่ายแล้ว', stillToIssue(100, 40.2) === 59.8);
   ok('ยังไม่รู้ยอดตามสูตร = null ไม่ใช่ 0', stillToIssue(null, 5) === null && stillToIssue('', 5) === null);
   ok('จ่ายเกินสูตร = ติดลบ', stillToIssue(10, 12) === -2);
+}
+
+console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เจ้าของเคาะ 22 พ.ย. 2026 · แบบ ก แยกเป็นรายการปรับยอด) ===');
+{
+  const P = '3510000001', K = '4010000001', M = '3220000001';   // ชิ้น · กิโล · เมตร (สมมติ)
+  const tolOf = c => ({ [P]: 1, [K]: 0.001, [M]: 0.01 })[c] || 0;
+  const by = { person: 'สมชาย', device: 'PC-T', at: '2026-11-22T03:00:00.000Z', part_no: 'PN-1' };
+  const rows = [
+    mk({ material_code: P, kind: 'receive', qty: 438, lot: 'W46', doc_ref: 'POF' }),
+    mk({ material_code: P, kind: 'issue', qty: 437.10025, doc_ref: 'POF' }),       // จ่ายตามสูตร เหลือ 0.89975 ชิ้น
+    mk({ material_code: K, kind: 'receive', qty: 1.2, lot: 'W46', doc_ref: 'POF' }),
+    mk({ material_code: K, kind: 'issue', qty: 1.2005, doc_ref: 'POF' }),          // จ่ายเกิน 0.0005 กก. (ไม่ถึง 1 กรัม)
+    mk({ material_code: M, kind: 'receive', qty: 10, lot: 'W46', doc_ref: 'POF' }),
+    mk({ material_code: M, kind: 'issue', qty: 9.5, doc_ref: 'POF' })               // เหลือ 0.5 เมตร = ของจริง ไม่ล้าง
+  ];
+  const sw = fracSweep(rows, E, 'POF', [P, K, M], tolOf, by);
+  const of = c => sw.find(e => e.material_code === c);
+  ok('ล้างเฉพาะรหัสที่เหลือเป็นเศษต่ำกว่าเกณฑ์ (ชิ้นเหลือ 0.89975 · กิโลติดลบ 0.0005) · เมตรเหลือ 0.5 ไม่แตะ',
+     sw.length === 2 && of(P) && of(K) && !of(M), JSON.stringify(sw.map(e => [e.material_code, e.delta])));
+  ok('เป็นปรับยอดเหตุผล "ล้างเศษ" อ้าง PO · delta = −เศษ ทั้งเหลือและติดลบ · ไม่ใช่ "นับได้" จริง',
+     sw.every(e => e.kind === 'adjust' && e.reason_code === FRAC_REASON && isFracAdj(e) && e.doc_ref === 'POF' && e.doc_kind === 'po')
+     && of(P).delta === -0.89975 && of(K).delta === 0.0005 && of(P).counted_qty === 0 && /ล้างเศษ PO POF/.test(of(P).note),
+     JSON.stringify(sw));
+  const after = [...rows, ...sw];
+  ok('ล้างแล้วคงเหลือ PO = 0 ทั้ง poStockOf · poStocks · poMoves (สามตัวต้องพูดตรงกัน)',
+     poStockOf(after, E, 'POF').get(P).bal === 0 && poStockOf(after, E, 'POF').get(K).bal === 0
+     && poStocks(after, E).get('POF').get(P).bal === 0 && poStocks(after, E).get('POF').get(K).frac === 0.0005
+     && poMoves(after, E, 'POF', P).at(-1).run === 0 && poMoves(after, E, 'POF', K).at(-1).run === 0
+     && poStockOf(after, E, 'POF').get(M).bal === 0.5);
+  ok('ยอดคงคลังรวมของรหัสขยับตาม (เศษนั้นไม่มีอยู่จริง) · ล็อตราย PO หมดด้วย',
+     balanceOf(after, E, P) === 0 && balanceOf(after, E, K) === 0 && poLotsOf(after, E, P, 'POF').length === 0);
+  ok('ล้างแล้วเรียกซ้ำ = ไม่มีอะไรให้ล้าง (ไม่เกิดรายการซ้อน)', fracSweep(after, E, 'POF', [P, K, M], tolOf, by).length === 0);
+  ok('หน่วยที่ไม่มีเกณฑ์ (0) · รหัสที่ไม่ได้ส่งมา · ไม่มีเลข PO · คงเหลือ 0 พอดี = ไม่ล้าง',
+     fracSweep(rows, E, 'POF', [P], () => 0, by).length === 0 && fracSweep(rows, E, 'POF', [M], tolOf, by).length === 0
+     && fracSweep(rows, E, '', [P], tolOf, by).length === 0
+     && fracSweep([mk({ material_code: P, kind: 'receive', qty: 5, lot: 'L', doc_ref: 'POG' }), mk({ material_code: P, kind: 'issue', qty: 5, doc_ref: 'POG' })],
+                  E, 'POG', [P], tolOf, by).length === 0);
+  ok('ปรับยอดชนิดอื่นที่อ้าง PO ยังไม่นับเข้ายอด PO เหมือนเดิม (เจ้าของเคาะ 16 พ.ย.)',
+     poStockOf([...rows, mk({ material_code: M, kind: 'adjust', reason_code: 'count', counted_qty: 0, book_qty: 0.5, doc_ref: 'POF' })], E, 'POF').get(M).bal === 0.5);
+  ok('ยกเลิกรายการล้างเศษ = เศษกลับมา (B1)',
+     poStockOf([...rows, voidEntry(of(P), { by: 'เจ้าของ', reason: 'ทดสอบ' })], E, 'POF').get(P).bal === 0.89975);
+  throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');
+  ok('"ล้างเศษ" ระบบทำเอง — อยู่ในรายการเหตุผล (ป้ายในการ์ด) แต่ติด auto ไม่ให้คนเลือก',
+     REASONS.adjust.some(r => r.code === FRAC_REASON && r.auto === true) && REASONS.adjust.filter(r => r.auto).length === 1);
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const so = app.slice(app.indexOf('async function saveOut('), app.indexOf('// ── ของเสีย · คืนของ · ปรับยอด'));
+  ok('จอ: บันทึกจ่ายออกแล้วล้างเศษของ PO นั้น (try ของตัวเอง) · ช่องเลือกเหตุผลกรองของ auto ออก · "นับได้" ไม่ขึ้นกับล้างเศษ',
+     /fracSweep\(entries\.value, entity\.value, outH\.po, posted\.map\(e => e\.material_code\), fracTolAt,/.test(so)
+     && so.indexOf('fracSweep(') > so.indexOf("await db.put('entries', posted)") && /if \(outH\.po\) try \{/.test(so)
+     && /REASONS\[mk\.kind\] \|\| \[\]\)\.filter\(r => !r\.auto\)/.test(app) && /!isFracAdj\(e\)\) \? 'นับได้ '/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

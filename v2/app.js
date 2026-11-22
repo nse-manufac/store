@@ -17,8 +17,8 @@ import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
-         setExpiry, missingExpiry, missingExpiryCounts, fracTolOf } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue } from './core/balance.js';
+         setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, isFracAdj } from './core/ledger.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, fracSweep } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -1083,7 +1083,7 @@ createApp({
     /** ช่องหมายเหตุในการ์ด — ต่อเฉพาะส่วนที่มีจริง ไม่งั้นจะได้ "· " ห้อยหน้าลอย ๆ */
     const noteCell = e => [
       reasonLabel(e),
-      (e.kind === 'adjust' && e.counted_qty != null) ? 'นับได้ ' + e.counted_qty : '',
+      (e.kind === 'adjust' && e.counted_qty != null && !isFracAdj(e)) ? 'นับได้ ' + e.counted_qty : '',
       e.note
     ].filter(Boolean).join(' · ');
 
@@ -1595,9 +1595,17 @@ createApp({
         }));
         await db.put('entries', posted);
         entries.value.push(...posted);
+        // ล้างเศษ PO (เจ้าของเคาะ 22 พ.ย. 2026) — ตรรกะอยู่ที่ fracSweep · พลาดก็ไม่ทำให้จ่ายออกดูเหมือนล้ม
+        let crumbs = [], crumbErr = '';
+        if (outH.po) try {
+          crumbs = fracSweep(entries.value, entity.value, outH.po, posted.map(e => e.material_code), fracTolAt,
+                             { person: outH.person, device: device.value, at: posted[0].at, part_no: outH.pn });
+          if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
+        } catch (err) { crumbs = []; crumbErr = err.message; }
         db.announce('entries');
         flash(`บันทึกจ่ายออก ${posted.length} รายการ`
-              + (outH.po ? ` · PO ${outH.po}` : ''));
+              + (outH.po ? ` · PO ${outH.po}` : '') + (crumbs.length ? ` · ล้างเศษ ${crumbs.length} รายการ` : '')
+              + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
         // เลข PO ยังอยู่บนหัวจอ — จำนวนสั่งต้องเป็นของใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
         // ถ้าล้างเป็นว่าง จ่ายรอบสองของใบเดิม "ตามสูตร" กับ "ยังต้องจ่าย" ว่างจนกว่าจะสลับ PO ไปมา
         outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo();
@@ -1613,7 +1621,7 @@ createApp({
                           date: todayLocal(), person: '' });
 
     const mkDef = computed(() => KINDS[mk.kind]);
-    const mkReasons = computed(() => REASONS[mk.kind] || []);
+    const mkReasons = computed(() => (REASONS[mk.kind] || []).filter(r => !r.auto));   // ล้างเศษ = ระบบทำเอง ไม่ให้เลือก
     const mkMat = computed(() => matOf(mk.code));
     const mkUnit = computed(() => (mkMat.value || {}).unit || '');
     const mkBook = computed(() =>

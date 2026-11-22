@@ -129,7 +129,7 @@ export function toCardLines(rows, unit = '') {
     if (!known) extra.push(`⚠ ชนิด "${r.kind}" ที่โปรแกรมรุ่นนี้ไม่รู้จัก — บรรทัดนี้ไม่ถูกนับเข้ายอด`);
     else if (r.kind !== 'receive' && r.kind !== 'issue') extra.push(label);
     if (r.lot) extra.push('ล็อต ' + r.lot + (r.lot_inferred ? ' (ระบบเดา)' : ''));
-    if (r.kind === 'adjust' && r.counted_qty != null) extra.push('นับได้ ' + r.counted_qty);
+    if (r.kind === 'adjust' && r.counted_qty != null && r.reason_code !== 'frac') extra.push('นับได้ ' + r.counted_qty);   // ล้างเศษไม่ได้นับจริง
     if (r.note) extra.push(r.note);
     return {
       no: ++no,
