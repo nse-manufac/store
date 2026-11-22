@@ -4088,6 +4088,6 @@ createApp({
              fbmBusy, fxSug, fxMats, fxSugList, fxAdd, fxTyping, fxMove, fxChoose, fxBlur, fxRemove,
              fbPick, fbDoc, fbPicked, fbDocGroups, fbCanPick, fbIssue, fbReissue,
              scrapPos, poUnknown, checked,
-             voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
+             voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell, isFracAdj };
   }
 }).mount('#app');

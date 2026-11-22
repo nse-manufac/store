@@ -495,6 +495,10 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
      REASONS.adjust.some(r => r.code === FRAC_REASON && r.auto === true) && REASONS.adjust.filter(r => r.auto).length === 1);
   const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const so = app.slice(app.indexOf('async function saveOut('), app.indexOf('// ── ของเสีย · คืนของ · ปรับยอด'));
+  const htmlV = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: กล่องยกเลิกรายการ ถ้าการปรับยอดที่อยู่หลังเป็นล้างเศษ ไม่เขียน "ที่เคยนับได้" (ผู้ตรวจ #185)',
+     /v-if="isFracAdj\(voidAfterAdjust\)">รายการนั้นคือ <b>ล้างเศษ PO/.test(htmlV) && /<span class="hint" v-else>ส่วนต่างของการปรับยอด/.test(htmlV)
+     && /noteCell, isFracAdj \};/.test(app));
   ok('จอ: บันทึกจ่ายออกแล้วล้างเศษของ PO นั้น (try ของตัวเอง) · ช่องเลือกเหตุผลกรองของ auto ออก · "นับได้" ไม่ขึ้นกับล้างเศษ',
      /fracSweep\(entries\.value, entity\.value, outH\.po, posted\.map\(e => e\.material_code\), fracTolAt,/.test(so)
      && so.indexOf('fracSweep(') > so.indexOf("await db.put('entries', posted)") && /if \(outH\.po\) try \{/.test(so)
