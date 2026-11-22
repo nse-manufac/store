@@ -511,6 +511,9 @@ export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', kee
       if (l.usage === null) l.usage = 0;
       if (u > 0 && !(l.usage > 0)) l.usage = u;   // บรรทัดแรกที่ใช้ > 0 แบบ mrpRows
     }
+    /* ⚠️ จดรหัสในสูตรไว้ก่อน แล้วลูปล่างข้ามจากเซ็ตนี้ ห้ามเช็ก lines.has(code)
+     * เพราะลูปล่างใส่รหัสนอกสูตรเข้า lines เอง → ใบที่ 2 ขึ้นไปของรหัสนั้นจะถูกข้ามทั้งก้อน (ผู้ตรวจ #184 รอบ 1) */
+    const bomCodes = new Set(lines.keys());
     const zero = { recv: 0, sendback: 0, issued: 0, bal: 0 };
     for (const p of list) for (const l of lines.values()) {
       const s = p.codes.get(l.code);
@@ -519,7 +522,7 @@ export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', kee
       l.byPo.push({ po: p.po, date: p.date, order: p.order, ...(s || zero) });
     }
     for (const p of list) for (const [code, s] of p.codes) {
-      if (lines.has(code)) continue;
+      if (bomCodes.has(code)) continue;
       const l = line(code, false);
       for (const k of ['recv', 'sendback', 'issued', 'bal']) l[k] = round5(l[k] + s[k]);
       l.byPo.push({ po: p.po, date: p.date, order: p.order, ...s });

@@ -487,6 +487,30 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.some(l => l.live && l.code.includes(q))'));
   }
   {
+    /* รหัสนอกสูตรที่เคลื่อนไหวหลายใบ ต้องรวมครบทุกใบ (ผู้ตรวจ #184 รอบ 1)
+     * เดิมลูปรหัสนอกสูตรเช็ก lines.has(code) ทั้งที่ตัวมันเองใส่รหัสนั้นเข้า lines → ใบที่ 2 ขึ้นไปหายทั้งก้อน */
+    const es4 = [mk('receive', A, 20, P1), mk('issue', A, 10, P1),
+                 mk('receive', X, 4, P1), mk('issue', X, 1, P1),
+                 mk('receive', X, 9, P2), mk('issue', X, 2, P2)];
+    const st4 = poStocks(es4, EN);
+    const lx4 = stockPnRows(st4, { headerOf: head, bomRowsOf })[0].lines.find(l => l.code === X);
+    ok('รหัสนอกสูตรที่เคลื่อนไหวสองใบ: กางได้ครบสองใบ และยอดรวม = ผลรวมทั้งสองใบ',
+       lx4.byPo.map(p => p.po).join() === [P1, P2].join()
+       && lx4.recv === 13 && lx4.issued === 3 && lx4.bal === 10
+       && lx4.byPo.every(p => JSON.stringify(poStockOf(es4, EN, p.po).get(X)) ===
+                              JSON.stringify({ recv: p.recv, sendback: p.sendback, issued: p.issued, bal: p.bal })),
+       JSON.stringify({ recv: lx4.recv, issued: lx4.issued, bal: lx4.bal, byPo: lx4.byPo.map(p => p.po + ':' + p.bal) }));
+    // กลุ่ม "ไม่รู้ P/N" ไม่มีรหัสในสูตรเลย (bomRowsOf ไม่ถูกเรียก) ทุกรหัสจึงเดินผ่านลูปนี้ → โดนหนักสุด
+    const N1 = 'TM0009001', N2 = 'TM0009002';
+    const es5 = [mk('receive', A, 100, N1), mk('issue', A, 40, N1), mk('sendback', A, 1, N1),
+                 mk('receive', A, 60, N2), mk('issue', A, 10, N2)];
+    const r5 = stockPnRows(poStocks(es5, EN), { headerOf: head, bomRowsOf }).find(g => g.pn === '');
+    ok('กลุ่มไม่รู้ P/N: รหัสเดียวกันสองใบ ยอดรวมครบทั้งสองใบ (ไม่ใช่เหลือใบแรกใบเดียว)',
+       r5.lines.length === 1 && r5.lines[0].recv === 160 && r5.lines[0].issued === 50
+       && r5.lines[0].sendback === 1 && r5.lines[0].bal === 109 && r5.lines[0].byPo.length === 2,
+       JSON.stringify(r5.lines));
+  }
+  {
     /* ใบที่แท็บ MRP ไม่มีแถวให้เลย ไม่ใช่ "ใบที่ปิดแล้ว" แต่คือใบที่ MRP ตัดสินไม่ได้ — ห้ามซ่อน (B4 · ผู้ตรวจ #175 รอบ 2)
      * มีแต่รายการจ่ายออก จึงไม่อยู่ใน started · มี plan แต่ไม่มีใบนี้ใน plan → mrpRows ไม่สร้างแถว */
     const BAD = 'TM0001H888', P4 = 'TM0001H964';   // BAD = พิมพ์เลข PO ผิด (ไม่อยู่ในไฟล์ PO) · P4 = อยู่ในไฟล์ PO แต่ยังไม่เคยรับเข้า
