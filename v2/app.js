@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy,
@@ -4014,7 +4014,7 @@ createApp({
     }
 
     return { mrpQ, mrpFilter, mrpDone, mrpOpen, mrpShown, mrpDraw, mrpCounts, mrpHidden, mrpToggle, mrpOpenAll, mrpCloseAll,
-             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
+             mrpName, mrpUnit, mrpBox, mrpTable, mrpErr, mrpNoPo, mrpSetDate, mrpGoSettled, mrpBack, mrpGoBack, mrpLineLabel, mrpNum, bpDiffLabel, MRP_SEG, MRP_FRESH_DAYS, OVER_MIN,
              planShip, planPull, planAtText, poDateOf, mrpSetWeek,
              APP_VERSION, TABS, GROUPS, openGroup, CATEGORIES, SHOW_MAX, STATUS,
              ready, bootMsg, bootError, tab, entity, catOf, matOf,

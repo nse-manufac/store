@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-22.4">
+<meta name="app-version" content="2026-11-22.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -91,6 +91,7 @@ button.tag.mrp-via:hover{text-decoration:underline}
   background:var(--soft);color:var(--brand);white-space:nowrap}
 .tag.ok{background:var(--okbg);color:var(--ok)}
 .tag.warn{background:var(--warnbg);color:var(--warn)}
+.bp-sb{color:var(--warn);font-size:12px;font-weight:600;white-space:nowrap}
 .tag.bad{background:var(--badbg);color:var(--bad)}
 /* MRP ราย PO — สีอยู่ที่ป้ายอย่างเดียว ไม่ระบายพื้นแถว (เจ้าของเคาะ 12 พ.ย. 2026) */
 .mrp th,.mrp td{white-space:nowrap;vertical-align:middle}
@@ -1576,8 +1577,9 @@ textarea{font:inherit}
                     <tr v-if="bpOpen[r.pn]" class="mrp-det"><td colspan="5"><div class="mrp-in">
                       <div class="hint">PO ที่นับ: <span v-for="(p, i) in r.pos" :key="p.po" class="mono">{{ i ? ' · ' : '' }}{{ p.po }} ({{ p.date || 'ไม่มีวันที่' }})</span></div>
                       <table class="mrp mrp-bom">
-                        <thead><tr><th style="width:24px"></th><th>รหัส</th><th>วัตถุดิบ</th><th class="r">รับเข้า</th>
-                          <th class="r">ส่งคืน Delta</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
+                        <!-- ตาม BOM = ใช้ต่อชิ้น × PO qty. รวมทุก PO ที่นับ · จ่ายเทียบ BOM = จ่ายออก − ตาม BOM (เจ้าของสั่ง 22 พ.ย. 2026) -->
+                        <thead><tr><th style="width:24px"></th><th>รหัส</th><th>วัตถุดิบ</th><th class="r">ตาม BOM</th><th class="r">รับเข้า</th>
+                          <th class="r">จ่ายออก</th><th class="r">จ่ายเทียบ BOM</th><th class="r">คงเหลือ</th></tr></thead>
                         <tbody>
                           <template v-for="l in r.lines.filter(x => bpFull[r.pn] || x.live)" :key="l.code">
                             <tr class="mrp-po" @click="flip(bpCode, bpKey(r.pn, l.code))" :aria-expanded="!!bpCode[bpKey(r.pn, l.code)]">
@@ -1585,45 +1587,53 @@ textarea{font:inherit}
                               <td class="mono">{{ l.code }}</td>
                               <td style="white-space:normal">{{ (matOf(l.code) || {}).description || '—' }}
                                 <span v-if="!l.inBom" class="tag warn" style="margin-left:4px">ไม่อยู่ใน BOM</span></td>
+                              <td class="mono r" :title="l.usage > 0 ? 'ใช้ ' + mrpNum(l.usage) + ' ต่อชิ้น' : ''">{{ mrpNum(l.need) }}</td>
+                              <!-- ส่งคืน Delta มีไม่กี่บรรทัด ไม่ให้กินคอลัมน์ — ขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก เพราะเป็นของที่ออกจากคลัง (เจ้าของสั่ง 22 พ.ย. 2026)
+                                   ⚠️ ไม่รวมเข้ายอดจ่ายออก — จ่ายเทียบ BOM นับเฉพาะที่จ่ายให้ฝ่ายผลิต -->
                               <td class="mono r">{{ mrpNum(l.recv) }}</td>
-                              <td class="mono r hint">{{ l.sendback ? mrpNum(l.sendback) : '' }}</td>
-                              <td class="mono r">{{ mrpNum(l.issued) }}</td>
+                              <td class="mono r">{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(l.sendback) }}</div></td>
+                              <td class="r"><span v-if="l.issueDiff != null" class="tag" :class="bpDiffLabel(l.issueDiff)[1]">{{ bpDiffLabel(l.issueDiff)[0] }}</span>
+                                <span v-else class="hint">—</span></td>
                               <td class="mono r"><b :style="l.bal<0?'color:var(--bad)':''">{{ mrpNum(l.bal) }}</b>
                                 <span class="hint" style="margin-left:4px">{{ unitOf(l.code) }}</span></td>
                             </tr>
                             <!-- กางวัตถุดิบ = ยอดแยกราย PO · กาง PO = รายการเคลื่อนไหวของรหัสนี้ในใบนั้น -->
-                            <tr v-if="bpCode[bpKey(r.pn, l.code)]"><td></td><td colspan="6" style="padding:4px 0 12px">
+                            <tr v-if="bpCode[bpKey(r.pn, l.code)]"><td></td><td colspan="7" style="padding:4px 0 12px">
                               <table class="mrp mrp-bom" style="margin-top:0">
-                                <thead><tr><th style="width:24px"></th><th>PO No.</th><th>PO Date</th><th class="r">PO qty.</th><th class="r">รับเข้า</th>
-                                  <th class="r">ส่งคืน Delta</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
+                                <thead><tr><th style="width:24px"></th><th>PO No.</th><th>PO Date</th><th class="r">PO qty.</th><th class="r">ตาม BOM</th><th class="r">รับเข้า</th>
+                                  <th class="r">จ่ายออก</th><th class="r">จ่ายเทียบ BOM</th><th class="r">คงเหลือ</th></tr></thead>
                                 <tbody>
                                   <template v-for="p in l.byPo" :key="p.po">
                                     <tr class="mrp-po" :data-bp="bpKey(p.po, l.code)" @click="flip(bpLine, bpKey(p.po, l.code))" :aria-expanded="!!bpLine[bpKey(p.po, l.code)]">
                                       <td><span class="fold-i">{{ bpLine[bpKey(p.po, l.code)] ? '▾' : '▸' }}</span></td>
                                       <td class="mono">{{ p.po }}</td><td class="mono">{{ p.date || '—' }}</td>
                                       <td class="mono r">{{ p.order ? mrpNum(p.order) : '—' }}</td>
+                                      <td class="mono r">{{ mrpNum(p.need) }}</td>
                                       <td class="mono r">{{ mrpNum(p.recv) }}</td>
-                                      <td class="mono r hint">{{ p.sendback ? mrpNum(p.sendback) : '' }}</td>
-                                      <td class="mono r">{{ mrpNum(p.issued) }}</td>
+                                      <td class="mono r">{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(p.sendback) }}</div></td>
+                                      <td class="r"><span v-if="p.issueDiff != null" class="tag" :class="bpDiffLabel(p.issueDiff)[1]">{{ bpDiffLabel(p.issueDiff)[0] }}</span>
+                                        <span v-else class="hint">—</span></td>
                                       <!-- ติดลบ = ลิงก์ไปแท็บ Log จ่ายออก ค้น PO + รหัส ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ (เจ้าของสั่ง 19 พ.ย. 2026) -->
                                       <td class="mono r"><button v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"
                                           title="ไปหน้า Log จ่ายออก เพื่อยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ">{{ mrpNum(p.bal) }}</button>
                                         <b v-else>{{ mrpNum(p.bal) }}</b></td>
                                     </tr>
-                                    <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="7" style="padding:4px 0 10px">
+                                    <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="8" style="padding:4px 0 10px">
                                       <table class="mrp mrp-bom" style="margin-top:0">
                                         <thead><tr><th>วันที่</th><th>เวลา</th><th>รายการ</th><th class="r">จำนวน</th><th class="r">คงเหลือ</th>
                                           <th>ล็อต</th><th>ผู้ทำรายการ</th></tr></thead>
                                         <tbody><tr v-for="m in bpMoves[bpKey(p.po, l.code)] || []" :key="m.e.id">
-                                          <td class="mono">{{ m.day }}</td><td class="mono hint">{{ m.time }}</td><td>{{ m.label }}</td>
-                                          <td class="mono r" :style="m.qty<0?'color:var(--bad)':''">{{ m.qty > 0 ? '+' : '' }}{{ mrpNum(m.qty) }}</td>
+                                          <!-- ส่งคืน Delta เป็นสีเหลือง ให้เข้าชุดกับตัวเหลืองใต้ยอดจ่ายออก (เจ้าของสั่ง 22 พ.ย. 2026) -->
+                                          <td class="mono">{{ m.day }}</td><td class="mono hint">{{ m.time }}</td>
+                                          <td :style="m.e.kind === 'sendback' ? 'color:var(--warn);font-weight:600' : ''">{{ m.label }}</td>
+                                          <td class="mono r" :style="m.e.kind === 'sendback' ? 'color:var(--warn);font-weight:600' : m.qty<0 ? 'color:var(--bad)' : ''">{{ m.qty > 0 ? '+' : '' }}{{ mrpNum(m.qty) }}</td>
                                           <td class="mono r"><b>{{ mrpNum(m.run) }}</b></td>
                                           <td class="mono hint">{{ m.e.lot || '' }}</td><td>{{ m.e.person || '' }}</td>
                                         </tr></tbody>
                                       </table>
                                     </td></tr>
                                   </template>
-                                  <tr v-if="!l.byPo.length"><td></td><td colspan="7" class="hint">ยังไม่มีรายการเคลื่อนไหวใน PO ที่นับ</td></tr>
+                                  <tr v-if="!l.byPo.length"><td></td><td colspan="8" class="hint">ยังไม่มีรายการเคลื่อนไหวใน PO ที่นับ</td></tr>
                                 </tbody>
                               </table>
                             </td></tr>
