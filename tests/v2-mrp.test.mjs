@@ -526,5 +526,13 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
   throws('poMoves ลืมส่ง entity ไม่ได้ (A3)', () => poMoves(es, '', P1, A), 'นิติบุคคล');
 }
 
+console.log('\n=== ช่องกางไม่ดันตารางล้นขวา (เจ้าของแจ้ง 22 พ.ย. 2026) ===');
+{
+  // "PO ที่นับ" ของ P/N ที่มีหลายใบเป็นบรรทัดเดียวยาว — ถ้าห้ามขึ้นบรรทัดใหม่ (สืบจาก .mrp td) ตารางทั้งก้อนล้นจอ ตัวเลขหลุดขวา
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: .mrp-in ให้ข้อความขึ้นบรรทัดใหม่ได้ (white-space:normal)', /\.mrp-in\{[^}]*white-space:normal/.test(html));
+  ok('จอ: บรรทัด "PO ที่นับ" ยังอยู่ใน .mrp-in', /<div class="mrp-in">\s*<div class="hint">PO ที่นับ:/.test(html));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
