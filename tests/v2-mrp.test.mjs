@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
-         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, openPoKeep } from '../v2/master/mrp.js';
+         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, openPoKeep, bpDiffLabel } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
          skipOver, cancelOver, overAll, overPending, fromOverRow,
          shortSettled, overSettled, stoppedShorts, sliceKeep } from '../v2/master/follow.js';
@@ -449,6 +449,36 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
      la.byPo.map(p => p.po + ':' + p.bal).join() === `${P1}:3,${P2}:0` && la.byPo.every(p => p.bal === poStockOf(es, EN, p.po).get(A).bal));
   ok('แยกราย PO มี PO qty. จากไฟล์ PO', la.byPo[0].order === 10);
   {
+    // ยอดตามสูตร (เจ้าของสั่ง 22 พ.ย. 2026 — ให้เห็นว่าจ่ายถูกจ่ายผิด) · A ใช้ 2 · B ใช้ 0.5 · ทั้งสองใบสั่ง 10
+    const lb = r1.lines[1], lx = r1.lines[2];
+    ok('ตาม BOM ราย PO = ใช้ต่อชิ้น × PO qty. · จ่ายเทียบ BOM = จ่ายออก − ตาม BOM',
+       la.byPo.map(p => p.po + ':' + p.need + ':' + p.issueDiff).join() === `${P1}:20:-5,${P2}:20:-13`, JSON.stringify(la.byPo));
+    ok('ตาม BOM ของวัตถุดิบ = รวมทุก PO ที่นับ · จ่ายเทียบ BOM จากยอดรวม', la.usage === 2 && la.need === 40 && la.issueDiff === -18);
+    ok('รหัสในสูตรขึ้นครบทุก PO แม้ใบนั้นยังไม่เคลื่อนไหว (ยอด 0 · ค้างจ่ายเต็มสูตร) · ยอดคงเหลือไม่เปลี่ยน',
+       lb.byPo.map(p => p.po + ':' + p.issued + ':' + p.need + ':' + p.bal).join() === `${P1}:3:5:-3,${P2}:0:5:0`
+       && lb.need === 10 && lb.issueDiff === -7 && lb.bal === -3, JSON.stringify(lb.byPo));
+    ok('รหัสนอกสูตร: ตาม BOM = null (ไม่เดาเป็น 0)', lx.usage === null && lx.need === null && lx.issueDiff === null && lx.byPo[0].need === null);
+    const hd2 = po => (po === P2 ? { pn: 'PN-A', date: '2026-11-02', order: 0 } : head(po));
+    const [r3] = stockPnRows(st, { headerOf: hd2, bomRowsOf });
+    ok('ใบที่ไม่รู้ PO qty.: ตาม BOM ของใบ = null และยอดรวมเป็น null ด้วย (ห้ามรวมแค่บางใบ)',
+       r3.lines[0].byPo[1].need === null && r3.lines[0].byPo[0].need === 20 && r3.lines[0].need === null && r3.lines[0].issueDiff === null);
+    const [r4] = stockPnRows(st, { headerOf: head, bomRowsOf: () => [{ code: A, usage: 0 }, { code: A, usage: 3 }] });
+    ok('สูตรมีรหัสซ้ำ: ใช้บรรทัดแรกที่ใช้ > 0 แบบ mrpRows', r4.lines[0].usage === 3 && r4.lines[0].byPo[0].need === 30);
+    ok('ป้ายจ่ายเทียบ BOM: เกิน · ค้าง · ครบ (เศษหลักที่ 5 นับว่าครบ) · null',
+       [bpDiffLabel(2.5), bpDiffLabel(-7), bpDiffLabel(0), bpDiffLabel(0.00001), bpDiffLabel(null)].map(x => x.join(':')).join()
+       === 'จ่ายเกิน 2.5:bad,ค้างจ่าย 7:warn,ครบ:ok,ครบ:ok,—:');
+    const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+    ok('จอ: คอลัมน์ ตาม BOM / จ่ายเทียบ BOM ทั้งแถววัตถุดิบและแถวราย PO',
+       html.includes('{{ mrpNum(l.need) }}') && html.includes('{{ mrpNum(p.need) }}')
+       && html.includes('bpDiffLabel(l.issueDiff)[0]') && html.includes('bpDiffLabel(p.issueDiff)[0]'));
+    ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
+       html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
+       && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));
+    ok('จอ: บรรทัดส่งคืน Delta ในรายการเคลื่อนไหวเป็นสีเหลือง (เจ้าของสั่ง 22 พ.ย. 2026)',
+       html.includes(`<td :style="m.e.kind === 'sendback' ? 'color:var(--warn);font-weight:600' : ''">{{ m.label }}</td>`)
+       && html.includes(`m.e.kind === 'sendback' ? 'color:var(--warn);font-weight:600'`));
+  }
+  {
     const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('ยอดติดลบราย PO กดแล้วไปแท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ · มีปุ่มกลับไปยอดคงคลัง (เจ้าของสั่ง 19 พ.ย. 2026)',
        html.includes('v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"')
@@ -468,6 +498,30 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
     ok('จอ: ตัวกรองบรรทัดวัตถุดิบกับช่องค้นหาใช้ l.live (ไม่ใช่ยอดรวม) จะได้ไม่ซ่อนใบที่ติดลบ',
        html.includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
        && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.some(l => l.live && l.code.includes(q))'));
+  }
+  {
+    /* รหัสนอกสูตรที่เคลื่อนไหวหลายใบ ต้องรวมครบทุกใบ (ผู้ตรวจ #184 รอบ 1)
+     * เดิมลูปรหัสนอกสูตรเช็ก lines.has(code) ทั้งที่ตัวมันเองใส่รหัสนั้นเข้า lines → ใบที่ 2 ขึ้นไปหายทั้งก้อน */
+    const es4 = [mk('receive', A, 20, P1), mk('issue', A, 10, P1),
+                 mk('receive', X, 4, P1), mk('issue', X, 1, P1),
+                 mk('receive', X, 9, P2), mk('issue', X, 2, P2)];
+    const st4 = poStocks(es4, EN);
+    const lx4 = stockPnRows(st4, { headerOf: head, bomRowsOf })[0].lines.find(l => l.code === X);
+    ok('รหัสนอกสูตรที่เคลื่อนไหวสองใบ: กางได้ครบสองใบ และยอดรวม = ผลรวมทั้งสองใบ',
+       lx4.byPo.map(p => p.po).join() === [P1, P2].join()
+       && lx4.recv === 13 && lx4.issued === 3 && lx4.bal === 10
+       && lx4.byPo.every(p => JSON.stringify(poStockOf(es4, EN, p.po).get(X)) ===
+                              JSON.stringify({ recv: p.recv, sendback: p.sendback, issued: p.issued, bal: p.bal })),
+       JSON.stringify({ recv: lx4.recv, issued: lx4.issued, bal: lx4.bal, byPo: lx4.byPo.map(p => p.po + ':' + p.bal) }));
+    // กลุ่ม "ไม่รู้ P/N" ไม่มีรหัสในสูตรเลย (bomRowsOf ไม่ถูกเรียก) ทุกรหัสจึงเดินผ่านลูปนี้ → โดนหนักสุด
+    const N1 = 'TM0009001', N2 = 'TM0009002';
+    const es5 = [mk('receive', A, 100, N1), mk('issue', A, 40, N1), mk('sendback', A, 1, N1),
+                 mk('receive', A, 60, N2), mk('issue', A, 10, N2)];
+    const r5 = stockPnRows(poStocks(es5, EN), { headerOf: head, bomRowsOf }).find(g => g.pn === '');
+    ok('กลุ่มไม่รู้ P/N: รหัสเดียวกันสองใบ ยอดรวมครบทั้งสองใบ (ไม่ใช่เหลือใบแรกใบเดียว)',
+       r5.lines.length === 1 && r5.lines[0].recv === 160 && r5.lines[0].issued === 50
+       && r5.lines[0].sendback === 1 && r5.lines[0].bal === 109 && r5.lines[0].byPo.length === 2,
+       JSON.stringify(r5.lines));
   }
   {
     /* ใบที่แท็บ MRP ไม่มีแถวให้เลย ไม่ใช่ "ใบที่ปิดแล้ว" แต่คือใบที่ MRP ตัดสินไม่ได้ — ห้ามซ่อน (B4 · ผู้ตรวจ #175 รอบ 2)
