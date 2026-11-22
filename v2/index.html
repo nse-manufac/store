@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-22.1">
+<meta name="app-version" content="2026-11-22.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -117,7 +117,7 @@ button.tag.mrp-via:hover{text-decoration:underline}
 .mrp-dot{width:8px;height:8px;border-radius:50%;background:#c5ced8}
 .mrp-dot.ok{background:var(--ok)} .mrp-dot.bad{background:var(--bad)} .mrp-dot.warn{background:#d99a1e}
 tr.mrp-po{cursor:pointer} tr.mrp-po:hover td{background:var(--soft)}
-.mrp-in{padding:8px 12px 16px 30px}
+.mrp-in{padding:8px 12px 16px 30px;white-space:normal}   /* ข้อความในช่องกาง (เช่น "PO ที่นับ" หลายใบ) ขึ้นบรรทัดใหม่ได้ — ไม่งั้นดันตารางล้นขวา · ช่องตารางข้างในยัง nowrap ตาม .mrp td */
 .mrp-bom{margin-top:8px;border:1px solid var(--line);background:var(--panel)}
 /* PO ที่กางอยู่ — แถบซ้ายสีหลัก + พื้นอ่อน + เส้นปิดท้าย ให้แยกจากแถวอื่นชัด (เจ้าของขอ 13 พ.ย. 2026)
    เป็นสีของ "กำลังกาง" ไม่ใช่สีสถานะ — สถานะยังอยู่ที่ป้ายอย่างเดียว */
