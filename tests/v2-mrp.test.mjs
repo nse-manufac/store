@@ -511,7 +511,8 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        lx4.byPo.map(p => p.po).join() === [P1, P2].join()
        && lx4.recv === 13 && lx4.issued === 3 && lx4.bal === 10
        && lx4.byPo.every(p => JSON.stringify(poStockOf(es4, EN, p.po).get(X)) ===
-                              JSON.stringify({ recv: p.recv, sendback: p.sendback, issued: p.issued, bal: p.bal })),
+                              /* ลำดับ key ต้องตรงกับที่ poStockOf คืน: recv, sendback, issued, frac, bal */
+                              JSON.stringify({ recv: p.recv, sendback: p.sendback, issued: p.issued, frac: p.frac, bal: p.bal })),
        JSON.stringify({ recv: lx4.recv, issued: lx4.issued, bal: lx4.bal, byPo: lx4.byPo.map(p => p.po + ':' + p.bal) }));
     // กลุ่ม "ไม่รู้ P/N" ไม่มีรหัสในสูตรเลย (bomRowsOf ไม่ถูกเรียก) ทุกรหัสจึงเดินผ่านลูปนี้ → โดนหนักสุด
     const N1 = 'TM0009001', N2 = 'TM0009002';

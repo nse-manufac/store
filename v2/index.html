@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-23.2">
+<meta name="app-version" content="2026-11-23.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3733,9 +3733,15 @@ textarea{font:inherit}
                     <span class="mono hint">{{ voidBox.row.lot ? '· ล็อต ' + voidBox.row.lot : '' }}</span></td></tr>
             <tr><td class="hint">ผู้บันทึก</td><td>{{ voidBox.row.person }}</td></tr>
           </tbody></table>
+          <p class="hint" v-if="voidTwins.length" style="margin:12px 0 0">รายการล้างเศษ PO {{ voidTwins[0].doc_ref }}
+            (ส่วนต่าง {{ voidTwins[0].delta }}) ที่ระบบทำพร้อมจ่ายออกรายการนี้ จะถูกยกเลิกไปด้วย</p>
           <div class="msg warn" v-if="voidAfterAdjust" style="margin:12px 0 0">
             <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ localDate(voidAfterAdjust.at) }}</b><br>
-            <span class="hint">ส่วนต่างของการปรับยอดถูกแช่แข็งไว้ตั้งแต่ตอนบันทึกและจะไม่คำนวณใหม่
+            <!-- ล้างเศษไม่ได้นับจริง — ห้ามเขียน "ที่เคยนับได้ 0" (ผู้ตรวจ #185) -->
+            <span class="hint" v-if="isFracAdj(voidAfterAdjust)">รายการนั้นคือ <b>ล้างเศษ PO {{ voidAfterAdjust.doc_ref }}</b> ที่ระบบทำเอง
+              (ส่วนต่าง {{ voidAfterAdjust.delta }} แช่แข็งไว้ตั้งแต่ตอนบันทึก) — ยกเลิกรายการนี้แล้วยอดของ PO นั้นจะไม่เป็นศูนย์
+              ถ้าจะให้กลับเหมือนก่อนล้าง ให้ยกเลิกรายการล้างเศษนั้นด้วย (อยู่ในการ์ดของรหัสนี้)</span>
+            <span class="hint" v-else>ส่วนต่างของการปรับยอดถูกแช่แข็งไว้ตั้งแต่ตอนบันทึกและจะไม่คำนวณใหม่
               ยกเลิกแล้วยอดคงเหลือจะไม่ตรงกับ {{ voidAfterAdjust.counted_qty }} ที่เคยนับได้อีก
               — ถ้าของจริงยังเท่าเดิม ให้ปรับยอดอีกครั้งหลังยกเลิก</span>
           </div>
