@@ -1558,6 +1558,9 @@ textarea{font:inherit}
                 <span class="hint">{{ bpShown.length }} P/N</span>
               </template>
             </div>
+            <!-- เศษค้างของเก่าส่วนใหญ่อยู่ใน PO ที่ซ่อนไว้ (ผู้ตรวจ #186 · เจ้าของเคาะ 24 พ.ย.) -->
+            <p v-if="balView==='pn' && !bpClosed" class="hint noprint" style="margin:0 0 8px">PO ที่ส่งครบแล้วหรือเก่ากว่า {{ MRP_FRESH_DAYS }} วันซ่อนอยู่ ·
+              จะตามล้างเศษของ PO เก่า ให้ติ๊ก "รวม PO ที่ปิดแล้ว" ก่อน</p>
             <div v-if="balView==='pn'" class="scroll" style="max-height:none">
               <table class="mrp">
                 <thead><tr><th style="width:28px"></th><th>P/N</th><th>PO ที่นับ</th><th>PO Date เก่าสุด</th>

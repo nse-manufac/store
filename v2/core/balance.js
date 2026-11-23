@@ -186,7 +186,8 @@ export function isFracLeft(r, tol) {
 
 /* เลขรายการล้างเศษ: คู่ PO+รหัสเดียวกันในสถานะเดียวกันได้เลขเดียวกันเสมอ
  *   สองเครื่องกดล้างพร้อมกันก่อนซิงค์ → ซิงค์แล้วรวมเป็นรายการเดียว ไม่หักซ้อน
- *   n = จำนวนรายการล้างเศษของคู่นี้ที่มีอยู่แล้ว (รวมที่ยกเลิก) → ยกเลิกแล้วล้างใหม่ได้เลขใหม่ ไม่ทับประวัติ (B1) */
+ *   n = จำนวนรายการล้างเศษของคู่นี้ที่มีอยู่แล้ว (รวมที่ยกเลิก) → ยกเลิกแล้วล้างใหม่ได้เลขใหม่ ไม่ทับประวัติ (B1)
+ *   คั่นด้วย | ไม่ใช่ - เพราะเลข PO / รหัสอาจมีขีด แล้วสองคู่ต่างกันจะได้เลขเดียวกัน (ผู้ตรวจ #186) */
 function fracSeen(entries, entity) {
   const m = new Map();
   for (const e of entries) if (e.entity === entity && isFracAdj(e)) {
@@ -196,7 +197,7 @@ function fracSeen(entries, entity) {
   return m;
 }
 function fracEntry(entity, { po, code, bal, tol }, { person, device = '', at, part_no = '' }, seen) {
-  return makeEntry({ id: `FRAC-${entity}-${po}-${code}-${seen.get(po + '|' + code) || 0}`,
+  return makeEntry({ id: `FRAC|${entity}|${po}|${code}|${seen.get(po + '|' + code) || 0}`,
                      entity, kind: 'adjust', material_code: code, reason_code: FRAC_REASON,
                      counted_qty: 0, book_qty: bal, doc_kind: 'po', doc_ref: po, part_no, person, device, at,
                      note: `ล้างเศษ PO ${po}: คงเหลือ ${bal} ต่ำกว่าเกณฑ์ ${tol}` });

@@ -517,6 +517,12 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
   ok('ยกเลิกรายการล้างเศษแล้วล้างใหม่ ได้เลขใหม่ ไม่ทับประวัติที่ยกเลิก (B1)',
      (() => { const again = fracSweep([...rows, voidEntry(of(P), { by: 'เจ้าของ', reason: 'ทดสอบ' })], E, 'POF', [P], tolOf, by);
               return again.length === 1 && again[0].id !== of(P).id; })());
+  ok('เลขรายการล้างเศษคั่นด้วย | — PO/รหัสที่มีขีดไม่ชนกัน (ผู้ตรวจ #186)',
+     (() => { const mk = (po, c) => fracSweep([{ id: 'r', entity: E, kind: 'receive', material_code: c, doc_ref: po, qty: 1.5, at: '2026-11-01T00:00:00Z' },
+                                               { id: 'i', entity: E, kind: 'issue', material_code: c, doc_ref: po, qty: 1, at: '2026-11-02T00:00:00Z' }],
+                                              E, po, [c], () => 1, by)[0];
+              const a = mk('A-B', 'C'), b = mk('A', 'B-C');
+              return !!a && !!b && a.id !== b.id && a.id === `FRAC|${E}|A-B|C|0`; })());
   {
     const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
     const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
@@ -524,6 +530,8 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
        /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracClean\(p\.po, l\.code\)">ล้างเศษ<\/button>/.test(htmlB)
        && /const bpFrac = \(p, code\) => isFracLeft\(p, fracTolAt\(code\)\);/.test(appB)
        && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person: who/.test(appB)
+       && /if \(!who\) \{ flash\('ยังไม่ได้ใส่ชื่อคนกด/.test(appB)
+       && /v-if="balView==='pn' && !bpClosed" class="hint noprint"[^>]*>PO ที่ส่งครบแล้วหรือเก่ากว่า \{\{ MRP_FRESH_DAYS \}\}/.test(htmlB)
        && /label: isFracAdj\(m\.e\) \? 'ล้างเศษ' : KINDS/.test(appB) && !/fracLeftovers|balView==='frac'/.test(appB + htmlB));
   }
   throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');

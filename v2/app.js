@@ -1838,7 +1838,7 @@ createApp({
     const bpFrac = (p, code) => isFracLeft(p, fracTolAt(code));
     async function bpFracClean(po, code) {
       const who = (prompt(`ล้างเศษ ${code} ใน PO ${po} — ใส่ชื่อคนกด`, fsBy.value) || '').trim();
-      if (!who) return;
+      if (!who) { flash('ยังไม่ได้ใส่ชื่อคนกด — ยังไม่ได้ล้างเศษ', true); return; }
       try {
         const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person: who, device: device.value });
         if (add.length) { await db.put('entries', add); entries.value.push(...add); db.announce('entries'); }
