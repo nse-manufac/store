@@ -17,8 +17,8 @@ import { makeSession, sheetRows, planCount, planSummary, postCount, STATUS,
 import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js';
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
-         setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue } from './core/balance.js';
+         setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, fracSweep, fracTwins } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -1083,7 +1083,7 @@ createApp({
     /** ช่องหมายเหตุในการ์ด — ต่อเฉพาะส่วนที่มีจริง ไม่งั้นจะได้ "· " ห้อยหน้าลอย ๆ */
     const noteCell = e => [
       reasonLabel(e),
-      (e.kind === 'adjust' && e.counted_qty != null) ? 'นับได้ ' + e.counted_qty : '',
+      (e.kind === 'adjust' && e.counted_qty != null && !isFracAdj(e)) ? 'นับได้ ' + e.counted_qty : '',
       e.note
     ].filter(Boolean).join(' · ');
 
@@ -1587,17 +1587,29 @@ createApp({
          neg.slice(0, 5).map(l => l.code + ' → ' + outAfterOf(l)).join('\n'),
          '', 'ยืนยันบันทึกไหม'].join('\n'))) return;
       try {
+        // เวลาเดียวต่อการบันทึก — คิดก่อน map (ผู้ตรวจรอบ 4 ข้อ 1)
+        // atFrom หยิบมิลลิวินาทีของนาฬิกาขณะนั้น ถ้าเรียกใหม่ทุกบรรทัด บรรทัดที่ 2 ขึ้นไป
+        // จะมี at ต่างจากรายการล้างเศษ แล้ว fracTwins ผูกคู่ไม่เจอ (ยกเลิกจ่ายออกแล้วเศษค้าง)
+        const at = atFrom(outH.date);
         const posted = outReady.value.map(l => makeEntry({
           entity: entity.value, kind: 'issue', material_code: l.code, qty: Number(l.qty),
           lot: l.lot, lot_inferred: l.inferred && !!l.lot,
           doc_kind: outH.po ? 'po' : '', doc_ref: outH.po, part_no: outH.pn,
-          at: atFrom(outH.date), person: outH.person, device: device.value
+          at, person: outH.person, device: device.value
         }));
         await db.put('entries', posted);
         entries.value.push(...posted);
+        // ล้างเศษ PO (เจ้าของเคาะ 22 พ.ย. 2026) — ตรรกะอยู่ที่ fracSweep · พลาดก็ไม่ทำให้จ่ายออกดูเหมือนล้ม
+        let crumbs = [], crumbErr = '';
+        if (outH.po) try {
+          crumbs = fracSweep(entries.value, entity.value, outH.po, posted.map(e => e.material_code), fracTolAt,
+                             { person: outH.person, device: device.value, at, part_no: outH.pn });
+          if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
+        } catch (err) { crumbs = []; crumbErr = err.message; }
         db.announce('entries');
         flash(`บันทึกจ่ายออก ${posted.length} รายการ`
-              + (outH.po ? ` · PO ${outH.po}` : ''));
+              + (outH.po ? ` · PO ${outH.po}` : '') + (crumbs.length ? ` · ล้างเศษ ${crumbs.length} รายการ` : '')
+              + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
         // เลข PO ยังอยู่บนหัวจอ — จำนวนสั่งต้องเป็นของใบนั้น ไม่ใช่ว่าง (ผู้ตรวจ #170 รอบ 2 ข้อ 1)
         // ถ้าล้างเป็นว่าง จ่ายรอบสองของใบเดิม "ตามสูตร" กับ "ยังต้องจ่าย" ว่างจนกว่าจะสลับ PO ไปมา
         outLines.value = []; outHint.value = ''; outH.order = outOrderOfPo();
@@ -1613,7 +1625,7 @@ createApp({
                           date: todayLocal(), person: '' });
 
     const mkDef = computed(() => KINDS[mk.kind]);
-    const mkReasons = computed(() => REASONS[mk.kind] || []);
+    const mkReasons = computed(() => (REASONS[mk.kind] || []).filter(r => !r.auto));   // ล้างเศษ = ระบบทำเอง ไม่ให้เลือก
     const mkMat = computed(() => matOf(mk.code));
     const mkUnit = computed(() => (mkMat.value || {}).unit || '');
     const mkBook = computed(() =>
@@ -1716,14 +1728,17 @@ createApp({
         && normCode(e.material_code) === c && e.at > r.at);
       return later.length ? later[later.length - 1] : null;
     });
+    // ล้างเศษที่เกิดพร้อมจ่ายออกรายการนี้ — ยกเลิกไปด้วยกัน (เจ้าของเคาะ 23 พ.ย. 2026 · ตรรกะ fracTwins)
+    const voidTwins = computed(() => voidBox.row ? fracTwins(entries.value, entries.value.find(e => e.id === voidBox.row.id)) : []);
     async function doVoid() {
       try {
-        const src = entries.value.find(e => e.id === voidBox.row.id);
-        const v = voidEntry(src, { by: voidBox.by.trim(), reason: voidBox.reason.trim() });
-        await db.put('entries', v);
-        entries.value.splice(entries.value.indexOf(src), 1, v);
+        const src = entries.value.find(e => e.id === voidBox.row.id), by = voidBox.by.trim(), reason = voidBox.reason.trim();
+        const v = voidEntry(src, { by, reason });
+        const tw = fracTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกตามจ่ายออกที่ถูกยกเลิก: ${reason}` }));
+        await db.put('entries', [v, ...tw]);
+        for (const x of [v, ...tw]) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
         db.announce('entries');
-        flash('ยกเลิกรายการแล้ว — ยังอยู่ในสมุดให้ตรวจย้อนหลังได้');
+        flash('ยกเลิกรายการแล้ว' + (tw.length ? ` พร้อมล้างเศษที่คู่กัน ${tw.length} รายการ` : '') + ' — ยังอยู่ในสมุดให้ตรวจย้อนหลังได้');
         voidBox.row = null;
       } catch (err) { flash(err.message, true); }
     }
@@ -4080,6 +4095,6 @@ createApp({
              fbmBusy, fxSug, fxMats, fxSugList, fxAdd, fxTyping, fxMove, fxChoose, fxBlur, fxRemove,
              fbPick, fbDoc, fbPicked, fbDocGroups, fbCanPick, fbIssue, fbReissue,
              scrapPos, poUnknown, checked,
-             voidBox, askVoid, doVoid, voidAfterAdjust, reasonLabel, noteCell };
+             voidBox, askVoid, doVoid, voidAfterAdjust, voidTwins, reasonLabel, noteCell, isFracAdj };
   }
 }).mount('#app');

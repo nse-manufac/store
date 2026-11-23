@@ -29,6 +29,10 @@ export const round5 = n => Math.round(n * 1e5) / 1e5;
 export const FRAC_TOL = Object.freeze({ PCE: 1, KGM: 0.001, MTR: 0.01 });
 export const fracTolOf = unit => FRAC_TOL[String(unit || '').trim().toUpperCase()] || 0;
 
+/** ปรับยอด "ล้างเศษ PO" ที่ระบบเขียนเอง (fracSweep · core/balance.js) — นับเข้ายอดของ PO ด้วย ต่างจากปรับยอดชนิดอื่น */
+export const FRAC_REASON = 'frac';
+export const isFracAdj = e => !!e && e.kind === 'adjust' && e.reason_code === FRAC_REASON;
+
 /**
  * ชนิดการเคลื่อนไหวทั้งหมดที่ระบบรู้จัก
  *
@@ -71,7 +75,9 @@ export const REASONS = {
     { code: 'count',  label: 'นับได้ไม่ตรงสมุด' },
     { code: 'keyerr', label: 'คีย์ผิดแล้วเพิ่งรู้' },
     { code: 'found',  label: 'เจอของที่ไม่เคยบันทึก' },
-    { code: 'other',  label: 'อื่น ๆ (ต้องเขียนเพิ่ม)' }
+    { code: 'other',  label: 'อื่น ๆ (ต้องเขียนเพิ่ม)' },
+    // auto = ระบบเขียนเอง ไม่ขึ้นในช่องให้คนเลือก (เจ้าของเคาะ 22 พ.ย. 2026)
+    { code: 'frac',   label: 'ล้างเศษจากการคำนวณ (ระบบทำเอง)', auto: true }
   ],
   return: [
     { code: 'over',   label: 'เบิกเกินแล้วเอากลับ' },

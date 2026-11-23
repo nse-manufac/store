@@ -8,7 +8,7 @@
  * บริษัทมีหลายนิติบุคคลใช้แอปเดียวกัน การลืมกรองทำให้ยอดข้ามบริษัทกันโดยไม่มีอะไรเตือน
  * จึงทำให้ "ลืมไม่ได้" ด้วยการไม่ให้มีค่าเริ่มต้น
  */
-import { signedQty, counts, round5, KINDS, isKnownKind } from './ledger.js';
+import { signedQty, counts, round5, KINDS, isKnownKind, makeEntry, isFracAdj, FRAC_REASON } from './ledger.js';
 
 function need(entity) {
   if (!entity) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
@@ -104,15 +104,22 @@ export const receivedOfDoc = (entries, entity, docRef) => movedOfDoc(entries, en
  * ⚠️ ไม่นับ "คืนของ" กับ "ของเสีย" แม้คีย์อ้าง PO นี้ (เจ้าของเคาะ)
  *   คืนของ = ของเหลือจากไลน์กลับเข้าคลัง · ของเสีย = ของที่จ่ายออกไปแล้วถึงเสีย — ไม่ใช่ยอดของใบนี้
  * ⚠️ ไม่ใช่ยอดคงคลัง — ยกยอดมา · ปรับยอด · รับเข้าที่ไม่อ้าง PO ไม่อยู่ในนี้ ห้ามเอาไปแทน balances()
+ * ⚠️ ยกเว้นปรับยอด "ล้างเศษ PO" (isFracAdj) นับเป็น frac ด้วย — ไม่งั้นล้างแล้วยอด PO ยังค้างเศษเหมือนเดิม (เจ้าของเคาะ 22 พ.ย. 2026)
+ *   bal = รับ − ส่งคืน − จ่าย + frac
  */
 export function poStockOf(entries, entity, docRef) {
   const recv = movedOfDoc(entries, entity, docRef, 'receive');
   const back = movedOfDoc(entries, entity, docRef, 'sendback');
   const iss  = movedOfDoc(entries, entity, docRef, 'issue');
+  const frac = new Map(), ref = String(docRef || '');
+  if (ref) for (const e of entries) {
+    if (e.entity !== entity || !counts(e) || !isFracAdj(e) || String(e.doc_ref) !== ref) continue;
+    frac.set(String(e.material_code), round5((frac.get(String(e.material_code)) || 0) + signedQty(e)));
+  }
   const m = new Map();
-  for (const c of new Set([...recv.keys(), ...back.keys(), ...iss.keys()])) {
-    const r = recv.get(c)?.qty || 0, s = back.get(c)?.qty || 0, i = iss.get(c)?.qty || 0;
-    m.set(c, { recv: r, sendback: s, issued: i, bal: round5(r - s - i) });
+  for (const c of new Set([...recv.keys(), ...back.keys(), ...iss.keys(), ...frac.keys()])) {
+    const r = recv.get(c)?.qty || 0, s = back.get(c)?.qty || 0, i = iss.get(c)?.qty || 0, f = frac.get(c) || 0;
+    m.set(c, { recv: r, sendback: s, issued: i, frac: f, bal: round5(r - s - i + f) });
   }
   return m;
 }
@@ -126,13 +133,14 @@ export function poStocks(entries, entity) {
   need(entity);
   const out = new Map();
   for (const e of entries) {
-    if (e.entity !== entity || !counts(e) || !PO_FIELD[e.kind]) continue;
+    if (e.entity !== entity || !counts(e) || !(PO_FIELD[e.kind] || isFracAdj(e))) continue;
     const po = String(e.doc_ref || ''), c = String(e.material_code);
     if (!po) continue;
     if (!out.has(po)) out.set(po, new Map());
-    const m = out.get(po), r = m.get(c) || { recv: 0, sendback: 0, issued: 0, bal: 0 };
-    r[PO_FIELD[e.kind]] = round5(r[PO_FIELD[e.kind]] + (e.qty || 0));
-    r.bal = round5(r.recv - r.sendback - r.issued);
+    const m = out.get(po), r = m.get(c) || { recv: 0, sendback: 0, issued: 0, frac: 0, bal: 0 };
+    if (isFracAdj(e)) r.frac = round5(r.frac + signedQty(e));
+    else r[PO_FIELD[e.kind]] = round5(r[PO_FIELD[e.kind]] + (e.qty || 0));
+    r.bal = round5(r.recv - r.sendback - r.issued + r.frac);
     m.set(c, r);
   }
   return out;
@@ -143,8 +151,43 @@ export function poMoves(entries, entity, docRef, code) {
   const po = String(docRef || ''), c = String(code);
   let run = 0;
   return po ? live(entries, entity)
-    .filter(e => PO_FIELD[e.kind] && String(e.doc_ref) === po && String(e.material_code) === c)
-    .map(e => { const qty = e.kind === 'receive' ? e.qty : -e.qty; run = round5(run + qty); return { e, qty, run }; }) : [];
+    .filter(e => (PO_FIELD[e.kind] || isFracAdj(e)) && String(e.doc_ref) === po && String(e.material_code) === c)
+    .map(e => { const qty = isFracAdj(e) ? signedQty(e) : e.kind === 'receive' ? e.qty : -e.qty; run = round5(run + qty); return { e, qty, run }; }) : [];
+}
+
+/**
+ * ล้างเศษของ PO (เจ้าของเคาะ 22 พ.ย. 2026) — คืนรายการปรับยอด "ล้างเศษ" ของรหัสที่คงเหลือ PO เป็นเศษ
+ *   เศษ = 0 < |คงเหลือ PO| < tolOf(code) (FRAC_TOL ของหน่วย · core/ledger.js) ทั้งเหลือและติดลบ
+ *   เช่น รับ 438 ชิ้น จ่ายตามสูตร 437.10025 → ล้าง −0.89975 · รับ 65 จ่าย 65.005 → ล้าง +0.005
+ * แยกเป็นรายการปรับยอดต่างหาก ไม่แก้ยอดจ่าย (เจ้าของเลือกแบบ ก) — ยอดจ่ายยังตรงกับที่คีย์
+ * counted_qty = 0 · book = คงเหลือ PO ก่อนล้าง → delta = −เศษ · ยอดรวมของรหัสก็ขยับตามด้วย (เศษนั้นไม่มีอยู่จริง)
+ * ผู้เรียกต้องเขียนรายการที่คืนลงสมุดเอง · ไม่มีเศษ = []
+ */
+export function fracSweep(entries, entity, po, codes, tolOf, { person, device = '', at, part_no = '' } = {}) {
+  need(entity);
+  const ref = String(po || '');
+  if (!ref || typeof tolOf !== 'function') return [];
+  const st = poStockOf(entries, entity, ref), out = [];
+  for (const c of new Set((codes || []).map(String))) {
+    const r = st.get(c), tol = Number(tolOf(c)) || 0;
+    // ยังไม่ได้รับเข้าเลย = ไม่ใช่เศษ ห้ามล้าง (กฎเดียวกับ #182 · เจ้าของเคาะ 23 พ.ย. 2026)
+    // จ่าย 0.8 ก่อนคีย์รับ → ล้าง +0.8 แล้วพอรับเข้าทีหลัง ยอดที่จ่ายไปจะหายทั้งก้อน
+    if (!r || !(r.recv > 0) || !r.bal || Math.abs(r.bal) >= tol) continue;
+    out.push(makeEntry({ entity, kind: 'adjust', material_code: c, reason_code: FRAC_REASON,
+                         counted_qty: 0, book_qty: r.bal, doc_kind: 'po', doc_ref: ref, part_no, person, device, at,
+                         note: `ล้างเศษ PO ${ref}: คงเหลือ ${r.bal} ต่ำกว่าเกณฑ์ ${tol}` }));
+  }
+  return out;
+}
+
+/** รายการล้างเศษที่เกิดพร้อมจ่ายออกรายการนี้ (ยังไม่ยกเลิก) — ยกเลิกจ่ายออกแล้วต้องยกเลิกคู่กัน (เจ้าของเคาะ 23 พ.ย. 2026)
+ *  ผูกด้วย PO + รหัส + เวลา: saveOut คิดเวลา (atFrom) ครั้งเดียวต่อการบันทึก แล้วส่งตัวเดียวกันนั้นให้ทุกบรรทัด
+ *  และให้ fracSweep จึงเท่ากันทุกตัวอักษร (เรียก atFrom ใหม่ทุกบรรทัดจะได้มิลลิวินาทีต่างกัน แล้วการผูกขาดเงียบ ๆ)
+ *  ไม่ต้องเพิ่มช่องในสมุด (E2) */
+export function fracTwins(entries, e) {
+  if (!e || e.kind !== 'issue' || !e.doc_ref) return [];
+  return entries.filter(x => x.entity === e.entity && isFracAdj(x) && !x.voided && x.at === e.at
+                             && String(x.doc_ref) === String(e.doc_ref) && String(x.material_code) === String(e.material_code));
 }
 
 /** ยังต้องจ่ายอีก = ตามสูตร − จ่ายแล้ว · null ถ้ายังไม่รู้ยอดตามสูตร (ไม่เดาเป็น 0) · ติดลบ = จ่ายเกินสูตรแล้ว */

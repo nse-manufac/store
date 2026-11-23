@@ -13,7 +13,7 @@
  * ทุกที่ที่แสดงล็อตที่ระบบเดาให้ ต้องมีป้ายกำกับว่าเป็นค่าที่อนุมาน ห้ามปล่อยให้ดูเหมือนของที่บันทึกไว้
  * — นี่คือกฎเดียวกับหน่วย TP ที่ยังไม่ยืนยัน: มีหลักฐานพอให้ใช้ แต่ต้องไม่พูดเกินกว่าที่รู้
  */
-import { signedQty, counts, round5 } from './ledger.js';
+import { signedQty, counts, round5, isFracAdj } from './ledger.js';
 
 /**
  * เลขล็อตตอนรับเข้า — ไม่ใส่ = วันที่รับเข้า (เจ้าของเคาะ 24 ก.ย. 2026 ให้รับเข้าปกติเหมือนรับเข้ารวม)
@@ -64,7 +64,7 @@ export function lotsOf(entries, entity, code) {
     .sort((a, b) => (a.lot === '' ? -1 : b.lot === '' ? 1 : 0) || a.first.localeCompare(b.first));
 }
 
-// ชนิดที่นับเป็นของ PO — ชุดเดียวกับ poStockOf (core/balance.js) · ไม่นับคืนของ/ของเสีย
+// ชนิดที่นับเป็นของ PO — ชุดเดียวกับ poStockOf (core/balance.js) · ไม่นับคืนของ/ของเสีย · บวกปรับยอดล้างเศษ (isFracAdj)
 const PO_KINDS = new Set(['receive', 'sendback', 'issue']);
 
 /**
@@ -80,7 +80,7 @@ export function poLotsOf(entries, entity, code, docRef) {
   const c = String(code), ref = String(docRef || '');
   if (!ref) return [];
   const rows = entries.filter(e => e.entity === entity && counts(e) && String(e.material_code) === c
-    && String(e.doc_ref) === ref && PO_KINDS.has(e.kind));
+    && String(e.doc_ref) === ref && (PO_KINDS.has(e.kind) || isFracAdj(e)));
   const piles = new Map();
   for (const e of rows) {
     const d = signedQty(e);
