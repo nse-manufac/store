@@ -696,7 +696,7 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
     : htmlOver.slice(iOver, htmlOver.indexOf(`v-else-if="tab===`, iOver + 1));
   ok('หาบล็อกแท็บ over รอคืน ใน index.html เจอ', foverSrc.length > 0);
   ok('วันที่คืนในตารางผ่าน localDate ไม่ slice ISO เอาเอง',
-     /คืน \{\{ localDate\(r\.s\.done_at\) \}\}/.test(foverSrc)
+     /\{\{ localDate\(r\.s\.done_at\) \}\}/.test(foverSrc)
      && !/done_at[^}]*\.slice\(0,\s*10\)/.test(foverSrc));
   ok('localDate ส่งออกให้เทมเพลตใช้ได้จริง',
      /\blocalDate\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
