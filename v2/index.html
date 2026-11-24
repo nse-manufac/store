@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-24.3">
+<meta name="app-version" content="2026-11-24.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2545,7 +2545,7 @@ textarea{font:inherit}
                 <tr v-if="fsSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับแล้ว</th><th class="r">ขาด</th><th></th></tr>
                 <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ระบบคิดได้</th><th class="r">ค้าง</th><th>ยอดที่มา (เว้นว่าง = มาครบ)</th></tr>
                 <tr v-if="fsSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่มาครบ</th><th><span class="fol-got">ยอดที่มา</span></th></tr>
-                <tr v-if="fsSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">หยุดเมื่อ</th><th>โดย</th><th class="r">ค้างตอนหยุด</th><th></th></tr>
+                <tr v-if="fsSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">ยอดตาม BOM</th><th class="r">ยอดที่รับเข้า</th><th class="r">ยอดที่ขาด</th><th><span class="fol-got">วันที่หยุดติดตาม</span></th></tr>
                 <template v-if="fsSeg === 'new'">
                   <tr v-for="r in g.items" :key="r.code" class="fol-it">
                     <td></td><td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td><td>{{ mrpName(r.code) }}</td>
@@ -2593,10 +2593,14 @@ textarea{font:inherit}
                   <tr v-for="x in g.items" :key="x.s.id" class="fol-it" :data-fid="x.s.id">
                     <td></td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                     <td>{{ mrpName(x.s.code) }}
-                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) }}</div></td>
-                    <td class="mono r hint">{{ localDate(x.s.void_at) }}</td><td class="hint">{{ x.s.void_by }}</td>
-                    <td class="mono r">{{ mrpNum(remainOf(x.s)) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ mrpNum(x.s.qty) }}</span></td>
-                    <td class="fol-act"><button class="btn" :disabled="starting.has('fsrestart|' + x.s.id)" @click="fsRestart(x.s)">กลับมาติดตาม</button></td>
+                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) || '(ไม่ได้ใส่เหตุผล)' }}</div></td>
+                    <!-- หลักฐานว่าขาดน้อยจริงจึงหยุดตาม: ตาม BOM − รับเข้า = ขาด แล้ววันที่+คนที่หยุด (เจ้าของสั่ง 24 พ.ย. 2026)
+                         ไม่มีวันที่ตั้งเรื่อง — หลายแถวไม่ติดตามตั้งแต่ยังไม่ตั้งเรื่อง · ตัวเลขคิดใน stopEvidence (master/follow.js) -->
+                    <td class="mono r hint">{{ stopEvidence(x.s).bom == null ? '—' : mrpNum(stopEvidence(x.s).bom) }}</td>
+                    <td class="mono r hint">{{ stopEvidence(x.s).recv == null ? '—' : mrpNum(stopEvidence(x.s).recv) }}</td>
+                    <td class="mono r fol-key">{{ mrpNum(stopEvidence(x.s).short) }} <span class="hint">{{ x.s.unit }}</span></td>
+                    <td class="fol-act"><span class="fol-got mono hint">{{ localDate(x.s.void_at) }}<div v-if="x.s.void_by">{{ x.s.void_by }}</div></span>
+                      <button class="btn" :disabled="starting.has('fsrestart|' + x.s.id)" @click="fsRestart(x.s)">กลับมาติดตาม</button></td>
                   </tr>
                 </template>
               </template>
