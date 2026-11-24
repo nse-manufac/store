@@ -2392,7 +2392,7 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
     const oagain = cancelOver(closeFollow(restartOver(opart, { by: 'ง', date: '2026-11-21' }), { qty: 1, by: 'ง' }), { by: 'ง', why: 'พอแล้ว' });
     ok('หลักฐานหยุดตาม over: กลับมาติดตามแล้วยกเลิกอีก — ยังบวกลบลง (512 − 7 − 500 = 5)',
        eq(overStopEvidence(oagain), { bom: 500, recv: 512, back: 7, over: 5 }), JSON.stringify(overStopEvidence(oagain)));
-    ok('หลักฐานหยุดตาม over: แถวที่ข้อมูลขัดกันเอง (แก้มือในชีต · รุ่นเก่า) จนคืนคิดได้ติดลบ — ไม่โชว์คืน ใช้ ตาม BOM + เกิน',
+    ok('หลักฐานหยุดตาม over: bom_qty กับ recv_qty มาจากคนละแหล่ง (ไฟล์ Delta ทับเรื่องจากการ์ด) จนคืนคิดได้ติดลบ — ไม่โชว์คืน ใช้ ตาม BOM + เกิน',
        eq(overStopEvidence({ qty: 20, bom_qty: 500, recv_qty: 510 }), { bom: 500, recv: 520, back: null, over: 20 }));
     ok('หลักฐานหยุดตาม over: ไม่รู้ยอดตาม BOM = null · ไม่มี recv_qty = ตาม BOM + เกิน',
        eq(overStopEvidence({ qty: 3, bom_qty: null, recv_qty: 9 }), { bom: null, recv: null, back: null, over: 3 })
