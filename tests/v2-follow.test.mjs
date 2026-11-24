@@ -12,7 +12,7 @@ import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from 
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
-import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy } from '../v2/master/follow.js';
+import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -2355,6 +2355,30 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
   ok('เหตุผลที่หยุด: ตัดคำนำหน้าของปุ่มออก (จอแสดงป้ายชื่อปุ่มแยกอยู่แล้ว) · ไม่มีเหตุผล = ว่าง · ยกเลิกแบบอื่นคงข้อความเดิม',
      stopWhy(sk) === 'ยอดน้อย' && stopWhy({ void_reason: CANCEL_MARK }) === ''
      && stopWhy({ void_reason: 'เรื่องซ้ำ — ตั้งซ้ำ' }) === 'เรื่องซ้ำ — ตั้งซ้ำ', stopWhy(sk));
+
+  /* หลักฐานบนปุ่มกรอง ยกเลิก / ไม่ติดตาม: ตาม BOM − รับเข้า = ขาด ต้องบวกลบลงทุกแบบ (เจ้าของสั่ง 24 พ.ย. 2026) */
+  {
+    const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const skp = skipShort({ po: 'TM9100H003', code: 'C3', need: 10.5, have: 10.4958, short: 0.0042 },
+                          { entity: E, person: 'ก', date: '2026-11-22', why: 'ยอดน้อย' });
+    ok('หลักฐานหยุดตาม: ไม่ติดตาม = ตาม BOM · รับเข้า · ขาด ตอนกด',
+       eq(stopEvidence(skp), { bom: 10.5, recv: 10.4958, short: 0.0042 }), JSON.stringify(stopEvidence(skp)));
+    // ตั้งเรื่อง 500 (รับ 0) → มาแล้ว 200 → ยกเลิก = ขาด 300 · รับเข้าต้องนับ 200 ที่มาทีหลังด้วย ไม่ใช่ recv_qty 0 ที่แช่ไว้
+    const st = fromShortRow({ po: 'TM9100H004', code: 'C4', need: 500, have: 0, short: 500 }, { entity: E, person: 'ก', date: '2026-11-10' });
+    const part = cancelShort(closeFollow(st, { qty: 200, by: 'ข' }), { by: 'ค', why: 'Delta ไม่ส่งแล้ว' });
+    ok('หลักฐานหยุดตาม: ยกเลิกหลังมาแล้วบางส่วน — รับเข้านับของที่มาทีหลัง (500 − 300 = 200)',
+       eq(stopEvidence(part), { bom: 500, recv: 200, short: 300 }), JSON.stringify(stopEvidence(part)));
+    // หยุด → กลับมาติดตาม (qty = ค้าง 300 แต่ recv_qty ยังเป็น 0 ของรอบแรก) → มาแล้ว 100 → ยกเลิก = ขาด 200 รับ 300
+    const again = cancelShort(closeFollow(restartShort(part, { by: 'ง', date: '2026-11-21' }), { qty: 100, by: 'ง' }), { by: 'ง', why: 'พอแล้ว' });
+    ok('หลักฐานหยุดตาม: กลับมาติดตามแล้วยกเลิกอีก — ยังบวกลบลง (500 − 200 = 300)',
+       eq(stopEvidence(again), { bom: 500, recv: 300, short: 200 }), JSON.stringify(stopEvidence(again)));
+    ok('หลักฐานหยุดตาม: เรื่องที่ไม่รู้ยอดตาม BOM (ตั้งเอง · ไฟล์ PO เก่า) = ตาม BOM / รับเข้า เป็น null · ขาดยังมี',
+       eq(stopEvidence({ qty: 7, done_qty: 2, bom_qty: null }), { bom: null, recv: null, short: 5 })
+       && eq(stopEvidence({ qty: 7, bom_qty: '' }), { bom: null, recv: null, short: 7 }));
+    ok('หลักฐานหยุดตาม: ตัวเลขผ่าน round5 ไม่หลุด 0.30000000000000004 (A2)',
+       eq(stopEvidence({ qty: 0.3, bom_qty: 0.6 }), { bom: 0.6, recv: 0.3, short: 0.3 })
+       && eq(stopEvidence({ qty: 0.1 + 0.2, bom_qty: '0.4' }), { bom: 0.4, recv: 0.1, short: 0.3 }));
+  }
 
   const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlG = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
