@@ -913,6 +913,26 @@ export function stopEvidence(row) {
 }
 
 /**
+ * หลักฐานแบบเดียวกันของ over — ตาม BOM · รับเข้า · คืนไปแล้ว · เกิน ณ ตอนหยุด
+ * ยอดเกินคิดจาก รับเข้า − คืนไปแล้ว − ตาม BOM (overAll) จึงต้องโชว์ที่คืนไปแล้วด้วย ไม่งั้นบวกลบไม่ลง
+ *
+ * เกิน = remainOf(row) · รับเข้า = recv_qty ที่จดไว้ตอนตั้งเรื่อง (ยอดรับจริงทั้งหมด)
+ * คืนไปแล้ว = รับเข้า − ตาม BOM − เกิน (รวมที่คืนก่อนตั้งเรื่อง + ที่กด "คืนแล้ว" ทุกรอบ แม้กลับมาติดตามแล้วตั้งใหม่)
+ * ⚠️ คิดได้ติดลบ = รับเข้าเพิ่มหลังตั้งเรื่อง (recv_qty เก่ากว่าความจริง) → ไม่โชว์ที่คืน ใช้ รับเข้า = ตาม BOM + เกิน แทน
+ * ไม่รู้ยอดตาม BOM = bom / recv / back เป็น null
+ */
+export function overStopEvidence(row) {
+  const over = remainOf(row);
+  const b = numOrNull(row ? row.bom_qty : null);
+  if (b == null) return { bom: null, recv: null, back: null, over };
+  const bom = round5(b);
+  const r = numOrNull(row.recv_qty);
+  const back = r == null ? -1 : round5(r - bom - over);
+  if (back < 0) return { bom, recv: round5(bom + over), back: null, over };
+  return { bom, recv: round5(r), back, over };
+}
+
+/**
  * คำเตือนก่อน "ยกเลิกเรื่อง" — คืน '' ถ้าไม่ต้องเตือน (เจ้าของเลือกแบบ ก 4 พ.ย. 2026 · ผู้ตรวจ #146 รอบ 5)
  * เพดาน "ไม่ขึ้นอีก" = ยอดที่ค้างในเรื่องตอนกด · ถ้าระบบคิดได้ว่าขาดไม่เท่านั้น (เช่น คีย์รับเข้าที่หน้ารับเข้า
  * แต่ไม่ได้กด "มาแล้ว") เพดานจะไม่ใช่เลขที่คนกดเห็นว่าขาดจริง — บอกให้กด "มาแล้ว" ก่อน

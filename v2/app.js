@@ -38,7 +38,7 @@ import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPo
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
-         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence,
+         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
@@ -4084,7 +4084,7 @@ createApp({
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
-      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence,
+      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, overStopEvidence,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,

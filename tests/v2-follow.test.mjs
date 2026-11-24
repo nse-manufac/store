@@ -12,7 +12,7 @@ import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from 
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
-import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence } from '../v2/master/follow.js';
+import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -2378,6 +2378,25 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
     ok('หลักฐานหยุดตาม: ตัวเลขผ่าน round5 ไม่หลุด 0.30000000000000004 (A2)',
        eq(stopEvidence({ qty: 0.3, bom_qty: 0.6 }), { bom: 0.6, recv: 0.3, short: 0.3 })
        && eq(stopEvidence({ qty: 0.1 + 0.2, bom_qty: '0.4' }), { bom: 0.4, recv: 0.1, short: 0.3 }));
+
+    // over: รับเข้า − คืนไปแล้ว − ตาม BOM = เกิน
+    const osk = skipOver({ po: 'TM9100H005', pn: 'P5', code: 'C5', recv: 512, sentBack: 0, bom_qty: 500, over: 12 },
+                         { entity: E, person: 'ก', date: '2026-11-22', why: 'ยอดน้อย' });
+    ok('หลักฐานหยุดตาม over: ไม่ติดตาม = ตาม BOM · รับเข้า · เกิน · ยังไม่ได้คืน',
+       eq(overStopEvidence(osk), { bom: 500, recv: 512, back: 0, over: 12 }), JSON.stringify(overStopEvidence(osk)));
+    // คืนไปก่อนตั้งเรื่อง 2 (เกินตอนตั้ง 10) → กดคืนแล้ว 4 → ยกเลิก = เกิน 6 · คืนไปแล้ว 6 · 512 − 6 − 500 = 6
+    const ost = fromOverRow({ po: 'TM9100H006', pn: 'P6', code: 'C6', recv: 512, sentBack: 2, bom_qty: 500, over: 10 }, { entity: E, person: 'ก', date: '2026-11-10' });
+    const opart = cancelOver(closeFollow(ost, { qty: 4, by: 'ข' }), { by: 'ค', why: 'ไม่คุ้มส่ง' });
+    ok('หลักฐานหยุดตาม over: คืนก่อนตั้งเรื่อง + คืนบางส่วนแล้วยกเลิก — คืนไปแล้วรวมทั้งสองก้อน',
+       eq(overStopEvidence(opart), { bom: 500, recv: 512, back: 6, over: 6 }), JSON.stringify(overStopEvidence(opart)));
+    const oagain = cancelOver(closeFollow(restartOver(opart, { by: 'ง', date: '2026-11-21' }), { qty: 1, by: 'ง' }), { by: 'ง', why: 'พอแล้ว' });
+    ok('หลักฐานหยุดตาม over: กลับมาติดตามแล้วยกเลิกอีก — ยังบวกลบลง (512 − 7 − 500 = 5)',
+       eq(overStopEvidence(oagain), { bom: 500, recv: 512, back: 7, over: 5 }), JSON.stringify(overStopEvidence(oagain)));
+    ok('หลักฐานหยุดตาม over: รับเข้าเพิ่มหลังตั้งเรื่อง (recv_qty เก่า) — ไม่โชว์คืนติดลบ ใช้ ตาม BOM + เกิน',
+       eq(overStopEvidence({ qty: 20, bom_qty: 500, recv_qty: 510 }), { bom: 500, recv: 520, back: null, over: 20 }));
+    ok('หลักฐานหยุดตาม over: ไม่รู้ยอดตาม BOM = null · ไม่มี recv_qty = ตาม BOM + เกิน',
+       eq(overStopEvidence({ qty: 3, bom_qty: null, recv_qty: 9 }), { bom: null, recv: null, back: null, over: 3 })
+       && eq(overStopEvidence({ qty: 0.3, bom_qty: 0.6 }), { bom: 0.6, recv: 0.9, back: null, over: 0.3 }));
   }
 
   const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
