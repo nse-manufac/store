@@ -489,12 +489,18 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
   ok('PO ที่ยังไม่ได้รับเข้าเลย = ไม่ใช่เศษ ไม่ล้าง ทั้งจ่ายเกินเศษหรือส่งคืน (กฎเดียวกับ #182 · เจ้าของเคาะ 23 พ.ย.)',
      fracSweep([mk({ material_code: P, kind: 'issue', qty: 0.8, doc_ref: 'POH' })], E, 'POH', [P], tolOf, by).length === 0
      && fracSweep([mk({ material_code: K, kind: 'issue', qty: 0.0004, doc_ref: 'POH' })], E, 'POH', [K], tolOf, by).length === 0);
+  ok('ล้างจากปุ่มทีหลัง (เวลาที่กด) ผูกกับจ่ายออกก่อนหน้า · ยกเลิกจ่ายแล้วยอด PO กลับเท่ารับ ไม่ขาดไปเท่าเศษ (ผู้ตรวจ #186 รอบ 2)',
+     (() => { const iss = rows[1], later = new Date(Date.parse(iss.at) + 30 * 86400e3).toISOString();   // กดปุ่มหนึ่งเดือนหลังจ่าย
+              const btn = fracSweep(rows, E, 'POF', [P, K], tolOf, { ...by, at: later }), tw = fracTwins([...rows, ...btn], iss);
+              const back = [...rows.filter(e => e !== iss), voidEntry(iss, { by: 'ก', reason: 'ข' }), ...btn.map(e => tw.includes(e) ? voidEntry(e, { by: 'ก', reason: 'ข' }) : e)];
+              return btn.length === 2 && tw.length === 1 && tw[0].material_code === P && poStockOf(back, E, 'POF').get(P).bal === 438; })());
   {
     const iss = rows[1], sw2 = fracSweep(rows, E, 'POF', [P, K], tolOf, { ...by, at: iss.at }), all = [...rows, ...sw2];
     const tw = fracTwins(all, iss);
-    ok('ล้างเศษที่ทำพร้อมจ่ายออก ผูกกับจ่ายออกรายการนั้น (PO + รหัส + เวลาเดียวกัน) · รหัสอื่น / เวลาอื่น / รับเข้า ไม่ผูก',
+    const early = fracSweep(rows, E, 'POF', [P], tolOf, { ...by, at: '2000-01-01T00:00:00.000Z' });
+    ok('ล้างเศษที่ทำพร้อมจ่ายออก ผูกกับจ่ายออกรายการนั้น (PO + รหัส + เวลาเดียวกัน) · รหัสอื่น / ล้างก่อนจ่าย / รับเข้า ไม่ผูก',
        tw.length === 1 && tw[0].material_code === P && tw[0].at === iss.at
-       && fracTwins([...rows, ...sw], iss).length === 0 && fracTwins(all, rows[0]).length === 0 && fracTwins(all, null).length === 0,
+       && fracTwins([...rows, ...early], iss).length === 0 && fracTwins(all, rows[0]).length === 0 && fracTwins(all, null).length === 0,
        JSON.stringify(tw.map(e => [e.material_code, e.at])));
     ok('ล้างเศษคู่กันที่ยกเลิกไปแล้วไม่นับซ้ำ · ยกเลิกทั้งคู่แล้วยอด PO กลับเหมือนก่อนจ่าย',
        fracTwins([...rows, ...sw2.map(e => e.material_code === P ? voidEntry(e, { by: 'ก', reason: 'ข' }) : e)], iss).length === 0
@@ -527,9 +533,9 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
     const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
     const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: ค้างเศษ = ปุ่ม "ล้างเศษ" ท้ายรายการเคลื่อนไหวของ PO นั้น (ไม่ทำตารางแยก) · ปุ่มเรียก fracSweep รหัสเดียว · ป้าย "ล้างเศษ" ในรายการ',
-       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracClean\(p\.po, l\.code\)">ล้างเศษ<\/button>/.test(htmlB)
+       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracClean\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
        && /const bpFrac = \(p, code\) => isFracLeft\(p, fracTolAt\(code\)\);/.test(appB)
-       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person: who/.test(appB)
+       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person: who, device: device\.value, part_no: pn \}/.test(appB)
        && /if \(!who\) \{ flash\('ยังไม่ได้ใส่ชื่อคนกด/.test(appB)
        && /v-if="balView==='pn' && !bpClosed" class="hint noprint"[^>]*>PO ที่ส่งครบแล้วหรือเก่ากว่า \{\{ MRP_FRESH_DAYS \}\}/.test(htmlB)
        && /label: isFracAdj\(m\.e\) \? 'ล้างเศษ' : KINDS/.test(appB) && !/fracLeftovers|balView==='frac'/.test(appB + htmlB));
@@ -541,7 +547,8 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
   const so = app.slice(app.indexOf('async function saveOut('), app.indexOf('// ── ของเสีย · คืนของ · ปรับยอด'));
   const htmlV = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: กล่องยกเลิกรายการ ถ้าการปรับยอดที่อยู่หลังเป็นล้างเศษ ไม่เขียน "ที่เคยนับได้" (ผู้ตรวจ #185)',
-     /v-if="isFracAdj\(voidAfterAdjust\)">รายการนั้นคือ <b>ล้างเศษ PO/.test(htmlV) && /<span class="hint" v-else>ส่วนต่างของการปรับยอด/.test(htmlV)
+     /v-if="isFracAdj\(voidAfterAdjust\)">รายการนั้นคือ <b>ล้างเศษ PO/.test(htmlV)
+     && /e\.at > r\.at\s*&& !voidTwins\.value\.some\(t => t\.id === e\.id\)\)/.test(app) && /<span class="hint" v-else>ส่วนต่างของการปรับยอด/.test(htmlV)
      && /voidTwins, reasonLabel, noteCell, isFracAdj \};/.test(app));
   ok('จอ: ยกเลิกจ่ายออกแล้วยกเลิกล้างเศษที่คู่กันในรอบเดียวกัน · กล่องยืนยันบอกก่อน (เจ้าของเคาะ 23 พ.ย.)',
      /const tw = fracTwins\(entries\.value, src\)\.map\(t => voidEntry\(t,/.test(app) && /await db\.put\('entries', \[v, \.\.\.tw\]\)/.test(app)

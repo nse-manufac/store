@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-24.4">
+<meta name="app-version" content="2026-11-25.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1638,7 +1638,7 @@ textarea{font:inherit}
                                         <!-- ค้างเศษ = ปุ่มล้างอยู่ท้ายรายการเคลื่อนไหวของใบนั้น (เจ้าของเคาะ 23 พ.ย. 2026) -->
                                         <tr v-if="bpFrac(p, l.code)" class="noprint"><td colspan="7" class="hint">
                                           คงเหลือ {{ mrpNum(p.bal) }} {{ unitOf(l.code) }} ต่ำกว่าเกณฑ์ {{ fracTolAt(l.code) }} = เศษจากสูตร ไม่ใช่ของจริง
-                                          <button class="btn" style="margin-left:8px;padding:2px 9px" @click.stop="bpFracClean(p.po, l.code)">ล้างเศษ</button>
+                                          <button class="btn" style="margin-left:8px;padding:2px 9px" @click.stop="bpFracClean(p.po, l.code, r.pn)">ล้างเศษ</button>
                                           <span style="margin-left:6px">(บันทึกปรับยอด "ล้างเศษ" แยกเป็นรายการ ยอดที่จ่ายไปไม่เปลี่ยน)</span></td></tr>
                                         </tbody>
                                       </table>
@@ -3760,7 +3760,8 @@ textarea{font:inherit}
             <tr><td class="hint">ผู้บันทึก</td><td>{{ voidBox.row.person }}</td></tr>
           </tbody></table>
           <p class="hint" v-if="voidTwins.length" style="margin:12px 0 0">รายการล้างเศษ PO {{ voidTwins[0].doc_ref }}
-            (ส่วนต่าง {{ voidTwins[0].delta }}) ที่ระบบทำพร้อมจ่ายออกรายการนี้ จะถูกยกเลิกไปด้วย</p>
+            (ส่วนต่าง {{ voidTwins[0].delta }}<template v-if="voidTwins.length > 1"> และอีก {{ voidTwins.length - 1 }} รายการ</template>)
+            ที่ทำตอนหรือหลังจ่ายออกรายการนี้ จะถูกยกเลิกไปด้วย · ถ้ายังเหลือเศษจริง ปุ่มล้างเศษจะกลับมาที่หน้ายอดคงคลัง</p>
           <div class="msg warn" v-if="voidAfterAdjust" style="margin:12px 0 0">
             <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ localDate(voidAfterAdjust.at) }}</b><br>
             <!-- ล้างเศษไม่ได้นับจริง — ห้ามเขียน "ที่เคยนับได้ 0" (ผู้ตรวจ #185) -->
