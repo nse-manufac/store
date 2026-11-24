@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, fracSweep, fracTwins } from './core/balance.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, fracSweep, fracTwins, isFracLeft } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -1833,6 +1833,18 @@ createApp({
         || document.querySelector(`[data-bpn="${CSS.escape(b.pn)}"]`))?.scrollIntoView({ block: 'center' }));
     }
     // รายการเคลื่อนไหว — คิดเฉพาะ PO × รหัสที่กางอยู่ (แถวที่พับไม่คิด)
+    /* ล้างเศษของเก่า (เจ้าของเคาะ 23 พ.ย. 2026) — ปุ่มอยู่ในรายการเคลื่อนไหวของ PO ที่ค้างเศษ ไม่ทำตารางแยก
+     * ตรรกะ isFracLeft / fracSweep (core/balance.js) · ตั้งแต่ #185 จ่ายออกแล้วระบบล้างให้เอง ที่เหลือคือของก่อนหน้านั้น */
+    const bpFrac = (p, code) => isFracLeft(p, fracTolAt(code));
+    async function bpFracClean(po, code) {
+      const who = (prompt(`ล้างเศษ ${code} ใน PO ${po} — ใส่ชื่อคนกด`, fsBy.value) || '').trim();
+      if (!who) { flash('ยังไม่ได้ใส่ชื่อคนกด — ยังไม่ได้ล้างเศษ', true); return; }
+      try {
+        const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person: who, device: device.value });
+        if (add.length) { await db.put('entries', add); entries.value.push(...add); db.announce('entries'); }
+        flash(add.length ? `ล้างเศษ ${code} ใน PO ${po} แล้ว` : 'ไม่มีเศษให้ล้างแล้ว');
+      } catch (err) { flash(err.message, true); }
+    }
     const bpMoves = computed(() => {
       const out = {};
       if (!entity.value) return out;
@@ -1840,7 +1852,7 @@ createApp({
         if (!bpLine[k]) continue;
         const i = k.indexOf('|');
         out[k] = poMoves(entries.value, entity.value, k.slice(0, i), k.slice(i + 1)).map(m => ({ ...m,
-          day: localDate(m.e.at), time: localTime(m.e.at), label: KINDS[m.e.kind].label }));
+          day: localDate(m.e.at), time: localTime(m.e.at), label: isFracAdj(m.e) ? 'ล้างเศษ' : KINDS[m.e.kind].label }));
       }
       return out;
     });
@@ -4062,7 +4074,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
-             balQ, balCat, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, oddRows,
+             balQ, balCat, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFracClean, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
