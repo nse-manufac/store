@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-23.3">
+<meta name="app-version" content="2026-11-24.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -188,6 +188,7 @@ tbody.shut tr.fol-po > td:first-child{box-shadow:inset 4px 0 0 #c5ced8}
 .fol-key{font-weight:600;font-size:17px}
 .fol-act{white-space:normal}
 .fol-act .btn{font-size:15px;padding:6px 16px}
+.fol-got{display:inline-block;min-width:120px;text-align:right;margin-right:16px}
 .fol-qty{width:96px;padding:6px 8px;margin-right:4px;font-size:15px}
 .btn-q{font:inherit;font-size:14px;background:none;border:0;color:var(--muted);padding:6px 8px;cursor:pointer;border-radius:6px}
 .btn-q:hover:not(:disabled){color:var(--ink);background:var(--soft)}
@@ -2542,8 +2543,8 @@ textarea{font:inherit}
               <template v-if="!fsFold[g.po]">
                 <!-- หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ตัวใหญ่ (เจ้าของขอ 21 พ.ย. 2026 — หัวเล็ก ๆ บนสุดผู้สูงอายุมองไม่เห็น) -->
                 <tr v-if="fsSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับแล้ว</th><th class="r">ขาด</th><th></th></tr>
-                <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตั้งเรื่อง</th><th class="r">ระบบคิดได้</th><th class="r">ค้าง</th><th>ยอดที่มา (เว้นว่าง = มาครบ)</th></tr>
-                <tr v-if="fsSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตั้งเรื่อง</th><th class="r">ปิดเรื่อง</th><th class="r">ยอด</th><th></th></tr>
+                <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ระบบคิดได้</th><th class="r">ค้าง</th><th>ยอดที่มา (เว้นว่าง = มาครบ)</th></tr>
+                <tr v-if="fsSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่มาครบ</th><th><span class="fol-got">ยอดที่มา</span></th></tr>
                 <tr v-if="fsSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">หยุดเมื่อ</th><th>โดย</th><th class="r">ค้างตอนหยุด</th><th></th></tr>
                 <template v-if="fsSeg === 'new'">
                   <tr v-for="r in g.items" :key="r.code" class="fol-it">
@@ -2580,10 +2581,12 @@ textarea{font:inherit}
                 <template v-if="fsSeg === 'done'">
                   <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
                     <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td><td>{{ mrpName(r.s.code) }}</td>
-                    <td class="mono r hint">{{ r.s.date }}</td>
+                    <!-- เรียงเป็นคู่ ตั้งเรื่อง (วันที่ · ยอด qty) แล้วมาครบ (วันที่ · ยอด done_qty) (เจ้าของขอ 24 พ.ย. 2026) · เรื่องจากไฟล์ PO ที่ไม่บอกจำนวน = — -->
+                    <td class="mono r hint">{{ r.s.date }}<div v-if="r.s.created_by">{{ r.s.created_by }}</div></td>
+                    <td class="mono r">{{ r.s.qty > 0 ? mrpNum(r.s.qty) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r hint">{{ localDate(r.s.done_at) }}<div v-if="r.s.done_by">{{ r.s.done_by }}</div></td>
-                    <td class="mono r">{{ mrpNum(r.s.done_qty || r.s.qty) }} <span class="hint">{{ r.s.unit }}</span></td>
-                    <td class="fol-act"><button class="btn-q" @click="fsReopen(r.s)">เอากลับ</button></td>
+                    <td class="fol-act"><span class="fol-got mono fol-key">{{ r.s.done_qty > 0 ? mrpNum(r.s.done_qty) : '—' }} <span v-if="r.s.done_qty > 0" class="hint">{{ r.s.unit }}</span></span>
+                      <button class="btn-q" @click="fsReopen(r.s)">เอากลับ</button></td>
                   </tr>
                 </template>
                 <template v-if="fsSeg === 'stop'">
