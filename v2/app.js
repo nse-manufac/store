@@ -1725,7 +1725,8 @@ createApp({
       const c = normCode(r.material_code);
       const later = entries.value.filter(e =>
         e.entity === r.entity && !e.voided && e.kind === 'adjust'
-        && normCode(e.material_code) === c && e.at > r.at);
+        && normCode(e.material_code) === c && e.at > r.at
+        && !voidTwins.value.some(t => t.id === e.id));   // ล้างเศษที่ถูกยกเลิกไปพร้อมกัน ไม่ต้องเตือน (ขึ้นข้อความของมันเองแล้ว)
       return later.length ? later[later.length - 1] : null;
     });
     // ล้างเศษที่เกิดพร้อมจ่ายออกรายการนี้ — ยกเลิกไปด้วยกัน (เจ้าของเคาะ 23 พ.ย. 2026 · ตรรกะ fracTwins)
@@ -1836,11 +1837,11 @@ createApp({
     /* ล้างเศษของเก่า (เจ้าของเคาะ 23 พ.ย. 2026) — ปุ่มอยู่ในรายการเคลื่อนไหวของ PO ที่ค้างเศษ ไม่ทำตารางแยก
      * ตรรกะ isFracLeft / fracSweep (core/balance.js) · ตั้งแต่ #185 จ่ายออกแล้วระบบล้างให้เอง ที่เหลือคือของก่อนหน้านั้น */
     const bpFrac = (p, code) => isFracLeft(p, fracTolAt(code));
-    async function bpFracClean(po, code) {
+    async function bpFracClean(po, code, pn = '') {
       const who = (prompt(`ล้างเศษ ${code} ใน PO ${po} — ใส่ชื่อคนกด`, fsBy.value) || '').trim();
       if (!who) { flash('ยังไม่ได้ใส่ชื่อคนกด — ยังไม่ได้ล้างเศษ', true); return; }
       try {
-        const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person: who, device: device.value });
+        const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person: who, device: device.value, part_no: pn });
         if (add.length) { await db.put('entries', add); entries.value.push(...add); db.announce('entries'); }
         flash(add.length ? `ล้างเศษ ${code} ใน PO ${po} แล้ว` : 'ไม่มีเศษให้ล้างแล้ว');
       } catch (err) { flash(err.message, true); }
