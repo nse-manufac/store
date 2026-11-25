@@ -2437,6 +2437,16 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
      /if \(v\.how === 'done'\) fsSeg\.value = 'done';\s*else if \(over\) foSeg\.value = 'stop';\s*else fsSeg\.value = 'stop';/.test(appG));
   ok('จอ: ไม่โชว์ ETA ในหน้า short / over แล้ว (เจ้าของแจ้ง 21 พ.ย. 2026 — ช่องรับ short จากใบ PO ปิดไปแล้ว)',
      !htmlG.includes('v-model="fu.eta"') && !htmlG.includes('เลย ETA'));
+  // กฎ "กล่องเหตุผลเปิดมาช่องว่าง ไม่เติมคำให้" (เจ้าของสั่ง 25 พ.ย. 2026) เฝ้าที่นี่ —
+  // stopWhyProblem กันเหตุผลขยะได้ แต่คำเติมอย่าง "ยอดน้อย ไม่ติดตาม" ผ่านกฎนั้นสบาย ๆ
+  // ถ้าใครใส่ค่าเริ่มต้นกลับ อาการเดิม (พนักงานกดตกลงทันที) กลับมาโดยไม่มีเทสข้ออื่นแดง
+  const countIn = (s, sub) => s.split(sub).length - 1;
+  ok('จอ: กล่องถามเหตุผลเปิดมาช่องว่างทุกครั้ง · ทั้งสี่ปุ่ม short / over ถามผ่าน askWhy · ไม่มีคำเติมค้างเป็นค่าเริ่มต้นของ prompt',
+     appG.includes("let why = prompt(msg, '');")
+     && (appG.match(/askWhy\(/g) || []).length === 5                  // 4 จุดเรียก + 1 บรรทัดประกาศ
+     && countIn(appG, "askWhy('ยกเลิกเรื่องนี้เพราะอะไร") === 2       // fsVoid + foVoid
+     && countIn(appG, 'askWhy(`ไม่ติดตาม ') === 2                     // fsSkip + foSkip
+     && !/prompt\([^)]*,\s*['"`]ยอดน้อย/.test(appG));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
