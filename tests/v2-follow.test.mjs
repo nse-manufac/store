@@ -13,7 +13,7 @@ import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum,
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence } from '../v2/master/follow.js';
-import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
+import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -1789,6 +1789,16 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   throws('ยกเลิกเรื่องไม่ใส่เหตุผล = โยน', () => cancelShort(open, { by: 'ก' }), 'เหตุผล');
   throws('ยกเลิกเรื่องเหตุผลมีแต่ช่องว่าง = โยน', () => cancelShort(open, { by: 'ก', why: '   ' }), 'เหตุผล');
   throws('ไม่ติดตาม short ไม่ใส่เหตุผล = โยน', () => skipShort(calc, { entity: E, person: 'ก', at }), 'เหตุผล');
+  // เจ้าของเลือกข้อ 2: มีตัวหนังสือไทย/อังกฤษ + ยาวอย่างน้อย 5 ตัวไม่นับช่องว่าง
+  for (const w of ['-', '.', '---', '12345', '- - - - -', 'ก', 'ไม่', ' a b ']) {
+    ok(`เหตุผล "${w}" ไม่ผ่าน`, stopWhyProblem(w) !== '', stopWhyProblem(w));
+  }
+  for (const w of ['ยอดน้อย', 'Delta ไม่ส่ง', 'short', '  ของหมด  ']) {
+    ok(`เหตุผล "${w}" ผ่าน`, stopWhyProblem(w) === '', stopWhyProblem(w));
+  }
+  ok('ไม่ผ่านแล้วบอกสาเหตุ', stopWhyProblem('-').includes('ตัวหนังสือ') && stopWhyProblem('ไม่').includes(`${WHY_MIN} ตัวอักษร`));
+  throws('ยกเลิกเรื่องเหตุผล "-" = โยน', () => cancelShort(open, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
+  throws('ไม่ติดตาม short เหตุผลสั้นเกิน = โยน', () => skipShort(calc, { entity: E, person: 'ก', at, why: 'ไม่' }), 'สั้นเกินไป');
   throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelShort(open, {}), 'ผู้บันทึก');
   throws('ยกเลิกเรื่องที่ปิดแล้ว = โยน', () => cancelShort(closeFollow(open, { by: 'ก' }), { by: 'ก' }), 'ปิดไปแล้ว');
   throws('ยกเลิกซ้ำ = โยน', () => cancelShort(cx, { by: 'ก' }), 'ยกเลิกไปแล้ว');

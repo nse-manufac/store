@@ -41,7 +41,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
-         cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
+         cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, buyRequest, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
@@ -2951,10 +2951,12 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
-    /* ถามเหตุผล — ช่องว่างทุกครั้ง ไม่เติมคำให้ (เจ้าของสั่ง 25 พ.ย. 2026) · กดตกลงทั้งที่ว่าง = ถามซ้ำ · กดยกเลิก = null */
+    /* ถามเหตุผล — ช่องว่างทุกครั้ง ไม่เติมคำให้ (เจ้าของสั่ง 25 พ.ย. 2026) · กฎอยู่ที่ stopWhyProblem
+     * ไม่ผ่าน = ถามซ้ำพร้อมบอกสาเหตุ (คงคำที่พิมพ์ไว้ให้แก้ต่อ) · กดยกเลิก = null */
     function askWhy(msg) {
       let why = prompt(msg, '');
-      while (why !== null && !why.trim()) why = prompt('ต้องพิมพ์เหตุผลก่อนกดตกลง\n\n' + msg, '');
+      let bad;
+      while (why !== null && (bad = stopWhyProblem(why))) why = prompt(bad + '\n\n' + msg, why.trim());
       return why === null ? null : why.trim();
     }
 
