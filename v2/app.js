@@ -1779,10 +1779,10 @@ createApp({
 
     const balShown = computed(() => {
       const t = balQ.value.trim().toUpperCase();
-      // รายรหัสเหลือเฉพาะเคมี (เจ้าของสั่ง 22 พ.ย. 2026) — ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
+      // รายรหัสเหลือเฉพาะเคมี (เจ้าของสั่ง 22 พ.ย. 2026) + METAL PART (เจ้าของขอเพิ่ม 25 พ.ย.) — ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
       const pool = balAll.value.filter(r =>
         (balZero.value || r.qty !== 0) &&
-        r.category === 'CHEMICAL' &&
+        (r.category === 'CHEMICAL' || r.category === 'METAL PART') &&
         (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
       return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
     });
