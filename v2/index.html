@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-25.2">
+<meta name="app-version" content="2026-11-25.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -186,6 +186,10 @@ tbody.shut tr.fol-po > td:first-child{box-shadow:inset 4px 0 0 #c5ced8}
 .fol-head .hint{font-size:15px}
 .fol-n{margin-left:auto}
 .fol-key{font-weight:600;font-size:17px}
+button.tag.why-tag{border:0;cursor:pointer;font-family:inherit;text-decoration:underline dotted}
+.why-cell{position:relative}
+.why-pop{position:absolute;right:0;top:calc(100% - 6px);z-index:30;width:420px;text-align:left;white-space:normal;font-size:14px;line-height:1.6;font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-variant-numeric:normal;color:var(--ink);background:#fff;border:1px solid #f0d799;border-left:4px solid var(--warn);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:8px 12px}
+.why-pop b{color:var(--warn)}
 .fol-act{white-space:normal}
 .fol-act .btn{font-size:15px;padding:6px 16px}
 .fol-got{display:inline-block;min-width:120px;text-align:right;margin-right:16px}
@@ -2573,9 +2577,13 @@ textarea{font:inherit}
                       <div v-if="followNote(r.s)" class="hint">{{ followNote(r.s) }}</div></td>
                     <td class="mono r hint">{{ r.s.date }}<div v-if="r.s.created_by">{{ r.s.created_by }}</div></td>
                     <!-- ตรงกับยอดค้าง = ตัวจาง · ไม่ตรง = ป้าย ต่าง ให้สะดุดตา -->
-                    <td class="mono r" :class="{ hint: fsCheck(r.s).same !== false }" :title="fsCheck(r.s).why || (fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ' : fsCheck(r.s).same ? 'ตรงกับยอดที่แจ้งไว้' : '')">
-                      <template v-if="fsCheck(r.s).calc !== null"><span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> {{ mrpNum(fsCheck(r.s).calc) }}</template>
-                      <template v-else>—</template></td>
+                    <td class="mono r why-cell" :class="{ hint: fsCheck(r.s).same !== false }" :title="fsCheck(r.s).why || (fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ' : fsCheck(r.s).same ? 'ตรงกับยอดที่แจ้งไว้' : '')">
+                      <!-- กดป้าย "ต่าง" = bubble บอกเหตุ (เจ้าของขอ 25 พ.ย. 2026 · กล่องใต้ชื่อรกจอ) — ตรรกะอยู่ที่ shortDiffExplainer (master/follow.js) -->
+                      <template v-if="fsCheck(r.s).calc !== null"><button v-if="fsCheck(r.s).same === false && fsWhy(r.s).length" type="button" class="tag warn why-tag"
+                          title="กดดูว่าทำไมต่าง" @click.stop="fsWhyFlip(r.s.id)">ต่าง</button><span v-else-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> {{ mrpNum(fsCheck(r.s).calc) }}</template>
+                      <template v-else>—</template>
+                      <div v-if="fsWhyId === r.s.id" class="why-pop" @click.stop><b>ทำไมต่าง</b>
+                        <div v-for="(w, i) in fsWhy(r.s)" :key="i">· {{ w }}</div></div></td>
                     <td class="mono r fol-key">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span class="hint">{{ r.s.unit }}</span>
                       <div v-if="r.st === 'partial'" class="hint">จาก {{ mrpNum(r.s.qty) }}</div></td>
                     <td class="fol-act">

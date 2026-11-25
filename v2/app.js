@@ -40,7 +40,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
-         shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
+         shortAll, shortPending, shortChecker, shortDiffExplainer, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, buyRequest, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
@@ -2702,6 +2702,20 @@ createApp({
     });
     const NO_CHECK = { calc: null, why: '', same: null };
     const fsCheck = s => fsCheckById.value.get(s.id) || NO_CHECK;
+    /** ป้าย "ต่าง" ต้องบอกเหตุด้วย (เจ้าของขอ 25 พ.ย. 2026) — ตรรกะอยู่ที่ shortDiffExplainer · คิดเฉพาะแถวที่แสดง */
+    const fsWhyById = computed(() => {
+      const rowsOf = bomIdx.value.rowsOf;
+      const explain = shortDiffExplainer(fsCalc.value, shorts.value,
+        (pn, code) => rowsOf(pn).find(b => normCode(b.code) === normCode(code)) || null);
+      const m = new Map();
+      for (const r of fsRows.value) { const w = explain(r.s); if (w.length) m.set(r.s.id, w); }
+      return m;
+    });
+    const fsWhy = s => fsWhyById.value.get(s.id) || [];
+    // bubble เปิดทีละอัน · กดป้ายเดิมซ้ำ หรือกดที่อื่นบนจอ = ปิด
+    const fsWhyId = ref('');
+    const fsWhyFlip = id => { fsWhyId.value = fsWhyId.value === id ? '' : id; };
+    window.addEventListener('click', () => { if (fsWhyId.value) fsWhyId.value = ''; });
     /* ปุ่มตั้งเรื่องกดซ้ำระหว่างบันทึกไม่ได้ (master/follow.js startOnce) — กดรัวเคยได้ over ซ้ำ 144 เรื่อง */
     const starting = reactive(new Set());
     const isStarting = (kind, row) => starting.has(startKey(kind, row));
@@ -4093,7 +4107,7 @@ createApp({
              applyImp, openShorts, poToday, poQ, poRows, poDraw, kitCountByPo,
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsSeg, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows,
-      fsNew, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
+      fsNew, fsBlocked, fsCheck, fsWhy, fsWhyId, fsWhyFlip, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,

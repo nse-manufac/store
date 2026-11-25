@@ -1076,6 +1076,72 @@ export function shortChecker(calcRows) {
 }
 export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow);
 
+/**
+ * ทำไม "ค้าง" ในเรื่องถึงไม่ตรงกับ "ระบบคิดได้" — คืนบรรทัดหลักฐานให้จอโชว์ใต้ป้าย "ต่าง" (เจ้าของขอ 25 พ.ย. 2026)
+ * เดิมต้องเปิดชีตไล่เทียบ BOM / PO / รับเข้าเองทีละตัว ใช้เวลาเป็นวัน
+ *
+ * เทียบยอดที่แช่แข็งไว้ตอนตั้งเรื่อง (order_qty · bom_qty · recv_qty) กับที่คิดได้ตอนนี้ แยกเป็นตัวต่อตัว:
+ *   ตามสูตรเปลี่ยน (ต่อชิ้น / จำนวนสั่ง) · ยอดรับเข้าเปลี่ยน · ยอดในเรื่องไม่ได้มาจากสูตรตอนตั้ง
+ * แล้วบอกเรื่องอื่นของคู่ PO + รหัสเดียวกันที่ยังไม่ยกเลิก (เช่นเรื่องที่ปิดไปแล้ว แต่มีคนเอาเรื่องเก่ากลับมา)
+ *
+ * calcRows = shortAll(..., { all: true }) · follows = เรื่องทั้งหมด · bomRowOf(pn, code) = บรรทัดสูตรตอนนี้ (ไม่ส่ง = ไม่บอกที่มาสูตร)
+ * คืน follow => [ข้อความ] · [] = ไม่มีอะไรต้องอธิบาย (ตรงกัน หรือคิดไม่ได้)
+ */
+export function shortDiffExplainer(calcRows, follows, bomRowOf) {
+  const calcOf = new Map(), byPair = new Map();
+  for (const r of calcRows || []) if (!r.why) calcOf.set(pairKey(r.po, r.code), r);
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'short' || f.voided) continue;
+    const k = pairKey(f.po, f.code);
+    if (!byPair.has(k)) byPair.set(k, []);
+    byPair.get(k).push(f);
+  }
+  const n = x => String(round5(Number(x) || 0));
+  const sign = d => (d > 0 ? '+' : '') + n(d);
+  const has = x => x != null && x !== '' && isFinite(Number(x));
+  const SRC = { delta: 'ใบที่ Delta แจ้ง', file: 'ไฟล์ PO', manual: 'ที่ตั้งเอง' };
+  return follow => {
+    const k = pairKey(follow && follow.po, follow && follow.code);
+    const now = calcOf.get(k), q = Number(follow && follow.qty) || 0;
+    if (!now || !(q > 0) || Math.abs(q - now.short) < 5e-4) return [];
+    const out = [];
+    const fo = Number(follow.order_qty), fb = Number(follow.bom_qty), fr = Number(follow.recv_qty) || 0;
+    if (has(follow.bom_qty) && fo > 0) {
+      const dNeed = round5(now.need - fb);
+      if (Math.abs(dNeed) >= 5e-4) {
+        const parts = [];
+        if (Math.abs(fo - now.order) >= 5e-4) parts.push(`จำนวนสั่ง ${n(fo)} → ${n(now.order)}`);
+        const u0 = fb / fo, u1 = now.order ? now.need / now.order : 0;
+        if (Math.abs(u0 - u1) > 1e-9 * Math.max(1, Math.abs(u1))) parts.push(`ต่อชิ้น ${n(u0)} → ${n(u1)}`);
+        const b = typeof bomRowOf === 'function' ? bomRowOf(now.pn, now.code) : null;
+        const from = b && (b.source || b.imported_at)
+          ? ` · สูตรตอนนี้มาจาก ${txt(b.source) || '—'}${b.imported_at ? ' โหลด ' + localDate(b.imported_at) : ''}` : '';
+        out.push(`ตามสูตรเปลี่ยนหลังตั้งเรื่อง ${n(fb)} → ${n(now.need)} (${sign(dNeed)})`
+          + (parts.length ? ': ' + parts.join(' · ') : '') + from);
+      }
+      const dHave = round5(now.have - fr);
+      if (Math.abs(dHave) >= 5e-4) {
+        out.push(`ยอดรับเข้าตาม PO นี้เปลี่ยนหลังตั้งเรื่อง ${n(fr)} → ${n(now.have)} (ขาด${dHave > 0 ? 'ลดลง' : 'เพิ่มขึ้น'} ${n(Math.abs(dHave))})`);
+      }
+      const atSet = round5(Math.max(0, fb - fr));
+      if (Math.abs(q - atSet) >= 5e-4) {
+        out.push(`ยอดในเรื่อง ${n(q)} ไม่ได้มาจากสูตรตอนตั้ง (ตามสูตร ${n(fb)} − รับแล้ว ${n(fr)} = ${n(atSet)})`);
+      }
+    } else {
+      const src = SRC[txt(follow.source)] || 'ที่ตั้งไว้';
+      out.push(`ยอดในเรื่อง ${n(q)} มาจาก${src} ไม่ได้คิดจากสูตร · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
+    }
+    for (const o of byPair.get(k) || []) {
+      if (o.id === follow.id || o.entity !== follow.entity) continue;
+      const st = statusOf(o);
+      out.push(st === 'done'
+        ? `คู่นี้มีอีกเรื่องที่ปิดแล้ว — ตั้ง ${txt(o.date) || '—'} ยอด ${n(o.qty)} · มาครบ ${o.done_at ? localDate(o.done_at) : '—'} ยอด ${has(o.done_qty) ? n(o.done_qty) : '—'}`
+        : `คู่นี้มีอีกเรื่องที่ยังเปิดอยู่ — ตั้ง ${txt(o.date) || '—'} ยอด ${n(o.qty)}`);
+    }
+    return out;
+  };
+}
+
 /* หมายเหตุประจำที่ fromShortRow ติดให้ทุกแถวที่ระบบตั้ง — เหมือนกันเป๊ะทุกใบ
  * ⚠️ ประกาศไว้ที่เดียว เพราะ enriched (บรรทัด ~705) ต้องไม่นับข้อความนี้ว่าเป็น "ข้อมูลเพิ่ม" */
 const SYS_SHORT_NOTE = 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)';

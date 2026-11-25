@@ -20,7 +20,7 @@ import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateA
          OVER_MIN, overAll, overPending, overCutMatch, fromOverRow, sendbackEntry, shortOfPo, shortWhyOf,
          buyFor, pendingScraps, fromScrapRow, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys,
          entityTag, buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc,
-         shortAll, shortPending, shortCheckOf, shortChecker, fromShortRow, SHORT_MIN,
+         shortAll, shortPending, shortCheckOf, shortChecker, shortDiffExplainer, fromShortRow, SHORT_MIN,
          cardShortOver, codeShortOver, shortOverTotal, startKey, startOnce, openPairFor, arriveShort, reopenShort,
          negAfterVoids, buyUnit, dupFollows, doubleReturns, reopenOver, arriveBuy, reopenBuy }
   from '../v2/master/follow.js';
@@ -1064,8 +1064,53 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
   // 21 พ.ย. 2026: ตรง = ตัวจาง (ไม่มีป้าย) · ต่าง = ป้าย — same null (ไม่มียอดเทียบ) ต้องไม่ได้ป้าย "ต่าง"
   ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
-     htmlSrc.includes('<span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
+     htmlSrc.includes('<button v-if="fsCheck(r.s).same === false && fsWhy(r.s).length" type="button" class="tag warn why-tag"')
+     && htmlSrc.includes('<span v-else-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
      && htmlSrc.includes(':class="{ hint: fsCheck(r.s).same !== false }"'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+
+  /* ── ป้าย "ต่าง" ต้องบอกเหตุ (เจ้าของขอ 25 พ.ย. 2026) ──
+     เคสจริง TM5269H789 · 3513605200: ตั้งเรื่อง 1 ต.ค. ต่อชิ้น 0.013 × 200 = 2.6 · 5 ต.ค. โหลดสูตรใหม่ 0.01389 → 2.778
+     แล้ว 10 ต.ค. ตั้งเรื่องใหม่ 2.778 ปิดไป · 25 พ.ย. มีคนเอาเรื่องเก่า (2.6) กลับมา — เดิมต้องเปิดชีตไล่เองถึงรู้ */
+  {
+    const nowRow = { po: 'TM5269H789', pn: '2877679001', code: '3513605200', order: 200, need: 2.778, have: 0, short: 2.778, why: '' };
+    const old = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, source: 'auto', po: 'TM5269H789', code: '3513605200',
+                  qty: 2.6, order_qty: 200, bom_qty: 2.6, recv_qty: 0, date: '2026-10-01' }) };
+    const dup = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, source: 'auto', po: 'TM5269H789', code: '3513605200',
+                  qty: 2.778, order_qty: 200, bom_qty: 2.778, recv_qty: 0, date: '2026-10-10' }),
+                  done: true, done_qty: 2.778, done_at: '2026-10-10T08:31:43.389Z' };
+    const bomRow = { pn: '2877679001', code: '3513605200', usage: 0.01389, source: 'ใบเบิก ชีต 113 · 2026-09-29', imported_at: '2026-10-05T01:23:18.878Z' };
+    const why = shortDiffExplainer([nowRow], [old, dup], () => bomRow)(old);
+    ok('ต่างเพราะสูตรเปลี่ยน — บอกยอดตามสูตรเดิม → ใหม่ · ต่อชิ้นเดิม → ใหม่ · ที่มาของสูตร',
+       why.length === 2 && why[0].includes('2.6 → 2.778 (+0.178)') && why[0].includes('ต่อชิ้น 0.013 → 0.01389')
+       && why[0].includes('ใบเบิก ชีต 113') && why[0].includes('โหลด 2026-10-05') && !why[0].includes('จำนวนสั่ง'), JSON.stringify(why));
+    ok('บอกว่าคู่นี้มีอีกเรื่องที่ปิดแล้ว พร้อมวันที่ · ยอดตั้ง · ยอดที่มา',
+       /อีกเรื่องที่ปิดแล้ว — ตั้ง 2026-10-10 ยอด 2.778 · มาครบ 2026-10-10 ยอด 2.778/.test(why[1]), why[1]);
+    ok('เรื่องที่ตรงกับที่คิดได้ ไม่มีอะไรต้องอธิบาย',
+       shortDiffExplainer([nowRow], [old, dup], () => bomRow)({ ...dup, done: false }).length === 0);
+
+    const orderUp = shortDiffExplainer([{ ...nowRow, order: 250, need: 3.25, short: 3.25 }], [], null)(old);
+    ok('จำนวนสั่งเปลี่ยน — บอกจำนวนสั่งเดิม → ใหม่ ไม่บอกต่อชิ้น (ต่อชิ้นเท่าเดิม)',
+       orderUp.length === 1 && orderUp[0].includes('2.6 → 3.25') && orderUp[0].includes('จำนวนสั่ง 200 → 250')
+       && !orderUp[0].includes('ต่อชิ้น') && !orderUp[0].includes('สูตรตอนนี้มาจาก'), JSON.stringify(orderUp));
+
+    const recv = shortDiffExplainer([{ ...nowRow, need: 2.6, have: 1, short: 1.6 }], [], null)(old);
+    ok('รับเข้าเพิ่มหลังตั้งเรื่อง — บอกยอดรับเดิม → ใหม่ ว่าขาดลดลงเท่าไหร่',
+       recv.length === 1 && recv[0].includes('0 → 1') && recv[0].includes('ขาดลดลง 1'), JSON.stringify(recv));
+
+    const edited = shortDiffExplainer([{ ...nowRow, need: 2.6, short: 2.6 }], [], null)({ ...old, qty: 2 });
+    ok('ยอดในเรื่องไม่ได้มาจากสูตรตอนตั้ง (เช่นเรื่องที่ตั้งใหม่จากเรื่องเก่า) — บอกยอดที่ควรเป็นตอนตั้ง',
+       edited.length === 1 && edited[0].includes('ยอดในเรื่อง 2 ไม่ได้มาจากสูตรตอนตั้ง') && edited[0].includes('= 2.6'), JSON.stringify(edited));
+
+    const delta = shortDiffExplainer([nowRow], [], null)(makeFollow({ kind: 'short', type: 'ขาด', entity: E, source: 'delta',
+                    po: 'TM5269H789', code: '3513605200', qty: 2.5 }));
+    ok('เรื่องที่ Delta แจ้ง (ไม่มียอดแช่แข็ง) — บอกว่ายอดมาจาก Delta พร้อมตัวตั้งที่ระบบคิดตอนนี้',
+       delta.length === 1 && delta[0].includes('มาจากใบที่ Delta แจ้ง') && delta[0].includes('2.778 − รับแล้ว 0 = 2.778'), JSON.stringify(delta));
+    ok('อีกเรื่องที่ยกเลิกแล้ว / ของนิติบุคคลอื่น ไม่นับ',
+       shortDiffExplainer([nowRow], [old, { ...dup, voided: true }, { ...dup, id: 'x2', entity: 'OTHER' }], () => bomRow)(old).length === 1);
+    ok('จอ: กดป้าย "ต่าง" แล้วขึ้น bubble บอกเหตุ (ไม่วางกล่องใต้ชื่อให้รกจอ)',
+       htmlSrc.includes('@click.stop="fsWhyFlip(r.s.id)">ต่าง</button>') && htmlSrc.includes('<div v-if="fsWhyId === r.s.id" class="why-pop" @click.stop>')
+       && !htmlSrc.includes('class="fol-why"') && /shortDiffExplainer\(fsCalc\.value, shorts\.value/.test(appSrc));
+  }
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
      /ยังไม่มีการรับเข้า/.test(shortCheckOf({ po: 'TM9269H002', code: 'A', qty: 1 }, all0).why)
