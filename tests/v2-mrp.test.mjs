@@ -126,11 +126,11 @@ ok('คืนของ (return) หักจากยอดจ่าย', line('
 console.log('=== M4. ยอดขาดจบเรื่องแล้ว — กฎเดียวกับการ์ด "ยังรับไม่ครบตาม BOM" ===');
 const calc = shortAll(ents, EN, { headerOf: po => { const p = poList.find(x => x.po === po); return p ? { pn: p.pn, order: p.qty } : null; }, bomRowsOf, all: true });
 const calcB = calc.find(r => r.po === 'TM0001H962' && r.code === B);
-const skipped = skipShort(calcB, { entity: EN, person: 'ก' });
+const skipped = skipShort(calcB, { entity: EN, person: 'ก', why: 'ยอดน้อย' });
 const r962 = fl => run({ follows: fl }).find(r => r.po === 'TM0001H962');
 ok('ไม่ติดตาม = skip นับว่าครบ · การ์ดก็ไม่ขึ้น', r962([skipped]).state === 'ok' && r962([skipped]).nSkip === 1
    && shortPending([calcB], [skipped]).length === 0);
-const cancelled = cancelShort(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 1 }), { by: 'ก' });
+const cancelled = cancelShort(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 1 }), { by: 'ก', why: 'ยอดน้อย' });
 ok('ยกเลิกเรื่อง = skip เหมือนไม่ติดตาม', r962([cancelled]).nSkip === 1);
 const closedSame = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 1 }), { by: 'ก' });
 const closedOdd = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 3 }), { by: 'ก' });
@@ -143,7 +143,7 @@ console.log('=== M4b. ยอดเกินจบเรื่องแล้ว 
 const ocalc = overAll(ents, EN, { headerOf: po => { const p = poList.find(x => x.po === po); return p ? { pn: p.pn, order: p.qty } : null; },
                                   usageOf: (pn, code) => { const b = (BOM[pn] || []).find(x => x.code === code); return b ? b.usage : null; } });
 const oA = ocalc.find(r => r.po === 'TM0001H963' && r.code === A);
-const oSkipped = skipOver(oA, { entity: EN, person: 'ก' });
+const oSkipped = skipOver(oA, { entity: EN, person: 'ก', why: 'ยอดน้อย' });
 const r963 = (fl, more = []) => run({ ents: [...ents, ...more], follows: fl }).find(r => r.po === 'TM0001H963');
 ok('ไม่ติดตาม Over = oskip ไม่นับเป็น Over · การ์ด over ก็ไม่ขึ้น',
    line('TM0001H963', A, run({ follows: [oSkipped] })).state === 'oskip' && r963([oSkipped]).nOver === 1
@@ -151,12 +151,12 @@ ok('ไม่ติดตาม Over = oskip ไม่นับเป็น Over
 ok('ป้าย: เกิน N · จบเรื่องแล้ว (สีเทา)', mrpLineLabel(line('TM0001H963', A, run({ follows: [oSkipped] })))[0] === 'เกิน 3 · จบเรื่องแล้ว'
    && mrpLineLabel(line('TM0001H963', A, run({ follows: [oSkipped] })))[1] === 'mute');
 ok('นับรวมใน "จบเรื่องแล้ว N รายการ"', r963([oSkipped]).nSkip === 1);
-const oCancel = cancelOver(fromOverRow(oA, { entity: EN, person: 'ก' }), { by: 'ก' });
+const oCancel = cancelOver(fromOverRow(oA, { entity: EN, person: 'ก' }), { by: 'ก', why: 'ยอดน้อย' });
 ok('ยกเลิกเรื่อง Over = oskip เหมือนไม่ติดตาม', r963([oCancel]).lines.find(l => l.code === A).state === 'oskip');
 ok('รับเกินเพิ่มหลังหยุดตาม = กลับมาเป็น Over (ตรงกับการ์ด)',
    r963([oSkipped], [mk('receive', 'TM0001H963', A, 2)]).lines.find(l => l.code === A).state === 'over');
 ok('เรื่องของนิติบุคคลอื่น = ไม่นับ (A3)', r963([{ ...oSkipped, entity: 'TUE-U' }]).lines.find(l => l.code === A).state === 'over');
-const xFollow = cancelOver(makeFollow({ kind: 'over', type: 'เกิน', source: 'manual', entity: EN, po: 'TM0001H963', part_no: 'PN-A', code: X, qty: 3 }), { by: 'ก' });
+const xFollow = cancelOver(makeFollow({ kind: 'over', type: 'เกิน', source: 'manual', entity: EN, po: 'TM0001H963', part_no: 'PN-A', code: X, qty: 3 }), { by: 'ก', why: 'ยอดน้อย' });
 ok('รหัสนอกสูตรที่หยุดตามแล้ว = oskip ไม่นับเป็น Over', r963([oSkipped, xFollow]).lines.find(l => l.code === X).state === 'oskip',
    JSON.stringify(r963([oSkipped, xFollow]).lines));
 ok('ทุกรหัสที่เกินจบเรื่องแล้ว = ใบนี้ครบ (ป้ายเขียว)', r963([oSkipped, xFollow]).nOver === 0 && r963([oSkipped, xFollow]).state === 'ok'
