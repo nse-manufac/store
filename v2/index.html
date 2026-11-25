@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-25.2">
+<meta name="app-version" content="2026-11-26.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1467,11 +1467,6 @@ textarea{font:inherit}
             <div class="row">
               <label class="f grow" style="min-width:230px">ค้นหา
                 <input v-model.trim="balQ" placeholder="พิมพ์รหัสหรือชื่อ"></label>
-              <label class="f">หมวด
-                <select v-model="balCat">
-                  <option value="">ทุกหมวด</option>
-                  <option v-for="c in CATEGORIES" :key="c" :value="c">{{ c }}</option>
-                </select></label>
               <label class="f" style="justify-content:flex-end">
                 <span>&nbsp;</span>
                 <span class="row" style="gap:5px;flex-wrap:nowrap">
@@ -1554,7 +1549,7 @@ textarea{font:inherit}
                 <button :aria-pressed="balView==='code'" @click="balView='code'">รายรหัส</button>
               </div>
               <div class="grow"></div>
-              <span v-if="balView==='code'" class="hint">แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
+              <span v-if="balView==='code'" class="hint">เฉพาะเคมี · METAL PART · แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
               <template v-else>
                 <label class="row hint" style="gap:5px;flex-wrap:nowrap"><input type="checkbox" v-model="bpClosed" style="width:16px;height:16px">
                   รวม PO ที่ปิดแล้ว</label>
@@ -1680,7 +1675,7 @@ textarea{font:inherit}
                 </tr></tbody>
               </table>
               <p v-if="!balShown.rows.length" class="empty">
-                ยังไม่มียอดคงเหลือ — เริ่มจากหน้า "นับของ" เพื่อยกยอดเข้ามาก่อน
+                ยังไม่มียอดคงเหลือของเคมีหรือ METAL PART — หน้านี้แสดงเฉพาะหมวด CHEMICAL กับ METAL PART · หมวดอื่นที่รับเข้าด้วย PO ดูที่ "ราย P/N" · ของที่ยกยอดมา ปรับยอด คืนของ หรือของเสีย ไม่ขึ้นที่ราย P/N ให้ดูที่ "รายการที่ควรไปดู" หรือออก Bin Card
               </p>
             </div>
           </div>
@@ -3205,7 +3200,7 @@ textarea{font:inherit}
                 <tr v-if="foSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับมาแล้ว</th><th class="r">เกิน</th><th></th></tr>
                 <tr v-if="foSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ต้องคืน</th><th class="r">ค้าง</th><th>ยอดที่คืน (เว้นว่าง = คืนครบ)</th></tr>
                 <tr v-if="foSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่คืนครบ</th><th><span class="fol-got">ยอดที่คืน</span></th></tr>
-                <tr v-if="foSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">หยุดเมื่อ</th><th>โดย</th><th class="r">ค้างตอนหยุด</th><th></th></tr>
+                <tr v-if="foSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">ยอดตาม BOM</th><th class="r">ยอดที่รับเข้า</th><th class="r">ยอดที่เกิน</th><th><span class="fol-got">วันที่หยุดติดตาม</span></th></tr>
                 <template v-if="foSeg === 'new'">
                   <tr v-for="r in g.items" :key="r.code" class="fol-it">
                     <td></td><td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td><td>{{ mrpName(r.code) }}</td>
@@ -3251,10 +3246,17 @@ textarea{font:inherit}
                   <tr v-for="x in g.items" :key="x.s.id" class="fol-it" :data-fid="x.s.id">
                     <td></td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                     <td>{{ mrpName(x.s.code) }}
-                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) }}</div></td>
-                    <td class="mono r hint">{{ localDate(x.s.void_at) }}</td><td class="hint">{{ x.s.void_by }}</td>
-                    <td class="mono r">{{ mrpNum(remainOf(x.s)) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ mrpNum(x.s.qty) }}</span></td>
-                    <td class="fol-act"><button class="btn" :disabled="starting.has('forestart|' + x.s.id)" @click="foRestart(x.s)">กลับมาติดตาม</button></td>
+                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) || '(ไม่ได้ใส่เหตุผล)' }}</div></td>
+                    <!-- หลักฐานว่าเกินน้อยจริงจึงหยุดตาม: รับเข้า − คืนไปแล้ว − ตาม BOM = เกิน · อ่านจากสมุดคลังสด (เจ้าของเลือก 25 พ.ย. 2026)
+                         ตัวเลขคิดใน overStopEvidence (master/follow.js) · ยอดเกินตอนนี้ไม่เท่าตอนหยุด = บอก "ตอนหยุด X" ด้วย -->
+                    <template v-for="ev in [foStopEv(x.s)]" :key="x.s.id">
+                      <td class="mono r hint">{{ mrpNum(ev.bom) }}</td>
+                      <td class="mono r hint">{{ mrpNum(ev.recv) }}<div v-if="ev.back > 0">คืนไปแล้ว {{ mrpNum(ev.back) }}</div></td>
+                      <td class="mono r fol-key">{{ mrpNum(ev.over) }} <span v-if="ev.over != null" class="hint">{{ x.s.unit }}</span>
+                        <div v-if="ev.moved" class="hint" style="font-weight:400;font-size:14px">ตอนหยุด {{ mrpNum(ev.stopAt) }}</div></td>
+                    </template>
+                    <td class="fol-act"><span class="fol-got mono hint">{{ localDate(x.s.void_at) }}<div v-if="x.s.void_by">{{ x.s.void_by }}</div></span>
+                      <button class="btn" :disabled="starting.has('forestart|' + x.s.id)" @click="foRestart(x.s)">กลับมาติดตาม</button></td>
                   </tr>
                 </template>
               </template>

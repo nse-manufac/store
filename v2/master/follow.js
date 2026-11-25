@@ -913,6 +913,29 @@ export function stopEvidence(row) {
 }
 
 /**
+ * หลักฐานแบบเดียวกันของ over — ตาม BOM · รับเข้า · คืนไปแล้ว · เกิน
+ * อ่านจากสมุดคลังสด ๆ ผ่านแถว overAll ของคู่ PO+รหัสนั้น (เจ้าของเลือก 25 พ.ย. 2026)
+ *
+ * calc = แถวของ overAll ({ recv, sentBack, bom_qty, over, why }) ของคู่นี้ · null = สมุดไม่มีรับเข้าของคู่นี้
+ * เกิน = รับเข้า − คืนไปแล้ว − ตาม BOM ตัวเดียวกับที่ overAll คิด → บวกลบลงเสมอ
+ * stopAt = ยอดค้างตอนหยุด (remainOf) ไว้ให้จอบอก "ตอนหยุด X" เมื่อสมุดขยับไปแล้ว (เช่น คืนเพิ่มหลังหยุด)
+ *
+ * ⚠️ ห้ามกลับไปคิดจาก bom_qty / recv_qty ที่แช่ไว้ในเรื่อง — สองช่องนี้มาจากคนละแหล่งได้
+ *    (นำเข้าไฟล์ MAT'L FOLLOWING ของ Delta ทับ qty / recv_qty แต่ไม่แตะ bom_qty — planMatFollow)
+ *    แล้ว "คืนไปแล้ว" ที่คิดจากเศษจะโผล่ทั้งที่ไม่เคยคืน (ผู้ตรวจ #190 รอบ 2–3)
+ * คิดยอดตาม BOM ไม่ได้ (why) = bom / over เป็น null แต่ยังโชว์รับเข้า / คืนจากสมุดได้
+ */
+export function overStopEvidence(row, calc) {
+  const stopAt = remainOf(row);
+  if (!calc) return { bom: null, recv: null, back: null, over: null, stopAt, moved: true };
+  const recv = round5(Number(calc.recv) || 0), back = round5(Number(calc.sentBack) || 0);
+  if (calc.why || calc.bom_qty == null || calc.over == null) return { bom: null, recv, back, over: null, stopAt, moved: true };
+  const over = round5(Number(calc.over));
+  // moved = ยอดเกินตอนนี้ไม่เท่าตอนหยุด → จอบอก "ตอนหยุด X" ด้วย (ปุ่มกลับมาติดตามตั้งเรื่องด้วยยอดตอนหยุด)
+  return { bom: round5(Number(calc.bom_qty)), recv, back, over, stopAt, moved: Math.abs(over - stopAt) >= 1e-4 };
+}
+
+/**
  * คำเตือนก่อน "ยกเลิกเรื่อง" — คืน '' ถ้าไม่ต้องเตือน (เจ้าของเลือกแบบ ก 4 พ.ย. 2026 · ผู้ตรวจ #146 รอบ 5)
  * เพดาน "ไม่ขึ้นอีก" = ยอดที่ค้างในเรื่องตอนกด · ถ้าระบบคิดได้ว่าขาดไม่เท่านั้น (เช่น คีย์รับเข้าที่หน้ารับเข้า
  * แต่ไม่ได้กด "มาแล้ว") เพดานจะไม่ใช่เลขที่คนกดเห็นว่าขาดจริง — บอกให้กด "มาแล้ว" ก่อน
