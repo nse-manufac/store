@@ -88,6 +88,16 @@ ok('ปรับยอดเขียนกำกับพร้อมยอด�
    lines[4].remark.includes('ปรับยอด') && lines[4].remark.includes('นับได้ 235'), lines[4].remark);
 ok('รับเข้ากับจ่ายออกไม่ต้องกำกับ เพราะมีคอลัมน์ของตัวเองอยู่แล้ว',
    !lines[1].remark.includes('รับเข้า') && !lines[2].remark.includes('จ่ายออก'));
+{ // ล้างเศษ: Remark แค่ "ADJUST เศษ -0.89975" (เจ้าของสั่ง 25 พ.ย. 2026) · ติดลบ = ปรับขึ้น ลงฝั่งรับ มีเครื่องหมาย +
+  const fl = toCardLines([
+    { kind: 'adjust', reason_code: 'frac', at, moved: -0.89975, balance: 0, person: 'ก', doc_ref: 'POF', part_no: 'PNF',
+      counted_qty: 0, note: 'ล้างเศษ PO POF: คงเหลือ 0.89975 ต่ำกว่าเกณฑ์ 1' },
+    { kind: 'adjust', reason_code: 'frac', at, moved: 0.005, balance: 0, person: 'ก', doc_ref: 'POG', counted_qty: 0, note: 'x' },
+  ], 'PCS');
+  ok('ล้างเศษบน Bin Card: Remark แค่ "ADJUST เศษ <ส่วนต่าง>" · ไม่มีนับได้/หมายเหตุ · P/N ติดไป · ฝั่งตามผลต่อยอด',
+     fl[0].remark === 'ADJUST เศษ -0.89975' && fl[0].direction === 'OUT' && fl[0].qty === 0.89975 && fl[0].part_no === 'PNF'
+     && fl[1].remark === 'ADJUST เศษ +0.005' && fl[1].direction === 'IN', fl.map(x => x.remark).join(' | '));
+}
 ok('ล็อตติดไปในหมายเหตุ', lines[1].remark.includes('ล็อต LOT-A'));
 ok('ล็อตที่ระบบเดาถูกกำกับว่าเดา', lines[2].remark.includes('ระบบเดา'), lines[2].remark);
 ok('วันหมดอายุยกไปคอลัมน์ของมัน', lines[1].expiry_date === '2027-01-01');

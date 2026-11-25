@@ -163,30 +163,57 @@ export function poMoves(entries, entity, docRef, code) {
  * counted_qty = 0 · book = คงเหลือ PO ก่อนล้าง → delta = −เศษ · ยอดรวมของรหัสก็ขยับตามด้วย (เศษนั้นไม่มีอยู่จริง)
  * ผู้เรียกต้องเขียนรายการที่คืนลงสมุดเอง · ไม่มีเศษ = []
  */
-export function fracSweep(entries, entity, po, codes, tolOf, { person, device = '', at, part_no = '' } = {}) {
+export function fracSweep(entries, entity, po, codes, tolOf, by = {}) {
   need(entity);
   const ref = String(po || '');
   if (!ref || typeof tolOf !== 'function') return [];
-  const st = poStockOf(entries, entity, ref), out = [];
+  const st = poStockOf(entries, entity, ref), seen = fracSeen(entries, entity), out = [];
   for (const c of new Set((codes || []).map(String))) {
     const r = st.get(c), tol = Number(tolOf(c)) || 0;
-    // ยังไม่ได้รับเข้าเลย = ไม่ใช่เศษ ห้ามล้าง (กฎเดียวกับ #182 · เจ้าของเคาะ 23 พ.ย. 2026)
-    // จ่าย 0.8 ก่อนคีย์รับ → ล้าง +0.8 แล้วพอรับเข้าทีหลัง ยอดที่จ่ายไปจะหายทั้งก้อน
-    if (!r || !(r.recv > 0) || !r.bal || Math.abs(r.bal) >= tol) continue;
-    out.push(makeEntry({ entity, kind: 'adjust', material_code: c, reason_code: FRAC_REASON,
-                         counted_qty: 0, book_qty: r.bal, doc_kind: 'po', doc_ref: ref, part_no, person, device, at,
-                         note: `ล้างเศษ PO ${ref}: คงเหลือ ${r.bal} ต่ำกว่าเกณฑ์ ${tol}` }));
+    if (!isFracLeft(r, tol)) continue;
+    out.push(fracEntry(entity, { po: ref, code: c, bal: r.bal, tol }, by, seen));
   }
   return out;
 }
 
-/** รายการล้างเศษที่เกิดพร้อมจ่ายออกรายการนี้ (ยังไม่ยกเลิก) — ยกเลิกจ่ายออกแล้วต้องยกเลิกคู่กัน (เจ้าของเคาะ 23 พ.ย. 2026)
- *  ผูกด้วย PO + รหัส + เวลา: saveOut คิดเวลา (atFrom) ครั้งเดียวต่อการบันทึก แล้วส่งตัวเดียวกันนั้นให้ทุกบรรทัด
- *  และให้ fracSweep จึงเท่ากันทุกตัวอักษร (เรียก atFrom ใหม่ทุกบรรทัดจะได้มิลลิวินาทีต่างกัน แล้วการผูกขาดเงียบ ๆ)
- *  ไม่ต้องเพิ่มช่องในสมุด (E2) */
+/** ยอดของ PO+รหัส (แถวจาก poStockOf / poStocks) เป็นเศษจากสูตรไหม — 0 < |คงเหลือ| < เกณฑ์ของหน่วย
+ *  ยังไม่ได้รับเข้าเลย = ไม่ใช่เศษ (กฎเดียวกับ #182 · เจ้าของเคาะ 23 พ.ย. 2026)
+ *  จ่าย 0.8 ก่อนคีย์รับ → ล้าง +0.8 แล้วพอรับเข้าทีหลัง ยอดที่จ่ายไปจะหายทั้งก้อน
+ *  ตัวเดียวกับที่ใช้ตัดสินปุ่ม "ล้างเศษ" ในรายการเคลื่อนไหวหน้ายอดคงคลัง — แยกกันเมื่อไหร่ ปุ่มขึ้นแต่กดแล้วไม่ล้าง */
+export function isFracLeft(r, tol) {
+  return !!r && r.recv > 0 && !!r.bal && Math.abs(r.bal) < (Number(tol) || 0);
+}
+
+/* เลขรายการล้างเศษ: คู่ PO+รหัสเดียวกันในสถานะเดียวกันได้เลขเดียวกันเสมอ
+ *   สองเครื่องกดล้างพร้อมกันก่อนซิงค์ → ซิงค์แล้วรวมเป็นรายการเดียว ไม่หักซ้อน
+ *   n = จำนวนรายการล้างเศษของคู่นี้ที่มีอยู่แล้ว (รวมที่ยกเลิก) → ยกเลิกแล้วล้างใหม่ได้เลขใหม่ ไม่ทับประวัติ (B1)
+ *   คั่นด้วย | ไม่ใช่ - เพราะเลข PO / รหัสอาจมีขีด แล้วสองคู่ต่างกันจะได้เลขเดียวกัน (ผู้ตรวจ #186) */
+function fracSeen(entries, entity) {
+  const m = new Map();
+  for (const e of entries) if (e.entity === entity && isFracAdj(e)) {
+    const k = String(e.doc_ref) + '|' + String(e.material_code);
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  return m;
+}
+function fracEntry(entity, { po, code, bal, tol }, { person, device = '', at, part_no = '' }, seen) {
+  return makeEntry({ id: `FRAC|${entity}|${po}|${code}|${seen.get(po + '|' + code) || 0}`,
+                     entity, kind: 'adjust', material_code: code, reason_code: FRAC_REASON,
+                     counted_qty: 0, book_qty: bal, doc_kind: 'po', doc_ref: po, part_no, person, device, at,
+                     note: `ล้างเศษ PO ${po}: คงเหลือ ${bal} ต่ำกว่าเกณฑ์ ${tol}` });
+}
+
+/** รายการล้างเศษของ PO + รหัสเดียวกันที่ทำตั้งแต่จ่ายออกรายการนี้เป็นต้นไป (ยังไม่ยกเลิก)
+ *  ยกเลิกจ่ายออกแล้วต้องยกเลิกพวกนี้ด้วย (เจ้าของเคาะ 23 + 25 พ.ย. 2026)
+ *  เศษที่ล้างหลังจ่ายรายการนี้ คิดจากยอดที่รวมรายการนี้อยู่ — จ่ายหายไปแล้วเศษนั้นก็ไม่มีจริง
+ *  ถ้าเก็บไว้ ยอด PO กับยอดรวมจะขาดไปเท่าเศษเงียบ ๆ (ยอดที่เหลือเกินเกณฑ์ ไม่มีป้ายเศษให้เห็น)
+ *    - ล้างพร้อมจ่าย: saveOut ส่ง at ตัวเดียวกับใบจ่าย → เวลาเท่ากัน
+ *    - ล้างจากปุ่มทีหลัง: เวลาที่กด → หลังใบจ่าย (ผู้ตรวจ #186 รอบ 2)
+ *    - ล้างก่อนจ่ายรายการนี้ = เศษของยอดที่ไม่มีรายการนี้ ไม่แตะ
+ *  ยกเลิกแล้วถ้ายังเหลือเศษจริง ป้าย "เศษ" กับปุ่มจะกลับมาเอง · ไม่ต้องเพิ่มช่องในสมุด (E2) */
 export function fracTwins(entries, e) {
   if (!e || e.kind !== 'issue' || !e.doc_ref) return [];
-  return entries.filter(x => x.entity === e.entity && isFracAdj(x) && !x.voided && x.at === e.at
+  return entries.filter(x => x.entity === e.entity && isFracAdj(x) && !x.voided && String(x.at) >= String(e.at)
                              && String(x.doc_ref) === String(e.doc_ref) && String(x.material_code) === String(e.material_code));
 }
 

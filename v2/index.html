@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-24.4">
+<meta name="app-version" content="2026-11-25.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1554,6 +1554,9 @@ textarea{font:inherit}
                 <span class="hint">{{ bpShown.length }} P/N</span>
               </template>
             </div>
+            <!-- เศษค้างของเก่าส่วนใหญ่อยู่ใน PO ที่ซ่อนไว้ (ผู้ตรวจ #186 · เจ้าของเคาะ 24 พ.ย.) -->
+            <p v-if="balView==='pn' && !bpClosed" class="hint noprint" style="margin:0 0 8px">PO ที่ส่งครบแล้วหรือเก่ากว่า {{ MRP_FRESH_DAYS }} วันซ่อนอยู่ ·
+              จะตามล้างเศษของ PO เก่า ให้ติ๊ก "รวม PO ที่ปิดแล้ว" ก่อน</p>
             <div v-if="balView==='pn'" class="scroll" style="max-height:none">
               <table class="mrp">
                 <thead><tr><th style="width:28px"></th><th>P/N</th><th>PO ที่นับ</th><th>PO Date เก่าสุด</th>
@@ -1612,7 +1615,8 @@ textarea{font:inherit}
                                       <!-- ติดลบ = ลิงก์ไปแท็บ Log จ่ายออก ค้น PO + รหัส ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ (เจ้าของสั่ง 19 พ.ย. 2026) -->
                                       <td class="mono r"><button v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"
                                           title="ไปหน้า Log จ่ายออก เพื่อยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ">{{ mrpNum(p.bal) }}</button>
-                                        <b v-else>{{ mrpNum(p.bal) }}</b></td>
+                                        <b v-else>{{ mrpNum(p.bal) }}</b>
+                                        <span v-if="bpFrac(p, l.code)" class="tag warn" style="margin-left:4px">เศษ</span></td>
                                     </tr>
                                     <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="8" style="padding:4px 0 10px">
                                       <table class="mrp mrp-bom" style="margin-top:0">
@@ -1625,7 +1629,13 @@ textarea{font:inherit}
                                           <td class="mono r" :style="m.e.kind === 'sendback' ? 'color:var(--warn);font-weight:600' : m.qty<0 ? 'color:var(--bad)' : ''">{{ m.qty > 0 ? '+' : '' }}{{ mrpNum(m.qty) }}</td>
                                           <td class="mono r"><b>{{ mrpNum(m.run) }}</b></td>
                                           <td class="mono hint">{{ m.e.lot || '' }}</td><td>{{ m.e.person || '' }}</td>
-                                        </tr></tbody>
+                                        </tr>
+                                        <!-- ค้างเศษ = ปุ่มล้างอยู่ท้ายรายการเคลื่อนไหวของใบนั้น (เจ้าของเคาะ 23 พ.ย. 2026) -->
+                                        <tr v-if="bpFrac(p, l.code)" class="noprint"><td colspan="7" class="hint">
+                                          คงเหลือ {{ mrpNum(p.bal) }} {{ unitOf(l.code) }} ต่ำกว่าเกณฑ์ {{ fracTolAt(l.code) }} = เศษจากสูตร ไม่ใช่ของจริง
+                                          <button class="btn" style="margin-left:8px;padding:2px 9px" @click.stop="bpFracClean(p.po, l.code, r.pn)">ล้างเศษ</button>
+                                          <span style="margin-left:6px">(บันทึกปรับยอด "ล้างเศษ" แยกเป็นรายการ ยอดที่จ่ายไปไม่เปลี่ยน)</span></td></tr>
+                                        </tbody>
                                       </table>
                                     </td></tr>
                                   </template>
@@ -3745,7 +3755,8 @@ textarea{font:inherit}
             <tr><td class="hint">ผู้บันทึก</td><td>{{ voidBox.row.person }}</td></tr>
           </tbody></table>
           <p class="hint" v-if="voidTwins.length" style="margin:12px 0 0">รายการล้างเศษ PO {{ voidTwins[0].doc_ref }}
-            (ส่วนต่าง {{ voidTwins[0].delta }}) ที่ระบบทำพร้อมจ่ายออกรายการนี้ จะถูกยกเลิกไปด้วย</p>
+            (ส่วนต่าง {{ voidTwins[0].delta }}<template v-if="voidTwins.length > 1"> และอีก {{ voidTwins.length - 1 }} รายการ</template>)
+            ที่ทำตอนหรือหลังจ่ายออกรายการนี้ จะถูกยกเลิกไปด้วย · ถ้ายังเหลือเศษจริง ปุ่มล้างเศษจะกลับมาที่หน้ายอดคงคลัง</p>
           <div class="msg warn" v-if="voidAfterAdjust" style="margin:12px 0 0">
             <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ localDate(voidAfterAdjust.at) }}</b><br>
             <!-- ล้างเศษไม่ได้นับจริง — ห้ามเขียน "ที่เคยนับได้ 0" (ผู้ตรวจ #185) -->
