@@ -1086,6 +1086,16 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
     ok('กล่องช่วยเหลือ: "ระบบคิดได้" บอกว่าเทียบกับยอดที่ยังค้าง · โชว์เฉพาะเมื่อไม่เท่ากัน · ไม่อ้างป้าย "ตรง"',
        helpCalc.includes('ยอดที่ยังค้าง') && !helpCalc.includes('ยอดที่แจ้งไว้')
        && !/\(\s*ตรง\s*\/\s*ต่าง\s*\)/.test(helpCalc), helpCalc.slice(0, 200));
+    /* ผู้ตรวจ #195 รอบ 2 ข้อ 1 — คำอธิบายในโค้ดต้องบอกฐานเทียบตรงกับ shortChecker ด้วย
+       ไม่ใช่แค่ข้อความบนจอ · JSDoc ที่บอกฐานเทียบผิดคือกับดักของ agent คนถัดไป */
+    const folSrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8');
+    const iChk = folSrc.indexOf('export function shortChecker(');
+    const doc = iChk < 0 ? '' : folSrc.slice(folSrc.lastIndexOf('/**', iChk), iChk);
+    ok('JSDoc ของ shortChecker บอกฐานเทียบว่าเป็นยอดที่ยังค้าง ไม่ใช่ยอดที่เรื่องแจ้งไว้',
+       doc.includes('ยอดที่ยังค้าง') && !doc.includes('แจ้งไว้'), doc.slice(0, 300));
+    const fsCalcDoc = (appSrc.match(/คอลัมน์ "ระบบคิดได้" ในตารางเรื่อง =[^\n]*/) || [''])[0];
+    ok('คอมเมนต์หัว fsCalc บอกฐานเทียบว่าเป็นยอดที่ยังค้าง',
+       fsCalcDoc.includes('ยอดที่ยังค้าง') && !fsCalcDoc.includes('แจ้งไว้'), fsCalcDoc);
   }
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
