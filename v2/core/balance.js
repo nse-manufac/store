@@ -224,6 +224,29 @@ export function stillToIssue(reqmt, issued) {
 }
 
 /**
+ * รหัสที่จะจ่ายเกินของที่มี — หน้าจ่ายออกห้ามบันทึกถ้ามีสักรหัส (INVARIANTS A4 · เจ้าของสั่ง 25 พ.ย. 2026)
+ * ของมาแล้วต้องคีย์รับเข้าก่อน ไม่ใช่จ่ายไปก่อนแล้วตามคีย์รับทีหลัง
+ * lines = [{code, qty}] · balOf(code) = ยอดที่มี (ของ PO บนหัวจอ หรือยอดรวมถ้าไม่ใส่ PO)
+ * รหัสเดียวกันหลายบรรทัดรวมยอดก่อนเทียบ — แยกบรรทัดแล้วผ่านทีละบรรทัดไม่ได้
+ * คืน [{code, bal, qty, short}] · ว่าง = จ่ายได้
+ */
+export function overIssue(lines, balOf, key = c => String(c || '').trim().toUpperCase()) {
+  const sum = new Map();
+  for (const l of lines) {
+    const q = Number(l.qty) || 0;
+    if (!l.code || q <= 0) continue;
+    const k = key(l.code), cur = sum.get(k);
+    sum.set(k, { code: cur ? cur.code : l.code, qty: round5((cur ? cur.qty : 0) + q) });
+  }
+  const out = [];
+  for (const { code, qty } of sum.values()) {
+    const bal = round5(Number(balOf(code)) || 0), short = round5(qty - bal);
+    if (short > 0) out.push({ code, bal, qty, short });
+  }
+  return out;
+}
+
+/**
  * การ์ดรายตัว — ประวัติของรหัสเดียวพร้อมยอดสะสมทีละบรรทัด
  * เรียงเก่าไปใหม่ เพราะเป็นเอกสารที่ลูกค้าอ่านไล่ลงมา
  */

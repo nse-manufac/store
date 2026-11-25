@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-25.1">
+<meta name="app-version" content="2026-11-25.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1432,14 +1432,16 @@ textarea{font:inherit}
             <span class="hint">พร้อมบันทึก {{ outReady.length }} บรรทัด</span>
             <div class="grow"></div>
             <button class="btn" @click="clearOut">ล้าง</button>
-            <button class="btn primary" @click="saveOut" :disabled="!outReady.length">บันทึกจ่ายออก</button>
+            <button class="btn primary" @click="saveOut" :disabled="!outReady.length || outOver.length > 0">บันทึกจ่ายออก</button>
           </div>
 
-          <div class="msg warn" v-if="outNegative.length" style="margin:10px 0 0">
-            <b>{{ outNegative.length }} รายการที่ยอด{{ outH.po ? 'ของ PO ' + outH.po + ' ' : '' }}จะติดลบ</b> —
-            <span class="mono">{{ outNegative.slice(0,5).map(l => l.code + ' → ' + outAfterOf(l)).join(' · ') }}</span><br>
-            <span class="hint" v-if="outH.po">บันทึกได้อยู่ — ยอดนี้นับเฉพาะของที่รับเข้าด้วยเลข PO นี้ ถ้าของรหัสนั้นรับเข้ามาด้วย PO อื่น หรือยกยอดมาตอนเริ่มระบบ จะไม่อยู่ในยอดนี้ · ดูยอดรวมได้ที่หน้ายอดคงคลัง · หรือยังไม่ได้คีย์รับเข้าของ PO นี้ย้อนหลัง</span>
-            <span class="hint" v-else>บันทึกได้อยู่ อาจเป็นเพราะยังไม่ได้คีย์รับเข้าย้อนหลัง</span>
+          <!-- ห้ามจ่ายเกินของที่มี — INVARIANTS A4 (เจ้าของสั่ง 25 พ.ย. 2026) -->
+          <div class="msg bad" v-if="outOver.length" style="margin:10px 0 0">
+            <b>จ่ายเกินของ{{ outH.po ? 'ที่รับเข้าด้วย PO ' + outH.po : 'ในคลัง' }} {{ outOver.length }} รายการ — บันทึกไม่ได้</b><br>
+            <span class="mono">{{ outOver.slice(0,5).map(o => o.code + ' มี ' + o.bal + ' จะจ่าย ' + o.qty + ' ขาด ' + o.short).join(' · ') }}</span>
+            <template v-if="outOver.length > 5"> · และอีก {{ outOver.length - 5 }} รายการ</template><br>
+            <span class="hint">ถ้าของมาแล้ว ให้คีย์รับเข้าก่อนแล้วค่อยจ่าย · ถ้ารับเข้าที่เครื่องอื่นแล้ว กดซิงค์ก่อน · ถ้าของมีไม่พอจริง ลดยอดจ่ายให้เท่าที่มี</span>
+            <span class="hint" v-if="outH.po"><br>ยอดนี้นับเฉพาะของที่รับเข้าด้วยเลข PO นี้ ของที่รับเข้าด้วย PO อื่นต้องจ่ายอ้าง PO นั้น</span>
           </div>
           <div class="hint" style="margin-top:8px">
             ล็อตที่กด "เดาให้" มาจากลำดับการรับเข้า (ของเก่าก่อน) เพราะของไม่ได้แยกกองตามล็อตในคลังจริง
