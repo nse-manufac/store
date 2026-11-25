@@ -12,7 +12,7 @@ import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from 
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
-import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence } from '../v2/master/follow.js';
+import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -2378,6 +2378,35 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
     ok('หลักฐานหยุดตาม: ตัวเลขผ่าน round5 ไม่หลุด 0.30000000000000004 (A2)',
        eq(stopEvidence({ qty: 0.3, bom_qty: 0.6 }), { bom: 0.6, recv: 0.3, short: 0.3 })
        && eq(stopEvidence({ qty: 0.1 + 0.2, bom_qty: '0.4' }), { bom: 0.4, recv: 0.1, short: 0.3 }));
+
+    // over: อ่านรับเข้า / คืนจากสมุดจริงผ่าน overAll (เจ้าของเลือก 25 พ.ย. 2026) — สมุด TUE-H · P/N P9 สั่ง 100 · ใช้ 5 ต่อชิ้น = ตาม BOM 500
+    const OE = 'TUE-H';
+    const led = (kind, po, qty) => ({ entity: OE, kind, doc_ref: po, material_code: 'C9', qty, voided: false });
+    const oopt = { headerOf: () => ({ pn: 'P9', order: 100 }), usageOf: () => 5, min: -Infinity };
+    const calcOf = (ents, po) => overAll(ents, OE, oopt).find(r => r.po === po) || null;
+    const ostory = (po, extra = {}) => ({ kind: 'over', po, code: 'C9', qty: 12, done_qty: 0, ...extra });
+    ok('หลักฐานหยุดตาม over: ไม่ติดตาม — ตาม BOM · รับเข้า · ไม่มีคืน · เกิน จากสมุด · ตรงกับตอนหยุด',
+       eq(overStopEvidence(ostory('A1'), calcOf([led('receive', 'A1', 512)], 'A1')),
+          { bom: 500, recv: 512, back: 0, over: 12, stopAt: 12, moved: false }));
+    // คืนก่อนตั้งเรื่อง 2 + กดคืนแล้ว 4 = ใบส่งคืนในสมุด 6 → เกิน 6 = ค้างตอนหยุด (ตั้ง 10 คืน 4)
+    ok('หลักฐานหยุดตาม over: คืนไปแล้ว = ใบส่งคืนจริงในสมุดทุกใบ · บวกลบลง (512 − 6 − 500 = 6)',
+       eq(overStopEvidence(ostory('A2', { qty: 10, done_qty: 4 }),
+                           calcOf([led('receive', 'A2', 512), led('sendback', 'A2', 2), led('sendback', 'A2', 4)], 'A2')),
+          { bom: 500, recv: 512, back: 6, over: 6, stopAt: 6, moved: false }));
+    // ไฟล์ Delta ทับ qty / recv_qty แต่ไม่ทับ bom_qty (ผู้ตรวจ #190) — ค่าที่แช่ในเรื่องเพี้ยน แต่สมุดไม่มีใบคืน = ต้องไม่ขึ้น "คืนไปแล้ว"
+    ok('หลักฐานหยุดตาม over: เรื่องที่ไฟล์ Delta ทับ bom_qty / recv_qty ไม่ตรงกัน — ไม่ขึ้นคืนปลอม · บอกยอดตอนหยุดเมื่อไม่เท่า',
+       eq(overStopEvidence(ostory('A3', { qty: 5, bom_qty: 520, recv_qty: 505 }), calcOf([led('receive', 'A3', 512)], 'A3')),
+          { bom: 500, recv: 512, back: 0, over: 12, stopAt: 5, moved: true }));
+    ok('หลักฐานหยุดตาม over: คืนเพิ่มหลังหยุด — เกินเป็นยอดตอนนี้ · moved บอกให้จอโชว์ยอดตอนหยุด',
+       eq(overStopEvidence(ostory('A4', { qty: 6 }), calcOf([led('receive', 'A4', 512), led('sendback', 'A4', 9)], 'A4')),
+          { bom: 500, recv: 512, back: 9, over: 3, stopAt: 6, moved: true }));
+    ok('หลักฐานหยุดตาม over: คิดยอดตาม BOM ไม่ได้ = ยังโชว์รับเข้า / คืนจากสมุด · ไม่มีในสมุด = null ทั้งหมด',
+       eq(overStopEvidence(ostory('A5', { qty: 3 }), { recv: 30, sentBack: 2, bom_qty: null, over: null, why: 'ยังไม่รู้ P/N ของใบนี้' }),
+          { bom: null, recv: 30, back: 2, over: null, stopAt: 3, moved: true })
+       && eq(overStopEvidence(ostory('A6', { qty: 3 }), null), { bom: null, recv: null, back: null, over: null, stopAt: 3, moved: true }));
+    ok('หลักฐานหยุดตาม over: ตัวเลขผ่าน round5 (A2) · สมุดนิติบุคคลอื่นไม่ถูกนับ (A3)',
+       eq(overStopEvidence(ostory('A7', { qty: 0.3 }), calcOf([led('receive', 'A7', 0.1 + 0.2 + 500), { ...led('receive', 'A7', 99), entity: 'NSE' }], 'A7')),
+          { bom: 500, recv: 500.3, back: 0, over: 0.3, stopAt: 0.3, moved: false }));
   }
 
   const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
