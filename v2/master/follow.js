@@ -913,28 +913,26 @@ export function stopEvidence(row) {
 }
 
 /**
- * หลักฐานแบบเดียวกันของ over — ตาม BOM · รับเข้า · คืนไปแล้ว · เกิน ณ ตอนหยุด
- * ยอดเกินคิดจาก รับเข้า − คืนไปแล้ว − ตาม BOM (overAll) จึงต้องโชว์ที่คืนไปแล้วด้วย ไม่งั้นบวกลบไม่ลง
+ * หลักฐานแบบเดียวกันของ over — ตาม BOM · รับเข้า · คืนไปแล้ว · เกิน
+ * อ่านจากสมุดคลังสด ๆ ผ่านแถว overAll ของคู่ PO+รหัสนั้น (เจ้าของเลือก 25 พ.ย. 2026)
  *
- * เกิน = remainOf(row) · รับเข้า = recv_qty ที่จดไว้ตอนตั้งเรื่อง (ยอดรับจริงทั้งหมด)
- * คืนไปแล้ว = รับเข้า − ตาม BOM − เกิน (รวมที่คืนก่อนตั้งเรื่อง + ที่กด "คืนแล้ว" ทุกรอบ แม้กลับมาติดตามแล้วตั้งใหม่)
- * ⚠️ คิดได้ติดลบ = bom_qty กับ recv_qty บนแถวนั้นมาจากคนละแหล่ง ซึ่ง **เกิดได้จากทางเดินปกติของแอป**
- *    นำเข้าไฟล์ MAT'L FOLLOWING ของ Delta ทับเรื่อง over ที่ตั้งจากการ์ด "ของเกินที่ระบบคำนวณได้" —
- *    planMatFollow ใน matfollow.js ทับ qty / recv_qty ด้วยค่าจากไฟล์ แต่ไม่แตะ bom_qty เดิม
- *    (เช่น เรื่องเดิม qty 10 · bom 520 · recv 530 แล้วไฟล์แจ้ง สั่ง 500 ส่งจริง 505 → qty 5 · bom 520 · recv 505)
- *    ไม่ใช่เฉพาะแถวที่แก้มือในชีตหรือเรื่องรุ่นเก่า — ทำซ้ำได้ด้วย planMatFollow ตัวจริง (ผู้ตรวจ #190 รอบสอง)
- *    → ไม่โชว์ที่คืน ใช้ รับเข้า = ตาม BOM + เกิน แทน · กันไว้ไม่ให้จอขึ้น "คืนไปแล้ว" ติดลบ
- * ไม่รู้ยอดตาม BOM = bom / recv / back เป็น null
+ * calc = แถวของ overAll ({ recv, sentBack, bom_qty, over, why }) ของคู่นี้ · null = สมุดไม่มีรับเข้าของคู่นี้
+ * เกิน = รับเข้า − คืนไปแล้ว − ตาม BOM ตัวเดียวกับที่ overAll คิด → บวกลบลงเสมอ
+ * stopAt = ยอดค้างตอนหยุด (remainOf) ไว้ให้จอบอก "ตอนหยุด X" เมื่อสมุดขยับไปแล้ว (เช่น คืนเพิ่มหลังหยุด)
+ *
+ * ⚠️ ห้ามกลับไปคิดจาก bom_qty / recv_qty ที่แช่ไว้ในเรื่อง — สองช่องนี้มาจากคนละแหล่งได้
+ *    (นำเข้าไฟล์ MAT'L FOLLOWING ของ Delta ทับ qty / recv_qty แต่ไม่แตะ bom_qty — planMatFollow)
+ *    แล้ว "คืนไปแล้ว" ที่คิดจากเศษจะโผล่ทั้งที่ไม่เคยคืน (ผู้ตรวจ #190 รอบ 2–3)
+ * คิดยอดตาม BOM ไม่ได้ (why) = bom / over เป็น null แต่ยังโชว์รับเข้า / คืนจากสมุดได้
  */
-export function overStopEvidence(row) {
-  const over = remainOf(row);
-  const b = numOrNull(row ? row.bom_qty : null);
-  if (b == null) return { bom: null, recv: null, back: null, over };
-  const bom = round5(b);
-  const r = numOrNull(row.recv_qty);
-  const back = r == null ? -1 : round5(r - bom - over);
-  if (back < 0) return { bom, recv: round5(bom + over), back: null, over };
-  return { bom, recv: round5(r), back, over };
+export function overStopEvidence(row, calc) {
+  const stopAt = remainOf(row);
+  if (!calc) return { bom: null, recv: null, back: null, over: null, stopAt, moved: true };
+  const recv = round5(Number(calc.recv) || 0), back = round5(Number(calc.sentBack) || 0);
+  if (calc.why || calc.bom_qty == null || calc.over == null) return { bom: null, recv, back, over: null, stopAt, moved: true };
+  const over = round5(Number(calc.over));
+  // moved = ยอดเกินตอนนี้ไม่เท่าตอนหยุด → จอบอก "ตอนหยุด X" ด้วย (ปุ่มกลับมาติดตามตั้งเรื่องด้วยยอดตอนหยุด)
+  return { bom: round5(Number(calc.bom_qty)), recv, back, over, stopAt, moved: Math.abs(over - stopAt) >= 1e-4 };
 }
 
 /**

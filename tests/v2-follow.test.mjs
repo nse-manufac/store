@@ -2379,24 +2379,34 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
        eq(stopEvidence({ qty: 0.3, bom_qty: 0.6 }), { bom: 0.6, recv: 0.3, short: 0.3 })
        && eq(stopEvidence({ qty: 0.1 + 0.2, bom_qty: '0.4' }), { bom: 0.4, recv: 0.1, short: 0.3 }));
 
-    // over: รับเข้า − คืนไปแล้ว − ตาม BOM = เกิน
-    const osk = skipOver({ po: 'TM9100H005', pn: 'P5', code: 'C5', recv: 512, sentBack: 0, bom_qty: 500, over: 12 },
-                         { entity: E, person: 'ก', date: '2026-11-22', why: 'ยอดน้อย' });
-    ok('หลักฐานหยุดตาม over: ไม่ติดตาม = ตาม BOM · รับเข้า · เกิน · ยังไม่ได้คืน',
-       eq(overStopEvidence(osk), { bom: 500, recv: 512, back: 0, over: 12 }), JSON.stringify(overStopEvidence(osk)));
-    // คืนไปก่อนตั้งเรื่อง 2 (เกินตอนตั้ง 10) → กดคืนแล้ว 4 → ยกเลิก = เกิน 6 · คืนไปแล้ว 6 · 512 − 6 − 500 = 6
-    const ost = fromOverRow({ po: 'TM9100H006', pn: 'P6', code: 'C6', recv: 512, sentBack: 2, bom_qty: 500, over: 10 }, { entity: E, person: 'ก', date: '2026-11-10' });
-    const opart = cancelOver(closeFollow(ost, { qty: 4, by: 'ข' }), { by: 'ค', why: 'ไม่คุ้มส่ง' });
-    ok('หลักฐานหยุดตาม over: คืนก่อนตั้งเรื่อง + คืนบางส่วนแล้วยกเลิก — คืนไปแล้วรวมทั้งสองก้อน',
-       eq(overStopEvidence(opart), { bom: 500, recv: 512, back: 6, over: 6 }), JSON.stringify(overStopEvidence(opart)));
-    const oagain = cancelOver(closeFollow(restartOver(opart, { by: 'ง', date: '2026-11-21' }), { qty: 1, by: 'ง' }), { by: 'ง', why: 'พอแล้ว' });
-    ok('หลักฐานหยุดตาม over: กลับมาติดตามแล้วยกเลิกอีก — ยังบวกลบลง (512 − 7 − 500 = 5)',
-       eq(overStopEvidence(oagain), { bom: 500, recv: 512, back: 7, over: 5 }), JSON.stringify(overStopEvidence(oagain)));
-    ok('หลักฐานหยุดตาม over: bom_qty กับ recv_qty มาจากคนละแหล่ง (ไฟล์ Delta ทับเรื่องจากการ์ด) จนคืนคิดได้ติดลบ — ไม่โชว์คืน ใช้ ตาม BOM + เกิน',
-       eq(overStopEvidence({ qty: 20, bom_qty: 500, recv_qty: 510 }), { bom: 500, recv: 520, back: null, over: 20 }));
-    ok('หลักฐานหยุดตาม over: ไม่รู้ยอดตาม BOM = null · ไม่มี recv_qty = ตาม BOM + เกิน',
-       eq(overStopEvidence({ qty: 3, bom_qty: null, recv_qty: 9 }), { bom: null, recv: null, back: null, over: 3 })
-       && eq(overStopEvidence({ qty: 0.3, bom_qty: 0.6 }), { bom: 0.6, recv: 0.9, back: null, over: 0.3 }));
+    // over: อ่านรับเข้า / คืนจากสมุดจริงผ่าน overAll (เจ้าของเลือก 25 พ.ย. 2026) — สมุด TUE-H · P/N P9 สั่ง 100 · ใช้ 5 ต่อชิ้น = ตาม BOM 500
+    const OE = 'TUE-H';
+    const led = (kind, po, qty) => ({ entity: OE, kind, doc_ref: po, material_code: 'C9', qty, voided: false });
+    const oopt = { headerOf: () => ({ pn: 'P9', order: 100 }), usageOf: () => 5, min: -Infinity };
+    const calcOf = (ents, po) => overAll(ents, OE, oopt).find(r => r.po === po) || null;
+    const ostory = (po, extra = {}) => ({ kind: 'over', po, code: 'C9', qty: 12, done_qty: 0, ...extra });
+    ok('หลักฐานหยุดตาม over: ไม่ติดตาม — ตาม BOM · รับเข้า · ไม่มีคืน · เกิน จากสมุด · ตรงกับตอนหยุด',
+       eq(overStopEvidence(ostory('A1'), calcOf([led('receive', 'A1', 512)], 'A1')),
+          { bom: 500, recv: 512, back: 0, over: 12, stopAt: 12, moved: false }));
+    // คืนก่อนตั้งเรื่อง 2 + กดคืนแล้ว 4 = ใบส่งคืนในสมุด 6 → เกิน 6 = ค้างตอนหยุด (ตั้ง 10 คืน 4)
+    ok('หลักฐานหยุดตาม over: คืนไปแล้ว = ใบส่งคืนจริงในสมุดทุกใบ · บวกลบลง (512 − 6 − 500 = 6)',
+       eq(overStopEvidence(ostory('A2', { qty: 10, done_qty: 4 }),
+                           calcOf([led('receive', 'A2', 512), led('sendback', 'A2', 2), led('sendback', 'A2', 4)], 'A2')),
+          { bom: 500, recv: 512, back: 6, over: 6, stopAt: 6, moved: false }));
+    // ไฟล์ Delta ทับ qty / recv_qty แต่ไม่ทับ bom_qty (ผู้ตรวจ #190) — ค่าที่แช่ในเรื่องเพี้ยน แต่สมุดไม่มีใบคืน = ต้องไม่ขึ้น "คืนไปแล้ว"
+    ok('หลักฐานหยุดตาม over: เรื่องที่ไฟล์ Delta ทับ bom_qty / recv_qty ไม่ตรงกัน — ไม่ขึ้นคืนปลอม · บอกยอดตอนหยุดเมื่อไม่เท่า',
+       eq(overStopEvidence(ostory('A3', { qty: 5, bom_qty: 520, recv_qty: 505 }), calcOf([led('receive', 'A3', 512)], 'A3')),
+          { bom: 500, recv: 512, back: 0, over: 12, stopAt: 5, moved: true }));
+    ok('หลักฐานหยุดตาม over: คืนเพิ่มหลังหยุด — เกินเป็นยอดตอนนี้ · moved บอกให้จอโชว์ยอดตอนหยุด',
+       eq(overStopEvidence(ostory('A4', { qty: 6 }), calcOf([led('receive', 'A4', 512), led('sendback', 'A4', 9)], 'A4')),
+          { bom: 500, recv: 512, back: 9, over: 3, stopAt: 6, moved: true }));
+    ok('หลักฐานหยุดตาม over: คิดยอดตาม BOM ไม่ได้ = ยังโชว์รับเข้า / คืนจากสมุด · ไม่มีในสมุด = null ทั้งหมด',
+       eq(overStopEvidence(ostory('A5', { qty: 3 }), { recv: 30, sentBack: 2, bom_qty: null, over: null, why: 'ยังไม่รู้ P/N ของใบนี้' }),
+          { bom: null, recv: 30, back: 2, over: null, stopAt: 3, moved: true })
+       && eq(overStopEvidence(ostory('A6', { qty: 3 }), null), { bom: null, recv: null, back: null, over: null, stopAt: 3, moved: true }));
+    ok('หลักฐานหยุดตาม over: ตัวเลขผ่าน round5 (A2) · สมุดนิติบุคคลอื่นไม่ถูกนับ (A3)',
+       eq(overStopEvidence(ostory('A7', { qty: 0.3 }), calcOf([led('receive', 'A7', 0.1 + 0.2 + 500), { ...led('receive', 'A7', 99), entity: 'NSE' }], 'A7')),
+          { bom: 500, recv: 500.3, back: 0, over: 0.3, stopAt: 0.3, moved: false }));
   }
 
   const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');

@@ -3250,12 +3250,14 @@ textarea{font:inherit}
                     <td></td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                     <td>{{ mrpName(x.s.code) }}
                       <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) || '(ไม่ได้ใส่เหตุผล)' }}</div></td>
-                    <!-- หลักฐานว่าเกินน้อยจริงจึงหยุดตาม: รับเข้า − คืนไปแล้ว − ตาม BOM = เกิน แบบเดียวกับ short (เจ้าของสั่ง 24 พ.ย. 2026)
-                         ตัวเลขคิดใน overStopEvidence (master/follow.js) -->
-                    <td class="mono r hint">{{ overStopEvidence(x.s).bom == null ? '—' : mrpNum(overStopEvidence(x.s).bom) }}</td>
-                    <td class="mono r hint">{{ overStopEvidence(x.s).recv == null ? '—' : mrpNum(overStopEvidence(x.s).recv) }}
-                      <div v-if="overStopEvidence(x.s).back > 0">คืนไปแล้ว {{ mrpNum(overStopEvidence(x.s).back) }}</div></td>
-                    <td class="mono r fol-key">{{ mrpNum(overStopEvidence(x.s).over) }} <span class="hint">{{ x.s.unit }}</span></td>
+                    <!-- หลักฐานว่าเกินน้อยจริงจึงหยุดตาม: รับเข้า − คืนไปแล้ว − ตาม BOM = เกิน · อ่านจากสมุดคลังสด (เจ้าของเลือก 25 พ.ย. 2026)
+                         ตัวเลขคิดใน overStopEvidence (master/follow.js) · ยอดเกินตอนนี้ไม่เท่าตอนหยุด = บอก "ตอนหยุด X" ด้วย -->
+                    <template v-for="ev in [foStopEv(x.s)]" :key="x.s.id">
+                      <td class="mono r hint">{{ mrpNum(ev.bom) }}</td>
+                      <td class="mono r hint">{{ mrpNum(ev.recv) }}<div v-if="ev.back > 0">คืนไปแล้ว {{ mrpNum(ev.back) }}</div></td>
+                      <td class="mono r fol-key">{{ mrpNum(ev.over) }} <span v-if="ev.over != null" class="hint">{{ x.s.unit }}</span>
+                        <div v-if="ev.moved" class="hint" style="font-weight:400;font-size:14px">ตอนหยุด {{ mrpNum(ev.stopAt) }}</div></td>
+                    </template>
                     <td class="fol-act"><span class="fol-got mono hint">{{ localDate(x.s.void_at) }}<div v-if="x.s.void_by">{{ x.s.void_by }}</div></span>
                       <button class="btn" :disabled="starting.has('forestart|' + x.s.id)" @click="foRestart(x.s)">กลับมาติดตาม</button></td>
                   </tr>
