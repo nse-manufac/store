@@ -1094,7 +1094,10 @@ export function shortChecker(calcRows) {
      *    ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — อยู่แล้ว ไม่มียอดให้เทียบ จึงห้ามตอบ same: false
      *    เพราะจอจะขึ้นป้าย "ต่าง" ทั้งที่ไม่มีอะไรให้ทำต่อ แล้วคนจะเลิกเชื่อป้ายนี้ทั้งคอลัมน์ (G3) */
     if (!(q > 0)) return { calc, why: '', same: null };
-    return { calc, why: '', same: Math.abs(q - calc) < 5e-4 };
+    /* เทียบกับยอดที่ยังค้าง ไม่ใช่ยอดที่ตั้งเรื่อง — มาแล้วบางส่วน การรับเข้าก็ลดยอดที่ระบบคิดได้ลงเท่ากัน
+     *    เทียบกับ qty ทำให้ทุกแถวที่มาบางส่วนขึ้น "ต่าง" ทั้งที่ตรงกันอยู่ (เจอตอนทำหน้ารอส่ง 25 พ.ย. 2026)
+     *    ตอนตั้งเรื่อง done_qty = 0 ยอดค้าง = qty จึงได้ผลเท่าเดิม */
+    return { calc, why: '', same: Math.abs(remainOf(follow) - calc) < 5e-4 };
   };
 }
 export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow);

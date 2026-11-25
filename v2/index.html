@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-25.3">
+<meta name="app-version" content="2026-11-26.1">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -189,6 +189,9 @@ tbody.shut tr.fol-po > td:first-child{box-shadow:inset 4px 0 0 #c5ced8}
 .fol-act{white-space:normal}
 .fol-act .btn{font-size:15px;padding:6px 16px}
 .fol-got{display:inline-block;min-width:120px;text-align:right;margin-right:16px}
+.card h2.fol-title{margin:4px 0 6px;font-size:32px;text-align:center}
+.card p.fol-sub{margin:0 0 14px;font-size:16px;text-align:center}
+table.fol.even td.fol-act,table.fol.even tr.fol-th th:last-child{padding-left:56px}
 .fol-qty{width:96px;padding:6px 8px;margin-right:4px;font-size:15px}
 .btn-q{font:inherit;font-size:14px;background:none;border:0;color:var(--muted);padding:6px 8px;cursor:pointer;border-radius:6px}
 .btn-q:hover:not(:disabled){color:var(--ink);background:var(--soft)}
@@ -2431,8 +2434,9 @@ textarea{font:inherit}
       <template v-else-if="tab==='fshort'">
         <!-- จัดกลุ่มราย PO แบบแท็บ MRP · ปุ่มกรองแทนช่องติ๊กกับการ์ดท้ายหน้า (เจ้าของสั่ง 21 พ.ย. 2026) -->
         <div class="card">
-          <h2 style="margin:0 0 4px;font-size:19px">short รอส่ง</h2>
-          <p class="hint" style="margin:0 0 12px;font-size:14px">ของที่ Delta ส่งมาไม่ครบตาม BOM · จัดกลุ่มราย PO</p>
+          <!-- หัวหน้าใหญ่ กลางจอ ให้ผู้สูงอายุมองเห็นชัด (เจ้าของขอ 25 พ.ย. 2026) -->
+          <h2 class="fol-title">short รอส่ง</h2>
+          <p class="hint fol-sub">ของที่ Delta ส่งมาไม่ครบตาม BOM · จัดกลุ่มราย PO</p>
           <div class="row" style="gap:10px 14px">
             <div class="mrp-seg fol-seg" role="group" aria-label="กรองตามสถานะ">
               <button v-for="f in FOLLOW_SEG.short" :key="f.k" type="button" :aria-pressed="fsSeg === f.k" @click="fsSeg = f.k">
@@ -2536,9 +2540,10 @@ textarea{font:inherit}
 
         <div class="card">
           <div class="scroll" style="max-height:none">
-          <table class="fol">
-            <!-- คอลัมน์ตายตัวทุกปุ่มกรอง — ตัวเลขของทุกใบอยู่แนวเดียวกัน -->
-            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:128px"><col style="width:128px"><col style="width:136px"><col style="width:360px"></colgroup>
+          <table class="fol even">
+            <!-- คอลัมน์ตายตัวทุกปุ่มกรอง — ตัวเลขของทุกใบอยู่แนวเดียวกัน
+                 ช่องตัวเลขกว้างเท่ากัน + เว้นหน้าช่องปุ่ม ให้ช่องไฟระหว่างคอลัมน์พอ ๆ กัน (เจ้าของขอ 25 พ.ย. 2026) -->
+            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:380px"></colgroup>
             <tbody v-for="g in fsDraw" :key="g.po" :class="{ shut: fsFold[g.po] }">
               <tr class="fol-po" @click="foldFlip(fsFold, g.po)" :aria-expanded="!fsFold[g.po]">
                 <td colspan="8"><span class="fol-head">
@@ -2553,7 +2558,7 @@ textarea{font:inherit}
               <template v-if="!fsFold[g.po]">
                 <!-- หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ตัวใหญ่ (เจ้าของขอ 21 พ.ย. 2026 — หัวเล็ก ๆ บนสุดผู้สูงอายุมองไม่เห็น) -->
                 <tr v-if="fsSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับแล้ว</th><th class="r">ขาด</th><th></th></tr>
-                <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ระบบคิดได้</th><th class="r">ค้าง</th><th>ยอดที่มา (เว้นว่าง = มาครบ)</th></tr>
+                <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">ยอดที่มาแล้ว</th><th class="r">ยอดที่ยังค้าง</th><th>ยอดที่มารอบนี้</th></tr>
                 <tr v-if="fsSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่มาครบ</th><th><span class="fol-got">ยอดที่มา</span></th></tr>
                 <tr v-if="fsSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">ยอดตาม BOM</th><th class="r">ยอดที่รับเข้า</th><th class="r">ยอดที่ขาด</th><th><span class="fol-got">วันที่หยุดติดตาม</span></th></tr>
                 <template v-if="fsSeg === 'new'">
@@ -2569,15 +2574,18 @@ textarea{font:inherit}
                   <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
                     <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                     <td>{{ mrpName(r.s.code) }}
+                      <!-- วันที่ · คนตั้งเรื่อง วางชิดซ้ายของยอดที่ตั้งเรื่อง — สามช่องตัวเลขเหลือไว้ให้เห็นการลบ (เจ้าของขอ 25 พ.ย. 2026) -->
+                      <div class="hint">ตั้งเรื่อง <span class="mono">{{ r.s.date || '—' }}</span><template v-if="r.s.created_by"> · {{ r.s.created_by }}</template></div>
                       <!-- ไม่โชว์ ETA แล้ว — ช่องรับ short จากใบ PO (ที่มี ETA) ปิดไปแล้ว (เจ้าของแจ้ง 21 พ.ย. 2026) -->
                       <div v-if="followNote(r.s)" class="hint">{{ followNote(r.s) }}</div></td>
-                    <td class="mono r hint">{{ r.s.date }}<div v-if="r.s.created_by">{{ r.s.created_by }}</div></td>
-                    <!-- ตรงกับยอดค้าง = ตัวจาง · ไม่ตรง = ป้าย ต่าง ให้สะดุดตา -->
-                    <td class="mono r" :class="{ hint: fsCheck(r.s).same !== false }" :title="fsCheck(r.s).why || (fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ' : fsCheck(r.s).same ? 'ตรงกับยอดที่แจ้งไว้' : '')">
-                      <template v-if="fsCheck(r.s).calc !== null"><span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> {{ mrpNum(fsCheck(r.s).calc) }}</template>
-                      <template v-else>—</template></td>
-                    <td class="mono r fol-key">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span class="hint">{{ r.s.unit }}</span>
-                      <div v-if="r.st === 'partial'" class="hint">จาก {{ mrpNum(r.s.qty) }}</div></td>
+                    <!-- ตั้งไว้ − มาแล้ว = ยังค้าง ให้เห็นการลบในแถวเดียว · เรื่องที่ไม่ได้แจ้งจำนวน = — -->
+                    <td class="mono r">{{ r.s.qty > 0 ? mrpNum(r.s.qty) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
+                    <td class="mono r">{{ mrpNum(Number(r.s.done_qty) || 0) }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
+                    <td class="mono r fol-key">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span>
+                      <!-- ยอดขาดที่ระบบคิดจากการรับเข้าเทียบสูตร เทียบกับยอดที่ยังค้าง: ไม่ตรง = ป้าย ต่าง · เรื่องไม่ได้แจ้งจำนวน = ตัวจาง · ตรงกัน = ไม่โชว์ซ้ำ -->
+                      <div v-if="fsCheck(r.s).calc !== null && fsCheck(r.s).same !== true" :class="{ hint: fsCheck(r.s).same !== false }" style="font-weight:400;font-size:14px;white-space:nowrap"
+                           :title="fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา — ระบบคิดจากการรับเข้าเทียบสูตร' : 'ระบบคิดจากการรับเข้าเทียบสูตรได้ไม่เท่ากับยอดที่ยังค้าง'">
+                        <span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> ระบบคิดได้ {{ mrpNum(fsCheck(r.s).calc) }}</div></td>
                     <td class="fol-act">
                       <!-- ช่องจำนวนทุกแถว ไม่บังคับ (เจ้าของสั่ง 10 ต.ค. 2026) · เรื่องที่ไม่ระบุจำนวน + เว้นว่าง = ปิดเฉย ๆ ไม่รับเข้า -->
                       <input v-model="fsGot[r.s.id]" type="number" step="any" class="mono fol-qty"

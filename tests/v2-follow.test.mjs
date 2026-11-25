@@ -1053,6 +1053,10 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      shortPending(sa.filter(r => !r.why), [{ ...closedSame, po: 'TM9269H002' }]).some(r => r.code === 'B'));
 
   const all0 = shortAll(led, E, { ...opt, all: true });
+  // 25 พ.ย. 2026: มาแล้วบางส่วน — เทียบกับยอดที่ยังค้าง (qty − done_qty) ไม่ใช่ qty
+  ok('เทียบ — มาบางส่วน: ค้าง 5 (ตั้ง 8 มา 3) กับระบบคิดได้ 5 = ตรง ไม่ขึ้น ต่าง',
+     shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 8, done_qty: 3 }, all0).same === true
+     && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 8, done_qty: 2 }, all0).same === false);
   ok('เทียบกับยอดที่ Delta แจ้ง — ตรง', JSON.stringify(shortCheckOf(tickets[0], all0)) === JSON.stringify({ calc: 8, why: '', same: true }));
   ok('เทียบ — ต่าง', shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).same === false
      && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).calc === 5);
@@ -1066,6 +1070,17 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
   ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
      htmlSrc.includes('<span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
      && htmlSrc.includes(':class="{ hint: fsCheck(r.s).same !== false }"'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+  // 25 พ.ย. 2026: รอส่ง โชว์การลบ ตั้งไว้ − มาแล้ว = ยังค้าง (สกิล record-ui-evidence) · ยอดที่ระบบคิดได้เป็นบรรทัดเล็กใต้ยอดที่ตั้งเรื่อง โชว์เฉพาะเมื่อไม่ตรง
+  {
+    const head = (htmlSrc.match(/<tr v-if="fsSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
+    const cols = [...head.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+    ok('รอส่ง: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่มาแล้ว → ยอดที่ยังค้าง → ยอดที่มารอบนี้ (8 ช่องเท่า colgroup)',
+       cols.length === 8 && cols[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && cols[4] === 'ยอดที่ตั้งเรื่อง' && cols[5] === 'ยอดที่มาแล้ว'
+       && cols[6] === 'ยอดที่ยังค้าง' && cols[7] === 'ยอดที่มารอบนี้', JSON.stringify(cols));
+    ok('รอส่ง: ยอดที่มาแล้วอ่านจาก done_qty · ยอดที่ระบบคิดได้ซ่อนเมื่อตรงกัน (same true)',
+       htmlSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
+       && htmlSrc.includes('fsCheck(r.s).calc !== null && fsCheck(r.s).same !== true'));
+  }
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
      /ยังไม่มีการรับเข้า/.test(shortCheckOf({ po: 'TM9269H002', code: 'A', qty: 1 }, all0).why)
