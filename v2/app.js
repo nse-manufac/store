@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, fracSweep, fracTwins, isFracLeft } from './core/balance.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, overIssue, fracSweep, fracTwins, isFracLeft } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -1568,7 +1568,8 @@ createApp({
     }
 
     const outReady = computed(() => outLines.value.filter(l => l.code && Number(l.qty) > 0));
-    const outNegative = computed(() => outReady.value.filter(l => outAfterOf(l) < 0));
+    // รหัสที่จะจ่ายเกินของที่มี — บันทึกไม่ได้ (INVARIANTS A4 · core/balance.js overIssue)
+    const outOver = computed(() => overIssue(outReady.value, code => outBalOf({ code }), normCode));
 
     function addFromOutLine(l) {
       edit.value = { _new: true, material_code: l.code, description: '', unit: '',
@@ -1579,13 +1580,9 @@ createApp({
     async function saveOut() {
       if (!outH.person) { flash('ยังไม่ได้ใส่ชื่อผู้เบิก', true); return; }
       if (!outReady.value.length) { flash('ยังไม่มีบรรทัดที่กรอกจำนวน', true); return; }
-      // ยอดติดลบเตือนได้ แต่ห้ามบล็อก — INVARIANTS A4
-      // ของจริงมีกรณีคีย์รับเข้าย้อนหลัง ถ้าห้ามบันทึกพนักงานจะไปจดใส่กระดาษแล้วลืมคีย์
-      const neg = outNegative.value;
-      if (neg.length && !confirm(
-        [`มี ${neg.length} รายการที่ยอด${outPoStock.value ? 'ของ PO ' + outH.po + ' ' : ''}จะติดลบ`,
-         neg.slice(0, 5).map(l => l.code + ' → ' + outAfterOf(l)).join('\n'),
-         '', 'ยืนยันบันทึกไหม'].join('\n'))) return;
+      // ห้ามจ่ายเกินของที่มี — INVARIANTS A4 (เจ้าของสั่ง 25 พ.ย. 2026)
+      // เดิมเตือนแล้วให้ยืนยัน พนักงานจึงจ่ายไปก่อนแล้วค่อยตามคีย์รับเข้า · ของมาแล้วต้องคีย์รับเข้าก่อน
+      if (outOver.value.length) { flash(`จ่ายเกินของที่มี ${outOver.value.length} รายการ — ยังไม่ได้บันทึก`, true); return; }
       try {
         // เวลาเดียวต่อการบันทึก — คิดก่อน map (ผู้ตรวจรอบ 4 ข้อ 1)
         // atFrom หยิบมิลลิวินาทีของนาฬิกาขณะนั้น ถ้าเรียกใหม่ทุกบรรทัด บรรทัดที่ 2 ขึ้นไป
@@ -4082,7 +4079,7 @@ createApp({
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
-             outReady, outNegative, saveOut, addFromOutLine,
+             outReady, outOver, saveOut, addFromOutLine,
              balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFracClean, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
