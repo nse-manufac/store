@@ -158,7 +158,9 @@ export function poMoves(entries, entity, docRef, code) {
 /**
  * ล้างเศษของ PO (เจ้าของเคาะ 22 พ.ย. 2026) — คืนรายการปรับยอด "ล้างเศษ" ของรหัสที่คงเหลือ PO เป็นเศษ
  *   เศษ = 0 < |คงเหลือ PO| < tolOf(code) (FRAC_TOL ของหน่วย · core/ledger.js) ทั้งเหลือและติดลบ
- *   เช่น รับ 438 ชิ้น จ่ายตามสูตร 437.10025 → ล้าง −0.89975 · รับ 65 จ่าย 65.005 → ล้าง +0.005
+ *   เช่น รับ 438 ชิ้น จ่ายตามสูตร 437.10025 → ล้าง −0.89975
+ *   ฝั่งติดลบ เช่น รับ 65 จ่าย 65.005 → ล้าง +0.005 — ตั้งแต่ 25 พ.ย. 2026 จ่ายเกินคงเหลือ PO ไม่ได้แล้ว (A4 · overIssue)
+ *   จึงเหลือแค่จากรายการเก่าก่อนวันนั้น หรือทางอื่นที่ยังตัดของได้โดยไม่บล็อก เช่นส่งคืน Delta หลังจ่ายไปแล้ว
  * แยกเป็นรายการปรับยอดต่างหาก ไม่แก้ยอดจ่าย (เจ้าของเลือกแบบ ก) — ยอดจ่ายยังตรงกับที่คีย์
  * counted_qty = 0 · book = คงเหลือ PO ก่อนล้าง → delta = −เศษ · ยอดรวมของรหัสก็ขยับตามด้วย (เศษนั้นไม่มีอยู่จริง)
  * ผู้เรียกต้องเขียนรายการที่คืนลงสมุดเอง · ไม่มีเศษ = []
@@ -221,6 +223,29 @@ export function fracTwins(entries, e) {
 export function stillToIssue(reqmt, issued) {
   if (reqmt === null || reqmt === undefined || reqmt === '' || !isFinite(Number(reqmt))) return null;
   return round5(Number(reqmt) - (Number(issued) || 0));
+}
+
+/**
+ * รหัสที่จะจ่ายเกินของที่มี — หน้าจ่ายออกห้ามบันทึกถ้ามีสักรหัส (INVARIANTS A4 · เจ้าของสั่ง 25 พ.ย. 2026)
+ * ของมาแล้วต้องคีย์รับเข้าก่อน ไม่ใช่จ่ายไปก่อนแล้วตามคีย์รับทีหลัง
+ * lines = [{code, qty}] · balOf(code) = ยอดที่มี (ของ PO บนหัวจอ หรือยอดรวมถ้าไม่ใส่ PO)
+ * รหัสเดียวกันหลายบรรทัดรวมยอดก่อนเทียบ — แยกบรรทัดแล้วผ่านทีละบรรทัดไม่ได้
+ * คืน [{code, bal, qty, short}] · ว่าง = จ่ายได้
+ */
+export function overIssue(lines, balOf, key = c => String(c || '').trim().toUpperCase()) {
+  const sum = new Map();
+  for (const l of lines) {
+    const q = Number(l.qty) || 0;
+    if (!l.code || q <= 0) continue;
+    const k = key(l.code), cur = sum.get(k);
+    sum.set(k, { code: cur ? cur.code : l.code, qty: round5((cur ? cur.qty : 0) + q) });
+  }
+  const out = [];
+  for (const { code, qty } of sum.values()) {
+    const bal = round5(Number(balOf(code)) || 0), short = round5(qty - bal);
+    if (short > 0) out.push({ code, bal, qty, short });
+  }
+  return out;
 }
 
 /**

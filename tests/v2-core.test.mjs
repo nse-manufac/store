@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, overIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft } from '../v2/core/balance.js';
 import { poLotsOf } from '../v2/core/lots.js';
 import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
 
@@ -449,6 +449,35 @@ console.log('\n=== ยอดของ PO ใบเดียวบนหน้า
   ok('ยังต้องจ่าย = ตามสูตร − จ่ายแล้ว', stillToIssue(100, 40.2) === 59.8);
   ok('ยังไม่รู้ยอดตามสูตร = null ไม่ใช่ 0', stillToIssue(null, 5) === null && stillToIssue('', 5) === null);
   ok('จ่ายเกินสูตร = ติดลบ', stillToIssue(10, 12) === -2);
+}
+
+console.log('\n=== ห้ามจ่ายออกเกินของที่มี (A4 · เจ้าของสั่ง 25 พ.ย. 2026) ===');
+{
+  const have = { A1: 10, B2: 0.5, C3: 3 };                       // รหัสสมมติ
+  const bal = c => have[String(c).trim().toUpperCase()] ?? 0;
+  ok('จ่ายไม่เกินที่มี = ผ่าน', overIssue([{ code: 'A1', qty: 10 }, { code: 'B2', qty: 0.5 }], bal).length === 0);
+  const o = overIssue([{ code: 'A1', qty: 12 }], bal);
+  ok('จ่ายเกิน = บอกมีเท่าไหร่ จะจ่ายเท่าไหร่ ขาดเท่าไหร่',
+     o.length === 1 && o[0].bal === 10 && o[0].qty === 12 && o[0].short === 2, JSON.stringify(o));
+  ok('เกินแค่เศษก็ไม่ผ่าน (ทุกรหัส ไม่มีเพดานเศษ)', overIssue([{ code: 'B2', qty: 0.50001 }], bal).length === 1);
+  ok('ทศนิยมลอยไม่ทำให้ติด — 0.1 + 0.2 จากของ 0.3', overIssue([{ code: 'X', qty: 0.1 }, { code: 'X', qty: 0.2 }], () => 0.3).length === 0);
+  const two = overIssue([{ code: 'C3', qty: 2 }, { code: ' c3 ', qty: 2 }], bal);
+  ok('รหัสเดียวกันสองบรรทัดรวมยอดก่อนเทียบ — ทีละบรรทัดผ่าน รวมกันเกิน',
+     two.length === 1 && two[0].qty === 4 && two[0].short === 1, JSON.stringify(two));
+  ok('ไม่เคยรับเลย = ของที่มีเป็น 0 ไม่ผ่าน', overIssue([{ code: 'NEW', qty: 1 }], bal)[0]?.short === 1);
+  ok('ของติดลบอยู่แล้ว = ขาดนับจากยอดติดลบ', overIssue([{ code: 'Z', qty: 1 }], () => -2)[0]?.short === 3);
+  ok('บรรทัดไม่มีรหัสหรือยอดว่างไม่นับ', overIssue([{ code: '', qty: 5 }, { code: 'A1', qty: 0 }], bal).length === 0);
+
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const save = src.slice(src.indexOf('async function saveOut()'), src.indexOf('const at = atFrom(outH.date)', src.indexOf('async function saveOut()')));
+  ok('saveOut หยุดก่อนบันทึกเมื่อจ่ายเกิน ไม่มีกล่องยืนยันให้กดผ่าน',
+     /if \(outOver\.value\.length\) \{ flash\([^\n]*\); return; \}/.test(save) && !/confirm\(/.test(save));
+  ok('ของที่มี = ยอดของ PO บนหัวจอ หรือยอดรวมถ้าไม่ใส่ PO (outBalOf)',
+     /const outOver = computed\(\(\) => overIssue\(outReady\.value, code => outBalOf\(\{ code \}\)/.test(src));
+  ok('ปุ่มบันทึกจ่ายออกกดไม่ได้เมื่อจ่ายเกิน · กล่องแดงบอกตัวเลขที่ทำให้ติด',
+     /:disabled="!outReady\.length \|\| outOver\.length > 0">บันทึกจ่ายออก/.test(html)
+     && /class="msg bad" v-if="outOver\.length"/.test(html) && /' มี ' \+ o\.bal \+ ' จะจ่าย ' \+ o\.qty \+ ' ขาด ' \+ o\.short/.test(html));
 }
 
 console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เจ้าของเคาะ 22 พ.ย. 2026 · แบบ ก แยกเป็นรายการปรับยอด) ===');
