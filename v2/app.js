@@ -1746,7 +1746,6 @@ createApp({
 
     // ── ยอดคงคลัง และการ์ด ─────────────────────────────────────────
     const balQ = ref('');
-    const balCat = ref('');
     const balZero = ref(false);
     const cardCode = ref('');        // เปิดการ์ดของรหัสไหนอยู่
     const traceOf = ref('');         // กำลังตามรอยล็อตไหน
@@ -1780,9 +1779,10 @@ createApp({
 
     const balShown = computed(() => {
       const t = balQ.value.trim().toUpperCase();
+      // รายรหัสเหลือเฉพาะเคมี (เจ้าของสั่ง 22 พ.ย. 2026) + METAL PART (เจ้าของขอเพิ่ม 25 พ.ย.) — ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
       const pool = balAll.value.filter(r =>
         (balZero.value || r.qty !== 0) &&
-        (!balCat.value || r.category === balCat.value) &&
+        (r.category === 'CHEMICAL' || r.category === 'METAL PART') &&
         (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
       return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
     });
@@ -4083,7 +4083,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outNegative, saveOut, addFromOutLine,
-             balQ, balCat, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFracClean, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFracClean, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
