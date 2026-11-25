@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-25.1">
+<meta name="app-version" content="2026-11-25.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1605,7 +1605,7 @@ textarea{font:inherit}
                             <tr v-if="bpCode[bpKey(r.pn, l.code)]"><td></td><td colspan="7" style="padding:4px 0 12px">
                               <table class="mrp mrp-bom" style="margin-top:0">
                                 <thead><tr><th style="width:24px"></th><th>PO No.</th><th>PO Date</th><th class="r">PO qty.</th><th class="r">ตาม BOM</th><th class="r">รับเข้า</th>
-                                  <th class="r">จ่ายออก</th><th class="r">จ่ายเทียบ BOM</th><th class="r">คงเหลือ</th></tr></thead>
+                                  <th class="r">จ่ายออก</th><th class="r">จ่ายเทียบ BOM</th><th class="r">คงเหลือ</th><th class="noprint"></th></tr></thead>
                                 <tbody>
                                   <template v-for="p in l.byPo" :key="p.po">
                                     <tr class="mrp-po" :data-bp="bpKey(p.po, l.code)" @click="flip(bpLine, bpKey(p.po, l.code))" :aria-expanded="!!bpLine[bpKey(p.po, l.code)]">
@@ -1622,8 +1622,11 @@ textarea{font:inherit}
                                           title="ไปหน้า Log จ่ายออก เพื่อยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ">{{ mrpNum(p.bal) }}</button>
                                         <b v-else>{{ mrpNum(p.bal) }}</b>
                                         <span v-if="bpFrac(p, l.code)" class="tag warn" style="margin-left:4px">เศษ</span></td>
+                                      <!-- จ่ายออกทีละ PO (เจ้าของสั่ง 25 พ.ย. 2026) — กดแล้วขึ้นกล่องกรอก ไม่พับ/กางแถว -->
+                                      <td class="noprint"><button class="btn primary" style="padding:3px 14px" :data-bpiss="bpKey(p.po, l.code)"
+                                          @click.stop="bpIssOpen(r.pn, p.po, l.code)">จ่าย</button></td>
                                     </tr>
-                                    <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="8" style="padding:4px 0 10px">
+                                    <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="9" style="padding:4px 0 10px">
                                       <table class="mrp mrp-bom" style="margin-top:0">
                                         <thead><tr><th>วันที่</th><th>เวลา</th><th>รายการ</th><th class="r">จำนวน</th><th class="r">คงเหลือ</th>
                                           <th>ล็อต</th><th>ผู้ทำรายการ</th></tr></thead>
@@ -1644,7 +1647,7 @@ textarea{font:inherit}
                                       </table>
                                     </td></tr>
                                   </template>
-                                  <tr v-if="!l.byPo.length"><td></td><td colspan="8" class="hint">ยังไม่มีรายการเคลื่อนไหวใน PO ที่นับ</td></tr>
+                                  <tr v-if="!l.byPo.length"><td></td><td colspan="9" class="hint">ยังไม่มีรายการเคลื่อนไหวใน PO ที่นับ</td></tr>
                                 </tbody>
                               </table>
                             </td></tr>
@@ -3784,6 +3787,55 @@ textarea{font:inherit}
             <button class="btn" @click="voidBox.row=null">ไม่ยกเลิกแล้ว</button>
             <button class="btn primary" @click="doVoid"
                     :disabled="!voidBox.reason.trim() || !voidBox.by.trim()">ยืนยันยกเลิก</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════ จ่ายออกทีละ PO จากหน้ายอดคงคลัง (เจ้าของสั่ง 25 พ.ย. 2026) ════════
+           กฎ: จ่ายสะสมของ PO นี้ไม่เกิน BOM · ครั้งนี้ไม่เกินของที่ PO นี้รับเข้ามาแล้วยังเหลือ — poIssueCheck (master/mrp.js)
+           โชว์ตัวเลขที่ใช้ตัดสินทุกตัว ให้เห็นว่าทำไมจ่ายได้แค่นั้น -->
+      <div class="modal" v-if="bpIss.open" @click.self="bpIss.open=false">
+        <div class="modal-box" style="width:min(560px,100%)" role="dialog" aria-modal="true">
+          <h2>จ่ายออก</h2>
+          <table><tbody>
+            <tr><td class="hint" style="width:150px">P/N</td><td class="mono">{{ bpIss.pn || 'ไม่รู้ P/N' }}</td></tr>
+            <tr><td class="hint">PO</td><td class="mono"><b>{{ bpIss.po }}</b>
+              <span class="hint" v-if="bpIssRow && bpIssRow.date"> · PO Date {{ bpIssRow.date }}</span></td></tr>
+            <tr><td class="hint">วัตถุดิบ</td><td><span class="mono">{{ bpIss.code }}</span> {{ (matOf(bpIss.code) || {}).description || '' }}</td></tr>
+          </tbody></table>
+          <p v-if="!bpIssRow" class="msg bad" style="margin:10px 0 0">ไม่พบ PO นี้ในหน้ายอดคงคลังแล้ว (อาจถูกซ่อนเพราะปิดไปแล้ว) — ปิดกล่องแล้วกดใหม่</p>
+          <template v-else>
+            <table style="margin-top:10px"><tbody>
+              <tr><td class="hint" style="width:150px">ตาม BOM ของ PO นี้</td>
+                <td class="mono r">{{ bpIssRow.need == null ? 'ไม่รู้' : mrpNum(bpIssRow.need) }}</td></tr>
+              <tr><td class="hint">จ่ายไปแล้ว</td><td class="mono r">{{ mrpNum(bpIssRow.issued) }}</td></tr>
+              <tr><td class="hint">จ่ายได้อีกตาม BOM</td>
+                <td class="mono r">{{ bpIssChk.bomLeft == null ? 'ไม่จำกัด (ไม่รู้ยอดตาม BOM)' : mrpNum(Math.max(0, bpIssChk.bomLeft)) }}</td></tr>
+              <tr><td class="hint">รับเข้า PO นี้</td><td class="mono r">{{ mrpNum(bpIssRow.recv) }}
+                <span v-if="bpIssRow.sendback" class="bp-sb" style="display:inline;margin-left:6px">ส่งคืน Delta {{ mrpNum(bpIssRow.sendback) }}</span></td></tr>
+              <tr><td class="hint">คงเหลือ PO นี้</td><td class="mono r">{{ mrpNum(bpIssRow.bal) }}</td></tr>
+              <tr><td class="hint"><b>จ่ายได้สูงสุดครั้งนี้</b></td>
+                <td class="mono r"><b>{{ mrpNum(bpIssChk.max) }}</b> <span class="hint">{{ unitOf(bpIss.code) }}</span></td></tr>
+            </tbody></table>
+            <div class="row" style="margin-top:12px">
+              <label class="f" style="width:150px">วันที่<input v-model="bpIss.date" type="date"></label>
+              <label class="f grow">ชื่อผู้จ่าย<input v-model.trim="bpIss.person"></label>
+              <label class="f" style="width:130px">จำนวนที่จ่าย
+                <input v-model.number="bpIss.qty" type="number" step="any" min="0" class="mono" data-bpiss-qty></label>
+            </div>
+            <div class="msg bad" v-if="bpIssChk.overBom" style="margin:10px 0 0">
+              <b>เกิน BOM</b> — จ่ายไปแล้ว {{ mrpNum(bpIssRow.issued) }} + ครั้งนี้ {{ mrpNum(bpIssChk.qty) }}
+              = {{ mrpNum(bpIssRow.issued + bpIssChk.qty) }} มากกว่าตาม BOM {{ mrpNum(bpIssRow.need) }}
+              · ใส่ได้ไม่เกิน {{ mrpNum(bpIssChk.max) }}</div>
+            <div class="msg bad" v-if="bpIssChk.overRecv" style="margin:10px 0 0">
+              <b>เกินของที่ PO นี้รับเข้ามา</b> — ครั้งนี้ {{ mrpNum(bpIssChk.qty) }} มากกว่าคงเหลือของ PO นี้ {{ mrpNum(bpIssRow.bal) }}
+              · ใส่ได้ไม่เกิน {{ mrpNum(bpIssChk.max) }} หรือคีย์รับเข้าของ PO นี้ให้ครบก่อน</div>
+          </template>
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="bpIss.open=false">ไม่จ่ายแล้ว</button>
+            <button class="btn primary" @click="bpIssSave"
+                    :disabled="!bpIssChk || !bpIssChk.ok || !bpIss.person || !bpIss.date">บันทึกจ่ายออก</button>
           </div>
         </div>
       </div>
