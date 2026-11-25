@@ -38,7 +38,7 @@ import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPo
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
-         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence,
+         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, shortDiffExplainer, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
@@ -2748,6 +2748,14 @@ createApp({
       const k = po + '|' + String(code).toUpperCase();
       return foCalcMap.value.has(k) ? foCalcMap.value.get(k) : null;
     };
+    /* แถว overAll ทั้งแถวต่อ PO + รหัส (รวมแถวที่คิดไม่ได้) — ให้ปุ่มกรอง ยกเลิก / ไม่ติดตาม อ่านรับเข้า / คืนจากสมุดจริง
+     * ตรรกะอยู่ที่ overStopEvidence (master/follow.js) · ที่นี่แค่หาแถวให้ (เจ้าของเลือก 25 พ.ย. 2026) */
+    const foCalcRows = computed(() => {
+      const m = new Map();
+      for (const r of foCalc0.value) m.set(r.po + '|' + String(r.code).toUpperCase(), r);
+      return m;
+    });
+    const foStopEv = s => overStopEvidence(s, foCalcRows.value.get(s.po + '|' + String(s.code).toUpperCase()) || null);
     // = overAll เพดานเดิม (OVER_MIN): แถวที่คิดไม่ได้ขึ้นเสมอ · ที่คิดได้ขึ้นเมื่อเกินถึงเพดาน
     const foCalc = computed(() => foCalc0.value.filter(r => r.why || r.over >= OVER_MIN));
     /** ที่ยังไม่มีใครตั้งเรื่อง — ตัดคู่ที่ตั้งไว้แล้วออก ไม่งั้นขึ้นซ้ำสองการ์ด */
@@ -4111,7 +4119,7 @@ createApp({
       fsAssign, fsClose, fsRecv, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
-      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence,
+      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, foStopEv,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,

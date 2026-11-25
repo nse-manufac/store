@@ -12,7 +12,7 @@ import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from 
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
-import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence } from '../v2/master/follow.js';
+import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -1053,6 +1053,10 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      shortPending(sa.filter(r => !r.why), [{ ...closedSame, po: 'TM9269H002' }]).some(r => r.code === 'B'));
 
   const all0 = shortAll(led, E, { ...opt, all: true });
+  // 25 พ.ย. 2026: มาแล้วบางส่วน — เทียบกับยอดที่ยังค้าง (qty − done_qty) ไม่ใช่ qty
+  ok('เทียบ — มาบางส่วน: ค้าง 5 (ตั้ง 8 มา 3) กับระบบคิดได้ 5 = ตรง ไม่ขึ้น ต่าง',
+     shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 8, done_qty: 3 }, all0).same === true
+     && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 8, done_qty: 2 }, all0).same === false);
   ok('เทียบกับยอดที่ Delta แจ้ง — ตรง', JSON.stringify(shortCheckOf(tickets[0], all0)) === JSON.stringify({ calc: 8, why: '', same: true }));
   ok('เทียบ — ต่าง', shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).same === false
      && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).calc === 5);
@@ -1067,6 +1071,23 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      htmlSrc.includes('<button v-if="fsCheck(r.s).same === false && fsWhy(r.s).length" type="button" class="tag warn why-tag"')
      && htmlSrc.includes('<span v-else-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
      && htmlSrc.includes(':class="{ hint: fsCheck(r.s).same !== false }"'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+  // 25 พ.ย. 2026: รอส่ง โชว์การลบ ตั้งไว้ − มาแล้ว = ยังค้าง (สกิล record-ui-evidence) · ยอดที่ระบบคิดได้เป็นบรรทัดเล็กใต้ยอดที่ตั้งเรื่อง โชว์เฉพาะเมื่อไม่ตรง
+  {
+    const head = (htmlSrc.match(/<tr v-if="fsSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
+    const cols = [...head.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+    ok('รอส่ง: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่มาแล้ว → ยอดที่ยังค้าง → ยอดที่มารอบนี้ (8 ช่องเท่า colgroup)',
+       cols.length === 8 && cols[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && cols[4] === 'ยอดที่ตั้งเรื่อง' && cols[5] === 'ยอดที่มาแล้ว'
+       && cols[6] === 'ยอดที่ยังค้าง' && cols[7] === 'ยอดที่มารอบนี้', JSON.stringify(cols));
+    ok('รอส่ง: ยอดที่มาแล้วอ่านจาก done_qty · ยอดที่ระบบคิดได้ซ่อนเมื่อตรงกัน (same true)',
+       htmlSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
+       && htmlSrc.includes('fsCheck(r.s).calc !== null && fsCheck(r.s).same !== true'));
+    /* ผู้ตรวจ #195 ข้อ 1 — กล่องช่วยเหลือต้องบอกฐานเทียบตรงกับ shortChecker (ยอดที่ยังค้าง ไม่ใช่ยอดที่แจ้งไว้)
+       และห้ามอ้างว่ามีป้าย "ตรง" เพราะจอซ่อนบรรทัดทิ้งเมื่อเท่ากัน (G3) */
+    const helpCalc = (htmlSrc.match(/<b>ระบบคิดได้<\/b> =[^]*?<\/p>/) || [''])[0];
+    ok('กล่องช่วยเหลือ: "ระบบคิดได้" บอกว่าเทียบกับยอดที่ยังค้าง · โชว์เฉพาะเมื่อไม่เท่ากัน · ไม่อ้างป้าย "ตรง"',
+       helpCalc.includes('ยอดที่ยังค้าง') && !helpCalc.includes('ยอดที่แจ้งไว้')
+       && !/\(\s*ตรง\s*\/\s*ต่าง\s*\)/.test(helpCalc), helpCalc.slice(0, 200));
+  }
 
   /* ── ป้าย "ต่าง" ต้องบอกเหตุ (เจ้าของขอ 25 พ.ย. 2026) ──
      เคสจริง TM5269H789 · 3513605200: ตั้งเรื่อง 1 ต.ค. ต่อชิ้น 0.013 × 200 = 2.6 · 5 ต.ค. โหลดสูตรใหม่ 0.01389 → 2.778
@@ -1086,7 +1107,7 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
     ok('บอกว่าคู่นี้มีอีกเรื่องที่ปิดแล้ว พร้อมวันที่ · ยอดตั้ง · ยอดที่มา',
        /อีกเรื่องที่ปิดแล้ว — ตั้ง 2026-10-10 ยอด 2.778 · มาครบ 2026-10-10 ยอด 2.778/.test(why[1]), why[1]);
     ok('เรื่องที่ตรงกับที่คิดได้ ไม่มีอะไรต้องอธิบาย',
-       shortDiffExplainer([nowRow], [old, dup], () => bomRow)({ ...dup, done: false }).length === 0);
+       shortDiffExplainer([nowRow], [old, dup], () => bomRow)({ ...dup, done: false, done_qty: 0 }).length === 0);
 
     const orderUp = shortDiffExplainer([{ ...nowRow, order: 250, need: 3.25, short: 3.25 }], [], null)(old);
     ok('จำนวนสั่งเปลี่ยน — บอกจำนวนสั่งเดิม → ใหม่ ไม่บอกต่อชิ้น (ต่อชิ้นเท่าเดิม)',
@@ -1094,8 +1115,24 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
        && !orderUp[0].includes('ต่อชิ้น') && !orderUp[0].includes('สูตรตอนนี้มาจาก'), JSON.stringify(orderUp));
 
     const recv = shortDiffExplainer([{ ...nowRow, need: 2.6, have: 1, short: 1.6 }], [], null)(old);
-    ok('รับเข้าเพิ่มหลังตั้งเรื่อง — บอกยอดรับเดิม → ใหม่ ว่าขาดลดลงเท่าไหร่',
-       recv.length === 1 && recv[0].includes('0 → 1') && recv[0].includes('ขาดลดลง 1'), JSON.stringify(recv));
+    ok('รับเข้าเพิ่มหลังตั้งเรื่องแต่ไม่ได้กด "มาแล้ว" — บอกยอดรับเดิม → ใหม่ และว่าเกินที่กดไว้เท่าไหร่',
+       recv.length === 1 && recv[0].includes('(0 → 1)') && recv[0].includes('ไม่ได้กด "มาแล้ว"')
+       && recv[0].includes('รับเข้าเกินที่กดไว้ 1'), JSON.stringify(recv));
+    // มาบางส่วน (PR #195 เทียบกับยอดที่ยังค้าง) — กดมาแล้วตามที่รับเข้าจริง ไม่ใช่เหตุที่ต่าง
+    const part = { ...old, done_qty: 1 };
+    const partNow = h => [{ ...nowRow, need: 2.6, have: h, short: round5(2.6 - h) }];
+    ok('มาบางส่วน กดมาแล้ว 1 รับเข้า 1 — ตรงกัน ไม่มีอะไรต้องอธิบาย',
+       shortDiffExplainer(partNow(1), [], null)(part).length === 0);
+    const more = shortDiffExplainer(partNow(1.5), [], null)(part);
+    ok('มาบางส่วน รับเข้า 1.5 แต่กดมาแล้วแค่ 1 — บอกส่วนที่รับเข้าเกินที่กดไว้ 0.5',
+       more.length === 1 && more[0].includes('กด "มาแล้ว" ในเรื่องนี้แค่ 1') && more[0].includes('รับเข้าเกินที่กดไว้ 0.5'), JSON.stringify(more));
+    const less = shortDiffExplainer(partNow(0), [], null)(part);
+    ok('กดมาแล้ว 1 แต่ไม่มีรับเข้า — บอกว่าอาจกดมาแล้วโดยไม่ได้รับเข้าคลัง',
+       less.length === 1 && less[0].includes('กด "มาแล้ว" ในเรื่องนี้ 1 แต่รับเข้าตาม PO นี้หลังตั้งเรื่องแค่ 0')
+       && less[0].includes('ส่วนต่าง 1'), JSON.stringify(less));
+    const voided = shortDiffExplainer([{ ...nowRow, need: 2.6, have: 0, short: 2.6 }], [], null)({ ...old, qty: 2, recv_qty: 0.6, bom_qty: 2.6 });
+    ok('ยอดรับเข้าลดลงหลังตั้งเรื่อง (ยกเลิกใบรับ / ส่งคืน) — บอกยอดรับเดิม → ใหม่',
+       voided.length === 1 && voided[0].includes('ลดลงหลังตั้งเรื่อง 0.6 → 0'), JSON.stringify(voided));
 
     const edited = shortDiffExplainer([{ ...nowRow, need: 2.6, short: 2.6 }], [], null)({ ...old, qty: 2 });
     ok('ยอดในเรื่องไม่ได้มาจากสูตรตอนตั้ง (เช่นเรื่องที่ตั้งใหม่จากเรื่องเก่า) — บอกยอดที่ควรเป็นตอนตั้ง',
@@ -2423,6 +2460,35 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
     ok('หลักฐานหยุดตาม: ตัวเลขผ่าน round5 ไม่หลุด 0.30000000000000004 (A2)',
        eq(stopEvidence({ qty: 0.3, bom_qty: 0.6 }), { bom: 0.6, recv: 0.3, short: 0.3 })
        && eq(stopEvidence({ qty: 0.1 + 0.2, bom_qty: '0.4' }), { bom: 0.4, recv: 0.1, short: 0.3 }));
+
+    // over: อ่านรับเข้า / คืนจากสมุดจริงผ่าน overAll (เจ้าของเลือก 25 พ.ย. 2026) — สมุด TUE-H · P/N P9 สั่ง 100 · ใช้ 5 ต่อชิ้น = ตาม BOM 500
+    const OE = 'TUE-H';
+    const led = (kind, po, qty) => ({ entity: OE, kind, doc_ref: po, material_code: 'C9', qty, voided: false });
+    const oopt = { headerOf: () => ({ pn: 'P9', order: 100 }), usageOf: () => 5, min: -Infinity };
+    const calcOf = (ents, po) => overAll(ents, OE, oopt).find(r => r.po === po) || null;
+    const ostory = (po, extra = {}) => ({ kind: 'over', po, code: 'C9', qty: 12, done_qty: 0, ...extra });
+    ok('หลักฐานหยุดตาม over: ไม่ติดตาม — ตาม BOM · รับเข้า · ไม่มีคืน · เกิน จากสมุด · ตรงกับตอนหยุด',
+       eq(overStopEvidence(ostory('A1'), calcOf([led('receive', 'A1', 512)], 'A1')),
+          { bom: 500, recv: 512, back: 0, over: 12, stopAt: 12, moved: false }));
+    // คืนก่อนตั้งเรื่อง 2 + กดคืนแล้ว 4 = ใบส่งคืนในสมุด 6 → เกิน 6 = ค้างตอนหยุด (ตั้ง 10 คืน 4)
+    ok('หลักฐานหยุดตาม over: คืนไปแล้ว = ใบส่งคืนจริงในสมุดทุกใบ · บวกลบลง (512 − 6 − 500 = 6)',
+       eq(overStopEvidence(ostory('A2', { qty: 10, done_qty: 4 }),
+                           calcOf([led('receive', 'A2', 512), led('sendback', 'A2', 2), led('sendback', 'A2', 4)], 'A2')),
+          { bom: 500, recv: 512, back: 6, over: 6, stopAt: 6, moved: false }));
+    // ไฟล์ Delta ทับ qty / recv_qty แต่ไม่ทับ bom_qty (ผู้ตรวจ #190) — ค่าที่แช่ในเรื่องเพี้ยน แต่สมุดไม่มีใบคืน = ต้องไม่ขึ้น "คืนไปแล้ว"
+    ok('หลักฐานหยุดตาม over: เรื่องที่ไฟล์ Delta ทับ bom_qty / recv_qty ไม่ตรงกัน — ไม่ขึ้นคืนปลอม · บอกยอดตอนหยุดเมื่อไม่เท่า',
+       eq(overStopEvidence(ostory('A3', { qty: 5, bom_qty: 520, recv_qty: 505 }), calcOf([led('receive', 'A3', 512)], 'A3')),
+          { bom: 500, recv: 512, back: 0, over: 12, stopAt: 5, moved: true }));
+    ok('หลักฐานหยุดตาม over: คืนเพิ่มหลังหยุด — เกินเป็นยอดตอนนี้ · moved บอกให้จอโชว์ยอดตอนหยุด',
+       eq(overStopEvidence(ostory('A4', { qty: 6 }), calcOf([led('receive', 'A4', 512), led('sendback', 'A4', 9)], 'A4')),
+          { bom: 500, recv: 512, back: 9, over: 3, stopAt: 6, moved: true }));
+    ok('หลักฐานหยุดตาม over: คิดยอดตาม BOM ไม่ได้ = ยังโชว์รับเข้า / คืนจากสมุด · ไม่มีในสมุด = null ทั้งหมด',
+       eq(overStopEvidence(ostory('A5', { qty: 3 }), { recv: 30, sentBack: 2, bom_qty: null, over: null, why: 'ยังไม่รู้ P/N ของใบนี้' }),
+          { bom: null, recv: 30, back: 2, over: null, stopAt: 3, moved: true })
+       && eq(overStopEvidence(ostory('A6', { qty: 3 }), null), { bom: null, recv: null, back: null, over: null, stopAt: 3, moved: true }));
+    ok('หลักฐานหยุดตาม over: ตัวเลขผ่าน round5 (A2) · สมุดนิติบุคคลอื่นไม่ถูกนับ (A3)',
+       eq(overStopEvidence(ostory('A7', { qty: 0.3 }), calcOf([led('receive', 'A7', 0.1 + 0.2 + 500), { ...led('receive', 'A7', 99), entity: 'NSE' }], 'A7')),
+          { bom: 500, recv: 500.3, back: 0, over: 0.3, stopAt: 0.3, moved: false }));
   }
 
   const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');

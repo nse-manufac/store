@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-25.3">
+<meta name="app-version" content="2026-11-26.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -188,11 +188,14 @@ tbody.shut tr.fol-po > td:first-child{box-shadow:inset 4px 0 0 #c5ced8}
 .fol-key{font-weight:600;font-size:17px}
 button.tag.why-tag{border:0;cursor:pointer;font-family:inherit;text-decoration:underline dotted}
 .why-cell{position:relative}
-.why-pop{position:absolute;right:0;top:calc(100% - 6px);z-index:30;width:420px;text-align:left;white-space:normal;font-size:14px;line-height:1.6;font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-variant-numeric:normal;color:var(--ink);background:#fff;border:1px solid #f0d799;border-left:4px solid var(--warn);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:8px 12px}
+.why-pop{position:absolute;right:0;top:calc(100% - 6px);z-index:30;width:420px;text-align:left;white-space:normal;font-size:14px;font-weight:400;line-height:1.6;font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-variant-numeric:normal;color:var(--ink);background:#fff;border:1px solid #f0d799;border-left:4px solid var(--warn);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:8px 12px}
 .why-pop b{color:var(--warn)}
 .fol-act{white-space:normal}
 .fol-act .btn{font-size:15px;padding:6px 16px}
 .fol-got{display:inline-block;min-width:120px;text-align:right;margin-right:16px}
+.card h2.fol-title{margin:4px 0 6px;font-size:32px;text-align:center}
+.card p.fol-sub{margin:0 0 14px;font-size:16px;text-align:center}
+table.fol.even td.fol-act,table.fol.even tr.fol-th th:last-child{padding-left:56px}
 .fol-qty{width:96px;padding:6px 8px;margin-right:4px;font-size:15px}
 .btn-q{font:inherit;font-size:14px;background:none;border:0;color:var(--muted);padding:6px 8px;cursor:pointer;border-radius:6px}
 .btn-q:hover:not(:disabled){color:var(--ink);background:var(--soft)}
@@ -2435,8 +2438,9 @@ textarea{font:inherit}
       <template v-else-if="tab==='fshort'">
         <!-- จัดกลุ่มราย PO แบบแท็บ MRP · ปุ่มกรองแทนช่องติ๊กกับการ์ดท้ายหน้า (เจ้าของสั่ง 21 พ.ย. 2026) -->
         <div class="card">
-          <h2 style="margin:0 0 4px;font-size:19px">short รอส่ง</h2>
-          <p class="hint" style="margin:0 0 12px;font-size:14px">ของที่ Delta ส่งมาไม่ครบตาม BOM · จัดกลุ่มราย PO</p>
+          <!-- หัวหน้าใหญ่ กลางจอ ให้ผู้สูงอายุมองเห็นชัด (เจ้าของขอ 25 พ.ย. 2026) -->
+          <h2 class="fol-title">short รอส่ง</h2>
+          <p class="hint fol-sub">ของที่ Delta ส่งมาไม่ครบตาม BOM · จัดกลุ่มราย PO</p>
           <div class="row" style="gap:10px 14px">
             <div class="mrp-seg fol-seg" role="group" aria-label="กรองตามสถานะ">
               <button v-for="f in FOLLOW_SEG.short" :key="f.k" type="button" :aria-pressed="fsSeg === f.k" @click="fsSeg = f.k">
@@ -2540,9 +2544,10 @@ textarea{font:inherit}
 
         <div class="card">
           <div class="scroll" style="max-height:none">
-          <table class="fol">
-            <!-- คอลัมน์ตายตัวทุกปุ่มกรอง — ตัวเลขของทุกใบอยู่แนวเดียวกัน -->
-            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:128px"><col style="width:128px"><col style="width:136px"><col style="width:360px"></colgroup>
+          <table class="fol even">
+            <!-- คอลัมน์ตายตัวทุกปุ่มกรอง — ตัวเลขของทุกใบอยู่แนวเดียวกัน
+                 ช่องตัวเลขกว้างเท่ากัน + เว้นหน้าช่องปุ่ม ให้ช่องไฟระหว่างคอลัมน์พอ ๆ กัน (เจ้าของขอ 25 พ.ย. 2026) -->
+            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:380px"></colgroup>
             <tbody v-for="g in fsDraw" :key="g.po" :class="{ shut: fsFold[g.po] }">
               <tr class="fol-po" @click="foldFlip(fsFold, g.po)" :aria-expanded="!fsFold[g.po]">
                 <td colspan="8"><span class="fol-head">
@@ -2557,7 +2562,7 @@ textarea{font:inherit}
               <template v-if="!fsFold[g.po]">
                 <!-- หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ตัวใหญ่ (เจ้าของขอ 21 พ.ย. 2026 — หัวเล็ก ๆ บนสุดผู้สูงอายุมองไม่เห็น) -->
                 <tr v-if="fsSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับแล้ว</th><th class="r">ขาด</th><th></th></tr>
-                <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ระบบคิดได้</th><th class="r">ค้าง</th><th>ยอดที่มา (เว้นว่าง = มาครบ)</th></tr>
+                <tr v-if="fsSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">ยอดที่มาแล้ว</th><th class="r">ยอดที่ยังค้าง</th><th>ยอดที่มารอบนี้</th></tr>
                 <tr v-if="fsSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่มาครบ</th><th><span class="fol-got">ยอดที่มา</span></th></tr>
                 <tr v-if="fsSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">ยอดตาม BOM</th><th class="r">ยอดที่รับเข้า</th><th class="r">ยอดที่ขาด</th><th><span class="fol-got">วันที่หยุดติดตาม</span></th></tr>
                 <template v-if="fsSeg === 'new'">
@@ -2573,19 +2578,22 @@ textarea{font:inherit}
                   <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
                     <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
                     <td>{{ mrpName(r.s.code) }}
+                      <!-- วันที่ · คนตั้งเรื่อง วางชิดซ้ายของยอดที่ตั้งเรื่อง — สามช่องตัวเลขเหลือไว้ให้เห็นการลบ (เจ้าของขอ 25 พ.ย. 2026) -->
+                      <div class="hint">ตั้งเรื่อง <span class="mono">{{ r.s.date || '—' }}</span><template v-if="r.s.created_by"> · {{ r.s.created_by }}</template></div>
                       <!-- ไม่โชว์ ETA แล้ว — ช่องรับ short จากใบ PO (ที่มี ETA) ปิดไปแล้ว (เจ้าของแจ้ง 21 พ.ย. 2026) -->
                       <div v-if="followNote(r.s)" class="hint">{{ followNote(r.s) }}</div></td>
-                    <td class="mono r hint">{{ r.s.date }}<div v-if="r.s.created_by">{{ r.s.created_by }}</div></td>
-                    <!-- ตรงกับยอดค้าง = ตัวจาง · ไม่ตรง = ป้าย ต่าง ให้สะดุดตา -->
-                    <td class="mono r why-cell" :class="{ hint: fsCheck(r.s).same !== false }" :title="fsCheck(r.s).why || (fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา จึงไม่มียอดให้เทียบ' : fsCheck(r.s).same ? 'ตรงกับยอดที่แจ้งไว้' : '')">
-                      <!-- กดป้าย "ต่าง" = bubble บอกเหตุ (เจ้าของขอ 25 พ.ย. 2026 · กล่องใต้ชื่อรกจอ) — ตรรกะอยู่ที่ shortDiffExplainer (master/follow.js) -->
-                      <template v-if="fsCheck(r.s).calc !== null"><button v-if="fsCheck(r.s).same === false && fsWhy(r.s).length" type="button" class="tag warn why-tag"
-                          title="กดดูว่าทำไมต่าง" @click.stop="fsWhyFlip(r.s.id)">ต่าง</button><span v-else-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> {{ mrpNum(fsCheck(r.s).calc) }}</template>
-                      <template v-else>—</template>
+                    <!-- ตั้งไว้ − มาแล้ว = ยังค้าง ให้เห็นการลบในแถวเดียว · เรื่องที่ไม่ได้แจ้งจำนวน = — -->
+                    <td class="mono r">{{ r.s.qty > 0 ? mrpNum(r.s.qty) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
+                    <td class="mono r">{{ mrpNum(Number(r.s.done_qty) || 0) }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
+                    <td class="mono r fol-key why-cell">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span>
+                      <!-- ยอดขาดที่ระบบคิดจากการรับเข้าเทียบสูตร เทียบกับยอดที่ยังค้าง: ไม่ตรง = ป้าย ต่าง · เรื่องไม่ได้แจ้งจำนวน = ตัวจาง · ตรงกัน = ไม่โชว์ซ้ำ -->
+                      <div v-if="fsCheck(r.s).calc !== null && fsCheck(r.s).same !== true" :class="{ hint: fsCheck(r.s).same !== false }" style="font-weight:400;font-size:14px;white-space:nowrap"
+                           :title="fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา — ระบบคิดจากการรับเข้าเทียบสูตร' : 'ระบบคิดจากการรับเข้าเทียบสูตรได้ไม่เท่ากับยอดที่ยังค้าง'">
+                        <!-- กดป้าย "ต่าง" = bubble บอกเหตุ (เจ้าของขอ 25 พ.ย. 2026 · กล่องใต้ชื่อรกจอ) — ตรรกะอยู่ที่ shortDiffExplainer (master/follow.js) -->
+                        <button v-if="fsCheck(r.s).same === false && fsWhy(r.s).length" type="button" class="tag warn why-tag"
+                                title="กดดูว่าทำไมต่าง" @click.stop="fsWhyFlip(r.s.id)">ต่าง</button><span v-else-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> ระบบคิดได้ {{ mrpNum(fsCheck(r.s).calc) }}</div>
                       <div v-if="fsWhyId === r.s.id" class="why-pop" @click.stop><b>ทำไมต่าง</b>
                         <div v-for="(w, i) in fsWhy(r.s)" :key="i">· {{ w }}</div></div></td>
-                    <td class="mono r fol-key">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span class="hint">{{ r.s.unit }}</span>
-                      <div v-if="r.st === 'partial'" class="hint">จาก {{ mrpNum(r.s.qty) }}</div></td>
                     <td class="fol-act">
                       <!-- ช่องจำนวนทุกแถว ไม่บังคับ (เจ้าของสั่ง 10 ต.ค. 2026) · เรื่องที่ไม่ระบุจำนวน + เว้นว่าง = ปิดเฉย ๆ ไม่รับเข้า -->
                       <input v-model="fsGot[r.s.id]" type="number" step="any" class="mono fol-qty"
@@ -2646,7 +2654,8 @@ textarea{font:inherit}
               ติ๊ก <b>รับเข้าคลังด้วย</b> ไว้ = บันทึกรับเข้าให้เลย อ้าง PO ของเรื่อง · ล็อต = <b>วันที่ของมา</b> (ค่าตั้งต้นคือวันนี้ แก้ย้อนหลังได้) — ไม่ต้องไปคีย์ที่หน้ารับเข้าซ้ำ ·
               กด <b>เอากลับ</b> = ยกเลิกรายการรับเข้านั้นให้ด้วย<br>
               แถวที่ไฟล์ PO ไม่ได้บอกจำนวน (ช่องขึ้นว่า "จำนวน") ใส่จำนวนที่มาเพื่อรับเข้าคลัง · เว้นว่าง = ปิดเรื่องเฉย ๆ<br>
-              <b>ระบบคิดได้</b> = ยอดขาดที่คิดจากการรับเข้าตอนนี้ เทียบกับยอดที่แจ้งไว้ (ตรง / ต่าง)</p>
+              <b>ระบบคิดได้</b> = ยอดขาดที่คิดจากการรับเข้าเทียบสูตรตอนนี้ · เป็นบรรทัดเล็กใต้ <b>ยอดที่ยังค้าง</b>
+              โชว์เฉพาะเมื่อ <b>ไม่เท่ากับยอดที่ยังค้าง</b> (ขึ้นป้าย <b>ต่าง</b> — ไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง) หรือเรื่องที่ไม่ได้แจ้งจำนวนมา (ตัวจาง) · เท่ากันไม่โชว์</p>
             <p><b>ยกเลิก / ไม่ติดตาม</b> = เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง ·
               ไม่ขึ้นในปุ่ม "ต้องตั้งเรื่อง" จนกว่ายอดขาดจะมากกว่า <b>ยอดค้าง</b> ตอนกด ·
               กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
@@ -3206,7 +3215,7 @@ textarea{font:inherit}
                 <tr v-if="foSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับมาแล้ว</th><th class="r">เกิน</th><th></th></tr>
                 <tr v-if="foSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ต้องคืน</th><th class="r">ค้าง</th><th>ยอดที่คืน (เว้นว่าง = คืนครบ)</th></tr>
                 <tr v-if="foSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่คืนครบ</th><th><span class="fol-got">ยอดที่คืน</span></th></tr>
-                <tr v-if="foSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">หยุดเมื่อ</th><th>โดย</th><th class="r">ค้างตอนหยุด</th><th></th></tr>
+                <tr v-if="foSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">ยอดตาม BOM</th><th class="r">ยอดที่รับเข้า</th><th class="r">ยอดที่เกิน</th><th><span class="fol-got">วันที่หยุดติดตาม</span></th></tr>
                 <template v-if="foSeg === 'new'">
                   <tr v-for="r in g.items" :key="r.code" class="fol-it">
                     <td></td><td class="mono">{{ r.code }}</td><td class="hint">{{ catOf(r.code) || '—' }}</td><td>{{ mrpName(r.code) }}</td>
@@ -3252,10 +3261,17 @@ textarea{font:inherit}
                   <tr v-for="x in g.items" :key="x.s.id" class="fol-it" :data-fid="x.s.id">
                     <td></td><td class="mono">{{ x.s.code }}</td><td class="hint">{{ catOf(x.s.code) || '—' }}</td>
                     <td>{{ mrpName(x.s.code) }}
-                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) }}</div></td>
-                    <td class="mono r hint">{{ localDate(x.s.void_at) }}</td><td class="hint">{{ x.s.void_by }}</td>
-                    <td class="mono r">{{ mrpNum(remainOf(x.s)) }}<span class="hint" v-if="remainOf(x.s) !== x.s.qty"> / {{ mrpNum(x.s.qty) }}</span></td>
-                    <td class="fol-act"><button class="btn" :disabled="starting.has('forestart|' + x.s.id)" @click="foRestart(x.s)">กลับมาติดตาม</button></td>
+                      <div class="hint"><span class="tag" :class="x.mark === 'skip' ? 'mute' : 'warn'">{{ x.mark === 'skip' ? 'ไม่ติดตาม' : 'ยกเลิกเรื่อง' }}</span> {{ stopWhy(x.s) || '(ไม่ได้ใส่เหตุผล)' }}</div></td>
+                    <!-- หลักฐานว่าเกินน้อยจริงจึงหยุดตาม: รับเข้า − คืนไปแล้ว − ตาม BOM = เกิน · อ่านจากสมุดคลังสด (เจ้าของเลือก 25 พ.ย. 2026)
+                         ตัวเลขคิดใน overStopEvidence (master/follow.js) · ยอดเกินตอนนี้ไม่เท่าตอนหยุด = บอก "ตอนหยุด X" ด้วย -->
+                    <template v-for="ev in [foStopEv(x.s)]" :key="x.s.id">
+                      <td class="mono r hint">{{ mrpNum(ev.bom) }}</td>
+                      <td class="mono r hint">{{ mrpNum(ev.recv) }}<div v-if="ev.back > 0">คืนไปแล้ว {{ mrpNum(ev.back) }}</div></td>
+                      <td class="mono r fol-key">{{ mrpNum(ev.over) }} <span v-if="ev.over != null" class="hint">{{ x.s.unit }}</span>
+                        <div v-if="ev.moved" class="hint" style="font-weight:400;font-size:14px">ตอนหยุด {{ mrpNum(ev.stopAt) }}</div></td>
+                    </template>
+                    <td class="fol-act"><span class="fol-got mono hint">{{ localDate(x.s.void_at) }}<div v-if="x.s.void_by">{{ x.s.void_by }}</div></span>
+                      <button class="btn" :disabled="starting.has('forestart|' + x.s.id)" @click="foRestart(x.s)">กลับมาติดตาม</button></td>
                   </tr>
                 </template>
               </template>

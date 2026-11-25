@@ -913,6 +913,29 @@ export function stopEvidence(row) {
 }
 
 /**
+ * หลักฐานแบบเดียวกันของ over — ตาม BOM · รับเข้า · คืนไปแล้ว · เกิน
+ * อ่านจากสมุดคลังสด ๆ ผ่านแถว overAll ของคู่ PO+รหัสนั้น (เจ้าของเลือก 25 พ.ย. 2026)
+ *
+ * calc = แถวของ overAll ({ recv, sentBack, bom_qty, over, why }) ของคู่นี้ · null = สมุดไม่มีรับเข้าของคู่นี้
+ * เกิน = รับเข้า − คืนไปแล้ว − ตาม BOM ตัวเดียวกับที่ overAll คิด → บวกลบลงเสมอ
+ * stopAt = ยอดค้างตอนหยุด (remainOf) ไว้ให้จอบอก "ตอนหยุด X" เมื่อสมุดขยับไปแล้ว (เช่น คืนเพิ่มหลังหยุด)
+ *
+ * ⚠️ ห้ามกลับไปคิดจาก bom_qty / recv_qty ที่แช่ไว้ในเรื่อง — สองช่องนี้มาจากคนละแหล่งได้
+ *    (นำเข้าไฟล์ MAT'L FOLLOWING ของ Delta ทับ qty / recv_qty แต่ไม่แตะ bom_qty — planMatFollow)
+ *    แล้ว "คืนไปแล้ว" ที่คิดจากเศษจะโผล่ทั้งที่ไม่เคยคืน (ผู้ตรวจ #190 รอบ 2–3)
+ * คิดยอดตาม BOM ไม่ได้ (why) = bom / over เป็น null แต่ยังโชว์รับเข้า / คืนจากสมุดได้
+ */
+export function overStopEvidence(row, calc) {
+  const stopAt = remainOf(row);
+  if (!calc) return { bom: null, recv: null, back: null, over: null, stopAt, moved: true };
+  const recv = round5(Number(calc.recv) || 0), back = round5(Number(calc.sentBack) || 0);
+  if (calc.why || calc.bom_qty == null || calc.over == null) return { bom: null, recv, back, over: null, stopAt, moved: true };
+  const over = round5(Number(calc.over));
+  // moved = ยอดเกินตอนนี้ไม่เท่าตอนหยุด → จอบอก "ตอนหยุด X" ด้วย (ปุ่มกลับมาติดตามตั้งเรื่องด้วยยอดตอนหยุด)
+  return { bom: round5(Number(calc.bom_qty)), recv, back, over, stopAt, moved: Math.abs(over - stopAt) >= 1e-4 };
+}
+
+/**
  * คำเตือนก่อน "ยกเลิกเรื่อง" — คืน '' ถ้าไม่ต้องเตือน (เจ้าของเลือกแบบ ก 4 พ.ย. 2026 · ผู้ตรวจ #146 รอบ 5)
  * เพดาน "ไม่ขึ้นอีก" = ยอดที่ค้างในเรื่องตอนกด · ถ้าระบบคิดได้ว่าขาดไม่เท่านั้น (เช่น คีย์รับเข้าที่หน้ารับเข้า
  * แต่ไม่ได้กด "มาแล้ว") เพดานจะไม่ใช่เลขที่คนกดเห็นว่าขาดจริง — บอกให้กด "มาแล้ว" ก่อน
@@ -1071,7 +1094,10 @@ export function shortChecker(calcRows) {
      *    ช่อง "ที่แจ้งมา" ของแถวพวกนั้นเป็น — อยู่แล้ว ไม่มียอดให้เทียบ จึงห้ามตอบ same: false
      *    เพราะจอจะขึ้นป้าย "ต่าง" ทั้งที่ไม่มีอะไรให้ทำต่อ แล้วคนจะเลิกเชื่อป้ายนี้ทั้งคอลัมน์ (G3) */
     if (!(q > 0)) return { calc, why: '', same: null };
-    return { calc, why: '', same: Math.abs(q - calc) < 5e-4 };
+    /* เทียบกับยอดที่ยังค้าง ไม่ใช่ยอดที่ตั้งเรื่อง — มาแล้วบางส่วน การรับเข้าก็ลดยอดที่ระบบคิดได้ลงเท่ากัน
+     *    เทียบกับ qty ทำให้ทุกแถวที่มาบางส่วนขึ้น "ต่าง" ทั้งที่ตรงกันอยู่ (เจอตอนทำหน้ารอส่ง 25 พ.ย. 2026)
+     *    ตอนตั้งเรื่อง done_qty = 0 ยอดค้าง = qty จึงได้ผลเท่าเดิม */
+    return { calc, why: '', same: Math.abs(remainOf(follow) - calc) < 5e-4 };
   };
 }
 export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow);
@@ -1080,8 +1106,10 @@ export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow)
  * ทำไม "ค้าง" ในเรื่องถึงไม่ตรงกับ "ระบบคิดได้" — คืนบรรทัดหลักฐานให้จอโชว์ใต้ป้าย "ต่าง" (เจ้าของขอ 25 พ.ย. 2026)
  * เดิมต้องเปิดชีตไล่เทียบ BOM / PO / รับเข้าเองทีละตัว ใช้เวลาเป็นวัน
  *
+ * เกณฑ์ "ต่าง" ตรงกับ shortChecker — เทียบยอดที่ยังค้าง (qty − done_qty) กับที่คิดได้ตอนนี้
  * เทียบยอดที่แช่แข็งไว้ตอนตั้งเรื่อง (order_qty · bom_qty · recv_qty) กับที่คิดได้ตอนนี้ แยกเป็นตัวต่อตัว:
- *   ตามสูตรเปลี่ยน (ต่อชิ้น / จำนวนสั่ง) · ยอดรับเข้าเปลี่ยน · ยอดในเรื่องไม่ได้มาจากสูตรตอนตั้ง
+ *   ตามสูตรเปลี่ยน (ต่อชิ้น / จำนวนสั่ง) · ยอดรับเข้าไม่เท่ากับที่กด "มาแล้ว" · ยอดในเรื่องไม่ได้มาจากสูตรตอนตั้ง
+ * ⚠️ รับเข้าหลังตั้งเรื่องหักยอดที่กด "มาแล้ว" ในเรื่องนี้ก่อน — มาบางส่วนแล้วกดมาแล้วตามปกติ ไม่ใช่เหตุที่ต่าง
  * แล้วบอกเรื่องอื่นของคู่ PO + รหัสเดียวกันที่ยังไม่ยกเลิก (เช่นเรื่องที่ปิดไปแล้ว แต่มีคนเอาเรื่องเก่ากลับมา)
  *
  * calcRows = shortAll(..., { all: true }) · follows = เรื่องทั้งหมด · bomRowOf(pn, code) = บรรทัดสูตรตอนนี้ (ไม่ส่ง = ไม่บอกที่มาสูตร)
@@ -1103,7 +1131,9 @@ export function shortDiffExplainer(calcRows, follows, bomRowOf) {
   return follow => {
     const k = pairKey(follow && follow.po, follow && follow.code);
     const now = calcOf.get(k), q = Number(follow && follow.qty) || 0;
-    if (!now || !(q > 0) || Math.abs(q - now.short) < 5e-4) return [];
+    if (!now || !(q > 0)) return [];
+    const remain = remainOf(follow), done = round5(Number(follow.done_qty) || 0);
+    if (Math.abs(remain - now.short) < 5e-4) return [];
     const out = [];
     const fo = Number(follow.order_qty), fb = Number(follow.bom_qty), fr = Number(follow.recv_qty) || 0;
     if (has(follow.bom_qty) && fo > 0) {
@@ -1119,9 +1149,14 @@ export function shortDiffExplainer(calcRows, follows, bomRowOf) {
         out.push(`ตามสูตรเปลี่ยนหลังตั้งเรื่อง ${n(fb)} → ${n(now.need)} (${sign(dNeed)})`
           + (parts.length ? ': ' + parts.join(' · ') : '') + from);
       }
-      const dHave = round5(now.have - fr);
-      if (Math.abs(dHave) >= 5e-4) {
-        out.push(`ยอดรับเข้าตาม PO นี้เปลี่ยนหลังตั้งเรื่อง ${n(fr)} → ${n(now.have)} (ขาด${dHave > 0 ? 'ลดลง' : 'เพิ่มขึ้น'} ${n(Math.abs(dHave))})`);
+      const dHave = round5(now.have - fr), x = round5(dHave - done);
+      if (Math.abs(x) >= 5e-4) {
+        const recv = `${n(fr)} → ${n(now.have)}`;
+        out.push(x > 0
+          ? `รับเข้าตาม PO นี้หลังตั้งเรื่อง ${n(dHave)} (${recv}) แต่${done > 0 ? `กด "มาแล้ว" ในเรื่องนี้แค่ ${n(done)}` : 'ไม่ได้กด "มาแล้ว" ในเรื่องนี้'} — รับเข้าเกินที่กดไว้ ${n(x)}`
+          : done > 0
+            ? `กด "มาแล้ว" ในเรื่องนี้ ${n(done)} แต่รับเข้าตาม PO นี้หลังตั้งเรื่องแค่ ${n(dHave)} (${recv}) — ส่วนต่าง ${n(-x)} อาจกดมาแล้วโดยไม่ได้รับเข้าคลัง หรือรับเข้าด้วย PO อื่น`
+            : `ยอดรับเข้าตาม PO นี้ลดลงหลังตั้งเรื่อง ${recv} — มีการยกเลิกใบรับเข้า หรือส่งคืน Delta`);
       }
       const atSet = round5(Math.max(0, fb - fr));
       if (Math.abs(q - atSet) >= 5e-4) {
@@ -1129,7 +1164,9 @@ export function shortDiffExplainer(calcRows, follows, bomRowOf) {
       }
     } else {
       const src = SRC[txt(follow.source)] || 'ที่ตั้งไว้';
-      out.push(`ยอดในเรื่อง ${n(q)} มาจาก${src} ไม่ได้คิดจากสูตร · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
+      out.push(`ยอดในเรื่อง ${n(q)} มาจาก${src} ไม่ได้คิดจากสูตร`
+        + (done > 0 ? ` (มาแล้ว ${n(done)} ยังค้าง ${n(remain)})` : '')
+        + ` · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
     }
     for (const o of byPair.get(k) || []) {
       if (o.id === follow.id || o.entity !== follow.entity) continue;
