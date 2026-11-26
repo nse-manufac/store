@@ -700,6 +700,20 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
      && !/done_at[^}]*\.slice\(0,\s*10\)/.test(foverSrc));
   ok('localDate ส่งออกให้เทมเพลตใช้ได้จริง',
      /\blocalDate\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+  // 26 พ.ย. 2026: รอคืน โชว์การลบ ตั้งไว้ − คืนแล้ว = ยังค้าง (สกิล record-ui-evidence · แบบเดียวกับ short รอของ)
+  const headO = (foverSrc.match(/<tr v-if="foSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
+  const colsO = [...headO.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  ok('รอคืน: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่คืนแล้ว → ยอดที่ยังค้าง → ยอดที่คืนรอบนี้ (8 ช่องเท่า colgroup)',
+     colsO.length === 8 && colsO[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && colsO[4] === 'ยอดที่ตั้งเรื่อง' && colsO[5] === 'ยอดที่คืนแล้ว'
+     && colsO[6] === 'ยอดที่ยังค้าง' && colsO[7] === 'ยอดที่คืนรอบนี้', JSON.stringify(colsO));
+  const colgO = (foverSrc.match(/<colgroup>.*?<\/colgroup>/) || [''])[0];
+  ok('รอคืน: colgroup 8 ช่อง · ตาราง fol even (ช่องไฟเท่ากัน)',
+     (colgO.match(/<col\b/g) || []).length === 8 && foverSrc.includes('<table class="fol even">'), colgO);
+  ok('รอคืน: ยอดที่คืนแล้วอ่านจาก done_qty · ที่มาของยอดตั้งเรื่องโชว์เฉพาะเมื่อมีตัวเลขครบ (ไม่ขึ้น "—" ลอย ๆ)',
+     foverSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
+     && foverSrc.includes('v-if="r.s.bom_qty != null && r.s.recv_qty != null"')
+     && foverSrc.includes('v-else-if="r.s.order_qty != null && r.s.recv_qty != null"'));
+  ok('หัว over รอคืน ใหญ่กลางจอ (class fol-title)', foverSrc.includes('<h2 class="fol-title">over รอคืน</h2>'));
 }
 { /* พิสูจน์ว่าสองวิธีให้คนละคำตอบจริง ไม่ใช่เทสที่เขียวทั้งก่อนและหลัง
    * เครื่องในโรงงานตั้งเป็นเวลาไทย (+7) แต่เครื่องที่รันเทสอาจเป็น UTC
