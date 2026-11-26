@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-26.3">
+<meta name="app-version" content="2026-11-26.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -153,8 +153,6 @@ tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
    ตัวใหญ่ทั้งหน้า + หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ให้ผู้สูงอายุอ่านง่าย (เจ้าของขอ 21 พ.ย. 2026) */
 .fol-bar{gap:10px 14px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);align-items:flex-end}
 .fol-bar label.f{font-size:14px}
-.fol-chk{display:flex;align-items:center;gap:8px;font-size:15px;height:38px}
-.fol-chk input{width:18px;height:18px}
 .fol-add{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#f8fafc}
 /* ปุ่มกรองตัวใหญ่ เต็มแถว ปุ่มที่เลือกเป็นสีน้ำเงินทึบ (เจ้าของขอ 21 พ.ย. 2026 — แบบ MRP เล็กเกินไปสำหรับผู้สูงอายุ) */
 .fol-seg{display:flex;flex:1 1 100%;gap:8px;padding:6px;border-radius:12px}
@@ -2455,8 +2453,6 @@ textarea{font:inherit}
             <template v-if="fsSeg === 'open'">
               <label class="f" style="width:150px" title="ของมาเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่ของมาจริง">วันที่ของมา
                 <input v-model="fsDate" type="date"></label>
-              <label class="fol-chk" title="ติ๊กออกเมื่อของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ">
-                <input type="checkbox" v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย</label>
             </template>
             <span v-if="fsCounts.partial" class="tag warn">ได้มาบางส่วน {{ fsCounts.partial }}</span>
             <div class="grow"></div>
@@ -2587,15 +2583,14 @@ textarea{font:inherit}
                     <td class="mono r">{{ r.s.qty > 0 ? mrpNum(r.s.qty) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r">{{ mrpNum(Number(r.s.done_qty) || 0) }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r fol-key">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span>
-                      <!-- ยอดขาดที่ระบบคิดจากการรับเข้าเทียบสูตร เทียบกับยอดที่ยังค้าง: ไม่ตรง = ป้าย ต่าง · เรื่องไม่ได้แจ้งจำนวน = ตัวจาง · ตรงกัน = ไม่โชว์ซ้ำ -->
-                      <div v-if="fsCheck(r.s).calc !== null && fsCheck(r.s).same !== true" :class="{ hint: fsCheck(r.s).same !== false }" style="font-weight:400;font-size:14px;white-space:nowrap"
-                           :title="fsCheck(r.s).same === null ? 'Delta ไม่ได้แจ้งจำนวนมา — ระบบคิดจากการรับเข้าเทียบสูตร' : 'ระบบคิดจากการรับเข้าเทียบสูตรได้ไม่เท่ากับยอดที่ยังค้าง'">
-                        <span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span> ระบบคิดได้ {{ mrpNum(fsCheck(r.s).calc) }}</div></td>
+                      <!-- ยอดค้างไม่เท่ากับยอดขาดที่ระบบคิดจากการรับเข้าเทียบสูตร = ป้าย ต่าง อย่างเดียว · ตัวเลขอยู่ในกล่องข้อความตอนชี้เมาส์ (เจ้าของสั่ง 26 พ.ย. 2026) -->
+                      <div v-if="fsCheck(r.s).same === false" style="font-weight:400"><span class="tag warn" style="cursor:help"
+                           :title="'ยอดที่ยังค้าง ' + mrpNum(r.remain) + ' แต่ระบบคิดจากการรับเข้าเทียบสูตรได้ ' + mrpNum(fsCheck(r.s).calc) + ' — ไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง'">ต่าง</span></div></td>
                     <td class="fol-act">
-                      <!-- ช่องจำนวนทุกแถว ไม่บังคับ (เจ้าของสั่ง 10 ต.ค. 2026) · เรื่องที่ไม่ระบุจำนวน + เว้นว่าง = ปิดเฉย ๆ ไม่รับเข้า -->
+                      <!-- ช่องจำนวนทุกแถว (เจ้าของสั่ง 10 ต.ค. 2026) · เว้นว่าง = มาครบ · เรื่องที่ไม่ระบุจำนวนต้องใส่ เพราะรับเข้าคลังทุกครั้ง (26 พ.ย. 2026) -->
                       <input v-model="fsGot[r.s.id]" type="number" step="any" class="mono fol-qty"
                              :placeholder="r.s.qty > 0 ? 'ทั้งใบ' : 'จำนวน'"
-                             :title="r.s.qty > 0 ? '' : 'ไฟล์ PO ไม่ได้บอกจำนวน — ใส่จำนวนที่มา ถ้าอยากรับเข้าคลังด้วย'"
+                             :title="r.s.qty > 0 ? '' : 'เรื่องนี้ไม่ได้บอกจำนวนไว้ — ใส่จำนวนที่มาก่อนกด มาแล้ว'"
                              @keyup.enter="fsClose(r.s)">
                       <button class="btn primary" :disabled="starting.has('fsclose|' + r.s.id)" @click="fsClose(r.s)">มาแล้ว</button>
                       <button class="btn-q" :disabled="starting.has('fsvoid|' + r.s.id)" @click="fsVoid(r.s)">ยกเลิกเรื่อง</button></td>
@@ -2648,11 +2643,11 @@ textarea{font:inherit}
               กด <b>ไม่ติดตาม</b> = ไม่ขึ้นอีกจนกว่ายอดขาดจะมากกว่ายอดในแถวตอนกด</p>
             <p><b>มาแล้ว</b> เว้นช่องยอดไว้ = ปิดทั้งเรื่อง ·
               ใส่ยอดก่อนกด (หรือกด Enter ในช่อง) = ของมาบางส่วน แล้วจะเหลือค้างตามส่วนต่าง<br>
-              ติ๊ก <b>รับเข้าคลังด้วย</b> ไว้ = บันทึกรับเข้าให้เลย อ้าง PO ของเรื่อง · ล็อต = <b>วันที่ของมา</b> (ค่าตั้งต้นคือวันนี้ แก้ย้อนหลังได้) — ไม่ต้องไปคีย์ที่หน้ารับเข้าซ้ำ ·
+              กด <b>มาแล้ว</b> = บันทึกรับเข้าคลังให้เลยทุกครั้ง อ้าง PO ของเรื่อง · ล็อต = <b>วันที่ของมา</b> (ค่าตั้งต้นคือวันนี้ แก้ย้อนหลังได้) — ไม่ต้องไปคีย์ที่หน้ารับเข้าซ้ำ ·
               กด <b>เอากลับ</b> = ยกเลิกรายการรับเข้านั้นให้ด้วย<br>
-              แถวที่ไฟล์ PO ไม่ได้บอกจำนวน (ช่องขึ้นว่า "จำนวน") ใส่จำนวนที่มาเพื่อรับเข้าคลัง · เว้นว่าง = ปิดเรื่องเฉย ๆ<br>
-              <b>ระบบคิดได้</b> = ยอดขาดที่คิดจากการรับเข้าเทียบสูตรตอนนี้ · เป็นบรรทัดเล็กใต้ <b>ยอดที่ยังค้าง</b>
-              โชว์เฉพาะเมื่อ <b>ไม่เท่ากับยอดที่ยังค้าง</b> (ขึ้นป้าย <b>ต่าง</b> — ไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง) หรือเรื่องที่ไม่ได้แจ้งจำนวนมา (ตัวจาง) · เท่ากันไม่โชว์</p>
+              แถวที่ไม่ได้บอกจำนวน (ช่องขึ้นว่า "จำนวน") ต้องใส่จำนวนที่มาก่อนกด<br>
+              ป้าย <b>ต่าง</b> ใต้ <b>ยอดที่ยังค้าง</b> = ยอดขาดที่<b>ระบบคิดได้</b>จากการรับเข้าเทียบสูตรตอนนี้ ไม่เท่ากับยอดที่ยังค้าง
+              — ชี้เมาส์ที่ป้ายเพื่อดูทั้งสองยอด แล้วไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง · เท่ากันไม่ขึ้นป้าย</p>
             <p><b>ยกเลิก / ไม่ติดตาม</b> = เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง ·
               ไม่ขึ้นในปุ่ม "ต้องตั้งเรื่อง" จนกว่ายอดขาดจะมากกว่า <b>ยอดค้าง</b> ตอนกด ·
               กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>

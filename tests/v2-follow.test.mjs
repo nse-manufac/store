@@ -1067,9 +1067,11 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      && shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0).calc === 8,
      JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
   // 21 พ.ย. 2026: ตรง = ตัวจาง (ไม่มีป้าย) · ต่าง = ป้าย — same null (ไม่มียอดเทียบ) ต้องไม่ได้ป้าย "ต่าง"
-  ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
-     htmlSrc.includes('<span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
-     && htmlSrc.includes(':class="{ hint: fsCheck(r.s).same !== false }"'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+  // 26 พ.ย. 2026: เจ้าของสั่งให้ขึ้นแค่ป้าย ต่าง · ตัวเลขทั้งสองยอดย้ายไปอยู่ในกล่องข้อความตอนชี้เมาส์ (เดิมบรรทัดยาวล้นคอลัมน์)
+  ok('ยอดที่ยังค้าง: ขึ้นแค่ป้าย ต่าง เมื่อ same === false · กล่องข้อความบอกทั้งยอดค้างและยอดที่ระบบคิดได้',
+     htmlSrc.includes('<div v-if="fsCheck(r.s).same === false" style="font-weight:400"><span class="tag warn" style="cursor:help"')
+     && htmlSrc.includes("'ยอดที่ยังค้าง ' + mrpNum(r.remain) + ' แต่ระบบคิดจากการรับเข้าเทียบสูตรได้ ' + mrpNum(fsCheck(r.s).calc)")
+     && !htmlSrc.includes('ระบบคิดได้ {{ mrpNum(fsCheck(r.s).calc) }}'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
   // 25 พ.ย. 2026: รอส่ง โชว์การลบ ตั้งไว้ − มาแล้ว = ยังค้าง (สกิล record-ui-evidence) · ยอดที่ระบบคิดได้เป็นบรรทัดเล็กใต้ยอดที่ตั้งเรื่อง โชว์เฉพาะเมื่อไม่ตรง
   {
     const head = (htmlSrc.match(/<tr v-if="fsSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
@@ -1077,13 +1079,12 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
     ok('รอส่ง: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่มาแล้ว → ยอดที่ยังค้าง → ยอดที่มารอบนี้ (8 ช่องเท่า colgroup)',
        cols.length === 8 && cols[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && cols[4] === 'ยอดที่ตั้งเรื่อง' && cols[5] === 'ยอดที่มาแล้ว'
        && cols[6] === 'ยอดที่ยังค้าง' && cols[7] === 'ยอดที่มารอบนี้', JSON.stringify(cols));
-    ok('รอส่ง: ยอดที่มาแล้วอ่านจาก done_qty · ยอดที่ระบบคิดได้ซ่อนเมื่อตรงกัน (same true)',
-       htmlSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
-       && htmlSrc.includes('fsCheck(r.s).calc !== null && fsCheck(r.s).same !== true'));
+    ok('รอส่ง: ยอดที่มาแล้วอ่านจาก done_qty',
+       htmlSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}'));
     /* ผู้ตรวจ #195 ข้อ 1 — กล่องช่วยเหลือต้องบอกฐานเทียบตรงกับ shortChecker (ยอดที่ยังค้าง ไม่ใช่ยอดที่แจ้งไว้)
        และห้ามอ้างว่ามีป้าย "ตรง" เพราะจอซ่อนบรรทัดทิ้งเมื่อเท่ากัน (G3) */
-    const helpCalc = (htmlSrc.match(/<b>ระบบคิดได้<\/b> =[^]*?<\/p>/) || [''])[0];
-    ok('กล่องช่วยเหลือ: "ระบบคิดได้" บอกว่าเทียบกับยอดที่ยังค้าง · โชว์เฉพาะเมื่อไม่เท่ากัน · ไม่อ้างป้าย "ตรง"',
+    const helpCalc = (htmlSrc.match(/ป้าย <b>ต่าง<\/b> ใต้ <b>ยอดที่ยังค้าง<\/b> =[^]*?<\/p>/) || [''])[0];
+    ok('กล่องช่วยเหลือ: ป้าย ต่าง บอกว่าเทียบกับยอดที่ยังค้าง · ขึ้นเฉพาะเมื่อไม่เท่ากัน · ไม่อ้างป้าย "ตรง"',
        helpCalc.includes('ยอดที่ยังค้าง') && !helpCalc.includes('ยอดที่แจ้งไว้')
        && !/\(\s*ตรง\s*\/\s*ต่าง\s*\)/.test(helpCalc), helpCalc.slice(0, 200));
     /* ผู้ตรวจ #195 รอบ 2 ข้อ 1 — คำอธิบายในโค้ดต้องบอกฐานเทียบตรงกับ shortChecker ด้วย
@@ -1460,12 +1461,14 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   const b2 = arriveShort(b.rec, { qty: 5, person: 'สมชาย', date: '2026-10-11', at: '2026-10-11T03:00:00.000Z' });
   ok('รอบสองรับที่เหลือ — ผูกเลขที่ต่อท้าย ไม่ทับของเดิม', statusOf(b2.rec) === 'done' && b2.entry.qty === 5
      && b2.rec.receive_entry_id === b.entry.id + ' ' + b2.entry.id);
-  const c = arriveShort(sh, { receive: false, person: 'สมชาย', at });
-  ok('ติ๊กออก = ปิดเรื่องอย่างเดียว ไม่รับเข้า (ของมากับ Kit List ที่คีย์ไปแล้ว)', statusOf(c.rec) === 'done' && c.entry === null && !c.rec.receive_entry_id);
+  // 26 พ.ย. 2026: เจ้าของสั่งให้รับเข้าคลังทุกครั้ง — ส่ง receive: false มาก็ไม่มีผล
+  const c0 = arriveShort(sh, { receive: false, person: 'สมชาย', at });
+  ok('ส่ง receive: false มา = ยังรับเข้าคลัง (ไม่มีทางปิดเรื่องอย่างเดียวแล้ว)', statusOf(c0.rec) === 'done' && c0.entry && c0.entry.qty === 8);
+  // เรื่องเก่าที่ปิดไปแบบไม่รับเข้า (ก่อน 26 พ.ย. 2026) ยังเอากลับได้
+  const c = { rec: closeFollow(sh, { by: 'สมชาย', at }) };
   // แถวที่แกะจากไฟล์ PO แล้วไม่บอกจำนวนมี qty 0 โดยการออกแบบ (makeFollow ไม่สร้างให้ จึงต่อเอง)
   const z = { ...makeFollow({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H002', code: 'B1', qty: 1 }), qty: 0 };
-  const z1 = arriveShort(z, { person: 'สมชาย', at });
-  ok('เรื่องไม่ระบุจำนวน + เว้นยอด = ปิดเฉย ๆ ไม่รับเข้า (ไม่รู้ว่ามาเท่าไหร่)', statusOf(z1.rec) === 'done' && z1.entry === null);
+  throws('เรื่องไม่ระบุจำนวน + เว้นยอด = โยน บอกให้ใส่ยอดที่มา (รับเข้าคลังทุกครั้ง)', () => arriveShort(z, { person: 'สมชาย', at }), 'ใส่ยอดที่มา');
   const z2 = arriveShort(z, { qty: 12, person: 'สมชาย', date: '2026-10-10', at });
   ok('เรื่องไม่ระบุจำนวน + ใส่ยอด 12 = ปิด + รับเข้า 12', statusOf(z2.rec) === 'done' && z2.entry && z2.entry.qty === 12);
   throws('รับเข้าแต่ไม่มีชื่อผู้บันทึก = โยน บอกทางออก', () => arriveShort(sh, { at }), 'ผู้บันทึก');
@@ -1503,8 +1506,8 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
     ok('localDate ของวันปิดเรื่องได้วันที่ที่คนเลือก', localDate(early) === '2026-10-08');
   }
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-  ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
-     html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
+  ok('จอ: ไม่มีช่องติ๊ก "รับเข้าคลังด้วย" แล้ว (26 พ.ย. 2026) · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
+     !html.includes('fsRecv') && !app.includes('fsRecv') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
   // ข้อความ A3 ต้องชี้ของที่มีอยู่จริงบนจอ — เดินถึงได้จริงเมื่อยังไม่เลือกนิติบุคคลที่หัวจอ
   // แล้วตารางเหลือแต่แถวกำพร้า (G3 · ผู้ตรวจ #130 รอบ 4 ข้อ 1)
   {
@@ -1738,11 +1741,18 @@ console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ
   const sh = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H101', code: 'A1', qty: 4 });
   const at = '2026-10-19T03:00:00.000Z';
   // short ไม่มีเลข PO + ติ๊กรับเข้า — เดิมโยน "รับเข้า ต้องอ้างอิงเอกสาร" ไม่บอกทางออก
-  throws('short ไม่มี PO + รับเข้า = บอกว่าไม่มีเลข PO และให้เอาติ๊กออก', () => arriveShort({ ...sh, po: '' }, { person: 'ก', at }), 'ไม่มีเลข PO');
-  ok('short ไม่มี PO + ไม่ติ๊กรับเข้า = ปิดเรื่องได้', arriveShort({ ...sh, po: '' }, { receive: false, person: 'ก', at }).entry === null);
+  throws('short ไม่มี PO = บอกว่าไม่มีเลข PO', () => arriveShort({ ...sh, po: '' }, { person: 'ก', at }), 'ไม่มีเลข PO');
   const htmlZ = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const appZ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  ok('ข้อความอ้างชื่อช่องติ๊กที่มีอยู่จริงบนจอ (G3)', htmlZ.includes('v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย'));
+  {
+    let msg = '';
+    try { arriveShort({ ...sh, po: '' }, { person: 'ก', at }); } catch (e) { msg = e.message; }
+    // G3 — ทางออกที่ข้อความบอกต้องเป็นปุ่มที่มีอยู่จริงบนจอ
+    // ไม่ชี้ "เพิ่มเรื่องเอง" — เจ้าของจะเอาปุ่มนั้นออก (26 พ.ย. 2026)
+    ok('ไม่มี PO: ข้อความชี้ปุ่ม "ยกเลิกเรื่อง" ที่มีอยู่จริงบนจอ (G3) · ไม่ชี้ "เพิ่มเรื่องเอง"',
+       msg.includes('"ยกเลิกเรื่อง"') && !msg.includes('เพิ่มเรื่องเอง')
+       && htmlZ.includes('>ยกเลิกเรื่อง</button>'), msg);
+  }
 
   // เอากลับ — จดร่องรอยไว้ที่หมายเหตุ (ไม่เพิ่มช่องใหม่)
   const closed = closeFollow({ ...sh, note: 'ตามกับผู้ขาย' }, { by: 'สมชาย', at: '2026-10-18T03:00:00.000Z' });
@@ -1778,7 +1788,9 @@ console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ
   ok('จอ: แถวนอกสูตรบอกว่ามีในทะเบียนไหม', /note: l\.note, known: !!m \}/.test(appZ));
 
   // จอ
-  ok('จอ: ติ๊กรับเข้าไว้แต่ไม่ได้รับ = บอกว่าไม่ได้รับเข้าคลัง', appZ.includes("' · ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)'"));
+  // 26 พ.ย. 2026: รับเข้าคลังทุกครั้ง — ไม่มีกรณีปิดเรื่องแล้วไม่ได้รับเข้า · ข้อความแจ้งต้องบอกยอดที่รับเข้าเสมอ
+  ok('จอ: กด "มาแล้ว" สำเร็จ = บอกยอดที่รับเข้าคลังทุกครั้ง', appZ.includes("const recv = ` · รับเข้าคลัง ${entry.qty} แล้ว`;")
+     && !appZ.includes('ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)'));
   ok('จอ: ปุ่ม "มาแล้ว" จางระหว่างบันทึก', htmlZ.includes(`:disabled="starting.has('fsclose|' + r.s.id)"`));
   ok('จอ: เปลี่ยน P/N ล้างรหัสนอกสูตรด้วย', htmlZ.includes('fbm.rnote = {}; fbm.extra = []"'));
   ok('จอ: ตารางเรื่องซ้ำแสดงทีละ SHOW_MAX และยกเลิกเฉพาะที่แสดง',
