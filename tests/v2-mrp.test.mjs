@@ -602,5 +602,37 @@ console.log('\n=== ช่องกางไม่ดันตารางล้�
   ok('จอ: บรรทัด "PO ที่นับ" ยังอยู่ใน .mrp-in', /<div class="mrp-in">\s*<div class="hint">PO ที่นับ:/.test(html));
 }
 
+console.log('\n=== จ่ายออกทีละ PO จากหน้ายอดคงคลัง (เจ้าของสั่ง 25 พ.ย. 2026) ===');
+{
+  const { poIssueCheck } = await import('../v2/master/mrp.js');
+  // ตาม BOM 3 · รับ 2.604 · ยังไม่จ่าย → จ่ายได้สูงสุด = คงเหลือ 2.604 (น้อยกว่าที่ BOM ยังให้จ่าย)
+  const p = { need: 3, recv: 2.604, sendback: 0, issued: 0, bal: 2.604 };
+  const a = poIssueCheck(p, 2.604);
+  ok('จ่ายเท่าคงเหลือพอดี = ผ่าน · จ่ายได้สูงสุด = min(ตาม BOM − จ่ายแล้ว, คงเหลือ PO)', a.ok && a.max === 2.604 && a.bomLeft === 3);
+  ok('เกินคงเหลือของ PO นี้ (ของที่รับเข้ามา) = ไม่ผ่าน · ไม่เผื่อเศษ', !poIssueCheck(p, 2.605).ok && poIssueCheck(p, 2.605).overRecv);
+  // ตาม BOM 10 · จ่ายไปแล้ว 8 · ยังมีของ 5 → จ่ายสะสมเกิน BOM ถ้าครั้งนี้เกิน 2
+  const q = { need: 10, recv: 13, sendback: 0, issued: 8, bal: 5 };
+  ok('จ่ายสะสมเกิน BOM = ไม่ผ่าน แม้ยังมีของ', poIssueCheck(q, 2).ok && !poIssueCheck(q, 2.5).ok && poIssueCheck(q, 2.5).overBom
+     && !poIssueCheck(q, 2.5).overRecv && poIssueCheck(q, 0).max === 2);
+  ok('จ่ายเกิน BOM ไปแล้ว: จ่ายได้สูงสุด 0 · จ่ายเพิ่มไม่ได้', poIssueCheck({ need: 5, issued: 6, bal: 3 }, 1).max === 0
+     && !poIssueCheck({ need: 5, issued: 6, bal: 3 }, 1).ok);
+  ok('ไม่รู้ยอดตาม BOM (นอกสูตร / ไม่รู้ PO qty.) = ใช้แค่คงเหลือ PO', poIssueCheck({ need: null, issued: 0, bal: 40 }, 40).ok
+     && poIssueCheck({ need: null, issued: 0, bal: 40 }, 0).bomLeft === null && !poIssueCheck({ need: null, issued: 0, bal: 40 }, 41).ok);
+  ok('0 · ว่าง · ติดลบ = ยังจ่ายไม่ได้', [0, null, '', -1].every(x => !poIssueCheck(p, x).ok));
+  ok('คงเหลือติดลบ: จ่ายได้สูงสุด 0', poIssueCheck({ need: 10, issued: 12, bal: -2 }, 0).max === 0);
+
+  // จอ: ปุ่มจ่ายอยู่ท้ายแถว PO ใต้วัตถุดิบ · กดแล้วไม่พับแถว · ปุ่มบันทึกปิดเมื่อไม่ผ่าน · ไม่มีทางลัดไปหน้าจ่ายออก (#178)
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: ปุ่ม "จ่าย" ท้ายแถว PO เรียก bpIssOpen(r.pn, p.po, l.code) แบบ @click.stop',
+     /@click\.stop="bpIssOpen\(r\.pn, p\.po, l\.code\)">จ่าย<\/button>/.test(html));
+  ok('จอ: ปุ่มบันทึกปิดเมื่อไม่ผ่านกฎ / ไม่มีชื่อผู้จ่าย / ไม่มีวันที่',
+     /@click="bpIssSave"\s*:disabled="!bpIssChk \|\| !bpIssChk\.ok \|\| !bpIss\.person \|\| !bpIss\.date"/.test(html));
+  ok('app.js: เปิดกล่องตั้งวันที่เป็นวันนี้ · บันทึกเช็กกฎซ้ำก่อนเขียน · อ้าง PO ของปุ่มที่กด',
+     /bpIssOpen\(pn, po, code\) \{\s*Object\.assign\(bpIss, \{ open: true, pn, po, code, date: todayLocal\(\)/.test(app)
+     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.date\) return;/.test(app) && /doc_ref: bpIss\.po, part_no: bpIss\.pn/.test(app));
+  ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

@@ -553,3 +553,24 @@ export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', kee
   const num = (x, y) => x.localeCompare(y, 'en', { numeric: true, sensitivity: 'base' });
   return out.sort((a, b) => (!a.pn) - (!b.pn) || num(a.pn, b.pn));
 }
+
+/**
+ * จ่ายออกทีละ PO จากหน้ายอดคงคลังราย P/N (เจ้าของสั่ง 25 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถว PO ใต้วัตถุดิบ
+ *   p = แถว byPo จาก stockPnRows ({ need, recv, sendback, issued, bal }) · qty = ยอดที่จะจ่ายครั้งนี้
+ * กฎสองข้อ (เจ้าของสั่ง):
+ *   1. จ่ายสะสมของ PO นี้ห้ามเกิน BOM — issued + qty ≤ need (issued = จ่ายให้ฝ่ายผลิต ไม่รวมส่งคืน Delta แบบคอลัมน์จ่ายเทียบ BOM)
+ *      ไม่รู้ยอดตาม BOM (รหัสนอกสูตร · ไม่รู้ PO qty.) → ไม่มีเพดานข้อนี้ (bomLeft = null) ใช้ข้อ 2 อย่างเดียว
+ *   2. ห้ามจ่ายเกินของที่ PO นี้รับเข้ามา — qty ≤ คงเหลือของ PO นี้ (รับ − ส่งคืน − จ่ายไปแล้ว) ไม่เผื่อเศษ (แบบ #192)
+ *      ใช้คงเหลือ ไม่ใช่ยอดรับรวม — ไม่งั้นจ่ายหลายครั้งรวมกันเกินที่รับได้ แล้วยอด PO ติดลบ
+ * คืน { qty, bomLeft, bal, max, overBom, overRecv, ok }
+ *   max = จ่ายได้สูงสุดครั้งนี้ (ไม่ต่ำกว่า 0) · ok = qty > 0 และไม่ติดทั้งสองข้อ
+ */
+export function poIssueCheck(p, qty) {
+  const q = round5(Number(qty) || 0);
+  const bal = round5(Number(p && p.bal) || 0);
+  const need = p && p.need != null ? Number(p.need) : null;
+  const bomLeft = need === null ? null : round5(need - (Number(p.issued) || 0));
+  const max = round5(Math.max(0, bomLeft === null ? bal : Math.min(bal, bomLeft)));
+  const overBom = bomLeft !== null && q > bomLeft, overRecv = q > bal;
+  return { qty: q, bomLeft, bal, max, overBom, overRecv, ok: q > 0 && !overBom && !overRecv };
+}
