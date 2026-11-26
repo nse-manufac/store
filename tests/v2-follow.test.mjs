@@ -13,7 +13,7 @@ import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum,
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
-import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
+import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -1828,7 +1828,20 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   const cx = cancelShort(open, { by: 'หัวหน้า', why: 'ยอดน้อย ไม่ติดตาม' });
   ok('ยกเลิกเรื่อง = ไม่ลบ · เหตุผลขึ้นต้นด้วยคำคงที่', cx.voided && cx.id === open.id && stopMarkOf(cx) === 'cancel'
      && cx.void_reason === CANCEL_MARK + ' — ยอดน้อย ไม่ติดตาม');
-  ok('ยกเลิกเรื่องไม่ใส่เหตุผล = ยังมีคำคงที่', cancelShort(open, { by: 'ก' }).void_reason === CANCEL_MARK);
+  // ต้องพิมพ์เหตุผลทุกครั้ง (เจ้าของสั่ง 25 พ.ย. 2026) — เคยเติมคำให้ก่อน แล้วพนักงานกดตกลงเลยไม่แก้
+  throws('ยกเลิกเรื่องไม่ใส่เหตุผล = โยน', () => cancelShort(open, { by: 'ก' }), 'เหตุผล');
+  throws('ยกเลิกเรื่องเหตุผลมีแต่ช่องว่าง = โยน', () => cancelShort(open, { by: 'ก', why: '   ' }), 'เหตุผล');
+  throws('ไม่ติดตาม short ไม่ใส่เหตุผล = โยน', () => skipShort(calc, { entity: E, person: 'ก', at }), 'เหตุผล');
+  // เจ้าของเลือกข้อ 2: มีตัวหนังสือไทย/อังกฤษ + ยาวอย่างน้อย 5 ตัวไม่นับช่องว่าง
+  for (const w of ['-', '.', '---', '12345', '- - - - -', 'ก', 'ไม่', ' a b ']) {
+    ok(`เหตุผล "${w}" ไม่ผ่าน`, stopWhyProblem(w) !== '', stopWhyProblem(w));
+  }
+  for (const w of ['ยอดน้อย', 'Delta ไม่ส่ง', 'short', '  ของหมด  ']) {
+    ok(`เหตุผล "${w}" ผ่าน`, stopWhyProblem(w) === '', stopWhyProblem(w));
+  }
+  ok('ไม่ผ่านแล้วบอกสาเหตุ', stopWhyProblem('-').includes('ตัวหนังสือ') && stopWhyProblem('ไม่').includes(`${WHY_MIN} ตัวอักษร`));
+  throws('ยกเลิกเรื่องเหตุผล "-" = โยน', () => cancelShort(open, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
+  throws('ไม่ติดตาม short เหตุผลสั้นเกิน = โยน', () => skipShort(calc, { entity: E, person: 'ก', at, why: 'ไม่' }), 'สั้นเกินไป');
   throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelShort(open, {}), 'ผู้บันทึก');
   throws('ยกเลิกเรื่องที่ปิดแล้ว = โยน', () => cancelShort(closeFollow(open, { by: 'ก' }), { by: 'ก' }), 'ปิดไปแล้ว');
   throws('ยกเลิกซ้ำ = โยน', () => cancelShort(cx, { by: 'ก' }), 'ยกเลิกไปแล้ว');
@@ -1839,7 +1852,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   // ยกเลิกเรื่องที่ของมาบางส่วน = เพดานต้องเป็นยอดที่ยังค้างตอนกด ไม่ใช่ qty เต็ม
   // ไม่งั้นยกเลิกรายการรับเข้าแล้วของขาดโตกลับ แต่การ์ดไม่กลับมาขึ้น (ผู้ตรวจ #146 รอบ 4 ข้อ 1)
   const partGot = cancelShort({ ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H205',
-                                code: '9100000205', qty: 10, by: 'ก', now: at }), done_qty: 4 }, { by: 'ก' });
+                                code: '9100000205', qty: 10, by: 'ก', now: at }), done_qty: 4 }, { by: 'ก', why: 'ยอดน้อย' });
   const calc5 = { po: 'TM0001H205', code: '9100000205', short: 6 };
   ok('ยกเลิกเรื่องที่ของมาบางส่วน: ขาดเท่าตอนกด (6) = ไม่ขึ้น · ขาดโตกลับเป็น 10 (ยกเลิกรับเข้า) = กลับมาขึ้น',
      shortPending([calc5], [partGot]).length === 0 && shortPending([{ ...calc5, short: 10 }], [partGot]).length === 1);
@@ -1853,7 +1866,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   // หยุด → กลับมา → หยุดอีก = การ์ดต้องเหลือรอบล่าสุดรอบเดียว ไม่งั้นกดรอบเก่าแล้วยอดที่รอบหลังรับเข้าคลัง
   // ไปแล้วถูกนับใหม่ = คงคลังเกินจริง (ผู้ตรวจ #146 รอบ 3 ข้อ 1)
   const c1 = { ...cancelShort(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H204',
-               code: '9100000204', qty: 10, by: 'ก', now: at }), { by: 'ก' }),
+               code: '9100000204', qty: 10, by: 'ก', now: at }), { by: 'ก', why: 'ยอดน้อย' }),
                done_qty: 4, void_at: '2026-11-04T01:00:00.000Z' };
   const c2 = { ...c1, id: 'ST-2', qty: 6, done_qty: 1, void_at: '2026-11-04T05:00:00.000Z' };
   const card = stoppedShorts([c1, c2], { entity: E });
@@ -1877,7 +1890,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   // ไม่งั้นกด "มาแล้ว" ทั้งใบรอบสองจะรับเข้าคลังซ้ำยอดที่มาแล้ว (ผู้ตรวจ #146 รอบ 2 ข้อ 1)
   const half = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H203',
                                         code: '9100000203', qty: 10, by: 'ก', now: at }), { qty: 4, by: 'ก' });
-  const halfBack = restartShort(cancelShort(half, { by: 'ก' }), { by: 'ก', at });
+  const halfBack = restartShort(cancelShort(half, { by: 'ก', why: 'ยอดน้อย' }), { by: 'ก', at });
   ok('กลับมาติดตามเรื่องที่ของมาแล้วบางส่วน = ตั้งยอดเท่าที่ยังค้าง ไม่ใช่ยอดเต็ม (กันรับเข้าคลังเกิน)',
      halfBack.qty === 6 && remainOf(halfBack) === 6, JSON.stringify({ q: halfBack.qty, remain: remainOf(halfBack) }));
   throws('เรื่องที่ของมาครบแล้วแต่ยกเลิกไว้ = ไม่มียอดค้าง บอกให้เพิ่มเอง',
@@ -1897,10 +1910,10 @@ console.log('\n=== ST2. คู่เดียวกันหยุดสอง�
   const E = 'TUE-H';
   const t = h => `2026-11-0${h}T03:00:00.000Z`;
   const r1 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H501', code: '9100000501', qty: 10, by: 'ก', now: t(1) });
-  const stop1 = { ...cancelShort(r1, { by: 'ก' }), void_at: t(2) };                    // รอบ 1: ค้าง 10
+  const stop1 = { ...cancelShort(r1, { by: 'ก', why: 'ยอดน้อย' }), void_at: t(2) };                    // รอบ 1: ค้าง 10
   const r2 = { ...restartShort(stop1, { by: 'ก', at: t(3) }), created_at: t(3) };
   const got8 = closeFollow(r2, { qty: 8, by: 'ก' });                                     // มาแล้ว 8 → ค้าง 2
-  const stop2 = { ...cancelShort(got8, { by: 'ก' }), void_at: t(4) };                   // รอบ 2: ค้าง 2
+  const stop2 = { ...cancelShort(got8, { by: 'ก', why: 'ยอดน้อย' }), void_at: t(4) };                   // รอบ 2: ค้าง 2
   const all = [stop1, stop2];
   const pend = short => shortPending([{ po: 'TM0001H501', code: '9100000501', short }], all).length;
   ok('หยุดสองรอบ (10 แล้ว 2): ขาด 2 = ไม่ขึ้น · ขาด 3 / 6 / 10 = ขึ้น',
@@ -1921,14 +1934,14 @@ console.log('\n=== ST3. หยุดแล้วกลับมาทำต่�
   const pend = (short, all) => shortPending([{ po: P, code: C, short }], all).length;
   // เส้นที่ 1: ยกเลิกตอนค้าง 10 → กลับมาติดตาม → มาครบ → ปิด
   const r1 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 10, by: 'ก', now: t(1) });
-  const stop1 = { ...cancelShort(r1, { by: 'ก' }), void_at: t(2) };
+  const stop1 = { ...cancelShort(r1, { by: 'ก', why: 'ยอดน้อย' }), void_at: t(2) };
   const back = { ...restartShort(stop1, { by: 'ก', at: t(3) }), created_at: t(3) };
   const closed = closeFollow(back, { by: 'ก' });
   ok('กลับมาติดตามแล้วปิดเรื่อง → ของขาดใหม่ 5 = ขึ้น · 10 (เท่าเรื่องที่ปิด) = ไม่ขึ้นตามกฎเดิม',
      pend(5, [stop1, closed]) === 1 && pend(10, [stop1, closed]) === 0);
   // เส้นที่ 2: ไม่ติดตามตอนขาด 8 → ตั้งเรื่องเอง → ปิด
   const sk = { ...skipShort({ po: P, code: C, pn: 'PN', short: 8, order: 1, need: 8, have: 0, why: '' },
-                              { entity: E, person: 'ก', at: t(1) }), void_at: t(2) };
+                              { entity: E, person: 'ก', at: t(1), why: 'ยอดน้อย' }), void_at: t(2) };
   const own = closeFollow({ ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 8, by: 'ก', now: t(4) }), created_at: t(4) }, { by: 'ก' });
   ok('ไม่ติดตามแล้วไปตั้งเรื่องเองจนปิด → ของขาดใหม่ 4 = ขึ้น', pend(4, [sk, own]) === 1);
   // ไม่มีเรื่องตั้งทีหลัง = ผลเดิม
@@ -2123,6 +2136,7 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   ok('ไม่ติดตาม = เรื่อง over ที่ยกเลิกไว้ · จดยอดเกินตอนกด · คำนำหน้าเดียวกับ short',
      sk.kind === 'over' && sk.voided && sk.qty === 3 && sk.void_reason === SKIP_MARK + ' — ยอดน้อย' && stopMarkOf(sk) === 'skip');
   throws('ไม่ติดตามแต่ไม่มีชื่อ = โยน', () => skipOver(calc, { entity: E, at: t(1) }), 'ผู้บันทึก');
+  throws('ไม่ติดตาม over ไม่ใส่เหตุผล = โยน', () => skipOver(calc, { entity: E, person: 'ก', at: t(1) }), 'เหตุผล');
   const pend = (over, all, opt) => overPending([{ ...calc, over }], all, opt).length;
   ok('ยอดเกินเท่าเดิม / ลดลง = ไม่ขึ้น · เพิ่มขึ้น = กลับมาขึ้น', pend(3, [sk]) === 0 && pend(2, [sk]) === 0 && pend(4, [sk]) === 1);
   ok('ใบตัดยอดของ Delta (stops: false) ยังนับของที่ไม่ติดตาม', pend(3, [sk], { stops: false }) === 1);
@@ -2132,9 +2146,10 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   ok('ยกเลิกเรื่อง over = ไม่ลบ · คำนำหน้า ยกเลิกเรื่อง', cx.voided && cx.id === ov.id && stopMarkOf(cx) === 'cancel');
   throws('ยกเลิกเรื่องที่คืนครบแล้ว = โยน', () => cancelOver(closeFollow(ov, { by: 'ก' }), { by: 'ก' }), 'คืนครบแล้ว');
   throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelOver(ov, {}), 'ผู้บันทึก');
+  throws('ยกเลิกเรื่อง over ไม่ใส่เหตุผล = โยน', () => cancelOver(ov, { by: 'ก' }), 'เหตุผล');
   throws('ยกเลิกเรื่องที่ไม่รู้นิติบุคคล = โยน (A3)', () => cancelOver({ ...ov, entity: '' }, { by: 'ก' }), 'A3');
   throws('cancelOver ใช้กับ short ไม่ได้', () => cancelOver({ ...ov, kind: 'short' }, { by: 'ก' }), 'over');
-  const part = { ...cancelOver(closeFollow(ov, { qty: 6, by: 'ก' }), { by: 'ก' }), void_at: t(2) };
+  const part = { ...cancelOver(closeFollow(ov, { qty: 6, by: 'ก' }), { by: 'ก', why: 'ยอดน้อย' }), void_at: t(2) };
   const pendB = over => overPending([{ ...calc, po: 'TM0001H802', code: '9100000802', over }], [part]).length;
   ok('ยกเลิกเรื่องที่คืนไปบางส่วน: เพดาน = ยอดค้าง (4) ไม่ใช่ยอดเต็ม (10)', pendB(4) === 0 && pendB(5) === 1);
 
@@ -2465,6 +2480,16 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
      /if \(v\.how === 'done'\) fsSeg\.value = 'done';\s*else if \(over\) foSeg\.value = 'stop';\s*else fsSeg\.value = 'stop';/.test(appG));
   ok('จอ: ไม่โชว์ ETA ในหน้า short / over แล้ว (เจ้าของแจ้ง 21 พ.ย. 2026 — ช่องรับ short จากใบ PO ปิดไปแล้ว)',
      !htmlG.includes('v-model="fu.eta"') && !htmlG.includes('เลย ETA'));
+  // กฎ "กล่องเหตุผลเปิดมาช่องว่าง ไม่เติมคำให้" (เจ้าของสั่ง 25 พ.ย. 2026) เฝ้าที่นี่ —
+  // stopWhyProblem กันเหตุผลขยะได้ แต่คำเติมอย่าง "ยอดน้อย ไม่ติดตาม" ผ่านกฎนั้นสบาย ๆ
+  // ถ้าใครใส่ค่าเริ่มต้นกลับ อาการเดิม (พนักงานกดตกลงทันที) กลับมาโดยไม่มีเทสข้ออื่นแดง
+  const countIn = (s, sub) => s.split(sub).length - 1;
+  ok('จอ: กล่องถามเหตุผลเปิดมาช่องว่างทุกครั้ง · ทั้งสี่ปุ่ม short / over ถามผ่าน askWhy · ไม่มีคำเติมค้างเป็นค่าเริ่มต้นของ prompt',
+     appG.includes("let why = prompt(msg, '');")
+     && (appG.match(/askWhy\(/g) || []).length === 5                  // 4 จุดเรียก + 1 บรรทัดประกาศ
+     && countIn(appG, "askWhy('ยกเลิกเรื่องนี้เพราะอะไร") === 2       // fsVoid + foVoid
+     && countIn(appG, 'askWhy(`ไม่ติดตาม ') === 2                     // fsSkip + foSkip
+     && !/prompt\([^)]*,\s*['"`]ยอดน้อย/.test(appG));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
