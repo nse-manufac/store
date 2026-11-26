@@ -2860,6 +2860,10 @@ createApp({
       if (!rt.row) return '';
       if (rt.mode === 1 && rt.reason === 'other' && !rt.note.trim()) return 'เลือก "อื่น ๆ" แล้ว — ใส่หมายเหตุก่อน ว่าคืนเพราะอะไร';
       if (rt.mode === 2) {
+        /* ⚠️ ติดลบต้องกันที่นี่ — offsetShorts ทิ้งแถวที่ไม่ใช่ qty > 0 ไปเลย ขณะที่ rtPickSum บวกค่าติดลบด้วย
+         * ปล่อยผ่านแล้วยอดที่ลงสมุดจะมากกว่าที่จอบอก แบบเงียบ ๆ (ผู้ตรวจ #199 รอบ 2 ข้อ 1) */
+        const neg = rtShorts.value.find(s => Number(rt.pick[s.id]) < 0);
+        if (neg) return `PO ${neg.po} ใส่ยอดติดลบไม่ได้ — ล้างช่องนั้นให้ว่าง หรือใส่ยอดที่จะทดแทนจริง`;
         const big = rtShorts.value.find(s => round5(Number(rt.pick[s.id]) || 0) > remainOf(s));
         if (big) return `PO ${big.po} ใส่ได้ไม่เกินยอด short ที่ยังค้าง (${mrpNum(remainOf(big))})`;
       }

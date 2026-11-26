@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-27.4">
+<meta name="app-version" content="2026-11-27.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3900,7 +3900,7 @@ textarea{font:inherit}
                 <td class="mono r">{{ x.qty > 0 ? mrpNum(x.qty) : '—' }}</td>
                 <td class="mono r">{{ mrpNum(Number(x.done_qty) || 0) }}</td>
                 <td class="mono r fol-key">{{ mrpNum(remainOf(x)) }}</td>
-                <td class="r"><input v-model="rt.pick[x.id]" type="number" step="any" class="mono fol-qty" style="text-align:right;margin:0"></td>
+                <td class="r"><input v-model="rt.pick[x.id]" type="number" step="any" min="0" class="mono fol-qty" style="text-align:right;margin:0"></td>
               </tr></tbody>
             </table>
             <div v-else class="msg warn">ไม่มีเรื่อง short ที่ยังค้างของรหัส <b class="mono">{{ rt.row.code }}</b> ในนิติบุคคลนี้</div>

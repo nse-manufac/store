@@ -2581,6 +2581,25 @@ console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทน�
   ok('เอากลับฝั่ง short: ยกเลิกรับเข้า + ส่งคืนคู่ · over ค้างกลับมา 110 (คู่อื่นยังอยู่)',
      us.voids.length === 2 && us.voids.some(v => v.kind === 'sendback') && us.overRecs.length === 1
      && remainOf(us.overRecs[0]) === 110 && us.overRecs[0].return_entry_id === backs[0].id && !us.overRecs[0].done, JSON.stringify(us.overRecs[0]));
+  /* ⚠️ ค่าติดลบในช่องยอดของแบบ 2 — offsetShorts ทิ้งแถวที่ไม่ใช่ qty > 0 ไปเลย แต่ rtPickSum บนจอบวกค่าติดลบเข้าไปด้วย
+   *    ปล่อยผ่าน = "เลขที่จอบอก" ไม่ใช่ "เลขที่ลงสมุด" แบบเงียบ ๆ และเรื่อง over ปิดครบทั้งที่จอบอกว่ายังเหลือค้าง
+   *    จึงต้องกันที่ rtProblem (ปุ่มบันทึกกดไม่ได้) + min="0" ที่ช่อง (ผู้ตรวจ #199 รอบ 2 ข้อ 1) */
+  {
+    const rtProbSrc = appOver.slice(appOver.indexOf('const rtProblem = computed('), appOver.indexOf('const rtReady = computed('));
+    ok('แบบ 2 ใส่ยอดติดลบ = ข้อความแดงบอกทางออก + ปุ่มบันทึกกดไม่ได้ (G3) · ช่องยอดมี min="0"',
+       /Number\(rt\.pick\[s\.id\]\) < 0/.test(rtProbSrc) && /ติดลบไม่ได้ — ล้างช่องนั้นให้ว่าง/.test(rtProbSrc)
+       && /v-model="rt\.pick\[x\.id\]" type="number" step="any" min="0"/.test(htmlOver), rtProbSrc);
+    const ovN = { ...makeFollow({ kind: 'over', entity: E, code: 'A1', po: 'TM9269H001', part_no: 'PN-A', qty: 10 }), id: 'OVN' };
+    const n1 = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9270H015', qty: 10 }), id: 'SN1' };
+    const n2 = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9271H003', qty: 10 }), id: 'SN2' };
+    const typed = ['10', '-3'];                                                  // ค่าที่พนักงานพิมพ์ลงสองช่อง
+    const onScreen = round5(typed.reduce((t, v) => t + (Number(v) || 0), 0));     // สูตรเดียวกับ rtPickSum ใน app.js
+    const rn = offsetShorts(ovN, [{ row: n1, qty: typed[0] }, { row: n2, qty: typed[1] }], { person: 'ก', at });
+    ok('ที่ต้องกันตั้งแต่ต้น: ค่าติดลบทำให้ยอดที่ลงสมุดมากกว่ายอดที่จอบอก · เรื่อง over ปิดครบทั้งที่จอบอกว่าเหลือค้าง',
+       onScreen === 7 && rn.overRec.done_qty === 10 && statusOf(rn.overRec) === 'done' && rn.entries.length === 2,
+       `จอบอก ${onScreen} · ลงสมุด ${rn.overRec.done_qty}`);
+  }
+
   const plainArr = arriveShort(s2, { person: 'ก', at, date: '2026-11-27' });
   const plainUndo = reopenShortP(plainArr.rec, [plainArr.entry, ...r.entries], { by: 'ก', follows });
   ok('รับเข้าจาก "มาแล้ว" ปกติ (ไม่มีคู่) เอากลับแล้วยกเลิกแค่ใบนั้น ไม่แตะเรื่อง over',
