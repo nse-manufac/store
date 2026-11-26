@@ -8,7 +8,7 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import fs from 'node:fs';
-import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
+import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { offsetShorts, pairIdOf, PAIR_SUFFIX, reopenShort as reopenShortP } from '../v2/master/follow.js';
@@ -708,10 +708,21 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
   const colgO = (foverSrc.match(/<colgroup>.*?<\/colgroup>/) || [''])[0];
   ok('รอคืน: colgroup 8 ช่อง · ตาราง fol even (ช่องไฟเท่ากัน)',
      (colgO.match(/<col\b/g) || []).length === 8 && foverSrc.includes('<table class="fol even">'), colgO);
-  ok('รอคืน: ยอดที่คืนแล้วอ่านจาก done_qty · ที่มาของยอดตั้งเรื่องโชว์เฉพาะเมื่อมีตัวเลขครบ (ไม่ขึ้น "—" ลอย ๆ)',
+  ok('รอคืน: ยอดที่คืนแล้วอ่านจาก done_qty · ที่มาของยอดตั้งเรื่องผ่าน overSetEvidence (ไม่เขียนเงื่อนไขในเทมเพลต)',
      foverSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
-     && foverSrc.includes('v-if="r.s.bom_qty != null && r.s.recv_qty != null"')
-     && foverSrc.includes('v-else-if="r.s.order_qty != null && r.s.recv_qty != null"'));
+     && foverSrc.includes('<template v-for="ev in [overSetEv(r.s)]"') && !foverSrc.includes('รับมา <span class="mono">{{ mrpNum(r.s.recv_qty) }}</span> −'));
+  // ผู้ตรวจ #197: การลบต้องลงตัวกับยอดที่ตั้งเรื่อง — ไม่ลงตัว = ไม่โชว์ (เคสจริงสามแบบที่ผู้ตรวจรันให้ดู)
+  ok('overSetEvidence: ตั้งจากระบบ รับมา 100 − ตามสูตร 80 = 20 ลงตัว → โชว์',
+     JSON.stringify(overSetEvidence({ qty: 20, recv_qty: 100, bom_qty: 80 })) === '{"from":"bom","recv":100,"base":80}');
+  ok('overSetEvidence: คืนไปแล้ว 15 ก่อนตั้งเรื่อง (qty 5 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 5, recv_qty: 100, bom_qty: 80 }) === null);
+  ok('overSetEvidence: กลับมาติดตามหลังคืนบางส่วน (qty 3 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 3, recv_qty: 100, bom_qty: 80, order_qty: 10 }) === null);
+  ok('overSetEvidence: Delta ทับยอด (qty 3 · ส่งจริง 13 · สั่ง 10 · สูตรเดิม 80) → โชว์แบบ Delta ไม่ใช่ 13 − 80',
+     JSON.stringify(overSetEvidence({ qty: 3, recv_qty: 13, bom_qty: 80, order_qty: 10 })) === '{"from":"delta","recv":13,"base":10}');
+  ok('overSetEvidence: ทศนิยมเคมี 2.96 − 1.61 = 1.35 ลงตัวหลังปัด (A2) · ไม่มีตัวเลข = ไม่โชว์',
+     overSetEvidence({ qty: 1.35, recv_qty: 2.96, bom_qty: 1.61 })?.from === 'bom'
+     && overSetEvidence({ qty: 5, recv_qty: null, bom_qty: 1 }) === null && overSetEvidence({ qty: 5, recv_qty: '', order_qty: '' }) === null);
   ok('หัว over รอคืน ใหญ่กลางจอ (class fol-title)', foverSrc.includes('<h2 class="fol-title">over รอคืน</h2>'));
 }
 { /* พิสูจน์ว่าสองวิธีให้คนละคำตอบจริง ไม่ใช่เทสที่เขียวทั้งก่อนและหลัง

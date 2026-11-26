@@ -38,7 +38,7 @@ import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPo
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
-         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence,
+         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, offsetShorts, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
@@ -2772,6 +2772,7 @@ createApp({
       for (const r of foCalc0.value) m.set(r.po + '|' + String(r.code).toUpperCase(), r);
       return m;
     });
+    const overSetEv = overSetEvidence;   // หลักฐานของยอดที่ตั้งเรื่อง (ปุ่มกรอง รอคืน) — ตรรกะอยู่ที่ follow.js
     const foStopEv = s => overStopEvidence(s, foCalcRows.value.get(s.po + '|' + String(s.code).toUpperCase()) || null);
     // = overAll เพดานเดิม (OVER_MIN): แถวที่คิดไม่ได้ขึ้นเสมอ · ที่คิดได้ขึ้นเมื่อเกินถึงเพดาน
     const foCalc = computed(() => foCalc0.value.filter(r => r.why || r.over >= OVER_MIN));
@@ -4106,7 +4107,7 @@ createApp({
       fsAssign, fsClose, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
-      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, foStopEv,
+      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, overSetEv, foStopEv,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,

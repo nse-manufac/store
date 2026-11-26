@@ -947,6 +947,24 @@ export function stopEvidence(row) {
  *    แล้ว "คืนไปแล้ว" ที่คิดจากเศษจะโผล่ทั้งที่ไม่เคยคืน (ผู้ตรวจ #190 รอบ 2–3)
  * คิดยอดตาม BOM ไม่ได้ (why) = bom / over เป็น null แต่ยังโชว์รับเข้า / คืนจากสมุดได้
  */
+/**
+ * หลักฐานของ "ยอดที่ตั้งเรื่อง" ของเรื่อง over ในปุ่มกรอง "รอคืน" (ผู้ตรวจ #197)
+ * คืน { from: 'bom' | 'delta', recv, base } เฉพาะเมื่อการลบลงตัวกับ qty จริง — ไม่ลงตัว = null (ไม่โชว์)
+ *   bom   = รับมา − ตามสูตร (เรื่องที่ระบบตั้ง)   · delta = ส่งจริง − สั่ง (เรื่องจากไฟล์ MAT'L FOLLOWING)
+ * ⚠️ ห้ามโชว์การลบโดยไม่เช็ก — recv_qty ที่แช่ไว้เป็นยอดก่อนหักของที่คืนไปแล้ว · เรื่องที่กลับมาติดตามได้ qty เป็นยอดค้าง
+ *    · ไฟล์ Delta ทับ qty / recv_qty แต่ไม่แตะ bom_qty (กับดักเดียวกับ overStopEvidence · ผู้ตรวจ #146 #190)
+ *    การลบที่ผลไม่ตรงกับช่องข้าง ๆ แย่กว่าไม่โชว์ เพราะคนจะเชื่อว่าช่องยอดผิด
+ */
+export function overSetEvidence(f) {
+  if (!f) return null;
+  const num = v => (v == null || v === '' || !isFinite(Number(v)) ? null : round5(Number(v)));
+  const q = round5(Number(f.qty) || 0), recv = num(f.recv_qty), bom = num(f.bom_qty), order = num(f.order_qty);
+  if (!(q > 0) || recv == null) return null;
+  if (bom != null && Math.abs(round5(recv - bom) - q) < 5e-4) return { from: 'bom', recv, base: bom };
+  if (order != null && Math.abs(round5(recv - order) - q) < 5e-4) return { from: 'delta', recv, base: order };
+  return null;
+}
+
 export function overStopEvidence(row, calc) {
   const stopAt = remainOf(row);
   if (!calc) return { bom: null, recv: null, back: null, over: null, stopAt, moved: true };

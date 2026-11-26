@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-27.2">
+<meta name="app-version" content="2026-11-27.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3235,8 +3235,11 @@ textarea{font:inherit}
                          วันที่ · คนตั้งเรื่อง ใต้ชื่อ · ที่มาของยอดที่ตั้งเรื่อง = รับมา − ตามสูตร (ตอนตั้งเรื่อง) · เรื่องจาก Delta ไม่มียอดตามสูตร = ส่งจริง − สั่ง -->
                     <td>{{ mrpName(r.s.code) }}
                       <div class="hint">ตั้งเรื่อง <span class="mono">{{ r.s.date || '—' }}</span><template v-if="r.s.created_by"> · {{ r.s.created_by }}</template></div>
-                      <div v-if="r.s.bom_qty != null && r.s.recv_qty != null" class="hint">ตอนตั้งเรื่อง: รับมา <span class="mono">{{ mrpNum(r.s.recv_qty) }}</span> − ตามสูตร <span class="mono">{{ mrpNum(r.s.bom_qty) }}</span></div>
-                      <div v-else-if="r.s.order_qty != null && r.s.recv_qty != null" class="hint">Delta แจ้ง: ส่งจริง <span class="mono">{{ mrpNum(r.s.recv_qty) }}</span> − สั่ง <span class="mono">{{ mrpNum(r.s.order_qty) }}</span></div></td>
+                      <!-- โชว์การลบเฉพาะเมื่อลงตัวกับยอดที่ตั้งเรื่องจริง — เช็กที่ overSetEvidence (master/follow.js · ผู้ตรวจ #197) -->
+                      <template v-for="ev in [overSetEv(r.s)]" :key="'ev' + r.s.id">
+                        <div v-if="ev && ev.from === 'bom'" class="hint">ตอนตั้งเรื่อง: รับมา <span class="mono">{{ mrpNum(ev.recv) }}</span> − ตามสูตร <span class="mono">{{ mrpNum(ev.base) }}</span></div>
+                        <div v-else-if="ev" class="hint">Delta แจ้ง: ส่งจริง <span class="mono">{{ mrpNum(ev.recv) }}</span> − สั่ง <span class="mono">{{ mrpNum(ev.base) }}</span></div>
+                      </template></td>
                     <td class="mono r">{{ mrpNum(r.s.qty) }} <span class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r">{{ mrpNum(Number(r.s.done_qty) || 0) }} <span class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r fol-key">{{ mrpNum(r.remain) }} <span class="hint">{{ r.s.unit }}</span></td>
