@@ -2535,9 +2535,7 @@ createApp({
      *    และกรณีแถวถูกยกเลิกไปแล้ว · ปล่อยให้ promise reject เงียบ ๆ แปลว่า
      *    คนกดปุ่มแล้วไม่มีอะไรเกิดขึ้นและไม่รู้ว่าทำไม ซึ่งขัด INVARIANTS G3
      */
-    // กด "มาแล้ว" แล้วรับเข้าคลังด้วย (เจ้าของสั่ง 10 ต.ค. 2026 · ตรรกะอยู่ที่ master/follow.js arriveShort)
-    // ติ๊กออก = ปิดเรื่องอย่างเดียว เช่นของมากับ Kit List ที่คีย์รับเข้าไปแล้ว — กันนับซ้ำ
-    const fsRecv = ref(true);
+    // กด "มาแล้ว" = รับเข้าคลังทุกครั้ง (เจ้าของสั่ง 10 ต.ค. 2026 · ช่องติ๊กเอาออกถูกตัด 26 พ.ย. 2026 · ตรรกะอยู่ที่ master/follow.js arriveShort)
     // วันที่ของมาจริง — ของมาเมื่อวานแต่เพิ่งมากดวันนี้ คีย์ย้อนได้ (เจ้าของสั่ง 10 ต.ค. 2026)
     // ⚠️ จอเปิดค้างข้ามคืน ช่องต้องเลื่อนเป็นวันนี้เอง (over ตั้งใหม่ทุกครั้งที่เปิดกล่อง · ช่องนี้อยู่ถาวรจึงต้องเช็กเอง)
     let fsDateOn = todayLocal();
@@ -2555,15 +2553,13 @@ createApp({
           const day = fsDayNow();
           const { rec, entry } = arriveShort(plain(row), {
             qty: raw === '' || raw == null ? undefined : Number(raw),
-            receive: fsRecv.value, person: fsBy.value, device: device.value, date: day, at: atFrom(day)
+            person: fsBy.value, device: device.value, date: day, at: atFrom(day)
           });
           // ลงสมุดก่อน แล้วค่อยปิดเรื่อง — ถ้าปิดเรื่องไม่สำเร็จ ของยังอยู่ในคลังตามจริง
-          if (entry) { await db.put('entries', [entry]); entries.value.push(entry); db.announce('entries'); }
+          await db.put('entries', [entry]); entries.value.push(entry); db.announce('entries');
           await fsPut(rec);
           fsGot[row.id] = '';
-          // ติ๊กรับเข้าไว้แต่ไม่ได้รับ (เรื่องไม่ระบุจำนวน + เว้นช่องยอด) ต้องบอก — เดิมขึ้นแค่ "ปิดเรื่องแล้ว" เหมือนรับสำเร็จ
-          const recv = entry ? ` · รับเข้าคลัง ${entry.qty} แล้ว`
-            : fsRecv.value ? ' · ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)' : '';
+          const recv = ` · รับเข้าคลัง ${entry.qty} แล้ว`;
           flash((statusOf(rec) === 'done'
             ? `ปิดเรื่อง ${rec.po || rec.code} แล้ว`
             : `รับมาแล้ว ${rec.done_qty} · ยังค้าง ${remainOf(rec)}`) + recv);
@@ -2714,7 +2710,7 @@ createApp({
     /* ── ของขาดที่คิดจากการรับเข้า (เจ้าของสั่ง 28 ก.ย. 2026) ── ตรรกะอยู่ที่ master/follow.js shortAll
      * คิดครั้งเดียวแบบ all: true (ทุกรหัสในสูตรของ PO ที่รับแล้ว) แล้วแบ่งใช้สองทาง:
      *   การ์ด "ยังรับไม่ครบตาม BOM" = ขาดมากกว่า SHORT_MIN (ทุกยอดที่ขาด) ที่ยังไม่มีเรื่องเปิดอยู่
-     *   คอลัมน์ "ระบบคิดได้" ในตารางเรื่อง = เทียบยอดที่แจ้งไว้ (เช่นจาก Delta) กับที่คิดได้ตอนนี้ */
+     *   คอลัมน์ "ระบบคิดได้" ในตารางเรื่อง = เทียบยอดที่ยังค้างของเรื่องกับยอดขาดที่คิดได้ตอนนี้ */
     const fsCalc = computed(() => {
       if (!entity.value) return [];
       try {
@@ -4143,7 +4139,7 @@ createApp({
              posVisible, poHidden, poUnknownOwner, poOffRegistry, poOwnerOfRow, kitsVisible,
       fsSearch, fsSeg, fsBy, saveFsBy, fsGot, fsNoEntity, fsAll, fsRows,
       fsNew, fsBlocked, fsCheck, fsPn, fsStart, cardPoSO, cardSOTotal, isStarting,
-      fsAssign, fsClose, fsRecv, fsDate, fsReopen,
+      fsAssign, fsClose, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
       FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, foStopEv,
