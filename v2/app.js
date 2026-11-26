@@ -37,7 +37,7 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
-         listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
+         listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
@@ -3399,10 +3399,11 @@ createApp({
 
     /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) · ของเสียใบนั้นกลับมาให้ตั้งเรื่องใหม่ได้ */
     async function fbVoid(row) {
-      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
-      if (!why || !why.trim()) return;
+      // กล่องว่าง · เหตุผลขยะถามซ้ำ — กฎเดียวกับ short / over (เจ้าของสั่ง 26 พ.ย. 2026)
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร');
+      if (why === null) return;
       try {
-        await fsPut(voidFollow(plain(row), { by: fsBy.value || 'ไม่ระบุ', reason: why.trim() }));
+        await fsPut(cancelBuy(plain(row), { by: fsBy.value || 'ไม่ระบุ', why }));
         flash('ยกเลิกเรื่องแล้ว — ยังอยู่ในระบบให้ตรวจย้อนหลังได้');
       } catch (err) { flash(err.message, true); }
     }
