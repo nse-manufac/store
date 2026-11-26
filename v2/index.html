@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-27.1">
+<meta name="app-version" content="2026-11-27.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3871,7 +3871,9 @@ textarea{font:inherit}
           <p v-if="!bpFqRow || !bpFrac(bpFqRow, bpFq.code)" class="msg bad" style="margin:10px 0 0">PO นี้ไม่มีเศษให้ล้างแล้ว (อาจล้างจากเครื่องอื่นแล้ว) — ปิดกล่องได้เลย</p>
           <p v-else class="hint" style="margin:10px 0 0">บันทึกเป็นรายการปรับยอด "ล้างเศษ" แยก คงเหลือ PO นี้จะเป็น 0 · ยอดที่จ่ายไปไม่เปลี่ยน</p>
           <div class="row" style="margin-top:12px">
-            <label class="f" style="width:150px">วันที่<input v-model="bpFq.date" type="date"></label>
+            <!-- :min = วันที่จ่ายออกครั้งล่าสุด · ล้างเศษก่อนใบจ่ายทำให้ยกเลิกใบจ่ายแล้วยอด PO ขาดไปเท่าเศษ (ผู้ตรวจ #198)
+                 เป็นแค่ความสะดวก ด่านจริงอยู่ที่ bpFracClean เพราะ min กันการพิมพ์ค่าเองไม่ได้ -->
+            <label class="f" style="width:150px">วันที่<input v-model="bpFq.date" type="date" :min="localDate(bpFqFloor)"></label>
             <label class="f grow">ชื่อผู้ล้าง<input v-model.trim="bpFq.person" data-bpfq-person></label>
           </div>
           <div class="row" style="margin-top:12px">
