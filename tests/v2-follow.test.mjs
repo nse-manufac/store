@@ -8,7 +8,7 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import fs from 'node:fs';
-import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
+import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
@@ -700,6 +700,31 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
      && !/done_at[^}]*\.slice\(0,\s*10\)/.test(foverSrc));
   ok('localDate ส่งออกให้เทมเพลตใช้ได้จริง',
      /\blocalDate\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+  // 26 พ.ย. 2026: รอคืน โชว์การลบ ตั้งไว้ − คืนแล้ว = ยังค้าง (สกิล record-ui-evidence · แบบเดียวกับ short รอของ)
+  const headO = (foverSrc.match(/<tr v-if="foSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
+  const colsO = [...headO.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  ok('รอคืน: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่คืนแล้ว → ยอดที่ยังค้าง → ยอดที่คืนรอบนี้ (8 ช่องเท่า colgroup)',
+     colsO.length === 8 && colsO[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && colsO[4] === 'ยอดที่ตั้งเรื่อง' && colsO[5] === 'ยอดที่คืนแล้ว'
+     && colsO[6] === 'ยอดที่ยังค้าง' && colsO[7] === 'ยอดที่คืนรอบนี้', JSON.stringify(colsO));
+  const colgO = (foverSrc.match(/<colgroup>.*?<\/colgroup>/) || [''])[0];
+  ok('รอคืน: colgroup 8 ช่อง · ตาราง fol even (ช่องไฟเท่ากัน)',
+     (colgO.match(/<col\b/g) || []).length === 8 && foverSrc.includes('<table class="fol even">'), colgO);
+  ok('รอคืน: ยอดที่คืนแล้วอ่านจาก done_qty · ที่มาของยอดตั้งเรื่องผ่าน overSetEvidence (ไม่เขียนเงื่อนไขในเทมเพลต)',
+     foverSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
+     && foverSrc.includes('<template v-for="ev in [overSetEv(r.s)]"') && !foverSrc.includes('รับมา <span class="mono">{{ mrpNum(r.s.recv_qty) }}</span> −'));
+  // ผู้ตรวจ #197: การลบต้องลงตัวกับยอดที่ตั้งเรื่อง — ไม่ลงตัว = ไม่โชว์ (เคสจริงสามแบบที่ผู้ตรวจรันให้ดู)
+  ok('overSetEvidence: ตั้งจากระบบ รับมา 100 − ตามสูตร 80 = 20 ลงตัว → โชว์',
+     JSON.stringify(overSetEvidence({ qty: 20, recv_qty: 100, bom_qty: 80 })) === '{"from":"bom","recv":100,"base":80}');
+  ok('overSetEvidence: คืนไปแล้ว 15 ก่อนตั้งเรื่อง (qty 5 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 5, recv_qty: 100, bom_qty: 80 }) === null);
+  ok('overSetEvidence: กลับมาติดตามหลังคืนบางส่วน (qty 3 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 3, recv_qty: 100, bom_qty: 80, order_qty: 10 }) === null);
+  ok('overSetEvidence: Delta ทับยอด (qty 3 · ส่งจริง 13 · สั่ง 10 · สูตรเดิม 80) → โชว์แบบ Delta ไม่ใช่ 13 − 80',
+     JSON.stringify(overSetEvidence({ qty: 3, recv_qty: 13, bom_qty: 80, order_qty: 10 })) === '{"from":"delta","recv":13,"base":10}');
+  ok('overSetEvidence: ทศนิยมเคมี 2.96 − 1.61 = 1.35 ลงตัวหลังปัด (A2) · ไม่มีตัวเลข = ไม่โชว์',
+     overSetEvidence({ qty: 1.35, recv_qty: 2.96, bom_qty: 1.61 })?.from === 'bom'
+     && overSetEvidence({ qty: 5, recv_qty: null, bom_qty: 1 }) === null && overSetEvidence({ qty: 5, recv_qty: '', order_qty: '' }) === null);
+  ok('หัว over รอคืน ใหญ่กลางจอ (class fol-title)', foverSrc.includes('<h2 class="fol-title">over รอคืน</h2>'));
 }
 { /* พิสูจน์ว่าสองวิธีให้คนละคำตอบจริง ไม่ใช่เทสที่เขียวทั้งก่อนและหลัง
    * เครื่องในโรงงานตั้งเป็นเวลาไทย (+7) แต่เครื่องที่รันเทสอาจเป็น UTC
@@ -2229,7 +2254,9 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
   const htmlP = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   // 21 พ.ย. 2026: หน้า short จัดกลุ่มราย PO — PO · วันที่ PO · P/N อยู่ที่หัว PO ของทุกปุ่มกรอง (รอของ · ยกเลิก / ไม่ติดตาม ด้วย)
   const iSh = htmlP.indexOf("<template v-else-if=\"tab==='fshort'\">");
-  const tbl = htmlP.slice(htmlP.indexOf('<table class="fol">', iSh), htmlP.indexOf('</table>', htmlP.indexOf('<table class="fol">', iSh)));
+  // ⚠️ หาด้วยคำนำ '<table class="fol' — ตาราง short เป็น "fol even" แล้ว (#195) · หาแบบเต็มคำจะข้ามไปเจอตาราง over แทนโดยไม่ฟ้อง (#197)
+  const iTbl = htmlP.indexOf('<table class="fol', iSh);
+  const tbl = iTbl < 0 ? '' : htmlP.slice(iTbl, htmlP.indexOf('</table>', iTbl));
   ok('จอ: ตารางของขาด / รอส่ง มีคอลัมน์ PO · วันที่ PO · P/N · แถวว่างกินครบทุกคอลัมน์ · ช่องค้นบอกว่าค้น P/N ได้',
      tbl.includes("{{ poDateOf(g.po) || 'ไม่มีวันที่' }}") && tbl.includes("{{ g.po || '(ไม่มีเลข PO)' }}") && tbl.includes("{{ g.pn || '—' }}")
      && tbl.includes(':class="{ hint: g.items[0].s && fsPn(g.items[0].s).fromPo }"') && tbl.includes('colspan="8"')

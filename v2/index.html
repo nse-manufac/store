@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-26.4">
+<meta name="app-version" content="2026-11-27.3">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3118,8 +3118,9 @@ textarea{font:inherit}
 
         <!-- จัดกลุ่มราย PO แบบแท็บ MRP · ปุ่มกรองแทนช่องติ๊กกับการ์ดท้ายหน้า (เจ้าของสั่ง 21 พ.ย. 2026) -->
         <div class="card">
-          <h2 style="margin:0 0 4px;font-size:19px">over รอคืน</h2>
-          <p class="hint" style="margin:0 0 12px;font-size:14px">ของที่รับมาเกิน BOM ต้องส่งคืน Delta · จัดกลุ่มราย PO</p>
+          <!-- หัวใหญ่กลางจอ ให้ผู้สูงอายุเห็นชัด แบบเดียวกับ short (เจ้าของขอ 26 พ.ย. 2026) -->
+          <h2 class="fol-title">over รอคืน</h2>
+          <p class="hint fol-sub">ของที่รับมาเกิน BOM ต้องส่งคืน Delta · จัดกลุ่มราย PO</p>
           <div class="row" style="gap:10px 14px">
             <div class="mrp-seg fol-seg" role="group" aria-label="กรองตามสถานะ">
               <button v-for="f in FOLLOW_SEG.over" :key="f.k" type="button" :aria-pressed="foSeg === f.k" @click="foSeg = f.k">
@@ -3189,8 +3190,9 @@ textarea{font:inherit}
 
         <div class="card">
           <div class="scroll" style="max-height:none">
-          <table class="fol">
-            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:128px"><col style="width:128px"><col style="width:136px"><col style="width:400px"></colgroup>
+          <!-- ช่องตัวเลขกว้างเท่ากัน + เว้นหน้าช่องปุ่ม ให้ช่องไฟระหว่างคอลัมน์พอ ๆ กัน แบบเดียวกับ short (เจ้าของขอ 26 พ.ย. 2026) -->
+          <table class="fol even">
+            <colgroup><col style="width:28px"><col style="width:132px"><col style="width:116px"><col><col style="width:120px"><col style="width:120px"><col style="width:120px"><col style="width:360px"></colgroup>
             <tbody v-for="g in foDraw" :key="g.po" :class="{ shut: foFold[g.po] }">
               <tr class="fol-po" @click="foldFlip(foFold, g.po)" :aria-expanded="!foFold[g.po]">
                 <td colspan="8"><span class="fol-head">
@@ -3205,7 +3207,7 @@ textarea{font:inherit}
               <template v-if="!foFold[g.po]">
                 <!-- หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ตัวใหญ่ (เจ้าของขอ 21 พ.ย. 2026 — หัวเล็ก ๆ บนสุดผู้สูงอายุมองไม่เห็น) -->
                 <tr v-if="foSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับมาแล้ว</th><th class="r">เกิน</th><th></th></tr>
-                <tr v-if="foSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ต้องคืน</th><th class="r">ค้าง</th><th>ยอดที่คืน (เว้นว่าง = คืนครบ)</th></tr>
+                <tr v-if="foSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">ยอดที่คืนแล้ว</th><th class="r">ยอดที่ยังค้าง</th><th>ยอดที่คืนรอบนี้</th></tr>
                 <tr v-if="foSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่คืนครบ</th><th><span class="fol-got">ยอดที่คืน</span></th></tr>
                 <tr v-if="foSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">ยอดตาม BOM</th><th class="r">ยอดที่รับเข้า</th><th class="r">ยอดที่เกิน</th><th><span class="fol-got">วันที่หยุดติดตาม</span></th></tr>
                 <template v-if="foSeg === 'new'">
@@ -3222,18 +3224,26 @@ textarea{font:inherit}
                 <template v-if="foSeg === 'open'">
                   <tr v-for="r in g.items" :key="r.s.id" class="fol-it" :data-fid="r.s.id">
                     <td></td><td class="mono">{{ r.s.code }}</td><td class="hint">{{ catOf(r.s.code) || '—' }}</td>
+                    <!-- สกิล record-ui-evidence (เจ้าของขอ 26 พ.ย. 2026): ตั้งไว้ − คืนแล้ว = ยังค้าง ให้เห็นการลบในแถวเดียว
+                         วันที่ · คนตั้งเรื่อง ใต้ชื่อ · ที่มาของยอดที่ตั้งเรื่อง = รับมา − ตามสูตร (ตอนตั้งเรื่อง) · เรื่องจาก Delta ไม่มียอดตามสูตร = ส่งจริง − สั่ง -->
                     <td>{{ mrpName(r.s.code) }}
-                      <div class="hint">ตอนตั้งเรื่อง: ตามสูตร {{ mrpNum(r.s.bom_qty) }} · รับมา {{ mrpNum(r.s.recv_qty) }}</div></td>
-                    <td class="mono r hint">{{ r.s.date }}<div v-if="r.s.created_by">{{ r.s.created_by }}</div></td>
-                    <td class="mono r hint">{{ mrpNum(r.s.qty) }}</td>
+                      <div class="hint">ตั้งเรื่อง <span class="mono">{{ r.s.date || '—' }}</span><template v-if="r.s.created_by"> · {{ r.s.created_by }}</template></div>
+                      <!-- โชว์การลบเฉพาะเมื่อลงตัวกับยอดที่ตั้งเรื่องจริง — เช็กที่ overSetEvidence (master/follow.js · ผู้ตรวจ #197) -->
+                      <template v-for="ev in [overSetEv(r.s)]" :key="'ev' + r.s.id">
+                        <div v-if="ev && ev.from === 'bom'" class="hint">ตอนตั้งเรื่อง: รับมา <span class="mono">{{ mrpNum(ev.recv) }}</span> − ตามสูตร <span class="mono">{{ mrpNum(ev.base) }}</span></div>
+                        <div v-else-if="ev" class="hint">Delta แจ้ง: ส่งจริง <span class="mono">{{ mrpNum(ev.recv) }}</span> − สั่ง <span class="mono">{{ mrpNum(ev.base) }}</span></div>
+                      </template></td>
+                    <td class="mono r">{{ mrpNum(r.s.qty) }} <span class="hint">{{ r.s.unit }}</span></td>
+                    <td class="mono r">{{ mrpNum(Number(r.s.done_qty) || 0) }} <span class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r fol-key">{{ mrpNum(r.remain) }} <span class="hint">{{ r.s.unit }}</span></td>
                     <td class="fol-act">
                       <!-- คืนแล้วกดทีเดียว (เจ้าของสั่ง 5 พ.ย. 2026) · เว้นว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน -->
                       <input v-model="foGot[r.s.id]" type="number" step="any" class="mono fol-qty" placeholder="ทั้งหมด" @keyup.enter="foReturn(r.s)">
                       <button class="btn primary" :disabled="starting.has('foreturn|' + r.s.id)" @click="foReturn(r.s)">คืนแล้ว</button>
                       <button class="btn-q" @click="askReturn(r.s)">รายละเอียด…</button>
-                      <button v-if="r.st==='partial'" class="btn-q" :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
-                      <button class="btn-q" :disabled="starting.has('fovoid|' + r.s.id)" @click="foVoid(r.s)">ยกเลิกเรื่อง</button></td>
+                      <!-- ปุ่มรองขึ้นบรรทัดสอง — ห้าปุ่มในบรรทัดเดียวบีบช่องชื่อวัตถุดิบจนตัดคำ (26 พ.ย. 2026) -->
+                      <div><button v-if="r.st==='partial'" class="btn-q" :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
+                      <button class="btn-q" :disabled="starting.has('fovoid|' + r.s.id)" @click="foVoid(r.s)">ยกเลิกเรื่อง</button></div></td>
                   </tr>
                 </template>
                 <template v-if="foSeg === 'done'">
