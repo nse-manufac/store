@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, fracSweep, fracTwins, isFracLeft } from './core/balance.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, overIssue, fracSweep, fracTwins, isFracLeft } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence,
@@ -1568,7 +1568,8 @@ createApp({
     }
 
     const outReady = computed(() => outLines.value.filter(l => l.code && Number(l.qty) > 0));
-    const outNegative = computed(() => outReady.value.filter(l => outAfterOf(l) < 0));
+    // รหัสที่จะจ่ายเกินของที่มี — บันทึกไม่ได้ (INVARIANTS A4 · core/balance.js overIssue)
+    const outOver = computed(() => overIssue(outReady.value, code => outBalOf({ code }), normCode));
 
     function addFromOutLine(l) {
       edit.value = { _new: true, material_code: l.code, description: '', unit: '',
@@ -1579,13 +1580,9 @@ createApp({
     async function saveOut() {
       if (!outH.person) { flash('ยังไม่ได้ใส่ชื่อผู้เบิก', true); return; }
       if (!outReady.value.length) { flash('ยังไม่มีบรรทัดที่กรอกจำนวน', true); return; }
-      // ยอดติดลบเตือนได้ แต่ห้ามบล็อก — INVARIANTS A4
-      // ของจริงมีกรณีคีย์รับเข้าย้อนหลัง ถ้าห้ามบันทึกพนักงานจะไปจดใส่กระดาษแล้วลืมคีย์
-      const neg = outNegative.value;
-      if (neg.length && !confirm(
-        [`มี ${neg.length} รายการที่ยอด${outPoStock.value ? 'ของ PO ' + outH.po + ' ' : ''}จะติดลบ`,
-         neg.slice(0, 5).map(l => l.code + ' → ' + outAfterOf(l)).join('\n'),
-         '', 'ยืนยันบันทึกไหม'].join('\n'))) return;
+      // ห้ามจ่ายเกินของที่มี — INVARIANTS A4 (เจ้าของสั่ง 25 พ.ย. 2026)
+      // เดิมเตือนแล้วให้ยืนยัน พนักงานจึงจ่ายไปก่อนแล้วค่อยตามคีย์รับเข้า · ของมาแล้วต้องคีย์รับเข้าก่อน
+      if (outOver.value.length) { flash(`จ่ายเกินของที่มี ${outOver.value.length} รายการ — ยังไม่ได้บันทึก`, true); return; }
       try {
         // เวลาเดียวต่อการบันทึก — คิดก่อน map (ผู้ตรวจรอบ 4 ข้อ 1)
         // atFrom หยิบมิลลิวินาทีของนาฬิกาขณะนั้น ถ้าเรียกใหม่ทุกบรรทัด บรรทัดที่ 2 ขึ้นไป
@@ -1844,6 +1841,41 @@ createApp({
         const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person: who, device: device.value, part_no: pn });
         if (add.length) { await db.put('entries', add); entries.value.push(...add); db.announce('entries'); }
         flash(add.length ? `ล้างเศษ ${code} ใน PO ${po} แล้ว` : 'ไม่มีเศษให้ล้างแล้ว');
+      } catch (err) { flash(err.message, true); }
+    }
+    /* จ่ายออกทีละ PO (เจ้าของสั่ง 25 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถว PO ใต้วัตถุดิบ → กล่องกรอก วันที่ · ผู้จ่าย · จำนวน
+     * ต่างจากปุ่มที่ถอดไปใน #178: ปุ่มนั้นแอบเติมบรรทัดลงใบเบิกค้างในหน้าจ่ายออก ที่นี่บันทึกจากกล่องนี้ตรง ๆ หนึ่งรายการ
+     * กฎ (ไม่เกิน BOM สะสม · ไม่เกินของที่ PO นี้รับเข้ามา) อยู่ที่ poIssueCheck (master/mrp.js)
+     * ตัวเลขในกล่องอ่านจาก bpAll ทุกครั้ง ไม่ได้จำแถวตอนกด — เครื่องอื่นซิงค์เข้ามาระหว่างกรอก ตัวเลขกับกฎก็ตามทัน */
+    const bpIss = reactive({ open: false, pn: '', po: '', code: '', date: '', person: '', qty: null });
+    function bpIssOpen(pn, po, code) {
+      Object.assign(bpIss, { open: true, pn, po, code, date: todayLocal(), qty: null });   // ผู้จ่ายจำชื่อล่าสุดไว้
+    }
+    const bpIssRow = computed(() => {
+      if (!bpIss.open) return null;
+      const r = bpAll.value.find(x => x.pn === bpIss.pn), l = r && r.lines.find(x => x.code === bpIss.code);
+      return (l && l.byPo.find(x => x.po === bpIss.po)) || null;
+    });
+    const bpIssChk = computed(() => (bpIssRow.value ? poIssueCheck(bpIssRow.value, bpIss.qty) : null));
+    async function bpIssSave() {
+      const c = bpIssChk.value;
+      if (!c || !c.ok || !bpIss.person || !bpIss.date) return;
+      try {
+        const at = atFrom(bpIss.date);   // เวลาเดียวกับล้างเศษ ให้ยกเลิกแล้วผูกคู่กันได้ (แบบ saveOut)
+        const e = makeEntry({ entity: entity.value, kind: 'issue', material_code: bpIss.code, qty: c.qty, lot: '', lot_inferred: false,
+                              doc_kind: 'po', doc_ref: bpIss.po, part_no: bpIss.pn, at, person: bpIss.person, device: device.value });
+        await db.put('entries', [e]);
+        entries.value.push(e);
+        let crumbs = [], crumbErr = '';
+        try {
+          crumbs = fracSweep(entries.value, entity.value, bpIss.po, [bpIss.code], fracTolAt,
+                             { person: bpIss.person, device: device.value, at, part_no: bpIss.pn });
+          if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
+        } catch (err) { crumbs = []; crumbErr = err.message; }
+        db.announce('entries');
+        flash(`บันทึกจ่ายออก ${bpIss.code} × ${c.qty} · PO ${bpIss.po}` + (crumbs.length ? ' · ล้างเศษแล้ว' : '')
+              + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
+        bpIss.open = false;
       } catch (err) { flash(err.message, true); }
     }
     const bpMoves = computed(() => {
@@ -4091,8 +4123,8 @@ createApp({
              poPick, poPickQ, poPickResults, openPoPick, choosePo,
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
-             outReady, outNegative, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFracClean, fracTolAt, oddRows,
+             outReady, outOver, saveOut, addFromOutLine,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
