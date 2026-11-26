@@ -2867,12 +2867,19 @@ createApp({
       return '';
     });
     const rtReady = computed(() => !!(rt.row && !rt.busy && rtQty.value > 0 && rt.person.trim() && !rtProblem.value));
-    /** หลักฐานที่ควรดูก่อนกด — เตือนเฉย ๆ ไม่บล็อก: คืนมากกว่ายอดเกินที่ระบบคิดได้ · ใบนี้ยังรับไม่ครบตามสูตร */
+    /** หลักฐานที่ควรดูก่อนกด — เตือนเฉย ๆ ไม่บล็อก: คืนมากกว่ายอดเกินที่ระบบคิดได้ · ใบนี้ยังรับไม่ครบตามสูตร
+     * ⚠️ "ไม่มีคำเตือน" ต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา" — เทียบไม่ได้ก็ต้องบอก
+     *    (ผู้ตรวจ #90 รอบ 3 ข้อ 3 · ผู้ตรวจ #199 รอบ 1 ข้อ 1) shortOfPo คืน [] ทั้งตอนรับครบ
+     *    และตอนไม่มีข้อมูลให้เทียบ จึงต้องถาม shortWhyOf ควบคู่เสมอ */
     const rtWarn = computed(() => {
       const o = rt.row;
-      if (!o || !(rtQty.value > 0) || !entity.value) return '';
-      const short = shortOfPo(entries.value, entity.value, o.po, { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf });
-      return returnOverWarn({ after: 0, short, qty: rtQty.value, over: foCalcOf(o.po, o.code) });
+      if (!o || !(rtQty.value > 0)) return '';
+      // ไม่มีนิติบุคคลที่หัวจอ = shortOfPo คืน [] เสมอ ทั้งที่ไม่มีใครเทียบให้ (A3)
+      if (!entity.value) return 'เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง — ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';
+      const opt = { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf };
+      const short = shortOfPo(entries.value, entity.value, o.po, opt);
+      return returnOverWarn({ after: 0, short, qty: rtQty.value, over: foCalcOf(o.po, o.code),
+                              shortWhy: short.length ? '' : shortWhyOf(o.po, opt) });
     });
     async function saveReturnPop() {
       if (!rtReady.value) return;

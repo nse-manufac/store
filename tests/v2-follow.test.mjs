@@ -672,6 +672,21 @@ ok('วันที่ที่คนคีย์เป็นวันที่�
    /returnOver\(row, \{ qty: rtQty\.value, person, device: device\.value, at,/.test(appOver)
    && returnOver(makeFollow({ kind: 'over', entity: 'TUE-H', po: 'P', code: 'C', part_no: 'PN', qty: 3 }),
                  { person: 'ก', at: '2026-10-01T03:00:00.000Z' }).rec.done_at === '2026-10-01T03:00:00.000Z');
+/* ⚠️ หน้าต่าง "คืนของ" ตัดของจริงออกจากคลัง · shortOfPo คืน [] ทั้งตอนรับครบและตอนเทียบไม่ได้
+ *    "ไม่มีคำเตือน" จึงต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา" — ต้องถาม shortWhyOf ควบคู่เสมอ
+ *    (ผู้ตรวจ #90 รอบ 3 ข้อ 3 · ผู้ตรวจ #199 รอบ 1 ข้อ 1 — เคยหายไปตอนย้ายจากกล่องเดิมมาหน้าต่าง) */
+{
+  const rtSrc = appOver.slice(appOver.indexOf('const rtWarn = computed('), appOver.indexOf('async function saveReturnPop'));
+  ok('ยังไม่เลือกนิติบุคคลที่หัวจอ หน้าต่างต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ (A3)',
+     /if \(!entity\.value\) return 'เทียบไม่ได้[^']*ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';/.test(rtSrc)
+     && !/!entity\.value\) return '';/.test(rtSrc) && htmlOver.includes('v-if="rtWarn"'), rtSrc);
+  ok('เทียบไม่ได้ต้องขึ้นบอกในหน้าต่าง ไม่ใช่เงียบเหมือนตอนรับครบ (rtWarn ส่ง shortWhy)',
+     /shortWhy: short\.length \? '' : shortWhyOf\(o\.po, opt\)/.test(rtSrc)
+     // ที่ต้องส่ง: ไม่ส่ง shortWhy แล้ว returnOverWarn เงียบเท่ากับตอนรับครบ แยกสองกรณีไม่ออก
+     && returnOverWarn({ after: 0, short: [], qty: 5, over: null }) === ''
+     && returnOverWarn({ after: 0, short: [], shortWhy: shortWhyOf('TM9000H777', sOpt), qty: 5, over: null })
+          .includes('เทียบไม่ได้'), rtSrc);
+}
 ok('แบบ 2 รายการ short กรองนิติบุคคลของเรื่อง over เอง (A3) และใช้ offsetShorts',
    /s\.entity === o\.entity/.test(appOver) && /offsetShorts\(row, picks, \{ person, device: device\.value, date: rt\.date, at \}\)/.test(appOver));
 ok('เลือก อื่น ๆ แต่หมายเหตุว่าง = ข้อความแดง + ปุ่มบันทึกกดไม่ได้ · ช่องหมายเหตุไม่มีคำอธิบายล่วงหน้า (เจ้าของสั่ง 27 พ.ย. 2026)',
