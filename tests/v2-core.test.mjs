@@ -562,12 +562,19 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
     const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
     const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: ค้างเศษ = ปุ่ม "ล้างเศษ" ท้ายรายการเคลื่อนไหวของ PO นั้น (ไม่ทำตารางแยก) · ปุ่มเรียก fracSweep รหัสเดียว · ป้าย "ล้างเศษ" ในรายการ',
-       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracClean\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
+       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracOpen\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
        && /const bpFrac = \(p, code\) => isFracLeft\(p, fracTolAt\(code\)\);/.test(appB)
-       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person: who, device: device\.value, part_no: pn \}/.test(appB)
-       && /if \(!who\) \{ flash\('ยังไม่ได้ใส่ชื่อคนกด/.test(appB)
+       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person, device: device\.value, part_no: pn, at: atFrom\(date\) \}/.test(appB)
+       && /if \(!person \|\| !date\) return;/.test(appB)
        && /v-if="balView==='pn' && !bpClosed" class="hint noprint"[^>]*>PO ที่ส่งครบแล้วหรือเก่ากว่า \{\{ MRP_FRESH_DAYS \}\}/.test(htmlB)
        && /label: isFracAdj\(m\.e\) \? 'ล้างเศษ' : KINDS/.test(appB) && !/fracLeftovers|balView==='frac'/.test(appB + htmlB));
+    ok('จอ: ป้าย "เศษ" บนแถว PO กดล้างได้เลย เรียกตัวเดียวกับปุ่มข้างใน · ไม่พับ/กางแถว (ผู้ใช้บอกว่าลึกเกิน · 26 พ.ย. 2026)',
+       /<button v-if="bpFrac\(p, l\.code\)" class="tag warn bp-frac"[^>]*@click\.stop="bpFracOpen\(p\.po, l\.code, r\.pn\)">เศษ<\/button>/.test(htmlB)
+       && /button\.tag\.bp-frac\{[^}]*cursor:pointer/.test(htmlB));
+    ok('จอ: ล้างเศษเป็นกล่องกรอกวันที่ · ชื่อผู้ล้าง แบบกล่องจ่ายออก ไม่ใช้ prompt · ปุ่มบันทึกกดไม่ได้ถ้าไม่มีเศษแล้ว/ไม่มีชื่อ/ไม่มีวันที่ (27 พ.ย. 2026)',
+       !/prompt\(`ล้างเศษ/.test(appB) && /<div class="modal" v-if="bpFq\.open"/.test(htmlB)
+       && /<input v-model="bpFq\.date" type="date">/.test(htmlB) && /ชื่อผู้ล้าง<input v-model\.trim="bpFq\.person"/.test(htmlB)
+       && /:disabled="!bpFqRow \|\| !bpFrac\(bpFqRow, bpFq\.code\) \|\| !bpFq\.person \|\| !bpFq\.date">บันทึกล้างเศษ/.test(htmlB));
   }
   throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');
   ok('"ล้างเศษ" ระบบทำเอง — อยู่ในรายการเหตุผล (ป้ายในการ์ด) แต่ติด auto ไม่ให้คนเลือก',
