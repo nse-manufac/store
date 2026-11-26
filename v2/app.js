@@ -41,7 +41,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
-         cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort,
+         cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
          pendingScraps, fromScrapRow, buyRequest, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
@@ -2991,6 +2991,15 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
+    /* ถามเหตุผล — ช่องว่างทุกครั้ง ไม่เติมคำให้ (เจ้าของสั่ง 25 พ.ย. 2026) · กฎอยู่ที่ stopWhyProblem
+     * ไม่ผ่าน = ถามซ้ำพร้อมบอกสาเหตุ (คงคำที่พิมพ์ไว้ให้แก้ต่อ) · กดยกเลิก = null */
+    function askWhy(msg) {
+      let why = prompt(msg, '');
+      let bad;
+      while (why !== null && (bad = stopWhyProblem(why))) why = prompt(bad + '\n\n' + msg, why.trim());
+      return why === null ? null : why.trim();
+    }
+
     /* ── short: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) ── ตรรกะที่ master/follow.js
      * ทั้งสองปุ่มไปอยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายแท็บ · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ */
     async function fsVoid(row) {
@@ -3000,7 +3009,7 @@ createApp({
       // ที่ค้างในเรื่องไม่ตรงกับที่ระบบคิดได้ = เตือนก่อน (เพดาน "ไม่ขึ้นอีก" คือยอดที่ค้าง)
       const warn = cancelShortWarn(row, fsCheck(row).calc);
       if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
-      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)', 'ยอดน้อย ไม่ติดตาม');
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)');
       if (why === null) return;
       try {
         // กันกดซ้ำ — ทางเดียวกับปุ่มอื่นในหน้านี้
@@ -3012,7 +3021,7 @@ createApp({
     }
     async function fsSkip(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      const why = prompt(`ไม่ติดตาม ${row.po} · ${row.code} (ขาด ${row.short}) เพราะอะไร`, 'ยอดน้อย');
+      const why = askWhy(`ไม่ติดตาม ${row.po} · ${row.code} (ขาด ${row.short}) เพราะอะไร`);
       if (why === null) return;
       try {
         await startOnce(starting, startKey('short', row), async () => {
@@ -3046,7 +3055,7 @@ createApp({
       // ระบบคิดไม่ได้ = ไม่เตือน · คิดได้ = ยอดเกินตอนนี้ (0 หรือติดลบก็เตือนได้ — foCalc0 ไม่มีเพดาน)
       const warn = cancelOverWarn(row, foCalcOf(row.po, row.code));
       if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
-      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)', 'ยอดน้อย ไม่ติดตาม');
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)');
       if (why === null) return;
       try {
         await startOnce(starting, 'fovoid|' + row.id, async () => {
@@ -3057,7 +3066,7 @@ createApp({
     }
     async function foSkip(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      const why = prompt(`ไม่ติดตาม ${row.po} · ${row.code} (เกิน ${row.over}) เพราะอะไร`, 'ยอดน้อย');
+      const why = askWhy(`ไม่ติดตาม ${row.po} · ${row.code} (เกิน ${row.over}) เพราะอะไร`);
       if (why === null) return;
       try {
         await startOnce(starting, startKey('over', row), async () => {

@@ -885,6 +885,22 @@ export function stopMarkOf(f) {
   return '';
 }
 const stopReason = (mark, why) => txt(why) ? mark + MARK_SEP + txt(why) : mark;
+/* ต้องพิมพ์เหตุผลจริงทุกครั้ง (เจ้าของสั่ง 25 พ.ย. 2026) — เคยเติมคำให้ก่อน แล้วพนักงานกดตกลงเลยไม่แก้
+ * เจ้าของเลือกข้อ 2: มีตัวหนังสือไทยหรืออังกฤษอย่างน้อย 1 ตัว + ยาวอย่างน้อย 5 ตัวอักษรไม่นับช่องว่าง
+ * กัน "-" "." "123" "ก" "ไม่" · เรื่องเก่าที่หยุดไว้โดยไม่มีเหตุผล stopMarkOf ยังอ่านได้เหมือนเดิม */
+export const WHY_MIN = 5;
+/** '' = เหตุผลใช้ได้ · ไม่งั้นคืนข้อความบอกว่าทำไมไม่ผ่าน (จอใช้ถามซ้ำ) */
+export function stopWhyProblem(why) {
+  const s = txt(why);
+  if (!s) return 'ต้องพิมพ์เหตุผลก่อนกดตกลง';
+  if (!/[A-Za-zก-ฮ]/.test(s)) return 'เหตุผลต้องมีตัวหนังสือ — "-" "." หรือตัวเลขอย่างเดียวใช้ไม่ได้';
+  if (s.replace(/\s/g, '').length < WHY_MIN) return `เหตุผลสั้นเกินไป — พิมพ์อย่างน้อย ${WHY_MIN} ตัวอักษร`;
+  return '';
+}
+function needWhy(why) {
+  const bad = stopWhyProblem(why);
+  if (bad) throw new Error(bad);
+}
 /** เหตุผลที่คนพิมพ์ โดยไม่มีคำนำหน้าของปุ่ม — จอแสดงชื่อปุ่มเป็นป้ายแยกอยู่แล้ว (หน้า short / over 21 พ.ย. 2026) */
 export function stopWhy(f) {
   const s = txt(f && f.void_reason);
@@ -965,12 +981,14 @@ function cancelStop(row, kind, { by = '', why = '' } = {}) {
   if (!txt(row.entity)) throw new Error('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — เลือกนิติบุคคลที่หัวจอ '
     + 'แล้วกดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ที่หัวแท็บก่อน แล้วค่อยยกเลิก (INVARIANTS A3)');
   if (!txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิก');
+  needWhy(why);
   return voidFollow(row, { by, reason: stopReason(CANCEL_MARK, why) });
 }
 
 /** over: ไม่ติดตามแถวที่ระบบคิดได้ (ยังไม่มีเรื่อง) — ตั้งเรื่องด้วย fromOverRow แล้วยกเลิกทันที เก็บยอดเกิน ณ ตอนกดไว้เทียบ */
 export function skipOver(calcRow, { entity, person = '', unit = '', date = '', at = '', why = '', follows = null } = {}) {
   if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครตัดสินใจไม่ติดตาม');
+  needWhy(why);
   const rec = fromOverRow(calcRow, { entity, person, unit, date, at, follows });
   return voidFollow(rec, { by: person, reason: stopReason(SKIP_MARK, why) });
 }
@@ -988,6 +1006,7 @@ export function cancelOverWarn(row, calc) {
 /** ไม่ติดตามแถวที่ระบบคิดได้ (ยังไม่มีเรื่อง) — ตั้งเรื่องแล้วยกเลิกทันที เก็บยอดขาด ณ ตอนกดไว้เทียบ */
 export function skipShort(calcRow, { entity, person = '', unit = '', date = '', at = '', why = '', follows = null } = {}) {
   if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครตัดสินใจไม่ติดตาม');
+  needWhy(why);
   const rec = fromShortRow(calcRow, { entity, person, unit, date, at, follows });
   return voidFollow(rec, { by: person, reason: stopReason(SKIP_MARK, why) });
 }
