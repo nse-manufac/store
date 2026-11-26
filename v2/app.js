@@ -39,7 +39,7 @@ import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPo
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence,
-         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, offsetShorts, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
@@ -2569,7 +2569,7 @@ createApp({
 
     async function fsReopen(row) {
       try {
-        const { rec, voids } = reopenShort(plain(row), entries.value, { by: fsBy.value });
+        const { rec, voids, overRecs } = reopenShort(plain(row), entries.value, { by: fsBy.value, follows: shorts.value });
         if (voids.length) {
           // ของที่เบิกออกไปแล้ว ยกเลิกรับเข้าแล้วยอดจะติดลบ — เตือน ไม่บล็อก (A4)
           // หักสะสมต่อคู่ใน negAfterVoids — เทียบทีละใบจะเตือนน้อยกว่าจริง (ผู้ตรวจ #130 รอบ 6)
@@ -2583,7 +2583,10 @@ createApp({
           db.announce('entries');
         }
         await fsPut(rec);
-        flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง' + (voids.length ? ` · ยกเลิกรับเข้า ${voids.length} รายการ` : ''));
+        // รับเข้าที่มาจาก "คืนของ แบบ 2" — คืนยอดค้างให้เรื่อง over คู่ด้วย
+        for (const o of overRecs) await fsPut(o);
+        flash('เปิดเรื่องกลับมาแล้ว · ยอดที่ปิดไว้ถูกล้าง' + (voids.length ? ` · ยกเลิก ${voids.length} รายการ` : '')
+              + (overRecs.length ? ` · คืนยอดค้างให้ over ${overRecs.length} เรื่อง` : ''));
       } catch (err) { flash(err.message, true); }
     }
 
@@ -2819,131 +2822,89 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
 
-    /* ── คืนแล้ว กดทีเดียว (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ "มาแล้ว" ของ short) ──
-     * ตรรกะที่ master/follow.js returnOver · ชื่อจากช่อง "ผู้บันทึก" · วันที่จากช่อง "วันที่คืน" (แก้ย้อนหลังได้)
-     * ⚠️ เดิมบังคับเปิดกล่องทุกครั้ง เพราะปุ่มนี้ตัดสต็อกจริง — ตอนนี้คำเตือนเดิมขึ้นเป็นกล่องถามเฉพาะตอนมีปัญหา
-     *    (ยอดติดลบ · ใบยังรับไม่ครบตามสูตร · เทียบไม่ได้) และข้อความหลังคืนบอกยอดคงคลังที่เหลือ
-     *    กล่องเดิมยังอยู่ที่ลิงก์ "รายละเอียด…" สำหรับใส่ล็อต / เหตุผลอื่น / หมายเหตุ */
-    const foGot = reactive({});
-    let foDateOn = todayLocal();
-    const foDate = ref(foDateOn);
-    function foDayNow() {
-      const t = todayLocal();
-      if (foDateOn !== t) { foDate.value = rollDay(foDate.value, foDateOn, t); foDateOn = t; }
-      return foDate.value || t;
-    }
-    watch(tab, k => { if (k === 'fover') foDayNow(); });
+    /* ── คืนของ (เจ้าของสั่ง 27 พ.ย. 2026 — แทนปุ่ม "คืนแล้ว" กับกล่อง "รายละเอียด…") ──────────
+     * ปุ่ม "คืนของ" เปิดหน้าต่าง เลือกได้ 2 แบบ (แบบ 3 PC return ตามมาใบถัดไป)
+     *   1 คืน Delta    = returnOver — ของออกจากคลังจริง · เหตุผล + หมายเหตุ (ล็อตตัดทิ้งตามเจ้าของ)
+     *   2 ทดแทน short = offsetShorts — คู่ส่งคืน PO เก่า / รับเข้า PO ของ short · คงคลังเท่าเดิม
+     * ⚠️ ไม่บล็อกและไม่ถามซ้ำเมื่อคงคลังจะติดลบ — over ต้องคืนได้ทุกกรณี
+     *    ติดลบแล้วหน้ายอดคงคลังขึ้น "จ่ายเกิน" เอง ให้ไปแก้รายการจ่ายที่ผิด (เจ้าของสั่ง 27 พ.ย. 2026)
+     * ⚠️ ไม่มีคำอธิบายล่วงหน้าบนจอ · กฎบังคับด้วยปุ่มบันทึก + ข้อความแดงตอนเจอปัญหาจริง (rtProblem) */
     const foBookOf = code => bookBalances.value.get(normCode(code)) || 0;
-    function foReturnWarn(row, qty) {
-      const opt = { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf };
-      const short = shortOfPo(entries.value, entity.value, row.po, opt);
-      return returnOverWarn({ after: round5(foBookOf(row.code) - (Number(qty) || 0)), short,
-                              qty, over: foCalcOf(row.po, row.code),
-                              shortWhy: short.length ? '' : shortWhyOf(row.po, opt) });
+    const rt = reactive({ row: null, mode: 1, person: '', date: todayLocal(), qty: null,
+                          reason: 'over', note: '', pick: {}, busy: false });
+    function openReturn(row) {
+      // วันที่แก้ได้ — ของที่คืนไปเมื่อวานต้องคีย์ย้อนได้ · ผู้คืนจำชื่อล่าสุดจากช่อง "ผู้บันทึก"
+      Object.assign(rt, { row, mode: 1, person: fsBy.value || '', date: todayLocal(), qty: remainOf(row),
+                          reason: 'over', note: '', pick: {}, busy: false });
     }
-    // ลงสมุดก่อน แล้วค่อยปิดเรื่อง — ปิดเรื่องไม่สำเร็จ ของก็ออกจากคลังตามจริงแล้ว
-    async function saveReturn(rec, entry) {
-      await db.put('entries', [entry]); entries.value.push(entry); db.announce('entries');
-      await fsPut(rec);
-    }
-    async function foReturn(row) {
-      if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      const raw = foGot[row.id];
-      const qty = raw === '' || raw == null ? remainOf(row) : Number(raw);
-      try {
-        await startOnce(starting, 'foreturn|' + row.id, async () => {
-          const warn = foReturnWarn(row, qty);
-          if (warn && !confirm(warn + '\n\nคืนต่อไหม')) return;
-          const { rec, entry } = returnOver(plain(row), { qty, person: fsBy.value, device: device.value, at: atFrom(foDayNow()) });
-          await saveReturn(rec, entry);
-          foGot[row.id] = '';
-          flash(`คืน ${row.po} · ${row.code} จำนวน ${entry.qty} ให้ Delta แล้ว · คงคลังเหลือ ${foBookOf(row.code)}`
-                + (statusOf(rec) === 'done' ? '' : ` · เรื่องยังค้าง ${remainOf(rec)}`));
-        });
-      } catch (err) { flash(err.message, true); }
-    }
-    /* การ์ดของเกินที่ระบบคำนวณได้ ไม่มีปุ่ม "คืนแล้ว" (เจ้าของสั่ง 15 พ.ย. 2026) — ต้องตั้งเรื่องก่อนเสมอ
-     * แล้วค่อยกดคืนแล้วในตารางเรื่องที่ตั้งไว้แล้ว · ห้ามเอาปุ่มตั้ง+คืนก้าวเดียวกลับมา */
-
-    /* ── กล่องคืนของ (ลิงก์ "รายละเอียด…") ─────────────────────────────
-     * ใส่ล็อต / เหตุผลอื่น / หมายเหตุ · เห็นยอดหลังคืนและคำเตือนก่อนกด */
-    const rb = reactive({ row: null, qty: null, reason: 'over', lot: '',
-                          person: '', note: '', date: todayLocal(), busy: false });
-
-    function askReturn(row) {
-      rb.row = row; rb.qty = remainOf(row); rb.reason = 'over';
-      rb.lot = ''; rb.note = ''; rb.person = fsBy.value || '';
-      // วันที่แก้ได้เหมือนหน้าของเสีย · คืน · ปรับยอด — ของที่คืนไปเมื่อวานต้องคีย์ย้อนได้
-      rb.date = todayLocal();
-    }
-    const rbLots = computed(() =>
-      rb.row && entity.value ? lotsOf(entries.value, entity.value, normCode(rb.row.code)) : []);
-    const rbBook = computed(() =>
-      rb.row && entity.value ? (bookBalances.value.get(normCode(rb.row.code)) || 0) : 0);
-    const rbAfter = computed(() =>
-      round5(rbBook.value - (Number(rb.qty) || 0)));
-    /** ยอดที่ยังค้างของเรื่องนี้ — ผ่าน remainOf ทางเดียวกับตารางข้างหลังและค่าตั้งต้นของ rb.qty
-     *  ห้ามลบ qty − done_qty ดิบ ๆ ในเทมเพลต จะได้ 1.3499999999999999 (INVARIANTS A2) */
-    const rbRemain = computed(() => (rb.row ? remainOf(rb.row) : 0));
-
-    /** PO ใบนี้ยังรับมาไม่ครบตามสูตรอีกกี่รหัส — คืนได้ แต่ต้องเตือนก่อน (INVARIANTS A4)
-     *  คิดจากของวันนี้ ไม่ใช่ค่าที่แช่แข็งไว้ตอนตั้งเรื่อง เพราะคำเตือนต้องพูดถึงสภาพตอนกด */
-    const rbShort = computed(() => {
-      if (!rb.row || !entity.value) return [];
-      return shortOfPo(entries.value, entity.value, rb.row.po, {
-        headerOf: po => poHeader(pos.value, po),
-        bomRowsOf: pn => activeBomRowsOf(bom.value, pn)
-      });
+    // เหตุผลของแบบ 1 — ไม่มี "ยกไป PO ถัดไป" เพราะคือแบบ 2 / 3 แล้ว
+    // "อื่น ๆ" ตัดคำอธิบาย (ต้องเขียนเพิ่ม) ออก — บังคับด้วยข้อความแดงตอนหมายเหตุว่างแทน (เจ้าของสั่ง 27 พ.ย. 2026)
+    const rtReasons = REASONS.sendback.filter(r => r.code !== 'carry').map(r => (r.code === 'other' ? { ...r, label: 'อื่น ๆ' } : r));
+    /** ยอดที่ยังค้าง — ผ่าน remainOf ห้ามลบ qty − done_qty ดิบ ๆ ในเทมเพลต (A2) */
+    const rtRemain = computed(() => (rt.row ? remainOf(rt.row) : 0));
+    const rtBook = computed(() => (rt.row && entity.value ? foBookOf(rt.row.code) : 0));
+    /** เรื่อง short ที่ยังค้างของรหัสเดียวกัน นิติบุคคลเดียวกับเรื่อง over (A3) · ตั้งเรื่องก่อนขึ้นก่อน */
+    const rtShorts = computed(() => {
+      const o = rt.row;
+      if (!o) return [];
+      const c = String(o.code || '').toUpperCase();
+      return shorts.value.filter(s => s && s.kind === 'short' && !s.voided && s.entity === o.entity
+          && String(s.code || '').toUpperCase() === c && s.po && remainOf(s) > 0)
+        .sort((x, y) => String(x.date || '').localeCompare(String(y.date || '')));
     });
-    /** เทียบไม่ได้เพราะอะไร — "ไม่มีคำเตือน" ต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา" */
-    const rbShortWhy = computed(() => {
-      if (!rb.row) return '';
-      /* ⚠️ ไม่มีนิติบุคคล = rbShort คืน [] เสมอ · ต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ
-       * เงียบตรงนี้คือช่องโหว่แบบเดียวกับที่ shortWhyOf ตั้งใจปิด (A3 · ผู้ตรวจ #90 รอบ 3 ข้อ 3) */
-      if (!entity.value) return 'ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';
-      return shortWhyOf(rb.row.po, {
-        headerOf: po => poHeader(pos.value, po),
-        bomRowsOf: pn => activeBomRowsOf(bom.value, pn)
-      });
+    const rtPickSum = computed(() => round5(rtShorts.value.reduce((t, s) => t + (Number(rt.pick[s.id]) || 0), 0)));
+    const rtQty = computed(() => (rt.mode === 2 ? rtPickSum.value : round5(Number(rt.qty) || 0)));
+    /** ปัญหาที่ทำให้บันทึกไม่ได้ — ขึ้นเป็นข้อความแดงเฉพาะตอนเกิดจริง · '' = บันทึกได้ */
+    const rtProblem = computed(() => {
+      if (!rt.row) return '';
+      if (rt.mode === 1 && rt.reason === 'other' && !rt.note.trim()) return 'เลือก "อื่น ๆ" แล้ว — ใส่หมายเหตุก่อน ว่าคืนเพราะอะไร';
+      if (rt.mode === 2) {
+        const big = rtShorts.value.find(s => round5(Number(rt.pick[s.id]) || 0) > remainOf(s));
+        if (big) return `PO ${big.po} ใส่ได้ไม่เกินยอด short ที่ยังค้าง (${mrpNum(remainOf(big))})`;
+      }
+      if (rtQty.value > rtRemain.value) return `รวม ${mrpNum(rtQty.value)} เกินยอดที่ยังค้าง (${mrpNum(rtRemain.value)})`;
+      return '';
     });
-    /** จะคืนมากกว่ายอดเกินที่ระบบคิดได้ตอนนี้ — ข้อเดียวกับปุ่ม "คืนแล้ว" (overExceedWarn) */
-    const rbExceed = computed(() => (rb.row ? overExceedWarn(rb.qty, foCalcOf(rb.row.po, rb.row.code)) : ''));
-    const rbReasons = REASONS.sendback;
-    const rbReady = computed(() => !!(rb.row && Number(rb.qty) > 0 && rb.person.trim()
-      && rb.reason && (rb.reason !== 'other' || rb.note.trim())));
-
-    async function doReturn() {
-      if (!rb.row || rb.busy) return;
-      rb.busy = true;
-      /* ⚠️ จับค่าที่ต้องใช้ไว้ตั้งแต่ต้น · กล่องปิดได้ตลอดด้วย @click.self แม้ระหว่างเซฟ
-       * อ่าน rb.row หลัง await แล้วกล่องถูกปิดไปก่อน จะโยน TypeError ทั้งที่บันทึกสำเร็จ
-       * แล้วผู้ใช้เห็น error ภาษาอังกฤษของเบราว์เซอร์ (ขัด G1/G3) */
-      const row = plain(rb.row);
-      const qty = Number(rb.qty);
+    const rtReady = computed(() => !!(rt.row && !rt.busy && rtQty.value > 0 && rt.person.trim() && !rtProblem.value));
+    /** หลักฐานที่ควรดูก่อนกด — เตือนเฉย ๆ ไม่บล็อก: คืนมากกว่ายอดเกินที่ระบบคิดได้ · ใบนี้ยังรับไม่ครบตามสูตร */
+    const rtWarn = computed(() => {
+      const o = rt.row;
+      if (!o || !(rtQty.value > 0) || !entity.value) return '';
+      const short = shortOfPo(entries.value, entity.value, o.po, { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf });
+      return returnOverWarn({ after: 0, short, qty: rtQty.value, over: foCalcOf(o.po, o.code) });
+    });
+    async function saveReturnPop() {
+      if (!rtReady.value) return;
+      rt.busy = true;
+      /* ⚠️ จับค่าไว้ก่อน await · หน้าต่างปิดได้ตลอดด้วย @click.self แม้ระหว่างเซฟ
+       * อ่าน rt.row หลัง await แล้วถูกปิดไปก่อน จะโยน TypeError ทั้งที่บันทึกสำเร็จ (G1/G3) */
+      const row = plain(rt.row), at = atFrom(rt.date), person = rt.person.trim();
       try {
-        // ตรรกะเดียวกับปุ่มคืนแล้วกดทีเดียว (returnOver) — สองทางต้องได้ผลเหมือนกันเป๊ะ
-        const { rec, entry: e } = returnOver(row, {
-          qty, person: rb.person.trim(), device: device.value, at: atFrom(rb.date),
-          reason_code: rb.reason, lot: rb.lot, note: rb.note.trim()
-        });
-        if (rbExceed.value && !confirm(`${rbExceed.value}\nยืนยันบันทึกไหม`)) { rb.busy = false; return; }
-        if (rbAfter.value < 0 &&
-            !confirm(`ยอดคงคลังจะติดลบเป็น ${rbAfter.value}\nยืนยันบันทึกไหม`)) { rb.busy = false; return; }
-        await db.put('entries', e);
-        entries.value.push(e);
-        db.announce('entries');
-        await fsPut(rec);
-        flash(`คืน ${row.code} จำนวน ${qty} ให้ Delta แล้ว · ตัดสต็อกเรียบร้อย`);
-        rb.row = null;
+        let add, recs, msg;
+        if (rt.mode === 1) {
+          const { rec, entry } = returnOver(row, { qty: rtQty.value, person, device: device.value, at,
+                                                   reason_code: rt.reason, note: rt.note.trim() });
+          add = [entry]; recs = [rec];
+          msg = `คืน ${row.po} · ${row.code} จำนวน ${entry.qty} ให้ Delta แล้ว`;
+        } else {
+          const picks = rtShorts.value.map(s => ({ row: plain(s), qty: rt.pick[s.id] }));
+          const r = offsetShorts(row, picks, { person, device: device.value, date: rt.date, at });
+          add = r.entries; recs = [r.overRec, ...r.shortRecs];
+          msg = `ทดแทน short ${r.shortRecs.length} PO รวม ${rtQty.value} จาก over ${row.po} แล้ว`;
+        }
+        // ลงสมุดก่อน แล้วค่อยบันทึกเรื่อง — บันทึกเรื่องไม่สำเร็จ ของก็เคลื่อนตามจริงแล้ว
+        await db.put('entries', add); entries.value.push(...add); db.announce('entries');
+        for (const r of recs) await fsPut(r);
+        rt.row = null;
+        flash(`${msg} · คงคลังเหลือ ${foBookOf(row.code)}`);
       } catch (err) { flash(err.message, true); }
-      finally { rb.busy = false; }
+      finally { rt.busy = false; }
     }
-
     /** เอาเรื่อง over กลับ — ยกเลิกรายการส่งคืนที่ผูกไว้ด้วย ยอดคงคลังกลับมา (ตรรกะที่ master/follow.js reopenOver) */
     async function foReopen(row) {
       try {
         await startOnce(starting, 'foreopen|' + row.id, async () => {
-          const { rec, voids } = reopenOver(plain(row), entries.value, { by: fsBy.value });
+          const { rec, voids, shortRecs } = reopenOver(plain(row), entries.value, { by: fsBy.value, follows: shorts.value });
           if (!confirm(`เอาเรื่องกลับ = เปิดเรื่อง ${row.po} · ${row.code} ใหม่`
               + (voids.length ? ` และยกเลิกรายการส่งคืน ${voids.length} รายการ`
                   + ` (${voids.map(v => v.qty).join(', ')}) — ยอดคงคลังจะกลับมาเท่าที่คืนไป` : '')
@@ -2954,7 +2915,10 @@ createApp({
             db.announce('entries');
           }
           await fsPut(rec);
-          flash('เปิดเรื่องกลับมาแล้ว' + (voids.length ? ` · ยกเลิกรายการส่งคืน ${voids.length} รายการ` : ''));
+          // คู่ทดแทน short (คืนของ แบบ 2) — คืนยอดค้างให้เรื่อง short ด้วย
+          for (const s of shortRecs) await fsPut(s);
+          flash('เปิดเรื่องกลับมาแล้ว' + (voids.length ? ` · ยกเลิก ${voids.length} รายการ` : '')
+                + (shortRecs.length ? ` · คืนยอดค้างให้ short ${shortRecs.length} เรื่อง` : ''));
         });
       } catch (err) { flash(err.message, true); }
     }
@@ -3361,7 +3325,7 @@ createApp({
     // ── ใบขอสั่งซื้อ (เจ้าของสั่ง 16 พ.ย. 2026) — ติ๊กของเสีย + หัวใบ แล้วตั้งเรื่องซื้อทีเดียวหลายรายการ ──
     // ตรรกะอยู่ที่ master/follow.js buyRequest · ผู้ขอ · แผนก · ผู้อนุมัติเก็บที่เรื่อง (req_by · req_dept · req_approver)
     // ⚠️ วันที่ขอ — ช่องนี้อยู่ถาวรบนจอ และหัวใบคงไว้หลังส่ง จอเปิดค้างข้ามคืนแล้วต้องเลื่อนเป็นวันนี้เอง
-    // (กติกาเดียวกับ fsDate · foDate · fbDate) · rollDay รักษาค่าที่คนตั้งเองไว้ เลื่อนให้เฉพาะช่องที่ไม่ได้แตะ
+    // (กติกาเดียวกับ fsDate · fbDate) · rollDay รักษาค่าที่คนตั้งเองไว้ เลื่อนให้เฉพาะช่องที่ไม่ได้แตะ
     let fbReqDateOn = todayLocal();
     const fbReq = reactive({ by: '', dept: '', approver: '', date: fbReqDateOn, pick: {} });
     function fbReqDayNow() {
@@ -4146,8 +4110,8 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsRestart, foSkip, foStopped, foStopShown, foRestart, foGot, foDate, foReturn, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rb, askReturn, rbLots, rbBook, rbAfter, rbRemain, rbShort, rbShortWhy, rbExceed, rbReady,
-      rbReasons, doReturn,
+      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsRestart, foSkip, foStopped, foStopShown, foRestart, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rt, openReturn, rtReasons, rtRemain, rtBook, rtShorts, rtPickSum, rtQty, rtProblem, rtReady,
+      rtWarn, saveReturnPop,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,
              fbmBusy, fxSug, fxMats, fxSugList, fxAdd, fxTyping, fxMove, fxChoose, fxBlur, fxRemove,

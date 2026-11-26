@@ -119,26 +119,18 @@ ok('เนื้อหาสั้นกว่ากล่อง (ไม่ต�
   const links = [...box.matchAll(/href="(docs\/[^"]+)"/g)].map(m => m[1]);
   ok('ลิงก์เอกสารในประกาศ (ถ้ามี) ชี้ไปไฟล์ที่มีอยู่จริงใน repo',
      links.every(p => fs.existsSync(new URL('../v2/' + p, import.meta.url))), links.join(','));
-  // ฉบับ 6 พ.ย. แทนฉบับ 19 ต.ค. — ใส่เฉพาะเรื่องใหม่ (เจ้าของเลือกแบบ ก1) · short/over ไม่ติดตาม + ยกเลิกเรื่อง · over คืนแล้วกดทีเดียว
-  ok('ประกาศฉบับนี้ (6 พ.ย.) พูดถึงปุ่มไม่ติดตาม/ยกเลิกเรื่องของ short และ over · การ์ดยกเลิก/ไม่ติดตามแล้ว · คืนแล้วกดทีเดียว + วันที่คืน + คำเตือนสามข้อ · ใบตัดยอดยังนับ',
-     NOTICE_ID === '2026-11-06' && box.includes('short รอส่ง: ปุ่ม') && box.includes('over รอคืน: กด "คืนแล้ว" ทีเดียวจบ')
-     && box.includes('กด <b>กลับมาติดตาม</b>') && box.includes('เว้นช่องยอดแล้วกด <b>คืนแล้ว</b> = คืนที่ค้างทั้งหมด')
-     && box.includes('ช่อง <b>วันที่คืน</b>') && box.includes('ตัดของออกจากคลังจริงทันที')
-     && box.includes('สต็อกจะติดลบ') && box.includes('รับยังไม่ครบตามสูตร') && box.includes('คืนมากกว่ายอดเกินที่ระบบคิดได้')
-     && box.includes('ยังนับของที่ไม่ติดตาม')
-     // ก1: ตัดเรื่องของฉบับ 19 ต.ค. ออก
-     && !box.includes('ชีต <b>WIP</b>') && !box.includes('Short / Over รวมทุก PO'));
+  // ฉบับ 27 พ.ย. แทนฉบับ 6 พ.ย. — ปุ่ม "คืนแล้ว" / "รายละเอียด…" ถูกแทนด้วยหน้าต่าง "คืนของ" (ฉบับเก่าชี้ปุ่มที่ไม่มีแล้ว = G3)
+  ok('ประกาศฉบับนี้ (27 พ.ย.) พูดถึงปุ่มคืนของ 2 แบบ · ห้ามกดมาแล้วกับของที่ทดแทน · short มาแล้วรับเข้าทุกครั้ง · ไม่อ้างปุ่มเก่า',
+     NOTICE_ID === '2026-11-27' && box.includes('over รอคืน: ปุ่ม "คืนแล้ว" เปลี่ยนเป็น "คืนของ"')
+     && box.includes('<b>1 · คืน Delta</b>') && box.includes('<b>2 · ทดแทน short ที่ค้าง</b>')
+     && box.includes('<b>ห้ามกด "มาแล้ว"</b>') && box.includes('ไม่มีช่องติ๊ก "รับเข้าคลังด้วย" แล้ว')
+     && !box.includes('รายละเอียด…') && !box.includes('เว้นช่องยอดแล้วกด'));
   // ชื่อปุ่ม/ช่องที่ประกาศอ้างถึง ต้องมีอยู่จริงบนจอ — ประกาศชี้ปุ่มที่ไม่มี = พนักงานหาไม่เจอ (G3)
   // จุดยึดเจาะจง (ผู้ตรวจ #139 ข้อสังเกต 2) — ชื่อปุ่มเฉย ๆ โผล่หลายที่บนจอ ให้ยึดทั้ง @click
-  const named = ["label: 'Mat Follow up'", "label: 'short รอส่ง'", "label: 'over รอคืน'", 'ผู้บันทึก',
-                 // หน้า short / over ใช้ปุ่มกรองแทนการ์ด (21 พ.ย. 2026) — ชื่อปุ่มกรองอยู่ที่ FOLLOW_SEG ใน follow.js
-                 "{ k: 'new', label: 'ต้องตั้งเรื่อง'", '@click="fsSkip(r)">ไม่ติดตาม</button>',
-                 "{ k: 'open', label: 'รอของ'", '@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>',
-                 "label: 'ยกเลิก / ไม่ติดตาม'", '@click="fsSeg = f.k"', '@click="foSeg = f.k"',
-                 '@click="fsRestart(x.s)">กลับมาติดตาม</button>', '@click="foRestart(x.s)">กลับมาติดตาม</button>',
-                 "{ k: 'open', label: 'รอคืน'", '@click="foSkip(r)">ไม่ติดตาม</button>',
-                 '@click="foVoid(r.s)">ยกเลิกเรื่อง</button>', '@click="askReturn(r.s)">รายละเอียด…</button>', '>วันที่คืน',
-                 'Delta ตัดจากยอด over — เทียบกับของที่เรามี', 'v-if="rbExceed"'];
+  const named = ["label: 'Mat Follow up'", "label: 'short รอส่ง'", "label: 'over รอคืน'",
+                 "{ k: 'open', label: 'รอคืน'", '@click="openReturn(r.s)">คืนของ</button>',
+                 '1 · คืน Delta<small>', '2 · ทดแทน short ที่ค้าง<small>', '>ผู้คืน<', '>วันที่คืน<', '>เพราะอะไร',
+                 '@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>', '>มาแล้ว</button>'];
   const js0 = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const rest = html.replace(box, '') + js0 + fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8');
   ok('ทุกชื่อปุ่ม/หัวข้อที่ประกาศอ้าง มีอยู่จริงบนจอ', named.every(n => rest.includes(n)),

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-27.1">
+<meta name="app-version" content="2026-11-27.2">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -190,6 +190,15 @@ tbody.shut tr.fol-po > td:first-child{box-shadow:inset 4px 0 0 #c5ced8}
 .card h2.fol-title{margin:4px 0 6px;font-size:32px;text-align:center}
 .card p.fol-sub{margin:0 0 14px;font-size:16px;text-align:center}
 table.fol.even td.fol-act,table.fol.even tr.fol-th th:last-child{padding-left:56px}
+/* หน้าต่าง คืนของ (เจ้าของสั่ง 27 พ.ย. 2026) — กล่องหลักฐานบนสุด + ปุ่มเลือกแบบตัวใหญ่ */
+.rt-ev{display:flex;gap:10px;margin:14px 0 4px}
+.rt-ev > div{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:#fafbfd}
+.rt-ev b{display:block;font-size:22px}
+.rt-ev .key{background:var(--warnbg);border-color:#f0d799}
+.rt-seg{margin:14px 0}
+.rt-seg button{flex-direction:column;height:64px;gap:2px}
+.rt-seg button small{font-size:12.5px;font-weight:400;opacity:.8}
+.rt-pop .msg{font-size:15px;margin:10px 0 0}
 .fol-qty{width:96px;padding:6px 8px;margin-right:4px;font-size:15px}
 .btn-q{font:inherit;font-size:14px;background:none;border:0;color:var(--muted);padding:6px 8px;cursor:pointer;border-radius:6px}
 .btn-q:hover:not(:disabled){color:var(--ink);background:var(--soft)}
@@ -3131,8 +3140,6 @@ textarea{font:inherit}
           <div class="row fol-bar">
             <label class="f" style="width:160px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
-            <label v-if="foSeg === 'open'" class="f" style="width:150px" title="คืนเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่คืนจริง">วันที่คืน
-              <input v-model="foDate" type="date"></label>
             <span v-if="foCounts.partial" class="tag warn">คืนไปบางส่วน {{ foCounts.partial }}</span>
             <div class="grow"></div>
             <input v-model.trim="foSearch" placeholder="ค้น PO · P/N · รหัส" style="width:200px">
@@ -3207,7 +3214,7 @@ textarea{font:inherit}
               <template v-if="!foFold[g.po]">
                 <!-- หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ตัวใหญ่ (เจ้าของขอ 21 พ.ย. 2026 — หัวเล็ก ๆ บนสุดผู้สูงอายุมองไม่เห็น) -->
                 <tr v-if="foSeg === 'new'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">ตามสูตร</th><th class="r">รับมาแล้ว</th><th class="r">เกิน</th><th></th></tr>
-                <tr v-if="foSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">ยอดที่คืนแล้ว</th><th class="r">ยอดที่ยังค้าง</th><th>ยอดที่คืนรอบนี้</th></tr>
+                <tr v-if="foSeg === 'open'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">ยอดที่คืนแล้ว</th><th class="r">ยอดที่ยังค้าง</th><th></th></tr>
                 <tr v-if="foSeg === 'done'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ</th><th class="r">วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">วันที่คืนครบ</th><th><span class="fol-got">ยอดที่คืน</span></th></tr>
                 <tr v-if="foSeg === 'stop'" class="fol-th"><th></th><th>รหัส</th><th>หมวดหมู่</th><th>วัตถุดิบ · เหตุผล</th><th class="r">ยอดตาม BOM</th><th class="r">ยอดที่รับเข้า</th><th class="r">ยอดที่เกิน</th><th><span class="fol-got">วันที่หยุดติดตาม</span></th></tr>
                 <template v-if="foSeg === 'new'">
@@ -3217,7 +3224,7 @@ textarea{font:inherit}
                     <td class="mono r">{{ mrpNum(r.recv) }}<div v-if="r.sentBack" class="hint">คืนไป {{ mrpNum(r.sentBack) }}</div></td>
                     <td class="mono r fol-key">{{ mrpNum(r.over) }} <span class="hint">{{ mrpUnit(r.code) }}</span></td>
                     <td class="fol-act"><button class="btn primary" :disabled="!entity || isStarting('over', r)" @click="foStart(r)"
-                              title="ตั้งเรื่องก่อน · คืนของจริงแล้วค่อยกด คืนแล้ว ที่ปุ่มกรอง รอคืน">ตั้งเรื่องคืน</button>
+                              title="ตั้งเรื่องก่อน · คืนของจริงแล้วค่อยกด คืนของ ที่ปุ่มกรอง รอคืน">ตั้งเรื่องคืน</button>
                       <button class="btn-q" :disabled="!entity || isStarting('over', r)" @click="foSkip(r)">ไม่ติดตาม</button></td>
                   </tr>
                 </template>
@@ -3234,13 +3241,10 @@ textarea{font:inherit}
                     <td class="mono r">{{ mrpNum(Number(r.s.done_qty) || 0) }} <span class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r fol-key">{{ mrpNum(r.remain) }} <span class="hint">{{ r.s.unit }}</span></td>
                     <td class="fol-act">
-                      <!-- คืนแล้วกดทีเดียว (เจ้าของสั่ง 5 พ.ย. 2026) · เว้นว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน -->
-                      <input v-model="foGot[r.s.id]" type="number" step="any" class="mono fol-qty" placeholder="ทั้งหมด" @keyup.enter="foReturn(r.s)">
-                      <button class="btn primary" :disabled="starting.has('foreturn|' + r.s.id)" @click="foReturn(r.s)">คืนแล้ว</button>
-                      <button class="btn-q" @click="askReturn(r.s)">รายละเอียด…</button>
-                      <!-- ปุ่มรองขึ้นบรรทัดสอง — ห้าปุ่มในบรรทัดเดียวบีบช่องชื่อวัตถุดิบจนตัดคำ (26 พ.ย. 2026) -->
-                      <div><button v-if="r.st==='partial'" class="btn-q" :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
-                      <button class="btn-q" :disabled="starting.has('fovoid|' + r.s.id)" @click="foVoid(r.s)">ยกเลิกเรื่อง</button></div></td>
+                      <!-- คืนของ = เปิดหน้าต่าง เลือกแบบ · ยอด · วันที่ · ผู้คืน (เจ้าของสั่ง 27 พ.ย. 2026 — แทนช่องยอด + คืนแล้ว + รายละเอียด…) -->
+                      <button class="btn primary" @click="openReturn(r.s)">คืนของ</button>
+                      <button v-if="r.st==='partial'" class="btn-q" :disabled="starting.has('foreopen|' + r.s.id)" @click="foReopen(r.s)">เอากลับ</button>
+                      <button class="btn-q" :disabled="starting.has('fovoid|' + r.s.id)" @click="foVoid(r.s)">ยกเลิกเรื่อง</button></td>
                   </tr>
                 </template>
                 <template v-if="foSeg === 'done'">
@@ -3287,10 +3291,12 @@ textarea{font:inherit}
             <summary>วิธีคิดยอด และปุ่มแต่ละปุ่ม</summary>
             <p><b>ต้องตั้งเรื่อง</b> = รับเข้าตามใบ − ที่คืนไปแล้ว − ยอดตามสูตรของใบนั้น · ยอดที่ต่ำกว่า 1 หน่วยไม่นับว่าเกิน</p>
             <p>ยอดตอนตั้งเรื่องคือค่า ณ วันที่ตั้งเรื่อง — ใบรับเข้าที่คีย์ทีหลังจะไม่ทำให้ยอดของเรื่องนี้ขยับเอง<br>
-              กด <b>คืนแล้ว</b> = <b>ตัดของออกจากคลังจริงทันที</b> (เว้นช่องว่าง = คืนที่ค้างทั้งหมด · ใส่ยอด = คืนบางส่วน) ·
-              ถ้ายอดจะติดลบ · ใบยังรับไม่ครบตามสูตร · หรือคืนมากกว่ายอดเกินที่ระบบคิดได้ จะมีกล่องเตือนก่อน · อยากใส่ล็อต / เหตุผลอื่น กด <b>รายละเอียด…</b>
-              และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า<br>
-              กด <b>เอากลับ</b> (คืนผิด หรือคืนซ้ำ) = เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ — ยอดคงคลังกลับมา</p>
+              กด <b>คืนของ</b> แล้วเลือกแบบ —
+              <b>1 คืน Delta</b> = ตัดของออกจากคลังจริง ขึ้นเป็นฝั่งจ่ายออกบน Bin Card ·
+              <b>2 ทดแทน short ที่ค้าง</b> = ส่งคืนจาก PO ของ over คู่กับรับเข้า PO ของเรื่อง short ยอดเท่ากัน คงคลังเท่าเดิม และยอดค้างของเรื่อง short ลดตาม<br>
+              คืนจนคงคลังติดลบได้ — หน้ายอดคงคลังจะขึ้นว่าจ่ายเกิน ให้ไปแก้รายการจ่ายที่ผิด<br>
+              กด <b>เอากลับ</b> (คืนผิด หรือคืนซ้ำ) = เปิดเรื่องใหม่ และยกเลิกรายการส่งคืนที่ผูกไว้ทุกรอบ — ยอดคงคลังกลับมา ·
+              ถ้าเป็นแบบ 2 รายการรับเข้าคู่ถูกยกเลิกด้วย และเรื่อง short ได้ยอดค้างคืน</p>
             <p><b>ยกเลิก / ไม่ติดตาม</b> = เรื่องที่กด "ยกเลิกเรื่อง" หรือ "ไม่ติดตาม" · ไม่ลบทิ้ง · ของยังอยู่ในคลัง ·
               ไม่ขึ้นในปุ่ม "ต้องตั้งเรื่อง" จนกว่ายอดเกินจะมากกว่า <b>ยอดค้าง</b> ตอนกด ·
               กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>
@@ -3655,26 +3661,17 @@ textarea{font:inherit}
       <div class="modal" v-if="notice.open" style="z-index:60">
         <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="noticeTitle">
           <!-- ห้ามพิมพ์เลขรุ่นซ้ำตรงนี้ (INVARIANTS F4 — เลขรุ่นอยู่ที่ <meta app-version> ที่เดียว) -->
-          <h2 id="noticeTitle" style="margin:0 0 8px">🆕 มีอะไรใหม่ — สรุปการอัปเดต 2 – 5 พ.ย. 2026</h2>
+          <h2 id="noticeTitle" style="margin:0 0 8px">🆕 มีอะไรใหม่ — over รอคืน: ปุ่ม "คืนของ" (27 พ.ย. 2026)</h2>
           <div class="notice-body" ref="noticeBox" tabindex="0" @scroll="noticeScroll">
-            <h3>short รอส่ง: ปุ่ม "ไม่ติดตาม" และ "ยกเลิกเรื่อง"</h3>
-            <p>Mat Follow up → short รอส่ง · ใส่ชื่อในช่อง <b>ผู้บันทึก</b> ก่อน</p>
-            <p>ปุ่มกรอง <b>ต้องตั้งเรื่อง</b> มีปุ่ม <b>ไม่ติดตาม</b> — ของขาดยอดน้อยที่ไม่ตาม กดแล้วแถวหาย
-              ไม่ขึ้นอีกจนกว่ายอดขาดจะมากกว่าตอนกด</p>
-            <p>ปุ่มกรอง <b>รอของ</b> มีปุ่ม <b>ยกเลิกเรื่อง</b> — เรื่องที่ตั้งไว้แล้วแต่ไม่ตามต่อ</p>
-            <p>ทั้งสองปุ่มย้ายเรื่องไปปุ่มกรอง <b>ยกเลิก / ไม่ติดตาม</b> · กด <b>กลับมาติดตาม</b> = ตั้งเรื่องใหม่ด้วยยอดที่ยังค้าง</p>
-            <h3>over รอคืน: กด "คืนแล้ว" ทีเดียวจบ</h3>
-            <p>Mat Follow up → over รอคืน · ไม่ต้องเปิดกล่องกรอกทุกครั้งแล้ว</p>
-            <p>ปุ่มกรอง <b>รอคืน</b>: เว้นช่องยอดแล้วกด <b>คืนแล้ว</b> = คืนที่ค้างทั้งหมด · ใส่ยอดก่อนกด = คืนบางส่วน ·
-              ต้องใส่ล็อต / เหตุผลอื่น กด <b>รายละเอียด…</b></p>
-            <p>ช่อง <b>วันที่คืน</b> ใส่วันนี้ไว้ให้ แก้ย้อนหลังได้ (แบบเดียวกับวันที่ของมาของ short)</p>
-            <p>⚠️ คืนแล้ว = ตัดของออกจากคลังจริงทันที · ระบบถามก่อนบันทึกเฉพาะตอนมีเรื่องน่าสงสัย:
-              สต็อกจะติดลบ · PO ใบนั้นรับยังไม่ครบตามสูตร · คืนมากกว่ายอดเกินที่ระบบคิดได้ — อ่านก่อนกดยืนยัน</p>
-            <h3>over รอคืน: ปุ่ม "ไม่ติดตาม" และ "ยกเลิกเรื่อง" แบบเดียวกับ short</h3>
-            <p>ปุ่มกรอง <b>ต้องตั้งเรื่อง</b> มีปุ่ม <b>ไม่ติดตาม</b> · ปุ่ม <b>ยกเลิกเรื่อง</b> ในตารางต้องใส่ชื่อผู้บันทึกแล้ว</p>
-            <p>เรื่องที่หยุดไว้อยู่ปุ่มกรอง <b>ยกเลิก / ไม่ติดตาม</b> · กด <b>กลับมาติดตาม</b> ได้</p>
-            <p>การ์ด <b>Delta ตัดจากยอด over — เทียบกับของที่เรามี</b> ยังนับของที่ไม่ติดตาม เพราะของยังอยู่ในคลัง</p>
-            <p>แท็บ over รอคืน เปิดเร็วขึ้นแล้ว</p>
+            <h3>over รอคืน: ปุ่ม "คืนแล้ว" เปลี่ยนเป็น "คืนของ"</h3>
+            <p>Mat Follow up → over รอคืน → ปุ่มกรอง <b>รอคืน</b> · กด <b>คืนของ</b> แล้วเลือกแบบในหน้าต่าง</p>
+            <p><b>1 · คืน Delta</b> — ใส่ผู้คืน · วันที่คืน · จำนวน · เพราะอะไร → ของออกจากคลัง</p>
+            <p><b>2 · ทดแทน short ที่ค้าง</b> — ใส่ยอดในแถว PO ของเรื่อง short ที่จะเอาไปทดแทน →
+              ของไม่ออกจากคลัง · เรื่อง short ลดยอดค้างให้เอง</p>
+            <p>⚠️ ของ over ที่เอาไปใช้แทน short <b>ห้ามกด "มาแล้ว"</b> ที่หน้า short รอส่ง — ใช้ <b>คืนของ</b> แบบ 2 แทน
+              ไม่งั้นยอดคลังเพิ่มซ้ำ</p>
+            <h3>short รอส่ง: กด "มาแล้ว" = รับเข้าคลังทุกครั้ง</h3>
+            <p>ไม่มีช่องติ๊ก "รับเข้าคลังด้วย" แล้ว · ของที่คีย์รับเข้าไปแล้ว (เช่นมากับ Kit List) ให้กด <b>ยกเลิกเรื่อง</b> แทน</p>
           </div>
           <div class="row" style="margin-top:12px;gap:12px">
             <label :class="notice.atEnd ? '' : 'hint'">
@@ -3855,93 +3852,68 @@ textarea{font:inherit}
         </div>
       </div>
 
-      <!-- ════════ คืนของให้ Delta (Mat Follow up 6/8) ════════ -->
-      <div class="modal" v-if="rb.row" @click.self="rb.row=null">
-        <div class="modal-box" style="width:min(560px,100%)">
-          <h2>คืนของให้ Delta</h2>
-          <p class="hint" style="margin:-4px 0 10px">
-            ปุ่มนี้<b>ตัดของออกจากคลังจริง</b> และขึ้นเป็นฝั่งจ่ายออกบน Bin Card ที่ส่งให้ลูกค้า
-            พร้อมหมายเหตุ "ส่งคืน Delta"
-          </p>
-          <table><tbody>
-            <tr><td class="hint" style="width:110px">PO</td>
-                <td class="mono">{{ rb.row.po }}
-                  <span class="hint">· P/N {{ rb.row.part_no }}</span></td></tr>
-            <tr><td class="hint">รหัส</td><td class="mono">{{ rb.row.code }} {{ rb.row.unit }}</td></tr>
-            <tr><td class="hint">ตั้งเรื่องไว้</td>
-                <td class="mono">{{ rb.row.qty }} · ยังค้าง {{ rbRemain }}</td></tr>
-          </tbody></table>
-
-          <div class="row" style="margin-top:12px">
-            <label class="f" style="width:130px">จำนวนที่คืน
-              <input v-model="rb.qty" type="number" step="any" class="mono"
-                     @keyup.enter="rbReady && doReturn()"></label>
-            <label class="f grow" style="min-width:170px">เพราะอะไร
-              <select v-model="rb.reason">
-                <option v-for="r in rbReasons" :key="r.code" :value="r.code">{{ r.label }}</option>
-              </select></label>
-            <label class="f" style="width:150px">ล็อต (ไม่บังคับ)
-              <input v-model.trim="rb.lot" class="mono" placeholder="ถ้ารู้"></label>
+      <!-- ════════ คืนของ (over รอคืน · เจ้าของสั่ง 27 พ.ย. 2026) ════════
+           ไม่มีคำอธิบายล่วงหน้า · ปัญหาขึ้นเป็นข้อความแดงตอนเกิดจริง และปุ่มบันทึกกดไม่ได้ (rtProblem ใน app.js)
+           แบบ 3 PC return ตามมาใบถัดไป (ต้องอ่านหมายเหตุคอลัมน์ L ของไฟล์ PO รายวันก่อน) -->
+      <div class="modal" v-if="rt.row" @click.self="rt.row=null">
+        <div class="modal-box rt-pop" style="width:min(920px,100%)">
+          <div class="row" style="align-items:flex-start">
+            <div class="grow">
+              <h2 style="margin:0;font-size:22px">คืนของ · <span class="mono">{{ rt.row.code }}</span> {{ mrpName(rt.row.code) }}</h2>
+              <div class="hint">over ของ PO <b class="mono">{{ rt.row.po }}</b> · P/N {{ rt.row.part_no || '—' }} ·
+                ตั้งเรื่อง <span class="mono">{{ rt.row.date || '—' }}</span><template v-if="rt.row.created_by"> · {{ rt.row.created_by }}</template></div>
+            </div>
+            <button class="btn-q" style="font-size:20px" aria-label="ปิด" @click="rt.row=null">✕</button>
           </div>
-
-          <!-- เลือกจากล็อตที่มีของจริง — แบบเดียวกับการ์ด "ล็อตที่ยังมีของ" ของหน้าของเสีย · คืน · ปรับยอด
-               ⚠️ ไม่ใช้ <datalist> · v1 เคยใช้แล้วแยกของที่ซ้ำกันไม่ออก (issue #26) -->
-          <div class="scroll" style="max-height:15vh;margin-top:8px" v-if="rbLots.length">
-            <table>
-              <thead><tr><th style="width:170px">ล็อตที่ยังมีของ</th>
-                <th style="width:100px">คงเหลือ</th><th style="width:70px"></th></tr></thead>
-              <tbody><tr v-for="l in rbLots" :key="l.lot">
-                <td class="mono">{{ l.lot || '(ไม่มีเลขล็อต)' }}</td>
-                <td class="mono">{{ l.qty }}</td>
-                <td><button class="btn" style="padding:2px 9px" @click="rb.lot = l.lot">เลือก</button></td>
+          <!-- หลักฐาน: ตั้งไว้ − คืนแล้ว = ยังค้าง + คงคลังตอนนี้ -->
+          <div class="rt-ev">
+            <div><span class="hint">ยอดที่ตั้งเรื่อง</span><b class="mono">{{ mrpNum(rt.row.qty) }}</b></div>
+            <div><span class="hint">ยอดที่คืนแล้ว</span><b class="mono">{{ mrpNum(Number(rt.row.done_qty) || 0) }}</b></div>
+            <div class="key"><span class="hint">ยอดที่ยังค้าง (คืนได้ไม่เกินนี้)</span><b class="mono">{{ mrpNum(rtRemain) }} <span class="hint">{{ rt.row.unit }}</span></b></div>
+            <div><span class="hint">คงคลังตอนนี้ (ทุก PO)</span><b class="mono">{{ mrpNum(rtBook) }}</b></div>
+          </div>
+          <div class="mrp-seg fol-seg rt-seg" role="group" aria-label="แบบการคืน">
+            <button type="button" :aria-pressed="rt.mode === 1" @click="rt.mode = 1">1 · คืน Delta<small>ส่งของกลับไปให้ Delta</small></button>
+            <button type="button" :aria-pressed="rt.mode === 2" @click="rt.mode = 2">2 · ทดแทน short ที่ค้าง<small>เอาไปชดเชยเรื่อง short ที่ตั้งไว้</small></button>
+          </div>
+          <div class="row" style="gap:14px;align-items:flex-end">
+            <label class="f" style="width:200px">ผู้คืน<input v-model.trim="rt.person"></label>
+            <label class="f" style="width:170px">วันที่คืน<input v-model="rt.date" type="date"></label>
+            <label v-if="rt.mode === 1" class="f" style="width:170px">จำนวนที่คืน ({{ rt.row.unit }})
+              <input v-model="rt.qty" type="number" step="any" class="mono" style="text-align:right"></label>
+          </div>
+          <div v-if="rt.mode === 1" class="row" style="gap:14px;margin-top:10px;align-items:flex-end">
+            <label class="f" style="width:260px">เพราะอะไร
+              <select v-model="rt.reason"><option v-for="x in rtReasons" :key="x.code" :value="x.code">{{ x.label }}</option></select></label>
+            <label class="f grow" style="min-width:240px">หมายเหตุ<input v-model="rt.note"></label>
+          </div>
+          <template v-else>
+            <table v-if="rtShorts.length" style="margin-top:10px">
+              <thead><tr><th>PO</th><th>P/N</th><th>วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">ยอดที่มาแล้ว</th>
+                <th class="r">ยอด short ที่ยังค้าง</th><th class="r">ยอดที่ทดแทนให้ PO นี้</th></tr></thead>
+              <tbody><tr v-for="x in rtShorts" :key="x.id">
+                <td class="mono">{{ x.po }}</td><td class="mono">{{ x.part_no || '—' }}</td>
+                <td class="mono hint">{{ x.date || '—' }}<template v-if="x.created_by"> · {{ x.created_by }}</template></td>
+                <td class="mono r">{{ x.qty > 0 ? mrpNum(x.qty) : '—' }}</td>
+                <td class="mono r">{{ mrpNum(Number(x.done_qty) || 0) }}</td>
+                <td class="mono r fol-key">{{ mrpNum(remainOf(x)) }}</td>
+                <td class="r"><input v-model="rt.pick[x.id]" type="number" step="any" class="mono fol-qty" style="text-align:right;margin:0"></td>
               </tr></tbody>
             </table>
+            <div v-else class="msg warn">ไม่มีเรื่อง short ที่ยังค้างของรหัส <b class="mono">{{ rt.row.code }}</b> ในนิติบุคคลนี้</div>
+          </template>
+          <div class="msg bad" v-if="rtProblem"><b>{{ rtProblem }}</b></div>
+          <div class="msg ok" v-else-if="rtQty > 0">
+            <template v-if="rt.mode === 1">คืน <b>{{ mrpNum(rtQty) }}</b> ให้ Delta → over ของ {{ rt.row.po }} เหลือค้าง <b>{{ mrpNum(rtRemain - rtQty) }}</b>
+              · คงคลัง {{ mrpNum(rtBook) }} → <b>{{ mrpNum(rtBook - rtQty) }}</b></template>
+            <template v-else>รวมทดแทน <b>{{ mrpNum(rtQty) }}</b> → over ของ {{ rt.row.po }} เหลือค้าง <b>{{ mrpNum(rtRemain - rtQty) }}</b>
+              · คงคลังเท่าเดิม <b>{{ mrpNum(rtBook) }}</b></template>
           </div>
-
-          <div class="row" style="margin-top:8px">
-            <label class="f" style="width:145px">วันที่คืน
-              <input v-model="rb.date" type="date"></label>
-            <label class="f" style="width:170px">ผู้บันทึก
-              <input v-model.trim="rb.person" placeholder="ชื่อคนที่คืน"></label>
-            <label class="f grow">หมายเหตุ
-              <input v-model="rb.note"
-                     :placeholder="rb.reason === 'other' ? 'เลือกอื่น ๆ แล้วต้องเขียน' : 'ไม่บังคับ'"></label>
-          </div>
-
-          <div class="row" style="margin-top:12px;gap:26px;align-items:flex-end">
-            <div><div class="hint">ยอดคงคลังตอนนี้</div><div class="big">{{ rbBook }}</div></div>
-            <div><div class="hint">ยอดหลังคืน</div>
-              <div class="big" :class="rbAfter < 0 ? 'bad' : ''">{{ rbAfter }}</div></div>
-          </div>
-
-          <div class="msg warn" v-if="rbExceed" style="margin:12px 0 0">
-            <b>คืนมากกว่ายอดเกินที่ระบบคิดได้</b> — <span class="hint">{{ rbExceed }}</span>
-          </div>
-          <!-- ไม่มีคำเตือน ≠ ตรวจแล้วไม่มีปัญหา — ต้องบอกว่าเทียบไม่ได้เพราะอะไร -->
-          <div class="msg warn" v-if="rbShortWhy" style="margin:12px 0 0">
-            <b>เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง</b> —
-            <span class="hint">{{ rbShortWhy }} · คืนได้ แต่ไม่มีใครช่วยตรวจให้ในจอนี้</span>
-          </div>
-          <div class="msg warn" v-if="rbShort.length" style="margin:12px 0 0">
-            <b>PO ใบนี้ยังรับมาไม่ครบตามสูตรอีก {{ rbShort.length }} รหัส</b><br>
-            <span class="mono hint">
-              <span v-for="x in rbShort.slice(0,6)" :key="x.code" style="margin-right:10px">
-                {{ x.code }} ขาด {{ x.miss }}</span>
-              <span v-if="rbShort.length > 6">· และอีก {{ rbShort.length - 6 }} รหัส</span>
-            </span><br>
-            <span class="hint">คืนได้ แต่ดูให้แน่ก่อนว่าไม่ได้คีย์รับเข้าผิดใบ —
-              รหัสหนึ่งเกินทั้งที่อีกรหัสของใบเดียวกันยังมาไม่ครบ เป็นอาการที่เจอได้ทั้งสองแบบ</span>
-          </div>
-          <div class="msg bad" v-if="rbAfter < 0" style="margin:12px 0 0">
-            <b>ยอดคงคลังจะติดลบ</b> —
-            <span class="hint">แปลว่าของในสมุดน้อยกว่าที่กำลังจะคืน ตรวจก่อนว่ายอดรับเข้าคีย์ครบหรือยัง</span>
-          </div>
-
-          <div class="row" style="margin-top:12px">
+          <div class="msg warn" v-if="rtWarn" style="white-space:pre-line">{{ rtWarn }}</div>
+          <div class="row" style="margin-top:14px">
             <div class="grow"></div>
-            <button class="btn" @click="rb.row=null">ยังไม่คืน</button>
-            <button class="btn primary" @click="doReturn" :disabled="!rbReady || rb.busy">
-              {{ rb.busy ? 'กำลังบันทึก...' : 'ยืนยันคืนของ' }}</button>
+            <button class="btn" @click="rt.row=null">ปิด</button>
+            <button class="btn primary" :disabled="!rtReady" @click="saveReturnPop">{{ rt.busy ? 'กำลังบันทึก...' : 'บันทึกการคืน' }}</button>
           </div>
         </div>
       </div>
