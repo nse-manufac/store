@@ -526,7 +526,8 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
   {
     const iss = rows[1], sw2 = fracSweep(rows, E, 'POF', [P, K], tolOf, { ...by, at: iss.at }), all = [...rows, ...sw2];
     const tw = fracTwins(all, iss);
-    const early = fracSweep(rows, E, 'POF', [P], tolOf, { ...by, at: '2000-01-01T00:00:00.000Z' });
+    // รายการล้างเศษที่เก่ากว่าใบจ่าย (ข้อมูลเก่าก่อนมีพื้นเวลาใน fracSweep) — fracSweep สร้างแบบนี้ไม่ได้แล้ว จึงแก้ at เอง
+    const early = fracSweep(rows, E, 'POF', [P], tolOf, by).map(e => ({ ...e, at: '2000-01-01T00:00:00.000Z' }));
     ok('ล้างเศษที่ทำพร้อมจ่ายออก ผูกกับจ่ายออกรายการนั้น (PO + รหัส + เวลาเดียวกัน) · รหัสอื่น / ล้างก่อนจ่าย / รับเข้า ไม่ผูก',
        tw.length === 1 && tw[0].material_code === P && tw[0].at === iss.at
        && fracTwins([...rows, ...early], iss).length === 0 && fracTwins(all, rows[0]).length === 0 && fracTwins(all, null).length === 0,
@@ -570,18 +571,39 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
        && lastIssueAt([R], E, 'POJ', P) === '' && lastIssueAt(base3, E, 'POJ', K) === ''
        && lastIssueAt(base3, E, 'POZ', P) === '' && lastIssueAt(base3, E, '', P) === '',
        floor + ' / ' + lastIssueAt([R, I1, vo(I2)], E, 'POJ', P));
-    // เศษ 0.89975 เกิดจากใบ 20 พ.ย. — ล้างย้อนไป 15 พ.ย. (คั่นกลางสองใบจ่าย) ผูกคู่ไม่เจอ แล้วยกเลิกใบนั้นยอดขาดเงียบ ๆ
+    // เศษ 0.89975 เกิดจากใบ 20 พ.ย. — ขอล้างที่ 15 พ.ย. (คั่นกลางสองใบจ่าย) ถ้าใช้เวลานั้นตรง ๆ ผูกคู่ไม่เจอ ยกเลิกใบ 20 แล้วยอดขาดเงียบ ๆ
+    // fracSweep จึงยกเวลาขึ้นเป็นเวลาใบล่าสุดเอง (ผู้ตรวจ #198 ข้อสังเกต 1)
     const bad = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: '2026-11-15T03:00:00.000Z' });
-    const left = poStockOf([R, I1, vo(I2), ...bad], E, 'POJ').get(P);
-    ok('ล้างเศษที่ at เก่ากว่าใบจ่ายล่าสุด = ยกเลิกใบจ่ายแล้วยอด PO ขาดไปเท่าเศษ และไม่มีป้าย "เศษ" ให้เห็นอีก',
-       bad.length === 1 && fracTwins([...base3, ...bad], I2).length === 0
-       && left.bal === 237.10025 && !isFracLeft(left, tolOf(P)) && '2026-11-15T03:00:00.000Z' < floor,
+    const left = poStockOf([R, I1, ...[I2, ...bad].map(vo)], E, 'POJ').get(P);
+    ok('fracSweep ขอ at เก่ากว่าใบจ่ายล่าสุด → ใช้เวลาใบล่าสุดแทน · ผูกคู่ได้ · ยกเลิกใบนั้นแล้วยอด PO ไม่ขาด',
+       bad.length === 1 && bad[0].at === floor && fracTwins([...base3, ...bad], I2).length === 1 && left.bal === 238,
        JSON.stringify(left));
     const good = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: floor });
     ok('ล้างเศษที่ at ไม่เก่ากว่า lastIssueAt ผูกคู่ได้ · ยกเลิกทั้งคู่แล้วยอด PO กลับเท่ารับ − ที่จ่ายจริง (จอต้องบังคับให้อยู่ฝั่งนี้)',
        good.length === 1 && fracTwins([...base3, ...good], I2).length === 1
        && poStockOf([R, I1, vo(I2), ...good.map(vo)], E, 'POJ').get(P).bal === 238);
     throws('lastIssueAt ลืมส่ง entity ไม่ได้ (A3)', () => lastIssueAt(base3, '', 'POJ', P), 'นิติบุคคล');
+    // ── คีย์จ่ายย้อนหลัง (หน้าจ่ายออก / ปุ่มจ่ายบนหน้ายอดคงคลัง ส่ง at ของวันที่เลือก) ──
+    // ใบ 20 พ.ย. คีย์ไว้ก่อน แล้วค่อยคีย์ใบ 10 พ.ย. ย้อนหลัง จนเหลือเศษ → saveOut / bpIssSave เรียก fracSweep ด้วย at ของใบ 10
+    {
+      const back = [R, I2, I1];   // ลำดับที่คีย์: ใบ 10 เข้าเครื่องทีหลัง
+      const sw = fracSweep(back, E, 'POJ', [P], tolOf, { ...by, at: I1.at });
+      const after = es => poStockOf(es, E, 'POJ').get(P).bal;
+      const voidWith = iss => { const tw = fracTwins([...back, ...sw], iss);   // แบบปุ่มยกเลิกในแอป: ใบจ่าย + เศษที่ผูกคู่
+                                return [...back, ...sw].map(e => e === iss || tw.includes(e) ? vo(e) : e); };
+      ok('คีย์จ่ายย้อนหลังจนเหลือเศษ → ล้างเศษที่เวลาใบจ่ายล่าสุด (ไม่ใช่วันที่คีย์ย้อน) · ผูกคู่ได้ทั้งสองใบ',
+         sw.length === 1 && sw[0].at === I2.at && fracTwins([...back, ...sw], I2).length === 1 && fracTwins([...back, ...sw], I1).length === 1,
+         sw[0] && sw[0].at);
+      ok('…ยกเลิกใบ 20 พ.ย. (พร้อมเศษที่ผูกคู่) → ยอด PO = รับ − ใบ 10 ไม่ขาดเท่าเศษ',
+         after(voidWith(I2)) === 238);
+      ok('…ยกเลิกใบ 10 ที่คีย์ย้อน (พร้อมเศษ) → ยอด PO = รับ − ใบ 20',
+         after(voidWith(I1)) === 200.89975);
+      const later = '2026-11-25T03:00:00.000Z';
+      ok('at ใหม่กว่าใบล่าสุด / ไม่ส่ง at → ไม่แตะเวลา (ปุ่มล้างเศษทีหลัง · ล้างพร้อมจ่ายใบล่าสุด)',
+         fracSweep(back, E, 'POJ', [P], tolOf, { ...by, at: later })[0].at === later
+         && fracSweep(back, E, 'POJ', [P], tolOf, { ...by, at: I2.at })[0].at === I2.at
+         && fracSweep(back, E, 'POJ', [P], tolOf, { ...by, at: '' })[0].at > I2.at);
+    }
   }
   {
     const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
