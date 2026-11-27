@@ -8,7 +8,7 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import fs from 'node:fs';
-import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
+import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
@@ -701,6 +701,31 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
      && !/done_at[^}]*\.slice\(0,\s*10\)/.test(foverSrc));
   ok('localDate ส่งออกให้เทมเพลตใช้ได้จริง',
      /\blocalDate\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+  // 26 พ.ย. 2026: รอคืน โชว์การลบ ตั้งไว้ − คืนแล้ว = ยังค้าง (สกิล record-ui-evidence · แบบเดียวกับ short รอของ)
+  const headO = (foverSrc.match(/<tr v-if="foSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
+  const colsO = [...headO.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  ok('รอคืน: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่คืนแล้ว → ยอดที่ยังค้าง → ยอดที่คืนรอบนี้ (8 ช่องเท่า colgroup)',
+     colsO.length === 8 && colsO[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && colsO[4] === 'ยอดที่ตั้งเรื่อง' && colsO[5] === 'ยอดที่คืนแล้ว'
+     && colsO[6] === 'ยอดที่ยังค้าง' && colsO[7] === 'ยอดที่คืนรอบนี้', JSON.stringify(colsO));
+  const colgO = (foverSrc.match(/<colgroup>.*?<\/colgroup>/) || [''])[0];
+  ok('รอคืน: colgroup 8 ช่อง · ตาราง fol even (ช่องไฟเท่ากัน)',
+     (colgO.match(/<col\b/g) || []).length === 8 && foverSrc.includes('<table class="fol even">'), colgO);
+  ok('รอคืน: ยอดที่คืนแล้วอ่านจาก done_qty · ที่มาของยอดตั้งเรื่องผ่าน overSetEvidence (ไม่เขียนเงื่อนไขในเทมเพลต)',
+     foverSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
+     && foverSrc.includes('<template v-for="ev in [overSetEv(r.s)]"') && !foverSrc.includes('รับมา <span class="mono">{{ mrpNum(r.s.recv_qty) }}</span> −'));
+  // ผู้ตรวจ #197: การลบต้องลงตัวกับยอดที่ตั้งเรื่อง — ไม่ลงตัว = ไม่โชว์ (เคสจริงสามแบบที่ผู้ตรวจรันให้ดู)
+  ok('overSetEvidence: ตั้งจากระบบ รับมา 100 − ตามสูตร 80 = 20 ลงตัว → โชว์',
+     JSON.stringify(overSetEvidence({ qty: 20, recv_qty: 100, bom_qty: 80 })) === '{"from":"bom","recv":100,"base":80}');
+  ok('overSetEvidence: คืนไปแล้ว 15 ก่อนตั้งเรื่อง (qty 5 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 5, recv_qty: 100, bom_qty: 80 }) === null);
+  ok('overSetEvidence: กลับมาติดตามหลังคืนบางส่วน (qty 3 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 3, recv_qty: 100, bom_qty: 80, order_qty: 10 }) === null);
+  ok('overSetEvidence: Delta ทับยอด (qty 3 · ส่งจริง 13 · สั่ง 10 · สูตรเดิม 80) → โชว์แบบ Delta ไม่ใช่ 13 − 80',
+     JSON.stringify(overSetEvidence({ qty: 3, recv_qty: 13, bom_qty: 80, order_qty: 10 })) === '{"from":"delta","recv":13,"base":10}');
+  ok('overSetEvidence: ทศนิยมเคมี 2.96 − 1.61 = 1.35 ลงตัวหลังปัด (A2) · ไม่มีตัวเลข = ไม่โชว์',
+     overSetEvidence({ qty: 1.35, recv_qty: 2.96, bom_qty: 1.61 })?.from === 'bom'
+     && overSetEvidence({ qty: 5, recv_qty: null, bom_qty: 1 }) === null && overSetEvidence({ qty: 5, recv_qty: '', order_qty: '' }) === null);
+  ok('หัว over รอคืน ใหญ่กลางจอ (class fol-title)', foverSrc.includes('<h2 class="fol-title">over รอคืน</h2>'));
 }
 { /* พิสูจน์ว่าสองวิธีให้คนละคำตอบจริง ไม่ใช่เทสที่เขียวทั้งก่อนและหลัง
    * เครื่องในโรงงานตั้งเป็นเวลาไทย (+7) แต่เครื่องที่รันเทสอาจเป็น UTC
@@ -1055,6 +1080,10 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      shortPending(sa.filter(r => !r.why), [{ ...closedSame, po: 'TM9269H002' }]).some(r => r.code === 'B'));
 
   const all0 = shortAll(led, E, { ...opt, all: true });
+  // 25 พ.ย. 2026: มาแล้วบางส่วน — เทียบกับยอดที่ยังค้าง (qty − done_qty) ไม่ใช่ qty
+  ok('เทียบ — มาบางส่วน: ค้าง 5 (ตั้ง 8 มา 3) กับระบบคิดได้ 5 = ตรง ไม่ขึ้น ต่าง',
+     shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 8, done_qty: 3 }, all0).same === true
+     && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 8, done_qty: 2 }, all0).same === false);
   ok('เทียบกับยอดที่ Delta แจ้ง — ตรง', JSON.stringify(shortCheckOf(tickets[0], all0)) === JSON.stringify({ calc: 8, why: '', same: true }));
   ok('เทียบ — ต่าง', shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).same === false
      && shortCheckOf({ po: 'TM9269H001', code: 'C', qty: 3 }, all0).calc === 5);
@@ -1065,9 +1094,37 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      && shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0).calc === 8,
      JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
   // 21 พ.ย. 2026: ตรง = ตัวจาง (ไม่มีป้าย) · ต่าง = ป้าย — same null (ไม่มียอดเทียบ) ต้องไม่ได้ป้าย "ต่าง"
-  ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
-     htmlSrc.includes('<span v-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
-     && htmlSrc.includes(':class="{ hint: fsCheck(r.s).same !== false }"'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+  // 26 พ.ย. 2026: เจ้าของสั่งให้ขึ้นแค่ป้าย ต่าง · ตัวเลขทั้งสองยอดย้ายไปอยู่ในกล่องข้อความตอนชี้เมาส์ (เดิมบรรทัดยาวล้นคอลัมน์)
+  ok('ยอดที่ยังค้าง: ขึ้นแค่ป้าย ต่าง เมื่อ same === false · กล่องข้อความบอกทั้งยอดค้างและยอดที่ระบบคิดได้',
+     htmlSrc.includes('<div v-if="fsCheck(r.s).same === false" style="font-weight:400"><span class="tag warn" style="cursor:help"')
+     && htmlSrc.includes("'ยอดที่ยังค้าง ' + mrpNum(r.remain) + ' แต่ระบบคิดจากการรับเข้าเทียบสูตรได้ ' + mrpNum(fsCheck(r.s).calc)")
+     && !htmlSrc.includes('ระบบคิดได้ {{ mrpNum(fsCheck(r.s).calc) }}'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+  // 25 พ.ย. 2026: รอส่ง โชว์การลบ ตั้งไว้ − มาแล้ว = ยังค้าง (สกิล record-ui-evidence) · ยอดที่ระบบคิดได้เป็นบรรทัดเล็กใต้ยอดที่ตั้งเรื่อง โชว์เฉพาะเมื่อไม่ตรง
+  {
+    const head = (htmlSrc.match(/<tr v-if="fsSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
+    const cols = [...head.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+    ok('รอส่ง: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่มาแล้ว → ยอดที่ยังค้าง → ยอดที่มารอบนี้ (8 ช่องเท่า colgroup)',
+       cols.length === 8 && cols[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && cols[4] === 'ยอดที่ตั้งเรื่อง' && cols[5] === 'ยอดที่มาแล้ว'
+       && cols[6] === 'ยอดที่ยังค้าง' && cols[7] === 'ยอดที่มารอบนี้', JSON.stringify(cols));
+    ok('รอส่ง: ยอดที่มาแล้วอ่านจาก done_qty',
+       htmlSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}'));
+    /* ผู้ตรวจ #195 ข้อ 1 — กล่องช่วยเหลือต้องบอกฐานเทียบตรงกับ shortChecker (ยอดที่ยังค้าง ไม่ใช่ยอดที่แจ้งไว้)
+       และห้ามอ้างว่ามีป้าย "ตรง" เพราะจอซ่อนบรรทัดทิ้งเมื่อเท่ากัน (G3) */
+    const helpCalc = (htmlSrc.match(/ป้าย <b>ต่าง<\/b> ใต้ <b>ยอดที่ยังค้าง<\/b> =[^]*?<\/p>/) || [''])[0];
+    ok('กล่องช่วยเหลือ: ป้าย ต่าง บอกว่าเทียบกับยอดที่ยังค้าง · ขึ้นเฉพาะเมื่อไม่เท่ากัน · ไม่อ้างป้าย "ตรง"',
+       helpCalc.includes('ยอดที่ยังค้าง') && !helpCalc.includes('ยอดที่แจ้งไว้')
+       && !/\(\s*ตรง\s*\/\s*ต่าง\s*\)/.test(helpCalc), helpCalc.slice(0, 200));
+    /* ผู้ตรวจ #195 รอบ 2 ข้อ 1 — คำอธิบายในโค้ดต้องบอกฐานเทียบตรงกับ shortChecker ด้วย
+       ไม่ใช่แค่ข้อความบนจอ · JSDoc ที่บอกฐานเทียบผิดคือกับดักของ agent คนถัดไป */
+    const folSrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8');
+    const iChk = folSrc.indexOf('export function shortChecker(');
+    const doc = iChk < 0 ? '' : folSrc.slice(folSrc.lastIndexOf('/**', iChk), iChk);
+    ok('JSDoc ของ shortChecker บอกฐานเทียบว่าเป็นยอดที่ยังค้าง ไม่ใช่ยอดที่เรื่องแจ้งไว้',
+       doc.includes('ยอดที่ยังค้าง') && !doc.includes('แจ้งไว้'), doc.slice(0, 300));
+    const fsCalcDoc = (appSrc.match(/คอลัมน์ "ระบบคิดได้" ในตารางเรื่อง =[^\n]*/) || [''])[0];
+    ok('คอมเมนต์หัว fsCalc บอกฐานเทียบว่าเป็นยอดที่ยังค้าง',
+       fsCalcDoc.includes('ยอดที่ยังค้าง') && !fsCalcDoc.includes('แจ้งไว้'), fsCalcDoc);
+  }
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
      /ยังไม่มีการรับเข้า/.test(shortCheckOf({ po: 'TM9269H002', code: 'A', qty: 1 }, all0).why)
@@ -1431,12 +1488,14 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   const b2 = arriveShort(b.rec, { qty: 5, person: 'สมชาย', date: '2026-10-11', at: '2026-10-11T03:00:00.000Z' });
   ok('รอบสองรับที่เหลือ — ผูกเลขที่ต่อท้าย ไม่ทับของเดิม', statusOf(b2.rec) === 'done' && b2.entry.qty === 5
      && b2.rec.receive_entry_id === b.entry.id + ' ' + b2.entry.id);
-  const c = arriveShort(sh, { receive: false, person: 'สมชาย', at });
-  ok('ติ๊กออก = ปิดเรื่องอย่างเดียว ไม่รับเข้า (ของมากับ Kit List ที่คีย์ไปแล้ว)', statusOf(c.rec) === 'done' && c.entry === null && !c.rec.receive_entry_id);
+  // 26 พ.ย. 2026: เจ้าของสั่งให้รับเข้าคลังทุกครั้ง — ส่ง receive: false มาก็ไม่มีผล
+  const c0 = arriveShort(sh, { receive: false, person: 'สมชาย', at });
+  ok('ส่ง receive: false มา = ยังรับเข้าคลัง (ไม่มีทางปิดเรื่องอย่างเดียวแล้ว)', statusOf(c0.rec) === 'done' && c0.entry && c0.entry.qty === 8);
+  // เรื่องเก่าที่ปิดไปแบบไม่รับเข้า (ก่อน 26 พ.ย. 2026) ยังเอากลับได้
+  const c = { rec: closeFollow(sh, { by: 'สมชาย', at }) };
   // แถวที่แกะจากไฟล์ PO แล้วไม่บอกจำนวนมี qty 0 โดยการออกแบบ (makeFollow ไม่สร้างให้ จึงต่อเอง)
   const z = { ...makeFollow({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H002', code: 'B1', qty: 1 }), qty: 0 };
-  const z1 = arriveShort(z, { person: 'สมชาย', at });
-  ok('เรื่องไม่ระบุจำนวน + เว้นยอด = ปิดเฉย ๆ ไม่รับเข้า (ไม่รู้ว่ามาเท่าไหร่)', statusOf(z1.rec) === 'done' && z1.entry === null);
+  throws('เรื่องไม่ระบุจำนวน + เว้นยอด = โยน บอกให้ใส่ยอดที่มา (รับเข้าคลังทุกครั้ง)', () => arriveShort(z, { person: 'สมชาย', at }), 'ใส่ยอดที่มา');
   const z2 = arriveShort(z, { qty: 12, person: 'สมชาย', date: '2026-10-10', at });
   ok('เรื่องไม่ระบุจำนวน + ใส่ยอด 12 = ปิด + รับเข้า 12', statusOf(z2.rec) === 'done' && z2.entry && z2.entry.qty === 12);
   throws('รับเข้าแต่ไม่มีชื่อผู้บันทึก = โยน บอกทางออก', () => arriveShort(sh, { at }), 'ผู้บันทึก');
@@ -1474,8 +1533,8 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
     ok('localDate ของวันปิดเรื่องได้วันที่ที่คนเลือก', localDate(early) === '2026-10-08');
   }
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-  ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
-     html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
+  ok('จอ: ไม่มีช่องติ๊ก "รับเข้าคลังด้วย" แล้ว (26 พ.ย. 2026) · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
+     !html.includes('fsRecv') && !app.includes('fsRecv') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
   // ข้อความ A3 ต้องชี้ของที่มีอยู่จริงบนจอ — เดินถึงได้จริงเมื่อยังไม่เลือกนิติบุคคลที่หัวจอ
   // แล้วตารางเหลือแต่แถวกำพร้า (G3 · ผู้ตรวจ #130 รอบ 4 ข้อ 1)
   {
@@ -1709,11 +1768,18 @@ console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ
   const sh = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H101', code: 'A1', qty: 4 });
   const at = '2026-10-19T03:00:00.000Z';
   // short ไม่มีเลข PO + ติ๊กรับเข้า — เดิมโยน "รับเข้า ต้องอ้างอิงเอกสาร" ไม่บอกทางออก
-  throws('short ไม่มี PO + รับเข้า = บอกว่าไม่มีเลข PO และให้เอาติ๊กออก', () => arriveShort({ ...sh, po: '' }, { person: 'ก', at }), 'ไม่มีเลข PO');
-  ok('short ไม่มี PO + ไม่ติ๊กรับเข้า = ปิดเรื่องได้', arriveShort({ ...sh, po: '' }, { receive: false, person: 'ก', at }).entry === null);
+  throws('short ไม่มี PO = บอกว่าไม่มีเลข PO', () => arriveShort({ ...sh, po: '' }, { person: 'ก', at }), 'ไม่มีเลข PO');
   const htmlZ = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const appZ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  ok('ข้อความอ้างชื่อช่องติ๊กที่มีอยู่จริงบนจอ (G3)', htmlZ.includes('v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย'));
+  {
+    let msg = '';
+    try { arriveShort({ ...sh, po: '' }, { person: 'ก', at }); } catch (e) { msg = e.message; }
+    // G3 — ทางออกที่ข้อความบอกต้องเป็นปุ่มที่มีอยู่จริงบนจอ
+    // ไม่ชี้ "เพิ่มเรื่องเอง" — เจ้าของจะเอาปุ่มนั้นออก (26 พ.ย. 2026)
+    ok('ไม่มี PO: ข้อความชี้ปุ่ม "ยกเลิกเรื่อง" ที่มีอยู่จริงบนจอ (G3) · ไม่ชี้ "เพิ่มเรื่องเอง"',
+       msg.includes('"ยกเลิกเรื่อง"') && !msg.includes('เพิ่มเรื่องเอง')
+       && htmlZ.includes('>ยกเลิกเรื่อง</button>'), msg);
+  }
 
   // เอากลับ — จดร่องรอยไว้ที่หมายเหตุ (ไม่เพิ่มช่องใหม่)
   const closed = closeFollow({ ...sh, note: 'ตามกับผู้ขาย' }, { by: 'สมชาย', at: '2026-10-18T03:00:00.000Z' });
@@ -1749,7 +1815,9 @@ console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ
   ok('จอ: แถวนอกสูตรบอกว่ามีในทะเบียนไหม', /note: l\.note, known: !!m \}/.test(appZ));
 
   // จอ
-  ok('จอ: ติ๊กรับเข้าไว้แต่ไม่ได้รับ = บอกว่าไม่ได้รับเข้าคลัง', appZ.includes("' · ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)'"));
+  // 26 พ.ย. 2026: รับเข้าคลังทุกครั้ง — ไม่มีกรณีปิดเรื่องแล้วไม่ได้รับเข้า · ข้อความแจ้งต้องบอกยอดที่รับเข้าเสมอ
+  ok('จอ: กด "มาแล้ว" สำเร็จ = บอกยอดที่รับเข้าคลังทุกครั้ง', appZ.includes("const recv = ` · รับเข้าคลัง ${entry.qty} แล้ว`;")
+     && !appZ.includes('ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)'));
   ok('จอ: ปุ่ม "มาแล้ว" จางระหว่างบันทึก', htmlZ.includes(`:disabled="starting.has('fsclose|' + r.s.id)"`));
   ok('จอ: เปลี่ยน P/N ล้างรหัสนอกสูตรด้วย', htmlZ.includes('fbm.rnote = {}; fbm.extra = []"'));
   ok('จอ: ตารางเรื่องซ้ำแสดงทีละ SHOW_MAX และยกเลิกเฉพาะที่แสดง',
@@ -2197,7 +2265,9 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
   const htmlP = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   // 21 พ.ย. 2026: หน้า short จัดกลุ่มราย PO — PO · วันที่ PO · P/N อยู่ที่หัว PO ของทุกปุ่มกรอง (รอของ · ยกเลิก / ไม่ติดตาม ด้วย)
   const iSh = htmlP.indexOf("<template v-else-if=\"tab==='fshort'\">");
-  const tbl = htmlP.slice(htmlP.indexOf('<table class="fol">', iSh), htmlP.indexOf('</table>', htmlP.indexOf('<table class="fol">', iSh)));
+  // ⚠️ หาด้วยคำนำ '<table class="fol' — ตาราง short เป็น "fol even" แล้ว (#195) · หาแบบเต็มคำจะข้ามไปเจอตาราง over แทนโดยไม่ฟ้อง (#197)
+  const iTbl = htmlP.indexOf('<table class="fol', iSh);
+  const tbl = iTbl < 0 ? '' : htmlP.slice(iTbl, htmlP.indexOf('</table>', iTbl));
   ok('จอ: ตารางของขาด / รอส่ง มีคอลัมน์ PO · วันที่ PO · P/N · แถวว่างกินครบทุกคอลัมน์ · ช่องค้นบอกว่าค้น P/N ได้',
      tbl.includes("{{ poDateOf(g.po) || 'ไม่มีวันที่' }}") && tbl.includes("{{ g.po || '(ไม่มีเลข PO)' }}") && tbl.includes("{{ g.pn || '—' }}")
      && tbl.includes(':class="{ hint: g.items[0].s && fsPn(g.items[0].s).fromPo }"') && tbl.includes('colspan="8"')
