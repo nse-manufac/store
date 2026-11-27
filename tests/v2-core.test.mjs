@@ -8,9 +8,10 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, overIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft, lastIssueAt } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, overIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft, lastIssueAt, fracCleanAt } from '../v2/core/balance.js';
 import { poLotsOf } from '../v2/core/lots.js';
 import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
+import { atFrom, localDate } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -582,6 +583,24 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
        good.length === 1 && fracTwins([...base3, ...good], I2).length === 1
        && poStockOf([R, I1, vo(I2), ...good.map(vo)], E, 'POJ').get(P).bal === 238);
     throws('lastIssueAt ลืมส่ง entity ไม่ได้ (A3)', () => lastIssueAt(base3, '', 'POJ', P), 'นิติบุคคล');
+    // ── fracCleanAt: ตัวตัดสินเวลาของกล่องล้างเศษ (ผู้ตรวจ #198 ข้อสังเกต 2) · now ส่งเข้าไปเอง ไม่ขึ้นกับนาฬิกา/เขตเวลาของเครื่องที่รันเทส ──
+    const day = localDate(floor), fl = Date.parse(floor);
+    const early = new Date(fl - 3600e3), late = new Date(fl + 3600e3);   // นาฬิกาตอนกด ก่อน / หลังเวลาในใบจ่าย (วันเดียวกัน)
+    const same = fracCleanAt(day, floor, early);
+    ok('fracCleanAt วันเดียวกับใบจ่าย แต่นาฬิกาตอนกดย้อนกว่าใบ → at = เวลาใบจ่าย (วันที่ไม่เปลี่ยน)',
+       !same.err && same.at === floor && localDate(same.at) === day, JSON.stringify(same));
+    ok('…at ที่ได้ผูกคู่กับใบจ่ายได้ · ยกเลิกทั้งคู่แล้วยอด PO กลับเท่ารับ − ที่จ่ายจริง',
+       (() => { const add = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: same.at });
+                return add.length === 1 && fracTwins([...base3, ...add], I2).length === 1
+                  && poStockOf([R, I1, vo(I2), ...add.map(vo)], E, 'POJ').get(P).bal === 238; })());
+    ok('fracCleanAt วันเดียวกัน นาฬิกาตอนกดเลยเวลาใบไปแล้ว → ใช้เวลาตอนกดตามปกติ',
+       fracCleanAt(day, floor, late).at === late.toISOString());
+    const back = fracCleanAt(localDate(new Date(fl - 86400e3).toISOString()), floor, late);
+    ok('fracCleanAt วันก่อนใบจ่ายล่าสุด → err บอกวันของใบจ่าย ไม่มี at',
+       !back.at && back.err.includes(day) && /ย้อนหลัง/.test(back.err), JSON.stringify(back));
+    const fwd = localDate(new Date(fl + 3 * 86400e3).toISOString());
+    ok('fracCleanAt วันหลังใบจ่าย / ยังไม่มีใบจ่าย (floor ว่าง) → atFrom ตามวันที่เลือก',
+       fracCleanAt(fwd, floor, early).at === atFrom(fwd, early) && fracCleanAt(day, '', early).at === atFrom(day, early));
   }
   {
     const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
@@ -602,9 +621,8 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
        && /:disabled="!bpFqRow \|\| !bpFrac\(bpFqRow, bpFq\.code\) \|\| !bpFq\.person \|\| !bpFq\.date">บันทึกล้างเศษ/.test(htmlB));
     ok('จอ: กล่องล้างเศษไม่ยอมบันทึกวันที่ย้อนก่อนใบจ่ายออกครั้งล่าสุด · ด่านอยู่ใน bpFracClean ไม่ใช่แค่ :min (พิมพ์ข้ามได้) · ข้อความบอกทางออก (G3 · ผู้ตรวจ #198 รอบ 1)',
        /const bpFqFloor = computed\(\(\) => \(bpFq\.open && entity\.value \? lastIssueAt\(entries\.value, entity\.value, bpFq\.po, bpFq\.code\)/.test(appB)
-       && /const floor = bpFqFloor\.value;\s*\n\s*let at = atFrom\(date\);\s*\n\s*if \(floor && at < floor\) \{/.test(appB)
-       && /flash\(`ล้างเศษย้อนหลังก่อนวันที่จ่ายออกครั้งล่าสุด \(\$\{localDate\(floor\)\}\) ไม่ได้ — เลือกวันที่ตั้งแต่วันนั้นขึ้นไป`, true\);\s*\n\s*return;/.test(appB)
-       && /if \(localDate\(at\) !== localDate\(floor\)\) \{/.test(appB)   // วันเดียวกันแต่นาฬิกาย้อน = ขยับเวลาในวัน ไม่ใช่ปฏิเสธ (ไม่งั้นล้างไม่ได้เลย)
+       && /const t = fracCleanAt\(date, bpFqFloor\.value\);\s*if \(t\.err\) \{ flash\(t\.err, true\); return; \}\s*const at = t\.at;/.test(appB)   // ตัวตัดสินเทสด้วยการรันจริงข้างบน
+       && !/let at = atFrom\(date\)/.test(appB)
        && /<input v-model="bpFq\.date" type="date" :min="localDate\(bpFqFloor\)">/.test(htmlB));
   }
   throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');
