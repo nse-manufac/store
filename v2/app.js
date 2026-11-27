@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, overIssue, fracSweep, fracTwins, isFracLeft } from './core/balance.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, overIssue, fracSweep, fracTwins, isFracLeft, lastIssueAt } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -1842,12 +1842,40 @@ createApp({
     /* ล้างเศษของเก่า (เจ้าของเคาะ 23 พ.ย. 2026) — ปุ่มอยู่ในรายการเคลื่อนไหวของ PO ที่ค้างเศษ ไม่ทำตารางแยก
      * ตรรกะ isFracLeft / fracSweep (core/balance.js) · ตั้งแต่ #185 จ่ายออกแล้วระบบล้างให้เอง ที่เหลือคือของก่อนหน้านั้น */
     const bpFrac = (p, code) => isFracLeft(p, fracTolAt(code));
-    async function bpFracClean(po, code, pn = '') {
-      const who = (prompt(`ล้างเศษ ${code} ใน PO ${po} — ใส่ชื่อคนกด`, fsBy.value) || '').trim();
-      if (!who) { flash('ยังไม่ได้ใส่ชื่อคนกด — ยังไม่ได้ล้างเศษ', true); return; }
+    /* กดป้าย "เศษ" หรือปุ่มล้างเศษ → กล่องกรอกวันที่ · ชื่อผู้ล้าง แบบกล่องจ่ายออก (เจ้าของสั่ง 27 พ.ย. 2026 · เดิมเป็น prompt ถามชื่อ)
+     * ตัวเลขในกล่องอ่านจาก bpAll ทุกครั้ง (แบบ bpIssRow) — เครื่องอื่นล้างไปก่อน กล่องก็เห็นว่าไม่มีเศษแล้ว */
+    const bpFq = reactive({ open: false, pn: '', po: '', code: '', date: '', person: '' });
+    // พื้นเวลาของกล่องนี้ — ล้างเศษต้องไม่เก่ากว่าใบจ่ายออกใบล่าสุดของ PO + รหัสนั้น (lastIssueAt · core/balance.js)
+    const bpFqFloor = computed(() => (bpFq.open && entity.value ? lastIssueAt(entries.value, entity.value, bpFq.po, bpFq.code) : ''));
+    function bpFracOpen(po, code, pn = '') {
+      Object.assign(bpFq, { open: true, pn, po, code, date: todayLocal(), person: bpFq.person || fsBy.value });   // ชื่อจำของครั้งก่อน
+    }
+    const bpFqRow = computed(() => {
+      if (!bpFq.open) return null;
+      const r = bpAll.value.find(x => x.pn === bpFq.pn), l = r && r.lines.find(x => x.code === bpFq.code);
+      return (l && l.byPo.find(x => x.po === bpFq.po)) || null;
+    });
+    async function bpFracClean() {
+      const { po, code, pn, person, date } = bpFq;
+      if (!person || !date) return;
+      /* กันไม่ให้เกิดรายการล้างเศษที่ at เก่ากว่าใบจ่ายออกใบล่าสุด — fracTwins ผูกคู่ไม่เจอ
+       * แล้วยกเลิกใบจ่ายทีหลังยอด PO จะขาดไปเท่าเศษเงียบ ๆ (ผู้ตรวจ #198 รอบ 1)
+       * :min ของช่องวันที่เป็นแค่ความสะดวก กันการพิมพ์ค่าเองไม่ได้ ด่านจริงอยู่ที่นี่ */
+      const floor = bpFqFloor.value;
+      let at = atFrom(date);
+      if (floor && at < floor) {
+        if (localDate(at) !== localDate(floor)) {
+          flash(`ล้างเศษย้อนหลังก่อนวันที่จ่ายออกครั้งล่าสุด (${localDate(floor)}) ไม่ได้ — เลือกวันที่ตั้งแต่วันนั้นขึ้นไป`, true);
+          return;
+        }
+        /* วันเดียวกับใบจ่าย แต่ atFrom ยืมเวลาในวันจากนาฬิกาตอนกด ซึ่งย้อนกว่าเวลาในใบที่คีย์ย้อนหลังไว้
+         * ขยับแค่เวลาในวันให้เท่าใบจ่าย — วันที่ที่บันทึกยังเป็นวันที่คนเลือก ไม่ใช่การเปลี่ยนวันเงียบ ๆ */
+        at = floor;
+      }
       try {
-        const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person: who, device: device.value, part_no: pn });
+        const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person, device: device.value, part_no: pn, at });
         if (add.length) { await db.put('entries', add); entries.value.push(...add); db.announce('entries'); }
+        bpFq.open = false;
         flash(add.length ? `ล้างเศษ ${code} ใน PO ${po} แล้ว` : 'ไม่มีเศษให้ล้างแล้ว');
       } catch (err) { flash(err.message, true); }
     }
@@ -4115,7 +4143,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,

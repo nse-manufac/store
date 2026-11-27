@@ -464,13 +464,16 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        r3.lines[0].byPo[1].need === null && r3.lines[0].byPo[0].need === 20 && r3.lines[0].need === null && r3.lines[0].issueDiff === null);
     const [r4] = stockPnRows(st, { headerOf: head, bomRowsOf: () => [{ code: A, usage: 0 }, { code: A, usage: 3 }] });
     ok('สูตรมีรหัสซ้ำ: ใช้บรรทัดแรกที่ใช้ > 0 แบบ mrpRows', r4.lines[0].usage === 3 && r4.lines[0].byPo[0].need === 30);
-    ok('ป้ายจ่ายเทียบ BOM: เกิน · ค้าง · ครบ (เศษหลักที่ 5 นับว่าครบ) · null',
+    ok('ป้ายจ่ายเทียบ BOM: เกิน · ยังจ่ายไม่ครบ = ไม่มีป้าย (เจ้าของสั่ง 27 พ.ย. 2026) · ครบ (เศษหลักที่ 5 นับว่าครบ) · null',
        [bpDiffLabel(2.5), bpDiffLabel(-7), bpDiffLabel(0), bpDiffLabel(0.00001), bpDiffLabel(null)].map(x => x.join(':')).join()
-       === 'จ่ายเกิน 2.5:bad,ค้างจ่าย 7:warn,ครบ:ok,ครบ:ok,—:');
+       === 'จ่ายเกิน 2.5:bad,:,ครบ:ok,ครบ:ok,—:');
     const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: คอลัมน์ ตาม BOM / จ่ายเทียบ BOM ทั้งแถววัตถุดิบและแถวราย PO',
        html.includes('{{ mrpNum(l.need) }}') && html.includes('{{ mrpNum(p.need) }}')
        && html.includes('bpDiffLabel(l.issueDiff)[0]') && html.includes('bpDiffLabel(p.issueDiff)[0]'));
+    ok('จอ: ป้ายขึ้นเฉพาะครบ / จ่ายเกิน · ยังจ่ายไม่ครบ = ช่องว่าง ไม่ใช่ "—" · ไม่รู้ยอดตาม BOM = "—"',
+       ['l', 'p'].every(v => html.includes(`<span v-if="bpDiffLabel(${v}.issueDiff)[1]" class="tag"`)
+                          && html.includes(`<span v-else-if="${v}.issueDiff == null" class="hint">—</span>`)));
     ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
        html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
        && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));

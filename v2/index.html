@@ -148,6 +148,8 @@ tr.mrp-space > td{height:28px;padding:0;border:0;background:transparent}
 .mrp-bom .mrp-gap > span,.mrp-bom .mrp-gap > button{position:relative;left:30%}
 .tag.mute{background:#eceff3;color:#5b6878}
 /* ยอดคงคลังราย P/N: ยอดติดลบราย PO กดได้ → แท็บ Log จ่ายออก */
+button.tag.bp-frac{border:1px solid currentColor;cursor:pointer;font-family:inherit}
+button.tag.bp-frac:hover{text-decoration:underline}
 .bp-lnk{font:inherit;font-weight:700;color:var(--bad);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 /* หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026) — สีและแถบซ้ายแบบแท็บ MRP
    ตัวใหญ่ทั้งหน้า + หัวคอลัมน์อยู่ใต้หัว PO ทุกใบ ให้ผู้สูงอายุอ่านง่าย (เจ้าของขอ 21 พ.ย. 2026) */
@@ -1603,8 +1605,8 @@ textarea{font:inherit}
                                    ⚠️ ไม่รวมเข้ายอดจ่ายออก — จ่ายเทียบ BOM นับเฉพาะที่จ่ายให้ฝ่ายผลิต -->
                               <td class="mono r">{{ mrpNum(l.recv) }}</td>
                               <td class="mono r">{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(l.sendback) }}</div></td>
-                              <td class="r"><span v-if="l.issueDiff != null" class="tag" :class="bpDiffLabel(l.issueDiff)[1]">{{ bpDiffLabel(l.issueDiff)[0] }}</span>
-                                <span v-else class="hint">—</span></td>
+                              <td class="r"><span v-if="bpDiffLabel(l.issueDiff)[1]" class="tag" :class="bpDiffLabel(l.issueDiff)[1]">{{ bpDiffLabel(l.issueDiff)[0] }}</span>
+                                <span v-else-if="l.issueDiff == null" class="hint">—</span></td>
                               <td class="mono r"><b :style="l.bal<0?'color:var(--bad)':''">{{ mrpNum(l.bal) }}</b>
                                 <span class="hint" style="margin-left:4px">{{ unitOf(l.code) }}</span></td>
                             </tr>
@@ -1622,13 +1624,15 @@ textarea{font:inherit}
                                       <td class="mono r">{{ mrpNum(p.need) }}</td>
                                       <td class="mono r">{{ mrpNum(p.recv) }}</td>
                                       <td class="mono r">{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(p.sendback) }}</div></td>
-                                      <td class="r"><span v-if="p.issueDiff != null" class="tag" :class="bpDiffLabel(p.issueDiff)[1]">{{ bpDiffLabel(p.issueDiff)[0] }}</span>
-                                        <span v-else class="hint">—</span></td>
+                                      <td class="r"><span v-if="bpDiffLabel(p.issueDiff)[1]" class="tag" :class="bpDiffLabel(p.issueDiff)[1]">{{ bpDiffLabel(p.issueDiff)[0] }}</span>
+                                        <span v-else-if="p.issueDiff == null" class="hint">—</span></td>
                                       <!-- ติดลบ = ลิงก์ไปแท็บ Log จ่ายออก ค้น PO + รหัส ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ (เจ้าของสั่ง 19 พ.ย. 2026) -->
                                       <td class="mono r"><button v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"
                                           title="ไปหน้า Log จ่ายออก เพื่อยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ">{{ mrpNum(p.bal) }}</button>
                                         <b v-else>{{ mrpNum(p.bal) }}</b>
-                                        <span v-if="bpFrac(p, l.code)" class="tag warn" style="margin-left:4px">เศษ</span></td>
+                                        <!-- ป้ายเศษกดล้างได้เลย ไม่ต้องกางแถวหาปุ่มข้างใน (ผู้ใช้บอกว่าลึกเกิน · เจ้าของสั่ง 26 พ.ย. 2026) -->
+                                        <button v-if="bpFrac(p, l.code)" class="tag warn bp-frac" style="margin-left:4px" :data-bpfrac="bpKey(p.po, l.code)"
+                                          title="กดเพื่อล้างเศษของ PO นี้" @click.stop="bpFracOpen(p.po, l.code, r.pn)">เศษ</button></td>
                                       <!-- จ่ายออกทีละ PO (เจ้าของสั่ง 25 พ.ย. 2026) — กดแล้วขึ้นกล่องกรอก ไม่พับ/กางแถว -->
                                       <td class="noprint"><button class="btn primary" style="padding:3px 14px" :data-bpiss="bpKey(p.po, l.code)"
                                           @click.stop="bpIssOpen(r.pn, p.po, l.code)">จ่าย</button></td>
@@ -1648,7 +1652,7 @@ textarea{font:inherit}
                                         <!-- ค้างเศษ = ปุ่มล้างอยู่ท้ายรายการเคลื่อนไหวของใบนั้น (เจ้าของเคาะ 23 พ.ย. 2026) -->
                                         <tr v-if="bpFrac(p, l.code)" class="noprint"><td colspan="7" class="hint">
                                           คงเหลือ {{ mrpNum(p.bal) }} {{ unitOf(l.code) }} ต่ำกว่าเกณฑ์ {{ fracTolAt(l.code) }} = เศษจากสูตร ไม่ใช่ของจริง
-                                          <button class="btn" style="margin-left:8px;padding:2px 9px" @click.stop="bpFracClean(p.po, l.code, r.pn)">ล้างเศษ</button>
+                                          <button class="btn" style="margin-left:8px;padding:2px 9px" @click.stop="bpFracOpen(p.po, l.code, r.pn)">ล้างเศษ</button>
                                           <span style="margin-left:6px">(บันทึกปรับยอด "ล้างเศษ" แยกเป็นรายการ ยอดที่จ่ายไปไม่เปลี่ยน)</span></td></tr>
                                         </tbody>
                                       </table>
@@ -3859,6 +3863,39 @@ textarea{font:inherit}
             <button class="btn" @click="bpIss.open=false">ไม่จ่ายแล้ว</button>
             <button class="btn primary" @click="bpIssSave"
                     :disabled="!bpIssChk || !bpIssChk.ok || !bpIss.person || !bpIss.date">บันทึกจ่ายออก</button>
+          </div>
+        </div>
+      </div>
+      <!-- ล้างเศษ (เจ้าของสั่ง 27 พ.ย. 2026) — กดป้าย "เศษ" บนแถว PO หรือปุ่มในรายการเคลื่อนไหว · กรอกวันที่ · ชื่อ แบบกล่องจ่ายออก
+           โชว์ รับเข้า / จ่ายออก / คงเหลือ ให้เห็นว่าเศษมาจากไหน -->
+      <div class="modal" v-if="bpFq.open" @click.self="bpFq.open=false">
+        <div class="modal-box" style="width:min(520px,100%)" role="dialog" aria-modal="true">
+          <h2>ล้างเศษ</h2>
+          <table><tbody>
+            <tr><td class="hint" style="width:150px">P/N</td><td class="mono">{{ bpFq.pn || 'ไม่รู้ P/N' }}</td></tr>
+            <tr><td class="hint">PO</td><td class="mono"><b>{{ bpFq.po }}</b></td></tr>
+            <tr><td class="hint">วัตถุดิบ</td><td><span class="mono">{{ bpFq.code }}</span> {{ (matOf(bpFq.code) || {}).description || '' }}</td></tr>
+            <template v-if="bpFqRow">
+              <tr><td class="hint">รับเข้า PO นี้</td><td class="mono">{{ mrpNum(bpFqRow.recv) }}
+                <span v-if="bpFqRow.sendback" class="bp-sb" style="display:inline;margin-left:6px">ส่งคืน Delta {{ mrpNum(bpFqRow.sendback) }}</span></td></tr>
+              <tr><td class="hint">จ่ายออก</td><td class="mono">{{ mrpNum(bpFqRow.issued) }}</td></tr>
+              <tr><td class="hint"><b>คงเหลือ (เศษ)</b></td><td class="mono"><b>{{ mrpNum(bpFqRow.bal) }}</b> {{ unitOf(bpFq.code) }}
+                <span class="hint">ต่ำกว่าเกณฑ์ {{ fracTolAt(bpFq.code) }}</span></td></tr>
+            </template>
+          </tbody></table>
+          <p v-if="!bpFqRow || !bpFrac(bpFqRow, bpFq.code)" class="msg bad" style="margin:10px 0 0">PO นี้ไม่มีเศษให้ล้างแล้ว (อาจล้างจากเครื่องอื่นแล้ว) — ปิดกล่องได้เลย</p>
+          <p v-else class="hint" style="margin:10px 0 0">บันทึกเป็นรายการปรับยอด "ล้างเศษ" แยก คงเหลือ PO นี้จะเป็น 0 · ยอดที่จ่ายไปไม่เปลี่ยน</p>
+          <div class="row" style="margin-top:12px">
+            <!-- :min = วันที่จ่ายออกครั้งล่าสุด · ล้างเศษก่อนใบจ่ายทำให้ยกเลิกใบจ่ายแล้วยอด PO ขาดไปเท่าเศษ (ผู้ตรวจ #198)
+                 เป็นแค่ความสะดวก ด่านจริงอยู่ที่ bpFracClean เพราะ min กันการพิมพ์ค่าเองไม่ได้ -->
+            <label class="f" style="width:150px">วันที่<input v-model="bpFq.date" type="date" :min="localDate(bpFqFloor)"></label>
+            <label class="f grow">ชื่อผู้ล้าง<input v-model.trim="bpFq.person" data-bpfq-person></label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="bpFq.open=false">ไม่ล้างแล้ว</button>
+            <button class="btn primary" @click="bpFracClean"
+                    :disabled="!bpFqRow || !bpFrac(bpFqRow, bpFq.code) || !bpFq.person || !bpFq.date">บันทึกล้างเศษ</button>
           </div>
         </div>
       </div>

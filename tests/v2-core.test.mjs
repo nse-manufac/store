@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, overIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, overIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft, lastIssueAt } from '../v2/core/balance.js';
 import { poLotsOf } from '../v2/core/lots.js';
 import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
 
@@ -560,16 +560,54 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
                                               E, po, [c], () => 1, by)[0];
               const a = mk('A-B', 'C'), b = mk('A', 'B-C');
               return !!a && !!b && a.id !== b.id && a.id === `FRAC|${E}|A-B|C|0`; })());
+  // ── กล่องล้างเศษให้เลือกวันที่เองได้ จึงต้องมีพื้นเวลา: ห้ามเก่ากว่าใบจ่ายออกใบล่าสุด (ผู้ตรวจ #198 รอบ 1) ──
+  {
+    const R = mk({ material_code: P, kind: 'receive', qty: 438, lot: 'W46', doc_ref: 'POJ', at: '2026-11-01T03:00:00.000Z' });
+    const I1 = mk({ material_code: P, kind: 'issue', qty: 200, doc_ref: 'POJ', at: '2026-11-10T03:00:00.000Z' });
+    const I2 = mk({ material_code: P, kind: 'issue', qty: 237.10025, doc_ref: 'POJ', at: '2026-11-20T03:00:00.000Z' });
+    const vo = e => voidEntry(e, { by: 'เจ้าของ', reason: 'ทดสอบ' });
+    const base3 = [R, I1, I2], floor = lastIssueAt(base3, E, 'POJ', P);
+    ok('lastIssueAt: เวลาใบจ่ายออกใบล่าสุดของ PO + รหัสนั้น · ไม่นับรับเข้า / ใบที่ยกเลิก / PO หรือรหัสอื่น / ไม่มีเลข PO',
+       floor === I2.at && lastIssueAt([R, I1, vo(I2)], E, 'POJ', P) === I1.at
+       && lastIssueAt([R], E, 'POJ', P) === '' && lastIssueAt(base3, E, 'POJ', K) === ''
+       && lastIssueAt(base3, E, 'POZ', P) === '' && lastIssueAt(base3, E, '', P) === '',
+       floor + ' / ' + lastIssueAt([R, I1, vo(I2)], E, 'POJ', P));
+    // เศษ 0.89975 เกิดจากใบ 20 พ.ย. — ล้างย้อนไป 15 พ.ย. (คั่นกลางสองใบจ่าย) ผูกคู่ไม่เจอ แล้วยกเลิกใบนั้นยอดขาดเงียบ ๆ
+    const bad = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: '2026-11-15T03:00:00.000Z' });
+    const left = poStockOf([R, I1, vo(I2), ...bad], E, 'POJ').get(P);
+    ok('ล้างเศษที่ at เก่ากว่าใบจ่ายล่าสุด = ยกเลิกใบจ่ายแล้วยอด PO ขาดไปเท่าเศษ และไม่มีป้าย "เศษ" ให้เห็นอีก',
+       bad.length === 1 && fracTwins([...base3, ...bad], I2).length === 0
+       && left.bal === 237.10025 && !isFracLeft(left, tolOf(P)) && '2026-11-15T03:00:00.000Z' < floor,
+       JSON.stringify(left));
+    const good = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: floor });
+    ok('ล้างเศษที่ at ไม่เก่ากว่า lastIssueAt ผูกคู่ได้ · ยกเลิกทั้งคู่แล้วยอด PO กลับเท่ารับ − ที่จ่ายจริง (จอต้องบังคับให้อยู่ฝั่งนี้)',
+       good.length === 1 && fracTwins([...base3, ...good], I2).length === 1
+       && poStockOf([R, I1, vo(I2), ...good.map(vo)], E, 'POJ').get(P).bal === 238);
+    throws('lastIssueAt ลืมส่ง entity ไม่ได้ (A3)', () => lastIssueAt(base3, '', 'POJ', P), 'นิติบุคคล');
+  }
   {
     const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
     const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: ค้างเศษ = ปุ่ม "ล้างเศษ" ท้ายรายการเคลื่อนไหวของ PO นั้น (ไม่ทำตารางแยก) · ปุ่มเรียก fracSweep รหัสเดียว · ป้าย "ล้างเศษ" ในรายการ',
-       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracClean\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
+       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracOpen\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
        && /const bpFrac = \(p, code\) => isFracLeft\(p, fracTolAt\(code\)\);/.test(appB)
-       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person: who, device: device\.value, part_no: pn \}/.test(appB)
-       && /if \(!who\) \{ flash\('ยังไม่ได้ใส่ชื่อคนกด/.test(appB)
+       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person, device: device\.value, part_no: pn, at \}/.test(appB)
+       && /if \(!person \|\| !date\) return;/.test(appB)
        && /v-if="balView==='pn' && !bpClosed" class="hint noprint"[^>]*>PO ที่ส่งครบแล้วหรือเก่ากว่า \{\{ MRP_FRESH_DAYS \}\}/.test(htmlB)
        && /label: isFracAdj\(m\.e\) \? 'ล้างเศษ' : KINDS/.test(appB) && !/fracLeftovers|balView==='frac'/.test(appB + htmlB));
+    ok('จอ: ป้าย "เศษ" บนแถว PO กดล้างได้เลย เรียกตัวเดียวกับปุ่มข้างใน · ไม่พับ/กางแถว (ผู้ใช้บอกว่าลึกเกิน · 26 พ.ย. 2026)',
+       /<button v-if="bpFrac\(p, l\.code\)" class="tag warn bp-frac"[^>]*@click\.stop="bpFracOpen\(p\.po, l\.code, r\.pn\)">เศษ<\/button>/.test(htmlB)
+       && /button\.tag\.bp-frac\{[^}]*cursor:pointer/.test(htmlB));
+    ok('จอ: ล้างเศษเป็นกล่องกรอกวันที่ · ชื่อผู้ล้าง แบบกล่องจ่ายออก ไม่ใช้ prompt · ปุ่มบันทึกกดไม่ได้ถ้าไม่มีเศษแล้ว/ไม่มีชื่อ/ไม่มีวันที่ (27 พ.ย. 2026)',
+       !/prompt\(`ล้างเศษ/.test(appB) && /<div class="modal" v-if="bpFq\.open"/.test(htmlB)
+       && /<input v-model="bpFq\.date" type="date"/.test(htmlB) && /ชื่อผู้ล้าง<input v-model\.trim="bpFq\.person"/.test(htmlB)
+       && /:disabled="!bpFqRow \|\| !bpFrac\(bpFqRow, bpFq\.code\) \|\| !bpFq\.person \|\| !bpFq\.date">บันทึกล้างเศษ/.test(htmlB));
+    ok('จอ: กล่องล้างเศษไม่ยอมบันทึกวันที่ย้อนก่อนใบจ่ายออกครั้งล่าสุด · ด่านอยู่ใน bpFracClean ไม่ใช่แค่ :min (พิมพ์ข้ามได้) · ข้อความบอกทางออก (G3 · ผู้ตรวจ #198 รอบ 1)',
+       /const bpFqFloor = computed\(\(\) => \(bpFq\.open && entity\.value \? lastIssueAt\(entries\.value, entity\.value, bpFq\.po, bpFq\.code\)/.test(appB)
+       && /const floor = bpFqFloor\.value;\s*\n\s*let at = atFrom\(date\);\s*\n\s*if \(floor && at < floor\) \{/.test(appB)
+       && /flash\(`ล้างเศษย้อนหลังก่อนวันที่จ่ายออกครั้งล่าสุด \(\$\{localDate\(floor\)\}\) ไม่ได้ — เลือกวันที่ตั้งแต่วันนั้นขึ้นไป`, true\);\s*\n\s*return;/.test(appB)
+       && /if \(localDate\(at\) !== localDate\(floor\)\) \{/.test(appB)   // วันเดียวกันแต่นาฬิกาย้อน = ขยับเวลาในวัน ไม่ใช่ปฏิเสธ (ไม่งั้นล้างไม่ได้เลย)
+       && /<input v-model="bpFq\.date" type="date" :min="localDate\(bpFqFloor\)">/.test(htmlB));
   }
   throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');
   ok('"ล้างเศษ" ระบบทำเอง — อยู่ในรายการเหตุผล (ป้ายในการ์ด) แต่ติด auto ไม่ให้คนเลือก',
