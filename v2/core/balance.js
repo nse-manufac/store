@@ -205,6 +205,27 @@ function fracEntry(entity, { po, code, bal, tol }, { person, device = '', at, pa
                      note: `ล้างเศษ PO ${po}: คงเหลือ ${bal} ต่ำกว่าเกณฑ์ ${tol}` });
 }
 
+/**
+ * เวลา at ของใบจ่ายออกที่ยังไม่ยกเลิก ใบล่าสุดของ PO + รหัสนั้น — '' ถ้ายังไม่มีใบจ่าย
+ * = พื้นเวลาที่รายการล้างเศษของคู่นี้ต้องไม่เก่ากว่า เพราะ fracTwins ผูกคู่ด้วย String(x.at) >= String(e.at)
+ * ล้างเศษที่ at เก่ากว่าใบจ่าย → ยกเลิกใบจ่ายแล้วรายการ −เศษ ค้างอยู่ ยอด PO ขาดไปเท่าเศษเงียบ ๆ
+ * (คงเหลือที่ค้างเกินเกณฑ์ ป้าย "เศษ" จึงไม่ขึ้นให้ใครเห็นอีก · ผู้ตรวจ #198 รอบ 1)
+ * ทุกทางที่ให้คนเลือกวันที่ล้างเศษเองต้องเทียบกับค่านี้ก่อนบันทึก — ห้ามแก้ fracTwins แทน (CLAUDE.md ข้อ 7)
+ */
+export function lastIssueAt(entries, entity, po, code) {
+  need(entity);
+  const ref = String(po || ''), c = String(code);
+  if (!ref) return '';
+  let max = '';
+  for (const e of entries) {
+    if (e.entity !== entity || !counts(e) || e.kind !== 'issue') continue;
+    if (String(e.doc_ref) !== ref || String(e.material_code) !== c) continue;
+    const at = String(e.at || '');
+    if (at > max) max = at;
+  }
+  return max;
+}
+
 /** รายการล้างเศษของ PO + รหัสเดียวกันที่ทำตั้งแต่จ่ายออกรายการนี้เป็นต้นไป (ยังไม่ยกเลิก)
  *  ยกเลิกจ่ายออกแล้วต้องยกเลิกพวกนี้ด้วย (เจ้าของเคาะ 23 + 25 พ.ย. 2026)
  *  เศษที่ล้างหลังจ่ายรายการนี้ คิดจากยอดที่รวมรายการนี้อยู่ — จ่ายหายไปแล้วเศษนั้นก็ไม่มีจริง
