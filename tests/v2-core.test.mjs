@@ -11,6 +11,7 @@ import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, 
 import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, overIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft, lastIssueAt } from '../v2/core/balance.js';
 import { poLotsOf } from '../v2/core/lots.js';
 import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
+import { futureDateErr } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -590,7 +591,7 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
        /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracOpen\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
        && /const bpFrac = \(p, code\) => isFracLeft\(p, fracTolAt\(code\)\);/.test(appB)
        && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person, device: device\.value, part_no: pn, at \}/.test(appB)
-       && /if \(!person \|\| !date\) return;/.test(appB)
+       && /if \(!person \|\| !date \|\| futureBlocked\(date\)\) return;/.test(appB)
        && /v-if="balView==='pn' && !bpClosed" class="hint noprint"[^>]*>PO ที่ส่งครบแล้วหรือเก่ากว่า \{\{ MRP_FRESH_DAYS \}\}/.test(htmlB)
        && /label: isFracAdj\(m\.e\) \? 'ล้างเศษ' : KINDS/.test(appB) && !/fracLeftovers|balView==='frac'/.test(appB + htmlB));
     ok('จอ: ป้าย "เศษ" บนแถว PO กดล้างได้เลย เรียกตัวเดียวกับปุ่มข้างใน · ไม่พับ/กางแถว (ผู้ใช้บอกว่าลึกเกิน · 26 พ.ย. 2026)',
@@ -605,7 +606,7 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
        && /const floor = bpFqFloor\.value;\s*\n\s*let at = atFrom\(date\);\s*\n\s*if \(floor && at < floor\) \{/.test(appB)
        && /flash\(`ล้างเศษย้อนหลังก่อนวันที่จ่ายออกครั้งล่าสุด \(\$\{localDate\(floor\)\}\) ไม่ได้ — เลือกวันที่ตั้งแต่วันนั้นขึ้นไป`, true\);\s*\n\s*return;/.test(appB)
        && /if \(localDate\(at\) !== localDate\(floor\)\) \{/.test(appB)   // วันเดียวกันแต่นาฬิกาย้อน = ขยับเวลาในวัน ไม่ใช่ปฏิเสธ (ไม่งั้นล้างไม่ได้เลย)
-       && /<input v-model="bpFq\.date" type="date" :min="localDate\(bpFqFloor\)">/.test(htmlB));
+       && /<input v-model="bpFq\.date" type="date" :min="localDate\(bpFqFloor\)" :max="todayLocal\(\)">/.test(htmlB));
   }
   throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');
   ok('"ล้างเศษ" ระบบทำเอง — อยู่ในรายการเหตุผล (ป้ายในการ์ด) แต่ติด auto ไม่ให้คนเลือก',
@@ -630,6 +631,34 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
      /const at = atFrom\(outH\.date\);/.test(so) && (so.match(/atFrom\(/g) || []).length === 1
      && so.indexOf('atFrom(') < so.indexOf('outReady.value.map(') && !so.includes('posted[0].at'),
      JSON.stringify(so.match(/at[,:] ?[^\n]*/g)));
+}
+
+console.log('\n=== ห้ามลงวันอนาคตทุกช่องที่บันทึก (เจ้าของสั่ง 27 พ.ย. 2026) ===');
+{
+  const T = '2026-11-27';
+  ok('พรุ่งนี้ / ปีหน้า = ข้อความแดงบอกวันนี้', /ยังไม่ถึง/.test(futureDateErr('2026-11-28', T))
+     && futureDateErr('2026-11-28', T).includes(T) && !!futureDateErr('2027-01-01', T));
+  ok('วันนี้ / ย้อนหลัง = ผ่าน', futureDateErr(T, T) === '' && futureDateErr('2026-11-26', T) === '' && futureDateErr('2025-12-31', T) === '');
+  ok('ค่าว่าง / รูปแบบอื่น = ไม่ตัดสินที่นี่', futureDateErr('', T) === '' && futureDateErr(null, T) === '' && futureDateErr('28/11/2026', T) === '');
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const body = name => { const i = app.indexOf('function ' + name + '('); return i < 0 ? '' : app.slice(i, app.indexOf('\n    }\n', i)); };
+  // ทุกปุ่มบันทึกที่รับวันที่จากคน — ตรวจก่อนเขียนลงเครื่อง (เพิ่มช่องวันที่ใหม่ต้องเพิ่มที่นี่ด้วย)
+  const saves = { saveIn: 'inH.date', saveOut: 'outH.date', saveMisc: 'mk.date', bpFracClean: 'date', bpIssSave: 'bpIss.date',
+                  saveWeekly: 'wkH.date', fsClose: 'fsDayNow()', mrpSetDate: 'date', foReturn: 'foDayNow()', fbIssue: 'fbDoc.date',
+                  fbReqSubmit: 'fbReqDayNow()', fbClose: 'fbDayNow()', doReturn: 'rb.date' };
+  const miss = Object.entries(saves).filter(([f, v]) => { const b = body(f); const i = b.indexOf('futureBlocked(' + v + ')');
+    return i < 0 || ['db.put(', 'fsPut(', 'buyDocFile('].some(w => b.includes(w) && b.indexOf(w) < i); });
+  ok('ทุกปุ่มบันทึกเรียก futureBlocked ก่อนเขียนลงเครื่อง', miss.length === 0, miss.map(x => x[0]).join(','));
+  ok('futureBlocked ใช้ futureDateErr + todayLocal() ขณะกด · ขึ้นข้อความแดง',
+     /function futureBlocked\(date\) \{\s*const why = futureDateErr\(date, todayLocal\(\)\);\s*if \(why\) flash\(why, true\);/.test(app));
+  const dates = html.match(/<input[^>]*type="date"[^>]*>/g) || [];
+  const noMax = dates.filter(t => !t.includes(':max="todayLocal()"') && !/l\.expiry|fxDraft|lg\.from|lg\.to/.test(t));
+  ok('ช่องวันที่ทุกช่อง (ยกเว้นวันหมดอายุ · ช่องกรองหน้าค้นหา) ปฏิทินเลือกวันอนาคตไม่ได้', dates.length >= 18 && noMax.length === 0,
+     noMax.join(' | '));
+  ok('ช่องวันหมดอายุ · ช่องกรองหน้าค้นหา ไม่ถูกจำกัด', dates.filter(t => /l\.expiry|fxDraft|lg\.from|lg\.to/.test(t)).every(t => !t.includes(':max')));
+  ok('ช่องเติมวันที่ PO ไม่ผูก v-model — บล็อกแล้วล้างช่องเอง', /mrpSetDate\(r\.po, \$event\.target\.value, \$event\.target\)/.test(html)
+     && /if \(futureBlocked\(date\)\) \{ if \(el\) el\.value = ''; return; \}/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

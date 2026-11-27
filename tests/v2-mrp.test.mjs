@@ -633,7 +633,7 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
      /@click="bpIssSave"\s*:disabled="!bpIssChk \|\| !bpIssChk\.ok \|\| !bpIss\.person \|\| !bpIss\.date"/.test(html));
   ok('app.js: เปิดกล่องตั้งวันที่เป็นวันนี้ · บันทึกเช็กกฎซ้ำก่อนเขียน · อ้าง PO ของปุ่มที่กด',
      /bpIssOpen\(pn, po, code\) \{\s*Object\.assign\(bpIss, \{ open: true, pn, po, code, date: todayLocal\(\)/.test(app)
-     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.date\) return;/.test(app) && /doc_ref: bpIss\.po, part_no: bpIss\.pn/.test(app));
+     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.date \|\| futureBlocked\(bpIss\.date\)\) return;/.test(app) && /doc_ref: bpIss\.po, part_no: bpIss\.pn/.test(app));
   ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
 }
 

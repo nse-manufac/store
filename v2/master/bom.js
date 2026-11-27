@@ -9,6 +9,7 @@
  */
 import { categorize, normCode } from './materials.js';
 import { isInHouse } from './sap-bom.js';
+import { futureDateErr } from '../core/localtime.js';
 
 export const bomId = (pn, code) => `${pn}|${code}`;
 
@@ -202,6 +203,7 @@ export function manualBomPlan(input = {}, existing = [], { materials = [], now =
   if (mode === 'total' && !(order > 0)) errors.push({ i: -1, why: 'คีย์เป็นยอดรวม ต้องใส่จำนวนสั่ง (ชิ้น) ด้วย' });
   const vf = String(input.valid_from || '').trim();
   if (vf && !/^\d{4}-\d{2}-\d{2}$/.test(vf)) errors.push({ i: -1, why: 'วันที่มีผลไม่ถูกต้อง — เลือกวันที่ใหม่' });
+  else if (vf && today && futureDateErr(vf, today)) errors.push({ i: -1, why: futureDateErr(vf, today) });   // เจ้าของสั่ง 27 พ.ย. 2026
   const matOf = new Map((materials || []).map(m => [normCode(m.material_code), m]));
   const merged = new Map();
   // ยอดต่อชิ้นของแต่ละแถวที่คีย์ — ให้จอโชว์ค่าเดียวกับที่จะบันทึก ไม่คิดซ้ำในเทมเพลต (ผู้ตรวจ #127 ข้อ ง)

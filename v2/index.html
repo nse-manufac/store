@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-27.4">
+<meta name="app-version" content="2026-11-27.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -788,7 +788,7 @@ textarea{font:inherit}
             <label class="f" style="width:90px">REV
               <input v-model.trim="nb.rev" class="mono"></label>
             <label class="f" style="width:150px">มีผลตั้งแต่
-              <input v-model="nb.valid_from" type="date"></label>
+              <input v-model="nb.valid_from" type="date" :max="todayLocal()"></label>
             <label class="f" style="width:140px">ผู้คีย์
               <input v-model.trim="bomBy" placeholder="ชื่อคนคีย์"></label>
             <label class="f grow" style="min-width:160px">หมายเหตุทั้งใบ
@@ -1035,7 +1035,7 @@ textarea{font:inherit}
               <label class="f" v-if="ciPlan && ciPlan.parsed.layout==='wip'">ใช้ยอดจาก
                 <select v-model="ci.source"><option value="qty">QTY (รวมทุก PO ของ {{ cs.entity }})</option>
                   <option value="stk">Vendor Stk (ทางสำรอง)</option></select></label>
-              <label class="f" style="width:150px">วันที่ Delta นับ<input type="date" v-model="ci.date"></label>
+              <label class="f" style="width:150px">วันที่ Delta นับ<input type="date" v-model="ci.date" :max="todayLocal()"></label>
               <label class="f" style="width:110px">เวลา<input type="time" v-model="ci.time"></label>
             </div>
             <p class="hint" style="margin:6px 0 0">เวลาที่นับใช้คิดยอดในระบบ <b>ณ ตอนนั้น</b> และรายการปรับยอดจะลงไว้ ณ เวลานั้น —
@@ -1207,7 +1207,7 @@ textarea{font:inherit}
             <span class="hint" v-if="inBusy">กำลังอ่านไฟล์...</span>
             <div class="grow"></div>
             <label class="f" style="width:145px">วันที่
-              <input v-model="inH.date" type="date"></label>
+              <input v-model="inH.date" type="date" :max="todayLocal()"></label>
             <label class="f" style="width:170px">ผู้รับ
               <input v-model.trim="inH.person" placeholder="ชื่อคนคีย์"></label>
           </div>
@@ -1358,7 +1358,7 @@ textarea{font:inherit}
               <input v-model.number="outH.order" type="number" step="any" class="mono"
                      @change="expandOut"></label>
             <label class="f" style="width:150px">วันที่
-              <input v-model="outH.date" type="date"></label>
+              <input v-model="outH.date" type="date" :max="todayLocal()"></label>
             <label class="f grow" style="min-width:130px">ผู้เบิก
               <input v-model.trim="outH.person"></label>
             <button class="btn" style="align-self:flex-end" @click="addOutLine">+ เพิ่มบรรทัด</button>
@@ -1925,8 +1925,8 @@ textarea{font:inherit}
                     <template v-if="!r.noDate">{{ r.date || '—' }}</template>
                     <span v-else class="row" style="gap:6px;flex-wrap:nowrap">
                       <span class="tag mute">ไม่มีวันที่</span>
-                      <input type="date" title="เติมวันที่ของ PO ใบนี้" style="width:140px;padding:2px 6px" @click.stop
-                             @change="mrpSetDate(r.po, $event.target.value)"></span></td>
+                      <input type="date" title="เติมวันที่ของ PO ใบนี้" style="width:140px;padding:2px 6px" :max="todayLocal()" @click.stop
+                             @change="mrpSetDate(r.po, $event.target.value, $event.target)"></span></td>
                   <td class="mono mrp-pono">{{ r.po }}</td>
                   <td class="mono">{{ r.pn || '—' }}</td>
                   <td class="mono r">{{ r.order ? mrpNum(r.order) : '—' }}</td>
@@ -2017,7 +2017,7 @@ textarea{font:inherit}
                 <option v-for="r in mkReasons" :key="r.code" :value="r.code">{{ r.label }}</option>
               </select></label>
             <label class="f" style="width:145px">วันที่
-              <input v-model="mk.date" type="date"></label>
+              <input v-model="mk.date" type="date" :max="todayLocal()"></label>
             <label class="f grow" style="min-width:120px">ผู้บันทึก
               <input v-model.trim="mk.person"></label>
           </div>
@@ -2089,7 +2089,7 @@ textarea{font:inherit}
 
           <div class="row">
             <label class="f" style="width:150px">วันที่เอกสาร
-              <input v-model="wkH.date" type="date"></label>
+              <input v-model="wkH.date" type="date" :max="todayLocal()"></label>
             <label class="f" style="width:165px">บังคับนิติบุคคลทั้งใบ
               <select v-model="wkH.entity">
                 <option value="">— ดูจากเลข PO รายบรรทัด —</option>
@@ -2456,7 +2456,7 @@ textarea{font:inherit}
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
             <template v-if="fsSeg === 'open'">
               <label class="f" style="width:150px" title="ของมาเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่ของมาจริง">วันที่ของมา
-                <input v-model="fsDate" type="date"></label>
+                <input v-model="fsDate" type="date" :max="todayLocal()"></label>
             </template>
             <span v-if="fsCounts.partial" class="tag warn">ได้มาบางส่วน {{ fsCounts.partial }}</span>
             <div class="grow"></div>
@@ -2683,7 +2683,7 @@ textarea{font:inherit}
               <label class="f" style="width:190px">ผู้อนุมัติ
                 <input v-model.trim="fbReq.approver" placeholder="ชื่อผู้อนุมัติ"></label>
               <label class="f" style="width:155px">วันที่ขอสั่งซื้อ
-                <input v-model="fbReq.date" type="date"></label>
+                <input v-model="fbReq.date" type="date" :max="todayLocal()"></label>
               <datalist id="fbdeptlist"><option v-for="d in fbDeptList" :key="d" :value="d"></option></datalist>
             </div>
 
@@ -2751,7 +2751,7 @@ textarea{font:inherit}
             <label style="font-weight:600;font-size:12.5px">
               <input type="checkbox" v-model="fbShowDone"> แสดงที่มาครบแล้ว</label>
             <label class="f" style="width:145px" title="ของมาเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่ของมาจริง">วันที่ของมา
-              <input v-model="fbDate" type="date"></label>
+              <input v-model="fbDate" type="date" :max="todayLocal()"></label>
           </div>
 
           <div class="scroll" style="max-height:44vh;margin-top:10px">
@@ -2840,7 +2840,7 @@ textarea{font:inherit}
           <div class="row">
             <h2 style="margin:0">ออกใบสั่งซื้อ — {{ fbPicked.length }} รายการ · {{ fbDocGroups.length }} Item</h2>
             <div class="grow"></div>
-            <label class="f" style="width:150px">วันที่ใบ<input v-model="fbDoc.date" type="date"></label>
+            <label class="f" style="width:150px">วันที่ใบ<input v-model="fbDoc.date" type="date" :max="todayLocal()"></label>
             <button class="btn primary" style="align-self:flex-end" :disabled="fbDoc.busy" @click="fbIssue">
               {{ fbDoc.busy ? 'กำลังออกใบ...' : 'ออกใบสั่งซื้อ (Excel)' }}</button>
           </div>
@@ -3136,7 +3136,7 @@ textarea{font:inherit}
             <label class="f" style="width:160px">ผู้บันทึก
               <input v-model.trim="fsBy" placeholder="ชื่อคนที่กด" @change="saveFsBy"></label>
             <label v-if="foSeg === 'open'" class="f" style="width:150px" title="คืนเมื่อวันก่อนแต่เพิ่งมากด — เปลี่ยนเป็นวันที่คืนจริง">วันที่คืน
-              <input v-model="foDate" type="date"></label>
+              <input v-model="foDate" type="date" :max="todayLocal()"></label>
             <span v-if="foCounts.partial" class="tag warn">คืนไปบางส่วน {{ foCounts.partial }}</span>
             <div class="grow"></div>
             <input v-model.trim="foSearch" placeholder="ค้น PO · P/N · รหัส" style="width:200px">
@@ -3840,7 +3840,7 @@ textarea{font:inherit}
                 <td class="mono r"><b>{{ mrpNum(bpIssChk.max) }}</b> <span class="hint">{{ unitOf(bpIss.code) }}</span></td></tr>
             </tbody></table>
             <div class="row" style="margin-top:12px">
-              <label class="f" style="width:150px">วันที่<input v-model="bpIss.date" type="date"></label>
+              <label class="f" style="width:150px">วันที่<input v-model="bpIss.date" type="date" :max="todayLocal()"></label>
               <label class="f grow">ชื่อผู้จ่าย<input v-model.trim="bpIss.person"></label>
               <label class="f" style="width:130px">จำนวนที่จ่าย
                 <input v-model.number="bpIss.qty" type="number" step="any" min="0" class="mono" data-bpiss-qty></label>
@@ -3883,7 +3883,7 @@ textarea{font:inherit}
           <div class="row" style="margin-top:12px">
             <!-- :min = วันที่จ่ายออกครั้งล่าสุด · ล้างเศษก่อนใบจ่ายทำให้ยกเลิกใบจ่ายแล้วยอด PO ขาดไปเท่าเศษ (ผู้ตรวจ #198)
                  เป็นแค่ความสะดวก ด่านจริงอยู่ที่ bpFracClean เพราะ min กันการพิมพ์ค่าเองไม่ได้ -->
-            <label class="f" style="width:150px">วันที่<input v-model="bpFq.date" type="date" :min="localDate(bpFqFloor)"></label>
+            <label class="f" style="width:150px">วันที่<input v-model="bpFq.date" type="date" :min="localDate(bpFqFloor)" :max="todayLocal()"></label>
             <label class="f grow">ชื่อผู้ล้าง<input v-model.trim="bpFq.person" data-bpfq-person></label>
           </div>
           <div class="row" style="margin-top:12px">
@@ -3940,7 +3940,7 @@ textarea{font:inherit}
 
           <div class="row" style="margin-top:8px">
             <label class="f" style="width:145px">วันที่คืน
-              <input v-model="rb.date" type="date"></label>
+              <input v-model="rb.date" type="date" :max="todayLocal()"></label>
             <label class="f" style="width:170px">ผู้บันทึก
               <input v-model.trim="rb.person" placeholder="ชื่อคนที่คืน"></label>
             <label class="f grow">หมายเหตุ

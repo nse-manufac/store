@@ -19,7 +19,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
 import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, overIssue, fracSweep, fracTwins, isFracLeft, lastIssueAt } from './core/balance.js';
-import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay } from './core/localtime.js';
+import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay, futureDateErr } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
@@ -133,6 +133,12 @@ createApp({
       toast.text = text; toast.bad = bad; toast.show = true;
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => { toast.show = false; }, bad ? 5000 : 2600);
+    }
+    // ห้ามลงวันอนาคตทุกช่องที่บันทึก (เจ้าของสั่ง 27 พ.ย. 2026) — ไม่บันทึก + ข้อความแดง · ตัวตัดสินอยู่ที่ core/localtime.js
+    function futureBlocked(date) {
+      const why = futureDateErr(date, todayLocal());
+      if (why) flash(why, true);
+      return !!why;
     }
 
     // ── เปิดโปรแกรม ────────────────────────────────────────────────
@@ -1366,6 +1372,7 @@ createApp({
 
     async function saveIn() {
       if (!inH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
+      if (futureBlocked(inH.date)) return;
       // ⚠️ PO อยู่รายบรรทัดเมื่อกางจากไฟล์ · ทางคีย์เองใช้ของหัวจอเหมือนเดิม
       const noPo = inReady.value.filter(l => !(l.po || inH.po));
       if (noPo.length) {
@@ -1579,6 +1586,7 @@ createApp({
 
     async function saveOut() {
       if (!outH.person) { flash('ยังไม่ได้ใส่ชื่อผู้เบิก', true); return; }
+      if (futureBlocked(outH.date)) return;
       if (!outReady.value.length) { flash('ยังไม่มีบรรทัดที่กรอกจำนวน', true); return; }
       // ห้ามจ่ายเกินของที่มี — INVARIANTS A4 (เจ้าของสั่ง 25 พ.ย. 2026)
       // เดิมเตือนแล้วให้ยืนยัน พนักงานจึงจ่ายไปก่อนแล้วค่อยตามคีย์รับเข้า · ของมาแล้วต้องคีย์รับเข้าก่อน
@@ -1668,6 +1676,7 @@ createApp({
     const poUnknown = po => !!(po && !poHeader(pos.value, po));
 
     async function saveMisc() {
+      if (futureBlocked(mk.date)) return;
       try {
         // จับยอดเดิมไว้ก่อน — mkBook คำนวณสดจากสมุด พอเขียนรายการลงไปแล้วมันจะเป็นยอดใหม่ทันที
         const was = mkBook.value;
@@ -1849,7 +1858,7 @@ createApp({
     });
     async function bpFracClean() {
       const { po, code, pn, person, date } = bpFq;
-      if (!person || !date) return;
+      if (!person || !date || futureBlocked(date)) return;
       /* กันไม่ให้เกิดรายการล้างเศษที่ at เก่ากว่าใบจ่ายออกใบล่าสุด — fracTwins ผูกคู่ไม่เจอ
        * แล้วยกเลิกใบจ่ายทีหลังยอด PO จะขาดไปเท่าเศษเงียบ ๆ (ผู้ตรวจ #198 รอบ 1)
        * :min ของช่องวันที่เป็นแค่ความสะดวก กันการพิมพ์ค่าเองไม่ได้ ด่านจริงอยู่ที่นี่ */
@@ -1887,7 +1896,7 @@ createApp({
     const bpIssChk = computed(() => (bpIssRow.value ? poIssueCheck(bpIssRow.value, bpIss.qty) : null));
     async function bpIssSave() {
       const c = bpIssChk.value;
-      if (!c || !c.ok || !bpIss.person || !bpIss.date) return;
+      if (!c || !c.ok || !bpIss.person || !bpIss.date || futureBlocked(bpIss.date)) return;
       try {
         const at = atFrom(bpIss.date);   // เวลาเดียวกับล้างเศษ ให้ยกเลิกแล้วผูกคู่กันได้ (แบบ saveOut)
         const e = makeEntry({ entity: entity.value, kind: 'issue', material_code: bpIss.code, qty: c.qty, lot: '', lot_inferred: false,
@@ -2306,6 +2315,7 @@ createApp({
     async function saveWeekly() {
       const c = wkCheck.value;
       if (!wkH.person) { flash('ยังไม่ได้ใส่ชื่อผู้รับ', true); return; }
+      if (futureBlocked(wkH.date)) return;
       if (!c.ready.length) { flash('ยังไม่มีบรรทัดที่กรอกครบ', true); return; }
       if (wkSkip.value.length && !confirm(
         [`มี ${wkSkip.value.length} บรรทัดที่ยังกรอกไม่ครบ จะไม่ถูกบันทึก`,
@@ -2576,6 +2586,7 @@ createApp({
     watch(tab, k => { if (k === 'fshort') fsDayNow(); });
     async function fsClose(row) {
       const raw = fsGot[row.id];
+      if (futureBlocked(fsDayNow())) return;
       try {
         await startOnce(starting, 'fsclose|' + row.id, async () => {
           const day = fsDayNow();
@@ -2698,8 +2709,9 @@ createApp({
     // นับตามตัวกรองที่เลือกอยู่ด้วย — กด "มี Short" แล้วไม่ควรบอกว่ามีใบที่จบซ่อนอยู่ (ผู้ตรวจ #156 ข้อ 6)
     const mrpHidden = computed(() => (mrpDone.value ? 0 : mrpAll.value.filter(r => r.done && r.po !== mrpPin.value && mrpMatch(r, mrpQ.value)
       && (MRP_FILTERS[mrpFilter.value] || MRP_FILTERS.all)(r)).length));
-    async function mrpSetDate(po, date) {
+    async function mrpSetDate(po, date, el) {
       if (!date) return;
+      if (futureBlocked(date)) { if (el) el.value = ''; return; }   // ช่องไม่ผูก v-model — ล้างเอง ไม่งั้นจอค้างวันที่ที่ไม่ได้บันทึก
       try {
         const changed = fillPoDate(pos.value, po, date);
         if (!changed.length) return;   // ไม่มีแถวไหนเปลี่ยน (เติมไปแล้ว) — ไม่ขึ้นว่าบันทึก (ผู้ตรวจ #156 รอบ 2 ข้อ 5)
@@ -2877,6 +2889,7 @@ createApp({
     }
     async function foReturn(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
+      if (futureBlocked(foDayNow())) return;
       const raw = foGot[row.id];
       const qty = raw === '' || raw == null ? remainOf(row) : Number(raw);
       try {
@@ -2942,7 +2955,7 @@ createApp({
       && rb.reason && (rb.reason !== 'other' || rb.note.trim())));
 
     async function doReturn() {
-      if (!rb.row || rb.busy) return;
+      if (!rb.row || rb.busy || futureBlocked(rb.date)) return;
       rb.busy = true;
       /* ⚠️ จับค่าที่ต้องใช้ไว้ตั้งแต่ต้น · กล่องปิดได้ตลอดด้วย @click.self แม้ระหว่างเซฟ
        * อ่าน rb.row หลัง await แล้วกล่องถูกปิดไปก่อน จะโยน TypeError ทั้งที่บันทึกสำเร็จ
@@ -3274,6 +3287,7 @@ createApp({
       if (!fsBy.value) { flash('ยังไม่ได้ใส่ชื่อผู้บันทึก — ใส่ที่ช่อง "ผู้บันทึก" ก่อน จะขึ้นเป็น Request By ในใบ', true); return; }
       const rows = fbPicked.value;
       if (!rows.length) { flash('ยังไม่ได้ติ๊กเรื่องที่จะใส่ในใบ', true); return; }
+      if (futureBlocked(fbDoc.date)) return;
       fbDoc.busy = true;
       try {
         const no = buyDocNo(fbDoc.date, entity.value, buyDocNos(shorts.value, entity.value));
@@ -3409,7 +3423,7 @@ createApp({
     });
     const fbReqMissing = computed(() => buyRequest([], fbReq).missing);
     async function fbReqSubmit() {
-      if (fbReqBusy.value) return;
+      if (fbReqBusy.value || futureBlocked(fbReqDayNow())) return;
       fbReqBusy.value = true;
       try {
         fbReqDayNow();                   // จอค้างในแท็บนี้ข้ามคืน ตัวเฝ้าแท็บไม่ทำงาน — เลื่อนก่อนอ่านค่า
@@ -3449,6 +3463,7 @@ createApp({
     watch(tab, k => { if (k === 'fbuy') fbReqDayNow(); });
     async function fbClose(row) {
       const raw = fbGot[row.id];
+      if (futureBlocked(fbDayNow())) return;
       try {
         await startOnce(starting, 'fbclose|' + row.id, async () => {
           const rec = arriveBuy(plain(row), { qty: raw === '' || raw == null ? undefined : Number(raw), by: fsBy.value,
@@ -4136,7 +4151,7 @@ createApp({
              nbSug, nbSugList, nbTyping, nbMove, nbChoose, nbBlur, bomLive, nbMats, nbRemove, nbInHouse,
              saveBomRow, deleteBomRow, bomManualHit,
              counts, cs, csBusy, csNew, csRefText, csRef, countHistory, csPreview,
-             csRows, csFilled, csPlanRows, ci, ciOpen, ciFile, ciAt, ciPlan, ciErr, ciNoMatch, ciTicked, ciTickAll, ciApply, localDateTime, csSum,
+             csRows, csFilled, csPlanRows, ci, ciOpen, ciFile, ciAt, ciPlan, ciErr, ciNoMatch, ciTicked, ciTickAll, ciApply, localDateTime, todayLocal, csSum,
              startCount, saveCount, postCountNow, printSheet,
              pick, pickQ, pickResults, openPick, choosePick, pickInput, poPickInput,
              inH, inLines, bomHint, onInFile, inFile, inBusy, inManual, inFileMsg, inFileTone, inPos,
