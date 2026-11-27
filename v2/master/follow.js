@@ -252,7 +252,7 @@ export function reopenFollow(row, { at, by = '' } = {}) {
  * ⚠️ รายการรับเข้าอ้าง PO ของเรื่อง short เดิม (เจ้าของเลือก) → ยอดขาดของ PO นั้นลดตามจริง การ์ดไม่ขึ้นให้ตั้งซ้ำ
  * ⚠️ ล็อต = วันที่รับเข้า (กติกาเดียวกับหน้ารับเข้า) · วันหมดอายุเว้นไว้ เติมทีหลังได้ที่แท็บ Log
  * ⚠️ date/at = วันที่ของมาจริง (แก้ย้อนหลังได้) → ใช้กับรายการรับเข้า ล็อต และ done_at ของเรื่อง
- *    แต่ updated_at ของเรื่องต้องเป็นเวลาจริงตอนกด ไม่งั้นคีย์ย้อนวันแล้วแพ้ตอนซิงค์ (D5 · กฎเดียวกับ doReturn ของ over)
+ *    แต่ updated_at ของเรื่องต้องเป็นเวลาจริงตอนกด ไม่งั้นคีย์ย้อนวันแล้วแพ้ตอนซิงค์ (D5 · กฎเดียวกับ returnOver / offsetShorts ของ over)
  * ⚠️ นิติบุคคลมาจากเรื่องนั้นเอง ไม่ใช่หัวจอ (A3) · ผูกเลขที่รายการรับเข้าไว้ที่เรื่อง ให้ "เอากลับ" ยกเลิกตามได้
  * คืน { rec, entry }
  */
@@ -1476,6 +1476,29 @@ export const pairIdOf = sendbackId => txt(sendbackId) + PAIR_SUFFIX;
  * ⚠️ ผูกกันด้วยเลขที่เท่านั้น (รับเข้า = เลขที่ส่งคืน + PAIR_SUFFIX) · เช็กชนิดอีกใบด้วย
  *    เพื่อไม่ให้เลขที่จากทางอื่นที่เผอิญลงท้าย P ถูกนับเป็นคู่
  */
+/**
+ * แยกรายการที่จะยกเลิกเป็น "คู่ทดแทน" (ส่งคืน + รับเข้าที่ผูกกันด้วยเลขที่) กับ "รายการเดี่ยว"
+ * ใช้เขียนกล่องยืนยันของปุ่ม "เอากลับ" ให้ตรงผลจริง — คู่ทดแทนยกเลิกแล้วคงคลังไม่ขยับ · รายการเดี่ยวขยับ
+ * (ผู้ตรวจ #199 รอบ 4 ข้อสังเกต 4: กล่องนับใบคู่รวมกับใบส่งคืน แล้วบอกว่าคงคลังจะกลับมา ทั้งที่ไม่ขยับ)
+ * คืน { pairs: [ใบส่งคืนของแต่ละคู่], singles: [รายการที่ไม่มีคู่ในชุดนี้] }
+ */
+export function splitPairs(list = []) {
+  const byId = new Map((list || []).filter(Boolean).map(e => [txt(e.id), e]));
+  const pairs = [], singles = [];
+  for (const e of list || []) {
+    if (!e) continue;
+    const id = txt(e.id);
+    const mate = e.kind === 'sendback' ? byId.get(pairIdOf(id)) : null;
+    if (mate && mate.kind === 'receive') { pairs.push(e); continue; }
+    if (e.kind === 'receive' && id.endsWith(PAIR_SUFFIX)) {
+      const back = byId.get(id.slice(0, -PAIR_SUFFIX.length));
+      if (back && back.kind === 'sendback') continue;   // นับไปแล้วผ่านใบส่งคืนของคู่
+    }
+    singles.push(e);
+  }
+  return { pairs, singles };
+}
+
 export function pairTwins(entries, e) {
   if (!e) return [];
   const id = txt(e.id);

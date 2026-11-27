@@ -39,7 +39,7 @@ import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPo
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
-         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, offsetShorts, pairTwins, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, offsetShorts, pairTwins, splitPairs, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
@@ -2582,8 +2582,13 @@ createApp({
           // ของที่เบิกออกไปแล้ว ยกเลิกรับเข้าแล้วยอดจะติดลบ — เตือน ไม่บล็อก (A4)
           // หักสะสมต่อคู่ใน negAfterVoids — เทียบทีละใบจะเตือนน้อยกว่าจริง (ผู้ตรวจ #130 รอบ 6)
           const neg = negAfterVoids(entries.value, voids);
-          if (!confirm(`เอาเรื่องกลับ = ยกเลิกรายการรับเข้าที่ปุ่ม "มาแล้ว" สร้างไว้ ${voids.length} รายการ`
-              + ` (${voids.map(v => v.material_code + ' ' + v.qty).join(', ')})`
+          // รับเข้าจากคู่ทดแทน (คืนของ แบบ 2) ยกเลิกแล้วคงคลังไม่ขยับ — แยกบอก (ผู้ตรวจ #199)
+          const { pairs, singles } = splitPairs(voids);
+          if (!confirm('เอาเรื่องกลับ ='
+              + (singles.length ? `\n\n• ยกเลิกรายการรับเข้าที่ปุ่ม "มาแล้ว" สร้างไว้ ${singles.length} รายการ`
+                  + ` (${singles.map(v => v.material_code + ' ' + v.qty).join(', ')})` : '')
+              + (pairs.length ? `\n\n• ยกเลิกคู่ทดแทนจาก over ${pairs.length} คู่`
+                  + ` (${pairs.map(v => v.material_code + ' ' + v.qty).join(', ')}) — ยอดคงคลังไม่เปลี่ยน · ยอดค้างของเรื่อง over กลับมา` : '')
               + neg.map(n => `\n\n⚠️ ${n.material_code} ถูกเบิกออกไปแล้ว ยกเลิกแล้วยอดคงคลังจะติดลบเป็น ${n.after}`).join('')
               + '\n\nทำต่อไหม')) return;
           await db.put('entries', voids);
@@ -2890,7 +2895,9 @@ createApp({
       if (!entity.value) return 'เทียบไม่ได้ว่าใบนี้รับมาครบตามสูตรหรือยัง — ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';
       const opt = { headerOf: poIdx.value, bomRowsOf: bomIdx.value.rowsOf };
       const short = shortOfPo(entries.value, entity.value, o.po, opt);
-      return returnOverWarn({ after: 0, short, qty: rtQty.value, over: foCalcOf(o.po, o.code),
+      // แบบ 1 ของออกจากคลังจริง → เตือนเมื่อคงคลังจะติดลบ (เตือนเฉย ๆ ไม่บล็อก · เจ้าของสั่ง 27 พ.ย.) · แบบ 2 คงคลังไม่ขยับ
+      const after = rt.mode === 1 ? round5(rtBook.value - rtQty.value) : 0;
+      return returnOverWarn({ after, short, qty: rtQty.value, over: foCalcOf(o.po, o.code),
                               shortWhy: short.length ? '' : shortWhyOf(o.po, opt) });
     });
     async function saveReturnPop() {
@@ -2925,9 +2932,13 @@ createApp({
       try {
         await startOnce(starting, 'foreopen|' + row.id, async () => {
           const { rec, voids, shortRecs } = reopenOver(plain(row), entries.value, { by: fsBy.value, follows: shorts.value });
+          // คู่ทดแทน short ยกเลิกแล้วคงคลังไม่ขยับ — แยกบอกจากส่งคืน Delta ที่คงคลังกลับมาจริง (ผู้ตรวจ #199)
+          const { pairs, singles } = splitPairs(voids);
           if (!confirm(`เอาเรื่องกลับ = เปิดเรื่อง ${row.po} · ${row.code} ใหม่`
-              + (voids.length ? ` และยกเลิกรายการส่งคืน ${voids.length} รายการ`
-                  + ` (${voids.map(v => v.qty).join(', ')}) — ยอดคงคลังจะกลับมาเท่าที่คืนไป` : '')
+              + (singles.length ? `\n\n• ยกเลิกรายการส่งคืน Delta ${singles.length} รายการ`
+                  + ` (${singles.map(v => v.qty).join(', ')}) — ยอดคงคลังจะกลับมาเท่าที่คืนไป` : '')
+              + (pairs.length ? `\n\n• ยกเลิกคู่ทดแทน short ${pairs.length} คู่`
+                  + ` (${pairs.map(v => v.qty).join(', ')}) — ยอดคงคลังไม่เปลี่ยน · ยอดค้างของเรื่อง short กลับมา` : '')
               + '\n\nทำต่อไหม')) return;
           if (voids.length) {
             await db.put('entries', voids);

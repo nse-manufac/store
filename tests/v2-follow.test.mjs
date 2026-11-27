@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
-import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, reopenShort as reopenShortP } from '../v2/master/follow.js';
+import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, reopenShort as reopenShortP } from '../v2/master/follow.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
@@ -2631,7 +2631,27 @@ console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทน�
        && /const voidPairs = computed\(/.test(appOver) && /voidPairs,/.test(appOver)
        && /v-if="voidPairs\.length"/.test(htmlOver) && /คงคลังจึงไม่ขยับ/.test(htmlOver),
        appOver.slice(appOver.indexOf('async function doVoid()'), appOver.indexOf('async function doVoid()') + 900));
+
+    // กล่องยืนยันของ "เอากลับ" ต้องแยกคู่ทดแทน (คงคลังไม่ขยับ) ออกจากรายการเดี่ยว (ผู้ตรวจ #199 รอบ 4 ข้อสังเกต 4)
+    const sp = splitPairs([backs[0], recvs[0], plainBack, plainRecv, null]);
+    ok('splitPairs: คู่ทดแทนนับเป็น 1 คู่ (ใบส่งคืน) · ส่งคืน Delta / รับเข้าปกติเป็นรายการเดี่ยว',
+       sp.pairs.length === 1 && sp.pairs[0].id === backs[0].id
+       && sp.singles.length === 2 && sp.singles.some(x => x.id === plainBack.id) && sp.singles.some(x => x.id === plainRecv.id),
+       JSON.stringify(sp));
+    const half = splitPairs([recvs[0]]);
+    ok('splitPairs: ใบรับเข้าลงท้าย P ที่คู่ไม่อยู่ในชุด → เป็นรายการเดี่ยว (ไม่หายจากกล่อง)',
+       half.pairs.length === 0 && half.singles.length === 1);
+    ok('ปุ่มเอากลับทั้งสองฝั่งเรียก splitPairs · คู่ทดแทนบอกว่า "ยอดคงคลังไม่เปลี่ยน"',
+       (appOver.match(/const \{ pairs, singles \} = splitPairs\(voids\);/g) || []).length === 2
+       && (appOver.match(/ยอดคงคลังไม่เปลี่ยน · ยอดค้างของเรื่อง (short|over) กลับมา/g) || []).length === 2);
   }
+
+  // แบบ 1 ของออกจากคลังจริง → rtWarn ต้องส่งคงคลังหลังคืน ไม่ใช่ 0 ตายตัว (ผู้ตรวจ #199 รอบ 4 ข้อสังเกต 2)
+  ok('rtWarn: แบบ 1 ส่ง after = คงคลัง − ยอดคืน · แบบ 2 ส่ง 0 (คงคลังไม่ขยับ)',
+     /const after = rt\.mode === 1 \? round5\(rtBook\.value - rtQty\.value\) : 0;/.test(appOver)
+     && /returnOverWarn\(\{ after, short,/.test(appOver) && !/returnOverWarn\(\{ after: 0/.test(appOver));
+  ok('returnOverWarn: after ติดลบขึ้นเตือน (ไม่บล็อก — เป็นข้อความเฉย ๆ)',
+     returnOverWarn({ after: -3, qty: 5 }).includes('ยอดคงคลังจะติดลบเป็น -3'));
 
   const plainArr = arriveShort(s2, { person: 'ก', at, date: '2026-11-27' });
   const plainUndo = reopenShortP(plainArr.rec, [plainArr.entry, ...r.entries], { by: 'ก', follows });
