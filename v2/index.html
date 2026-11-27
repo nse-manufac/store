@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-27.5">
+<meta name="app-version" content="2026-11-27.6">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3780,6 +3780,14 @@ textarea{font:inherit}
           <p class="hint" v-if="voidTwins.length" style="margin:12px 0 0">รายการล้างเศษ PO {{ voidTwins[0].doc_ref }}
             (ส่วนต่าง {{ voidTwins[0].delta }}<template v-if="voidTwins.length > 1"> และอีก {{ voidTwins.length - 1 }} รายการ</template>)
             ที่ทำตอนหรือหลังจ่ายออกรายการนี้ จะถูกยกเลิกไปด้วย · ถ้ายังเหลือเศษจริง ปุ่มล้างเศษจะกลับมาที่หน้ายอดคงคลัง</p>
+          <!-- คู่ทดแทน short ของ "คืนของ แบบ 2" — ยกเลิกข้างเดียวแล้วคงคลังเพี้ยน (ผู้ตรวจ #199 รอบ 3) -->
+          <div class="msg warn" v-if="voidPairs.length" style="margin:12px 0 0">
+            <b>รายการนี้เป็นคู่ทดแทน short</b> — คู่กับ{{ voidPairs[0].kind === 'receive' ? 'รับเข้า' : 'ส่งคืน' }}
+            <b class="mono">{{ voidPairs[0].qty }}</b> ของ PO <b class="mono">{{ voidPairs[0].doc_ref }}</b><br>
+            <span class="hint">ยกเลิกแล้วระบบจะยกเลิก<b>อีกใบที่คู่กันไปด้วย</b> คงคลังจึงไม่ขยับ
+              — ถ้ายกเลิกใบเดียว ของ {{ voidPairs[0].qty }} หน่วยจะงอกหรือหายจากคลังโดยไม่มีอะไรฟ้อง
+              · ถ้าต้องการเปิดเรื่อง over / short กลับมาด้วย ให้กดปุ่ม <b>เอากลับ</b> ที่หน้า over หรือ short แทน</span>
+          </div>
           <div class="msg warn" v-if="voidAfterAdjust" style="margin:12px 0 0">
             <b>รายการนี้อยู่ก่อนการปรับยอดวันที่ {{ localDate(voidAfterAdjust.at) }}</b><br>
             <!-- ล้างเศษไม่ได้นับจริง — ห้ามเขียน "ที่เคยนับได้ 0" (ผู้ตรวจ #185) -->

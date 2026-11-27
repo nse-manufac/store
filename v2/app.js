@@ -39,7 +39,7 @@ import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPo
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
-         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, offsetShorts, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, offsetShorts, pairTwins, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
@@ -1728,15 +1728,23 @@ createApp({
     });
     // ล้างเศษที่เกิดพร้อมจ่ายออกรายการนี้ — ยกเลิกไปด้วยกัน (เจ้าของเคาะ 23 พ.ย. 2026 · ตรรกะ fracTwins)
     const voidTwins = computed(() => voidBox.row ? fracTwins(entries.value, entries.value.find(e => e.id === voidBox.row.id)) : []);
+    /* คู่ทดแทน short ของ "คืนของ แบบ 2" (ส่งคืน ↔ รับเข้า ยอดเท่ากัน) — ยกเลิกข้างเดียวแล้วคงคลัง
+     * เพี้ยนไปเท่ายอดนั้นเงียบ ๆ จึงต้องยกเลิกทั้งคู่เสมอ แบบเดียวกับล้างเศษ (ผู้ตรวจ #199 รอบ 3 ข้อ 1)
+     * แยก computed จาก voidTwins เพราะข้อความในกล่องคนละเรื่องกัน (ล้างเศษโชว์ส่วนต่าง · คู่นี้โชว์ PO ปลายทาง) */
+    const voidPairs = computed(() => voidBox.row ? pairTwins(entries.value, entries.value.find(e => e.id === voidBox.row.id)) : []);
     async function doVoid() {
       try {
         const src = entries.value.find(e => e.id === voidBox.row.id), by = voidBox.by.trim(), reason = voidBox.reason.trim();
         const v = voidEntry(src, { by, reason });
         const tw = fracTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกตามจ่ายออกที่ถูกยกเลิก: ${reason}` }));
-        await db.put('entries', [v, ...tw]);
-        for (const x of [v, ...tw]) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
+        const pr = pairTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: ${reason}` }));
+        const all = [v, ...tw, ...pr];
+        await db.put('entries', all);
+        for (const x of all) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
         db.announce('entries');
-        flash('ยกเลิกรายการแล้ว' + (tw.length ? ` พร้อมล้างเศษที่คู่กัน ${tw.length} รายการ` : '') + ' — ยังอยู่ในสมุดให้ตรวจย้อนหลังได้');
+        flash('ยกเลิกรายการแล้ว' + (tw.length ? ` พร้อมล้างเศษที่คู่กัน ${tw.length} รายการ` : '')
+              + (pr.length ? ` พร้อมใบที่คู่กัน ${pr.length} รายการ — คงคลังไม่ขยับ` : '')
+              + ' — ยังอยู่ในสมุดให้ตรวจย้อนหลังได้');
         voidBox.row = null;
       } catch (err) { flash(err.message, true); }
     }
@@ -4129,6 +4137,6 @@ createApp({
              fbmBusy, fxSug, fxMats, fxSugList, fxAdd, fxTyping, fxMove, fxChoose, fxBlur, fxRemove,
              fbPick, fbDoc, fbPicked, fbDocGroups, fbCanPick, fbIssue, fbReissue,
              scrapPos, poUnknown, checked,
-             voidBox, askVoid, doVoid, voidAfterAdjust, voidTwins, reasonLabel, noteCell, isFracAdj };
+             voidBox, askVoid, doVoid, voidAfterAdjust, voidTwins, voidPairs, reasonLabel, noteCell, isFracAdj };
   }
 }).mount('#app');

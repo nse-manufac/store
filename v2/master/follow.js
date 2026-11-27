@@ -1470,6 +1470,23 @@ export const PAIR_SUFFIX = 'P';
 export const pairIdOf = sendbackId => txt(sendbackId) + PAIR_SUFFIX;
 
 /**
+ * ใบที่คู่กับรายการนี้ ถ้ามันมาจาก "คืนของ แบบ 2" (ยังไม่ถูกยกเลิก) · ไม่ใช่คู่ = []
+ * ปุ่ม "ยกเลิก" ในการ์ด / แท็บ Log แตะรายการได้ทีละใบ — ยกเลิกข้างเดียวแล้วคงคลังเพี้ยน
+ * ไปเท่ายอดที่ทดแทน โดยไม่มีอะไรฟ้อง (ผู้ตรวจ #199 รอบ 3 ข้อ 1) ผู้เรียกต้องยกเลิกคู่ไปด้วย
+ * ⚠️ ผูกกันด้วยเลขที่เท่านั้น (รับเข้า = เลขที่ส่งคืน + PAIR_SUFFIX) · เช็กชนิดอีกใบด้วย
+ *    เพื่อไม่ให้เลขที่จากทางอื่นที่เผอิญลงท้าย P ถูกนับเป็นคู่
+ */
+export function pairTwins(entries, e) {
+  if (!e) return [];
+  const id = txt(e.id);
+  const pid = e.kind === 'sendback' ? pairIdOf(id)
+    : (e.kind === 'receive' && id.endsWith(PAIR_SUFFIX) ? id.slice(0, -PAIR_SUFFIX.length) : '');
+  if (!pid) return [];
+  const mateKind = e.kind === 'sendback' ? 'receive' : 'sendback';
+  return (entries || []).filter(x => x && txt(x.id) === pid && x.kind === mateKind && !x.voided);
+}
+
+/**
  * picks = [{ row: เรื่อง short, qty }] · แถวที่ qty ว่าง / 0 ข้ามไป
  * คืน { overRec, shortRecs, entries } — ผู้เรียกบันทึก entries ลงสมุดก่อน แล้วค่อยบันทึกเรื่อง
  * ⚠️ date/at = วันที่คืนจริง (แก้ย้อนได้) · updated_at ของเรื่องเป็นเวลาจริงตอนกด (now · D5) แบบ returnOver

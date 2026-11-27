@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
-import { offsetShorts, pairIdOf, PAIR_SUFFIX, reopenShort as reopenShortP } from '../v2/master/follow.js';
+import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, reopenShort as reopenShortP } from '../v2/master/follow.js';
 import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
@@ -2598,6 +2598,39 @@ console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทน�
     ok('ที่ต้องกันตั้งแต่ต้น: ค่าติดลบทำให้ยอดที่ลงสมุดมากกว่ายอดที่จอบอก · เรื่อง over ปิดครบทั้งที่จอบอกว่าเหลือค้าง',
        onScreen === 7 && rn.overRec.done_qty === 10 && statusOf(rn.overRec) === 'done' && rn.entries.length === 2,
        `จอบอก ${onScreen} · ลงสมุด ${rn.overRec.done_qty}`);
+  }
+
+  /* ⚠️ ปุ่ม "ยกเลิก" ในการ์ด / แท็บ Log แตะรายการได้ทีละใบ โดยไม่ผ่านปุ่ม "เอากลับ" ของหน้า over/short
+   *    คู่ทดแทนผูกกันด้วยเลขที่เท่านั้น ยกเลิกข้างเดียว = ของงอก/หายจากคลังเท่ายอดที่ทดแทน เงียบ ๆ
+   *    doVoid จึงต้องรู้จักคู่ แบบเดียวกับที่รู้จัก fracTwins (ผู้ตรวจ #199 รอบ 3 ข้อ 1) */
+  {
+    const plainRecv = makeEntry({ kind: 'receive', entity: E, material_code: 'A1', qty: 5, lot: 'L1', doc_kind: 'po', doc_ref: 'TM9272H009', person: 'ก' });
+    const plainIssue = makeEntry({ kind: 'issue', entity: E, material_code: 'A1', qty: 5, doc_kind: 'po', doc_ref: 'TM9272H009', person: 'ก' });
+    const plainBack = sendbackEntry(ov, { qty: 5, person: 'ก', at, reason_code: 'over' });   // ส่งคืน Delta ธรรมดา ไม่มีคู่
+    const book = [...r.entries, plainRecv, plainIssue, plainBack];
+    ok('pairTwins: ส่งใบส่งคืนของคู่ → ได้ใบรับเข้าคู่ · ส่งใบรับเข้าที่ลงท้าย P → ได้ใบส่งคืนคู่',
+       pairTwins(book, backs[0]).length === 1 && pairTwins(book, backs[0])[0].id === recvs[0].id
+       && pairTwins(book, recvs[1]).length === 1 && pairTwins(book, recvs[1])[0].id === backs[1].id,
+       JSON.stringify(pairTwins(book, backs[0]).map(x => x.id)));
+    ok('pairTwins: รายการที่ไม่ใช่คู่ (รับเข้าปกติ · จ่ายออก · ส่งคืน Delta ที่ไม่มีคู่ · ไม่มีใบ) ต้องได้ว่าง',
+       pairTwins(book, plainRecv).length === 0 && pairTwins(book, plainIssue).length === 0
+       && pairTwins(book, plainBack).length === 0 && pairTwins(book, null).length === 0);
+    ok('pairTwins: ใบคู่ที่ถูกยกเลิกไปแล้ว ไม่ถูกนับซ้ำ',
+       pairTwins(book.map(x => x.id === recvs[0].id ? { ...x, voided: true } : x), backs[0]).length === 0);
+    // คงคลังรวมของสมุด (นับแค่ที่ยังไม่ยกเลิก) ก่อน / หลังยกเลิกข้างเดียว เทียบกับยกเลิกพร้อมคู่
+    const bal = list => round5(list.filter(e => !e.voided).reduce((t, e) => t + signedQty(e), 0));
+    const pairOnly = r.entries.filter(e => e.id === backs[0].id || e.id === recvs[0].id);
+    const oneSide = pairOnly.map(e => e.id === backs[0].id ? { ...e, voided: true } : e);
+    const bothSides = pairOnly.map(e => pairTwins(pairOnly, pairOnly[0]).some(t => t.id === e.id) || e.id === pairOnly[0].id
+                                        ? { ...e, voided: true } : e);
+    ok('ยกเลิกข้างเดียวทำให้คงคลังเพี้ยนเท่ายอดที่ทดแทน · ยกเลิกพร้อมคู่แล้วคงคลังไม่ขยับ',
+       bal(pairOnly) === 0 && bal(oneSide) === 40 && bal(bothSides) === 0, `${bal(oneSide)}`);
+    ok('doVoid ของแท็บ Log / การ์ด เรียก pairTwins จริง และยกเลิกคู่ไปพร้อมกัน (ไม่ลบ · B1) · กล่องยืนยันบอกก่อนกด (G3)',
+       /const pr = pairTwins\(entries\.value, src\)\.map\(t => voidEntry\(t, \{ by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: \$\{reason\}` \}\)\)/.test(appOver)
+       && /const all = \[v, \.\.\.tw, \.\.\.pr\]/.test(appOver) && /db\.put\('entries', all\)/.test(appOver)
+       && /const voidPairs = computed\(/.test(appOver) && /voidPairs,/.test(appOver)
+       && /v-if="voidPairs\.length"/.test(htmlOver) && /คงคลังจึงไม่ขยับ/.test(htmlOver),
+       appOver.slice(appOver.indexOf('async function doVoid()'), appOver.indexOf('async function doVoid()') + 900));
   }
 
   const plainArr = arriveShort(s2, { person: 'ก', at, date: '2026-11-27' });
