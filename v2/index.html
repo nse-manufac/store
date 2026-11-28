@@ -1641,7 +1641,7 @@ textarea{font:inherit}
                                         <button v-if="bpFrac(p, l.code)" class="tag warn bp-frac" style="margin-left:4px" :data-bpfrac="bpKey(p.po, l.code)"
                                           title="กดเพื่อล้างเศษของ PO นี้" @click.stop="bpFracOpen(p.po, l.code, r.pn)">เศษ</button></td>
                                       <!-- จ่ายออกทีละ PO (เจ้าของสั่ง 25 พ.ย. 2026) — กดแล้วขึ้นกล่องกรอก ไม่พับ/กางแถว -->
-                                      <!-- ปุ่มแก้ไขสีแดง ขึ้นเฉพาะแถวที่จ่ายเกิน BOM หรือคงเหลือติดลบ ให้เห็นชัด (เจ้าของสั่ง 28 พ.ย. 2026) — เปิดกล่องเดียวกับป้าย -->
+                                      <!-- ปุ่มแก้ไขต่อจากปุ่มจ่าย เปิดกล่องเดียวกับป้าย "จ่ายเกิน" (เจ้าของสั่ง 28 พ.ย. 2026) — ทุกแถวที่มีรายการจ่าย · แดงเฉพาะแถวเกิน (ดูคอมเมนต์ข้างล่าง) -->
                                       <td class="noprint" style="white-space:nowrap"><button class="btn primary" style="padding:3px 14px" :data-bpiss="bpKey(p.po, l.code)"
                                           @click.stop="bpIssOpen(r.pn, p.po, l.code)">จ่าย</button>
                                         <!-- ปุ่มแก้ไขทุกแถวที่มีรายการจ่าย — คีย์ผิดแต่ไม่เกินก็แก้ได้ (เจ้าของสั่ง 28 พ.ย. 2026) · แดงเฉพาะแถวจ่ายเกิน BOM / คงเหลือติดลบ -->
@@ -3883,10 +3883,11 @@ textarea{font:inherit}
       </div>
       <!-- แก้รายการจ่ายที่เกิน (เจ้าของสั่ง 28 พ.ย. 2026) — กดป้าย "จ่ายเกิน" (เกิน BOM) หรือยอดติดลบ (เกินรับเข้า) บนแถว PO
            เลือกรายการที่ผิด → ใส่จำนวนที่ถูก
-           ยกเลิกรายการเดิม (ขีดฆ่าใน Log · B1) แล้วบันทึกจำนวนที่ถูกแทน · ลดได้อย่างเดียว · กฎ poFixCheck (master/mrp.js) -->
+           ยกเลิกรายการเดิม (ขีดฆ่าใน Log · B1) แล้วบันทึกจำนวนที่ถูกแทน · ลดได้เสมอ · เพิ่มได้ไม่เกิน BOM / คงเหลือ PO · กฎ poFixCheck (master/mrp.js) -->
       <div class="modal" v-if="bpFix.open" @click.self="bpFix.open=false">
         <div class="modal-box" style="width:min(820px,100%)" role="dialog" aria-modal="true">
-          <h2>{{ bpFixRow && (bpFixRow.issueDiff > 0 || bpFixRow.bal < 0) ? 'แก้รายการจ่ายที่เกิน' : 'แก้รายการจ่าย' }}</h2>
+          <!-- เกณฑ์ "เกิน" ตัวเดียวกับสีปุ่มแก้ไข (bpDiffLabel นับเศษที่ปัดแล้วเป็น 0 ว่าครบ) — ผู้ตรวจ #212 ข้อสังเกต 3 -->
+          <h2>{{ bpFixRow && (bpDiffLabel(bpFixRow.issueDiff)[1] === 'bad' || bpFixRow.bal < 0) ? 'แก้รายการจ่ายที่เกิน' : 'แก้รายการจ่าย' }}</h2>
           <table><tbody>
             <tr><td class="hint" style="width:150px">P/N</td><td class="mono">{{ bpFix.pn || 'ไม่รู้ P/N' }}</td></tr>
             <tr><td class="hint">PO</td><td class="mono"><b>{{ bpFix.po }}</b>
@@ -3932,7 +3933,8 @@ textarea{font:inherit}
               </tbody></table>
             <template v-if="bpFixSrc">
               <p style="margin:14px 0 4px"><b>2. รายการนี้ควรจ่ายเท่าไหร่</b>
-                <span class="hint"> — ใส่ 0 ถ้ารายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO) · คีย์น้อยไปใส่เพิ่มได้ไม่เกิน {{ bpFixChk ? mrpNum(bpFixChk.maxUp) : '' }}</span></p>
+                <span class="hint"> — ใส่ 0 ถ้ารายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO) <template v-if="bpFixChk && bpFixChk.maxUp > bpFixChk.old">· คีย์น้อยไปใส่เพิ่มได้ไม่เกิน {{ mrpNum(bpFixChk.maxUp) }}</template>
+                  <template v-else-if="bpFixChk">· เพิ่มไม่ได้ — ตาม BOM / ของใน PO นี้ไม่มีที่เหลือให้เพิ่ม</template></span></p>
               <div class="row">
                 <label class="f" style="width:170px">จำนวนที่ถูกต้อง
                   <input v-model.number="bpFix.qty" type="number" step="any" min="0" class="mono" data-bpfix-qty></label>

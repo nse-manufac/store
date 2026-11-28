@@ -378,8 +378,13 @@ export const MRP_SEG = [
 ];
 
 /** ตัวเลขบนจอ — คั่นหลักพัน ทศนิยมไม่เกินสี่ตำแหน่ง · ไม่มีค่า = — */
-export const mrpNum = n => (n == null || !isFinite(Number(n)) ? '—'
-  : (round5(Number(n)) || 0).toLocaleString('en-US', { maximumFractionDigits: 4 }));   // || 0 — ไม่ขึ้น "-0" (−266.6 + 266.6 ปัดแล้วได้ −0 · เจ้าของแจ้ง 28 พ.ย. 2026)
+/* ไม่ขึ้น "-0" (เจ้าของแจ้ง 28 พ.ย. 2026) — เช็กหลังจัดรูป ไม่ใช่ก่อน: ค่าติดลบจิ๋วอย่าง −0.00001 ผ่าน round5 มาได้
+ * แล้วถูกตัดเหลือทศนิยมสี่ตำแหน่งตอนจัดรูปจนเป็น "-0" (ผู้ตรวจ #212 ข้อสังเกต 1) */
+export const mrpNum = n => {
+  if (n == null || !isFinite(Number(n))) return '—';
+  const s = round5(Number(n)).toLocaleString('en-US', { maximumFractionDigits: 4 });
+  return s === '-0' ? '0' : s;
+};
 
 /** ป้ายช่อง "จ่ายเทียบ BOM" ของหน้ายอดคงคลัง — d = issueDiff ของ stockPnRows · คืน [ข้อความ, คลาสสี]
  *  ส่วนต่างที่ปัดแล้วเป็น 0 (เศษทศนิยมหลักที่ 5) นับว่าครบ ไม่ขึ้น "จ่ายเกิน 0"

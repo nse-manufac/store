@@ -207,7 +207,9 @@ ok('ป้ายรายรหัส: ครบ · Short X · Over X · นอ�
    && mrpLineLabel(line('TM0001H962', B, run({ follows: [skipped] })))[0] === 'ขาด 1 · จบเรื่องแล้ว');
 ok('ตัวเลข: คั่นหลักพัน · ทศนิยมไม่เกินสี่ · ไม่มีค่า = —', mrpNum(1234.56789) === '1,234.5679' && mrpNum(null) === '—' && mrpNum(0.0011) === '0.0011');
 ok('ตัวเลข: ศูนย์ติดลบจากการปัด ไม่ขึ้น "-0" (เจ้าของแจ้ง 28 พ.ย. 2026)', mrpNum(-0) === '0' && mrpNum(-266.6 + 516 - 249.4) === '0'
-   && mrpNum(-0.000001) === '0' && mrpNum(-0.5) === '-0.5');
+   && mrpNum(-0.000001) === '0' && mrpNum(-0.5) === '-0.5'
+   // ติดลบจิ๋วที่ผ่าน round5 แต่จัดรูปแล้วเหลือ 0 (ผู้ตรวจ #212 ข้อสังเกต 1)
+   && [-0.00001, -0.00002, -0.00003, -0.00004].every(x => mrpNum(x) === '0') && mrpNum(-0.00005) === '-0.0001');
 {
   // กล่องลอยทุกอันเลื่อนลงได้ — กล่องแก้รายการจ่ายสูงเกินจอแล้วปุ่มบันทึกตกขอบ กดไม่ได้ (เจ้าของแจ้ง 28 พ.ย. 2026)
   const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
@@ -487,6 +489,10 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
     ok('จอ: ปุ่ม "แก้ไข" ต่อจากปุ่มจ่าย ทุกแถวที่มีรายการจ่าย · แดงเฉพาะแถวจ่ายเกิน / คงเหลือติดลบ · เปิดกล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)',
        /\.btn\.danger\{background:var\(--bad\)/.test(html)
        && /<button v-if="p\.issued > 0" class="btn" :class="\{ danger: bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad' \|\| p\.bal < 0 \}"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)">แก้ไข<\/button>/.test(html));
+    ok('จอ: หัวกล่องแก้ใช้เกณฑ์ "เกิน" ตัวเดียวกับสีปุ่ม (bpDiffLabel) · แถวที่เพิ่มไม่ได้บอกว่าเพิ่มไม่ได้ ไม่ขึ้นเพดานเท่ายอดเดิม (ผู้ตรวจ #212)',
+       /bpFixRow && \(bpDiffLabel\(bpFixRow\.issueDiff\)\[1\] === 'bad' \|\| bpFixRow\.bal < 0\) \? 'แก้รายการจ่ายที่เกิน'/.test(html)
+       && /v-if="bpFixChk && bpFixChk\.maxUp > bpFixChk\.old">· คีย์น้อยไปใส่เพิ่มได้ไม่เกิน/.test(html) && html.includes('· เพิ่มไม่ได้ — ')
+       && !html.includes('ลดได้อย่างเดียว') && !html.includes('ปุ่มแก้ไขสีแดง ขึ้นเฉพาะแถว'));
     ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
        html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
        && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));
