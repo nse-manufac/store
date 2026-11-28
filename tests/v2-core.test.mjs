@@ -586,6 +586,27 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
        good.length === 1 && fracTwins([...base3, ...good], I2).length === 1
        && poStockOf([R, I1, vo(I2), ...good.map(vo)], E, 'POJ').get(P).bal === 238);
     throws('lastIssueAt ลืมส่ง entity ไม่ได้ (A3)', () => lastIssueAt(base3, '', 'POJ', P), 'นิติบุคคล');
+    // ── ผูกคู่ข้ามรอบ (ผู้ตรวจ #202 รอบ 6 ข้อสังเกต 1 · เจ้าของสั่งแก้ 28 พ.ย. 2026) ──
+    // รับ 10 · จ่าย 9.5 · ล้างเศษ −0.5 → รับเพิ่ม 100 · จ่าย 100 ลงเวลาเดียวกับใบแรก (คีย์ทีหลังเศษ)
+    // เศษคิดจากยอดที่ยังไม่มีใบ 100 → ยกเลิกใบ 100 ต้องไม่พาเศษไปด้วย ไม่งั้นยอด PO กลายเป็น 100.5
+    {
+      const T = '2026-11-10T03:00:00.000Z', c = n => `2026-11-28T0${n}:00:00.000Z`;   // created_at = ลำดับที่คีย์
+      const keyed = (e, n) => ({ ...e, created_at: c(n) });
+      const r1 = keyed(mk({ material_code: P, kind: 'receive', qty: 10, lot: 'W1', doc_ref: 'POR', at: '2026-11-01T03:00:00.000Z' }), 1);
+      const i1 = keyed(mk({ material_code: P, kind: 'issue', qty: 9.5, doc_ref: 'POR', at: T }), 2);
+      const fr = keyed(fracSweep([r1, i1], E, 'POR', [P], tolOf, { ...by, at: T })[0], 3);
+      const r2 = keyed(mk({ material_code: P, kind: 'receive', qty: 100, lot: 'W2', doc_ref: 'POR', at: '2026-11-02T03:00:00.000Z' }), 4);
+      const i2 = keyed(mk({ material_code: P, kind: 'issue', qty: 100, doc_ref: 'POR', at: T }), 5);
+      const book = [r1, i1, fr, r2, i2];
+      const voidWith = iss => { const tw = fracTwins(book, iss); return book.map(e => e === iss || tw.includes(e) ? vo(e) : e); };
+      const bal = es => poStockOf(es, E, 'POR').get(P).bal;
+      ok('ผูกคู่ข้ามรอบ: เศษที่ล้างก่อนคีย์ใบจ่าย ไม่ผูกกับใบนั้นแม้ at เท่ากัน · ยกเลิกใบ 100 → ยอด PO = 100 ไม่ใช่ 100.5',
+         fr && bal(book) === 0 && fracTwins(book, i2).length === 0 && bal(voidWith(i2)) === 100, String(bal(voidWith(i2))));
+      ok('…ใบ 9.5 ที่คีย์ก่อนเศษ ยังผูกคู่ · ยกเลิกแล้วยอด PO = 110 − 100 = 10',
+         fracTwins(book, i1).length === 1 && bal(voidWith(i1)) === 10);
+      ok('…ใบจ่ายที่ไม่มี created_at (ข้อมูลเก่า) ผูกตาม at อย่างเดียวเหมือนเดิม',
+         fracTwins(book, { ...i2, created_at: '' }).length === 1);
+    }
     // ── fracCleanAt: ตัวตัดสินเวลาของกล่องล้างเศษ (ผู้ตรวจ #198 ข้อสังเกต 2) · now ส่งเข้าไปเอง ไม่ขึ้นกับนาฬิกา/เขตเวลาของเครื่องที่รันเทส ──
     const day = localDate(floor), fl = Date.parse(floor);
     const early = new Date(fl - 3600e3), late = new Date(fl + 3600e3);   // นาฬิกาตอนกด ก่อน / หลังเวลาในใบจ่าย (วันเดียวกัน)
