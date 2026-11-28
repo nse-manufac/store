@@ -46,7 +46,7 @@ import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          pendingScraps, fromScrapRow, buyRequest, fromManualBuy, buyFromBom, scrapPoSuggest, orphanBuys, arriveBuy, reopenBuy,
          startKey, startOnce, shortOverTotal, dupFollows, doubleReturns, reopenOver, buyUnit,
          buyDocNo, buyDocNos, buyDocPick, buyDocGroups, buyDocRows, stampBuyDoc, buyPrice, buySum,
-         SHORT_TYPES, arriveShort, reopenShort, negAfterVoids } from './master/follow.js';
+         SHORT_TYPES, arriveShort, reopenShort, negAfterVoids, pairedInQty, pcCapLeft } from './master/follow.js';
 
 const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
 
@@ -2916,8 +2916,21 @@ createApp({
     const rtPcOf = s => rtPcIdx.value(s.po, s.code);
     /** แถวของตารางในแบบ 2 / 3 — แยกกันด้วยหมายเหตุ PC / MC RETURN */
     const rtList = computed(() => (rt.mode === 1 ? [] : rtShorts.value.filter(s => !!rtPcOf(s) === (rt.mode === 3))));
-    /** ใส่ได้ไม่เกินเท่าไร — ยอด short ที่ค้าง · แบบ 3 ไม่เกิน "Short N" ในหมายเหตุด้วย */
-    const rtCap = s => { const pc = rt.mode === 3 ? rtPcOf(s) : null; return pc && pc.cap != null ? Math.min(remainOf(s), pc.cap) : remainOf(s); };
+    /** ยอดที่เคยทดแทนให้แต่ละเรื่อง + เพดาน PC return ที่เหลือ
+     * ⚠️ ทำเป็น computed เพราะทั้งคู่ต้องไล่สมุดทั้งเล่ม · จอเรียก rtCap/rtDone หลายครั้งต่อการ render
+     *    และ render ใหม่ทุกครั้งที่พิมพ์ในช่องยอด — ไล่สดทุกครั้งจะหนืดเมื่อสมุดโตเป็นหมื่นรายการ (G2)
+     *    rtShorts ว่างตอนหน้าต่างปิด จึงไม่มีค่าใช้จ่ายเวลาไม่ได้ใช้ */
+    const rtCapIdx = computed(() => new Map(rtShorts.value.map(s =>
+      [s.id, { done: pairedInQty(entries.value, s), left: pcCapLeft(entries.value, s, (rtPcOf(s) || {}).cap) }])));
+    /** ยอดที่เคย PC return / ทดแทนให้เรื่อง short ใบนี้ไปแล้ว (คู่ที่ยังไม่ถูกยกเลิก) */
+    const rtDone = s => (rtCapIdx.value.get(s.id) || {}).done || 0;
+    /** ใส่ได้ไม่เกินเท่าไร — ยอด short ที่ค้าง · แบบ 3 ไม่เกินเพดาน "Short N" **ที่เหลือ** ด้วย
+     * ⚠️ เพดานในหมายเหตุเป็นยอดรวม ต้องหักที่ทดแทนไปแล้ว (pcCapLeft) ไม่ใช่เทียบดิบต่อการกดหนึ่งครั้ง
+     *    ไม่หักแล้วกดสองรอบติดทะลุเพดานได้ และบรรทัด "ได้ไม่เกิน" บนจอก็หายไปด้วย (ผู้ตรวจ #205 รอบ 2 ข้อ 1) */
+    const rtCap = s => {
+      const left = rt.mode === 3 ? (rtCapIdx.value.get(s.id) || {}).left : null;
+      return left == null ? remainOf(s) : Math.min(remainOf(s), left);
+    };
     const rtPickSum = computed(() => round5(rtList.value.reduce((t, s) => t + (Number(rt.pick[s.id]) || 0), 0)));
     const rtQty = computed(() => (rt.mode !== 1 ? rtPickSum.value : round5(Number(rt.qty) || 0)));
     /** ปัญหาที่ทำให้บันทึกไม่ได้ — ขึ้นเป็นข้อความแดงเฉพาะตอนเกิดจริง · '' = บันทึกได้ */
@@ -2930,7 +2943,11 @@ createApp({
         const neg = rtList.value.find(s => Number(rt.pick[s.id]) < 0);
         if (neg) return `PO ${neg.po} ใส่ยอดติดลบไม่ได้ — ล้างช่องนั้นให้ว่าง หรือใส่ยอดที่จะทดแทนจริง`;
         const big = rtList.value.find(s => round5(Number(rt.pick[s.id]) || 0) > rtCap(s));
-        if (big && rtCap(big) < remainOf(big)) return `PO ${big.po} PC return ได้ไม่เกิน ${mrpNum(rtCap(big))} ตามหมายเหตุในไฟล์ PO`;
+        if (big && rtCap(big) < remainOf(big)) {
+          const done = rtDone(big);   // เพดานเหลือน้อยเพราะเคยทดแทนไปแล้ว ต้องบอกด้วย ไม่ใช่โชว์แค่เลขที่เหลือ (G3)
+          return `PO ${big.po} PC return ได้ไม่เกิน ${mrpNum(rtCap(big))} ตามหมายเหตุในไฟล์ PO`
+            + (done > 0 ? ` (เพดาน ${mrpNum((rtPcOf(big) || {}).cap)} · ทดแทนไปแล้ว ${mrpNum(done)}) — เกินกว่านี้ต้องให้ Delta แจ้งเพดานใหม่ในไฟล์ PO ก่อน` : '');
+        }
         if (big) return `PO ${big.po} ใส่ได้ไม่เกินยอด short ที่ยังค้าง (${mrpNum(remainOf(big))})`;
       }
       if (rtQty.value > rtRemain.value) return `รวม ${mrpNum(rtQty.value)} เกินยอดที่ยังค้าง (${mrpNum(rtRemain.value)})`;
@@ -4197,7 +4214,7 @@ createApp({
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,
-      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsRestart, foSkip, foStopped, foStopShown, foRestart, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rt, openReturn, rtReasons, rtRemain, rtBook, rtShorts, rtList, rtPcOf, rtCap, rtPickSum, rtQty, rtProblem, rtReady,
+      fsVoid, fsSkip, fsStopped, fsStopShown, remainOf, fsRestart, foSkip, foStopped, foStopShown, foRestart, foStart, foVoid, foReopen, dupLists, dupSkip, dupShow, dupPicked, dupShown, dupVoid, foDouble, starting, rt, openReturn, rtReasons, rtRemain, rtBook, rtShorts, rtList, rtPcOf, rtCap, rtDone, rtPickSum, rtQty, rtProblem, rtReady,
       rtWarn, saveReturnPop,
              MISC, KINDS, mk, mkDef, mkReasons, mkMat, mkUnit, mkBook, mkLots,
              mkDelta, mkAfter, mkReady, onMkCode, onMkPo, saveMisc, fbm, fbmHead, fbmRows, fbmPlan, onFbmPo, fbmSave,

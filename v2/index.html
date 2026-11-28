@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.6">
+<meta name="app-version" content="2026-11-28.7">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3950,7 +3950,7 @@ textarea{font:inherit}
                 <td class="mono r">{{ mrpNum(Number(x.done_qty) || 0) }}</td>
                 <td class="mono r fol-key">{{ mrpNum(remainOf(x)) }}</td>
                 <td v-if="rt.mode === 3" class="mono" style="font-size:13px">{{ rtPcOf(x).text }}
-                  <div v-if="rtCap(x) < remainOf(x)" class="hint">ได้ไม่เกิน <b>{{ mrpNum(rtCap(x)) }}</b></div></td>
+                  <div v-if="rtCap(x) < remainOf(x)" class="hint">ได้ไม่เกิน <b>{{ mrpNum(rtCap(x)) }}</b><template v-if="rtDone(x) > 0"> · ทดแทนไปแล้ว {{ mrpNum(rtDone(x)) }}</template></div></td>
                 <td class="r"><input v-model="rt.pick[x.id]" type="number" step="any" min="0" class="mono fol-qty" style="text-align:right;margin:0"></td>
               </tr></tbody>
             </table>

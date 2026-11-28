@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
-import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, reopenShort as reopenShortP } from '../v2/master/follow.js';
+import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, pairedInQty, pcCapLeft, reopenShort as reopenShortP } from '../v2/master/follow.js';
 import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, SKIP_WHY, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
@@ -2705,6 +2705,54 @@ console.log('\n=== RT3. คืนของ แบบ 3 — PC return (เจ้�
   ok('นำเข้าไฟล์ PO ซ้ำ: แถวเดิมที่หมายเหตุ L เปลี่ยนถูกเขียนลงเครื่อง (ติดธงซิงค์) และแทนที่ตัวบนจอ',
      /plan\.noteUpd = poNoteUpdates\(p\.pos, pos\.value\)/.test(appOver) && /await db\.put\('pos', \[\.\.\.rows, \.\.\.upd\]\);/.test(appOver)
      && /pos\.value\.splice\(i, 1, u\)/.test(appOver));
+
+  /* เพดาน "Short N" เป็นยอดรวม ไม่ใช่ต่อการกดบันทึกหนึ่งครั้ง (ผู้ตรวจ #205 รอบ 2 ข้อ 1)
+   * เดิมเทียบ cap ดิบทุกรอบ → กดเต็มเพดานรอบแรก ยอดค้างของ short ลดลง
+   * รอบถัดไป cap กลายเป็นยอดค้างที่เหลือ แล้วผ่านด่านอีกครั้ง รวมแล้วทะลุที่ Delta แจ้ง */
+  const CAP = 5.4;
+  const capOf = (book, s) => pcCapLeft(book, s, CAP);
+  ok('pcCapLeft: ยังไม่เคยทดแทน = เพดานเต็ม · ไม่มีเพดานในหมายเหตุ (null) = null',
+     capOf([], sh) === CAP && pcCapLeft([], sh, null) === null && pairedInQty([], sh) === 0);
+
+  // รอบ 1 — ใส่เต็มเพดาน 5.4 (ยอด short ค้าง 10 → เหลือ 4.6)
+  const g1 = offsetShorts(ov, [{ row: sh, qty: CAP, cap: capOf([], sh), tag: 'PC RETURN' }], { person: 'ก', at });
+  const book1 = g1.entries, sh1 = g1.shortRecs[0], ov1 = g1.overRec;
+  ok('pairedInQty: นับยอดที่ทดแทนไปแล้วจากคู่ในสมุด (ใบรับเข้าที่เลขที่ลงท้าย P + มีใบส่งคืนคู่)',
+     pairedInQty(book1, sh1) === CAP && remainOf(sh1) === 4.6, `${pairedInQty(book1, sh1)}`);
+  ok('pcCapLeft: เพดานที่เหลือหลังรอบแรก = 0 (เทียบกับยอด short ที่ยังค้าง 4.6 — จอต้องยังโชว์ "ได้ไม่เกิน 0")',
+     capOf(book1, sh1) === 0);
+  throws('กดรอบสองติด: เพดานสะสมเต็มแล้ว ทดแทนยอดที่เหลือต่อไม่ได้',
+         () => offsetShorts(ov1, [{ row: sh1, qty: 4.6, cap: capOf(book1, sh1), tag: 'PC RETURN' }], { person: 'ก', at }),
+         'PC return ได้ไม่เกิน 0');
+
+  // ทดแทนบางส่วนแล้วกดต่อ — เพดานที่เหลือต้องเป็นส่วนต่าง ไม่ใช่เพดานเต็มอีกรอบ
+  const g2 = offsetShorts(ov, [{ row: sh, qty: 2, cap: capOf([], sh), tag: 'PC RETURN' }], { person: 'ก', at });
+  const book2 = g2.entries, sh2 = g2.shortRecs[0];
+  ok('ทดแทนบางส่วน 2 → เพดานเหลือ 3.4', capOf(book2, sh2) === 3.4, `${capOf(book2, sh2)}`);
+  throws('รอบสองใส่ 4 (รวม 6 เกินเพดาน 5.4) = โยน',
+         () => offsetShorts(g2.overRec, [{ row: sh2, qty: 4, cap: capOf(book2, sh2), tag: 'PC RETURN' }], { person: 'ก', at }),
+         'PC return ได้ไม่เกิน 3.4');
+  ok('รอบสองใส่ 3.4 (รวมพอดีเพดาน) ผ่าน · ยอดรวมที่ทดแทนทั้งสองรอบ = 5.4',
+     (() => {
+       const g3 = offsetShorts(g2.overRec, [{ row: sh2, qty: 3.4, cap: capOf(book2, sh2), tag: 'PC RETURN' }], { person: 'ก', at });
+       const all = [...book2, ...g3.entries];
+       return pairedInQty(all, g3.shortRecs[0]) === CAP && capOf(all, g3.shortRecs[0]) === 0;
+     })());
+  // ยกเลิกคู่แล้วเพดานต้องคืนมา ไม่งั้นแก้รายการผิดแล้วทำต่อไม่ได้
+  ok('ยกเลิกคู่ (ส่งคืนถูกยกเลิก) → ไม่นับเป็นยอดที่ทดแทนแล้ว เพดานกลับมาเต็ม',
+     capOf(book1.map(e => e.kind === 'sendback' ? { ...e, voided: true } : e), sh1) === CAP);
+  ok('pairedInQty: คู่ของ PO / รหัส / นิติบุคคลอื่น ไม่ถูกนับรวม (A3)',
+     pairedInQty(book1, { ...sh1, po: 'TM9999H001' }) === 0
+     && pairedInQty(book1, { ...sh1, code: 'ZZ' }) === 0
+     && pairedInQty(book1, { ...sh1, entity: 'OTHER' }) === 0);
+
+  ok('จอ: rtCap หักยอดที่ทดแทนไปแล้วผ่าน pcCapLeft (ไม่เทียบเพดานดิบ) · ตารางโชว์ "ทดแทนไปแล้ว"',
+     /done: pairedInQty\(entries\.value, s\), left: pcCapLeft\(entries\.value, s, \(rtPcOf\(s\) \|\| \{\}\)\.cap\)/.test(appOver)
+     && /const rtDone = s => \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.done \|\| 0;/.test(appOver)
+     && /const left = rt\.mode === 3 \? \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.left : null;/.test(appOver)
+     && !/Math\.min\(remainOf\(s\), pc\.cap\)/.test(appOver)
+     && /rtDone,/.test(appOver)
+     && htmlOver.includes('ทดแทนไปแล้ว {{ mrpNum(rtDone(x)) }}'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

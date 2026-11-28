@@ -1513,6 +1513,43 @@ export function pairTwins(entries, e) {
 }
 
 /**
+ * ยอดที่เคยทดแทนให้เรื่อง short ใบนี้ไปแล้วด้วยคู่ "คืนของ แบบ 2 / 3" (ทุกรอบที่ยังไม่ถูกยกเลิก)
+ * หาจากสมุดตรง ๆ ไม่ต้องเพิ่มช่องใหม่และไม่ต้องอ่านสตริงของหมายเหตุ:
+ * ใบ 'receive' ที่เลขที่ลงท้าย PAIR_SUFFIX · PO + รหัส + นิติบุคคลเดียวกับเรื่อง (A3)
+ * และมีใบ 'sendback' คู่ที่ยังไม่ถูกยกเลิก (ตรรกะเดียวกับ splitPairs)
+ * ⚠️ ยกเลิกคู่แล้วยอดคืนมาเอง เพราะนับแค่ใบที่ยังไม่ถูกยกเลิกทั้งสองข้าง
+ */
+export function pairedInQty(entries, short) {
+  if (!short || !txt(short.po)) return 0;
+  const po = txt(short.po), code = txt(short.code).toUpperCase(), ent = txt(short.entity);
+  const byId = new Map((entries || []).filter(Boolean).map(e => [txt(e.id), e]));
+  let sum = 0;
+  for (const e of entries || []) {
+    if (!e || e.voided || e.kind !== 'receive') continue;
+    const id = txt(e.id);
+    if (!id.endsWith(PAIR_SUFFIX)) continue;
+    if (txt(e.doc_ref) !== po || txt(e.material_code).toUpperCase() !== code) continue;
+    if (ent && txt(e.entity) !== ent) continue;
+    const back = byId.get(id.slice(0, -PAIR_SUFFIX.length));
+    if (!back || back.kind !== 'sendback' || back.voided) continue;
+    sum = round5(sum + (Number(e.qty) || 0));
+  }
+  return sum;
+}
+
+/**
+ * เพดาน PC return ที่ยังเหลือของเรื่อง short ใบนี้ · null = หมายเหตุไฟล์ PO ไม่ได้กำหนดเพดาน
+ * ⚠️ เพดาน "Short N" ในหมายเหตุเป็น **ยอดรวม** ไม่ใช่ต่อการกดบันทึกหนึ่งครั้ง
+ *    ไม่หักยอดที่เคยทดแทนไปแล้ว กดสองรอบติดจะทะลุเพดานได้ทุกครั้งที่เพดานมีผล
+ *    (ผู้ตรวจ #205 รอบ 2 ข้อ 1) — over ของ PO หนึ่งจะถูกตัดไปลง short อีก PO
+ *    มากกว่าที่ Delta อนุญาต แล้วกระทบยอดราย PO กับ Delta ไม่ตรง
+ */
+export function pcCapLeft(entries, short, cap) {
+  if (cap == null || cap === '') return null;
+  return Math.max(0, round5(Number(cap) - pairedInQty(entries, short)));
+}
+
+/**
  * picks = [{ row: เรื่อง short, qty }] · แถวที่ qty ว่าง / 0 ข้ามไป
  * คืน { overRec, shortRecs, entries } — ผู้เรียกบันทึก entries ลงสมุดก่อน แล้วค่อยบันทึกเรื่อง
  * ⚠️ date/at = วันที่คืนจริง (แก้ย้อนได้) · updated_at ของเรื่องเป็นเวลาจริงตอนกด (now · D5) แบบ returnOver
@@ -1531,7 +1568,9 @@ export function offsetShorts(over, picks = [], { person = '', device = '', date 
     if (!txt(s.po)) throw new Error('เรื่อง short นี้ไม่มีเลข PO — รับเข้าคลังไม่ได้');
     const n = round5(Number(qty));
     if (n > remainOf(s)) throw new Error(`short ${txt(s.po)} ทดแทนได้ไม่เกินยอดที่ยังค้าง (${remainOf(s)})`);
-    // แบบ 3 PC return: "Short N" ในหมายเหตุไฟล์ PO = เพดานของ PO นั้น (เจ้าของสั่ง 27 พ.ย. 2026)
+    /* แบบ 3 PC return: "Short N" ในหมายเหตุไฟล์ PO = เพดานของ PO นั้น (เจ้าของสั่ง 27 พ.ย. 2026)
+     * ⚠️ เพดานเป็นยอดรวม ผู้เรียกต้องส่ง cap ที่หักยอดที่เคยทดแทนไปแล้วเข้ามา (pcCapLeft)
+     *    ส่งเพดานดิบเข้ามา ด่านนี้จะบังคับแค่ต่อครั้ง แล้วกดสองรอบติดทะลุได้ */
     if (cap != null && n > Number(cap)) throw new Error(`short ${txt(s.po)} PC return ได้ไม่เกิน ${cap} ตามหมายเหตุในไฟล์ PO`);
     total = round5(total + n);
   }
