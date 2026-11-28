@@ -379,7 +379,7 @@ export const MRP_SEG = [
 
 /** ตัวเลขบนจอ — คั่นหลักพัน ทศนิยมไม่เกินสี่ตำแหน่ง · ไม่มีค่า = — */
 export const mrpNum = n => (n == null || !isFinite(Number(n)) ? '—'
-  : round5(Number(n)).toLocaleString('en-US', { maximumFractionDigits: 4 }));
+  : (round5(Number(n)) || 0).toLocaleString('en-US', { maximumFractionDigits: 4 }));   // || 0 — ไม่ขึ้น "-0" (−266.6 + 266.6 ปัดแล้วได้ −0 · เจ้าของแจ้ง 28 พ.ย. 2026)
 
 /** ป้ายช่อง "จ่ายเทียบ BOM" ของหน้ายอดคงคลัง — d = issueDiff ของ stockPnRows · คืน [ข้อความ, คลาสสี]
  *  ส่วนต่างที่ปัดแล้วเป็น 0 (เศษทศนิยมหลักที่ 5) นับว่าครบ ไม่ขึ้น "จ่ายเกิน 0"

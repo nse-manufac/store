@@ -206,6 +206,13 @@ ok('ป้ายรายรหัส: ครบ · Short X · Over X · นอ�
    && mrpLineLabel(line('TM0001H963', A)).join() === 'Over 3,warn' && mrpLineLabel(line('TM0001H963', X))[0] === 'ไม่อยู่ใน BOM · Over 3'
    && mrpLineLabel(line('TM0001H962', B, run({ follows: [skipped] })))[0] === 'ขาด 1 · จบเรื่องแล้ว');
 ok('ตัวเลข: คั่นหลักพัน · ทศนิยมไม่เกินสี่ · ไม่มีค่า = —', mrpNum(1234.56789) === '1,234.5679' && mrpNum(null) === '—' && mrpNum(0.0011) === '0.0011');
+ok('ตัวเลข: ศูนย์ติดลบจากการปัด ไม่ขึ้น "-0" (เจ้าของแจ้ง 28 พ.ย. 2026)', mrpNum(-0) === '0' && mrpNum(-266.6 + 516 - 249.4) === '0'
+   && mrpNum(-0.000001) === '0' && mrpNum(-0.5) === '-0.5');
+{
+  // กล่องลอยทุกอันเลื่อนลงได้ — กล่องแก้รายการจ่ายสูงเกินจอแล้วปุ่มบันทึกตกขอบ กดไม่ได้ (เจ้าของแจ้ง 28 พ.ย. 2026)
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: .modal เลื่อนได้ (overflow-y:auto) เมื่อกล่องสูงเกินจอ', /\.modal\{[^}]*overflow-y:auto[^}]*\}/.test(html));
+}
 ok('ปุ่มตัวกรองบนจอมีครบทุกตัวกรอง', MRP_SEG.every(s => MRP_FILTERS[s.k]) && MRP_SEG.length === Object.keys(MRP_FILTERS).length);
 
 console.log('=== M7. ดึงสถานะส่งของจาก plan (เจ้าของสั่ง 13 พ.ย. 2026) ===');

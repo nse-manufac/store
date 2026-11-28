@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.12">
+<meta name="app-version" content="2026-11-28.13">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -227,8 +227,9 @@ textarea{font:inherit}
 .fold-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
 .fold-i{display:inline-block;width:1.1em}
 .fold-shut{display:none}
+/* overflow-y:auto — กล่องที่สูงเกินจอต้องเลื่อนลงได้ ไม่งั้นปุ่มบันทึกท้ายกล่องตกขอบจอกดไม่ได้ (กล่องแก้รายการจ่าย #206 · เจ้าของแจ้ง 28 พ.ย. 2026) */
 .modal{position:fixed;inset:0;background:rgba(18,32,44,.45);display:flex;
-  align-items:flex-start;justify-content:center;padding:60px 16px;z-index:40}
+  align-items:flex-start;justify-content:center;padding:60px 16px;z-index:40;overflow-y:auto}
 .modal-box{background:var(--panel);border-radius:10px;padding:16px;width:min(760px,100%);
   box-shadow:0 12px 40px rgba(0,0,0,.3)}
 .modal-box tbody tr:hover{background:var(--soft)}
