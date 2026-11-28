@@ -647,19 +647,21 @@ export function fixSweepAt(entries, entity, po, code, srcAt) {
 }
 
 /**
- * PO ที่ยังมีของของรหัสหนึ่ง — ให้กล่องจ่ายออกจากหน้ายอดคงคลัง "รายรหัส" เลือก PO (เจ้าของสั่ง 28 พ.ย. 2026)
+ * PO ของรหัสหนึ่ง — ให้กล่องจ่ายออกจากหน้ายอดคงคลัง "รายรหัส" เลือก PO (เจ้าของสั่ง 28 พ.ย. 2026)
  *   stocks = poStocks(entries, entity) · headerOf = poHeaderIndex(posVisible) ให้ PO Date กับ P/N ของใบ
- *   เฉพาะใบที่คงเหลือ > 0 (ใบติดลบ / ศูนย์ จ่ายไม่ได้อยู่แล้ว · A4) · ไม่กรองใบที่ปิดแล้ว — เคมีใช้รวมกันข้ามใบ ของค้างในใบเก่าได้
+ *   ปกติเฉพาะใบที่คงเหลือ > 0 · all = true รวมใบที่ของหมด / ติดลบด้วย (ใบที่เคยมีความเคลื่อนไหวของรหัสนี้)
+ *     — หน้านี้จ่ายเกินคงเหลือ PO ได้ (เคมีจ่ายเป็นขวด · A4 ข้อยกเว้น) ใบที่ของหมดแล้วจึงยังต้องเลือกได้
+ *   ไม่กรองใบที่ปิดแล้ว — เคมีใช้รวมกันข้ามใบ ของค้างในใบเก่าได้
  *   เรียง PO Date เก่าก่อน (ของเก่าออกก่อน) · ไม่รู้วันที่ไว้ท้าย
  *   ยอดของใบมาจาก poStocks ตัวเดียวกับหน้าราย P/N และหน้าจ่ายออก — ห้ามคิดใหม่ในนี้
  * คืน [{ po, date, pn, recv, sendback, issued, bal }]
  */
-export function codePoRows(stocks, code, headerOf) {
+export function codePoRows(stocks, code, headerOf, { all = false } = {}) {
   const c = txt(code), out = [];
   if (!c) return out;
   for (const [po, codes] of stocks || []) {
     const s = codes && codes.get(c);
-    if (!s || !(s.bal > 0)) continue;
+    if (!s || !(all || s.bal > 0)) continue;
     const h = headerOf ? headerOf(po) : null;
     out.push({ po, date: h ? txt(h.date) : '', pn: h ? txt(h.pn) : '',
                recv: s.recv, sendback: s.sendback, issued: s.issued, bal: s.bal });
@@ -684,4 +686,29 @@ export function codePnGroups(rows) {
   }
   return [...m.values()].sort((a, b) => (a.pn ? 0 : 1) - (b.pn ? 0 : 1)
     || (a.date || '9999').localeCompare(b.date || '9999') || a.pn.localeCompare(b.pn));
+}
+
+/**
+ * รายการที่หน้ายอดคงคลัง "รายรหัส" แสดง และจ่ายจากยอดรวมได้ (เจ้าของสั่ง 28 พ.ย. 2026 — แทนเคมี + METAL PART ของ 25 พ.ย.)
+ *   หมวด CHEMICAL ทั้งหมด + ชื่อมีคำ TERMINAL หรือ SOLDER (ไม่ว่าอยู่หมวดไหน — ทะเบียนไม่มีหมวดสองตัวนี้แยก
+ *   terminal อยู่ใน METAL PART ปนกับ STRIP / CLIP / PIN · solder wire ถูกจัดเป็น WIRE หรือ CHEMICAL)
+ *   คำต้องขึ้นต้นคำ (TERMINALS · SOLDERING นับ) · METAL PART ตัวอื่นไปดูราย P/N
+ */
+const POOL_WORDS = ['TERMINAL', 'SOLDER'];
+export function isPoolItem(category, desc) {
+  if (txt(category).toUpperCase() === 'CHEMICAL') return true;
+  const d = txt(desc).toUpperCase();
+  return POOL_WORDS.some(w => new RegExp('(?:^|[^A-Z0-9])' + w).test(d));
+}
+
+/**
+ * ตัวเลขของกล่องจ่ายหน้ารายรหัส (เจ้าของสั่ง 28 พ.ย. 2026) — เคมีจ่ายเป็นขวด ยังไม่รู้ว่าขวดละกี่ KG พนักงานใส่ KG ตามประมาณ
+ *   จึง **ไม่บล็อก** จ่ายเกินคงเหลือ PO / เกินยอดคงคลังรวม (ข้อยกเว้นของ A4) และไม่คุม BOM — เตือนอย่างเดียว ให้เห็นยอดรวมไว้คุมของจริง
+ *   p = แถวของ PO ที่เลือก ({ bal }) · total = ยอดคงคลังรวมของรหัส (balances) · qty = จำนวนที่จะจ่าย
+ * คืน { qty, poAfter, totalAfter, overPo, overTotal, ok } · ok = qty > 0 อย่างเดียว
+ */
+export function codeIssueCheck(p, total, qty) {
+  const q = round5(Number(qty) || 0);
+  const bal = round5(Number(p && p.bal) || 0), tot = round5(Number(total) || 0);
+  return { qty: q, poAfter: round5(bal - q), totalAfter: round5(tot - q), overPo: q > bal, overTotal: q > tot, ok: q > 0 };
 }

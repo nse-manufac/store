@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups, isPoolItem, codeIssueCheck } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1798,10 +1798,11 @@ createApp({
 
     const balShown = computed(() => {
       const t = balQ.value.trim().toUpperCase();
-      // รายรหัสเหลือเฉพาะเคมี (เจ้าของสั่ง 22 พ.ย. 2026) + METAL PART (เจ้าของขอเพิ่ม 25 พ.ย.) — ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
+      // รายรหัส = เคมี + TERMINAL + SOLDER (เจ้าของสั่ง 28 พ.ย. 2026 แทนเคมี + METAL PART) — ของที่จ่ายจากยอดรวม · กฎอยู่ที่ isPoolItem
+      // ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
       const pool = balAll.value.filter(r =>
         (balZero.value || r.qty !== 0) &&
-        (r.category === 'CHEMICAL' || r.category === 'METAL PART') &&
+        isPoolItem(r.category, r.desc) &&
         (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
       return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
     });
@@ -1906,20 +1907,22 @@ createApp({
         bpIss.open = false;
       } catch (err) { flash(err.message, true); }
     }
-    /* จ่ายออกจากหน้ารายรหัส (เคมี · METAL PART · เจ้าของสั่ง 28 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถวรหัส → เลือก PO ที่ยังมีของในกล่อง
+    /* จ่ายออกจากหน้ารายรหัส (เคมี · TERMINAL · SOLDER · เจ้าของสั่ง 28 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถวรหัส → เลือก P/N → PO ในกล่อง
      * เคมีจ่ายรวมข้าม PO จึงให้เลือกใบเอง (ใบเก่าขึ้นก่อน · codePoRows) · โชว์ P/N ของใบ แต่ไม่คุมจ่ายสะสมตาม BOM (เจ้าของสั่ง)
-     * เพดานคือคงเหลือของใบที่เลือก (A4) — poIssueCheck แบบไม่รู้ยอดตาม BOM · ตัวเลขอ่านจากสมุดทุกครั้งแบบ bpIssRow */
-    const ciIss = reactive({ open: false, code: '', po: '', date: '', person: '', requester: '', qty: null });
+     * ⚠️ ไม่บล็อกจ่ายเกินคงเหลือ PO / ยอดรวม — เคมีจ่ายเป็นขวด ยังไม่รู้ขวดละกี่ KG ใส่ KG ตามประมาณ (ข้อยกเว้นของ A4 · เจ้าของสั่ง)
+     *    เตือนสีเหลือง + โชว์ยอดคงคลังรวมไว้คุมของจริง · ตัวเลขอยู่ที่ codeIssueCheck · อ่านจากสมุดทุกครั้งแบบ bpIssRow */
+    const ciIss = reactive({ open: false, code: '', po: '', date: '', person: '', requester: '', qty: null, all: false });
     const ciFold = reactive({});   // P/N ที่กางอยู่ในกล่อง — กาง P/N แล้วเห็น PO ของ P/N นั้น แบบหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026)
     function ciIssOpen(code) {
-      Object.assign(ciIss, { open: true, code, po: '', date: todayLocal(), requester: '', qty: null });   // ผู้จ่ายจำชื่อล่าสุดไว้ แบบ bpIss
+      Object.assign(ciIss, { open: true, code, po: '', date: todayLocal(), requester: '', qty: null, all: false });   // ผู้จ่ายจำชื่อล่าสุดไว้ แบบ bpIss
       for (const k of Object.keys(ciFold)) delete ciFold[k];
       if (ciIssGroups.value.length === 1) ciFold[ciIssGroups.value[0].pn] = true;   // P/N เดียว กางให้เลย
     }
-    const ciIssPos = computed(() => (ciIss.open && entity.value ? codePoRows(poStocks(entries.value, entity.value), ciIss.code, poIdx.value) : []));
+    const ciIssPos = computed(() => (ciIss.open && entity.value ? codePoRows(poStocks(entries.value, entity.value), ciIss.code, poIdx.value, { all: ciIss.all }) : []));
+    const ciIssTotal = computed(() => (ciIss.open ? bookBalances.value.get(ciIss.code) || 0 : 0));   // ยอดคงคลังรวมของรหัส (ทุก PO + ที่ไม่อ้าง PO) — ตัวเดียวกับคอลัมน์คงเหลือ
     const ciIssGroups = computed(() => codePnGroups(ciIssPos.value));
     const ciIssRow = computed(() => ciIssPos.value.find(p => p.po === ciIss.po) || null);
-    const ciIssChk = computed(() => (ciIssRow.value ? poIssueCheck({ need: null, issued: ciIssRow.value.issued, bal: ciIssRow.value.bal }, ciIss.qty) : null));
+    const ciIssChk = computed(() => (ciIssRow.value ? codeIssueCheck(ciIssRow.value, ciIssTotal.value, ciIss.qty) : null));
     async function ciIssSave() {
       const c = ciIssChk.value, r = ciIssRow.value;
       if (!c || !c.ok || !r || !ciIss.person || !ciIss.requester || !ciIss.date || futureBlocked(ciIss.date)) return;
@@ -4259,7 +4262,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssGroups, ciFold, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssGroups, ciFold, ciIssTotal, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,

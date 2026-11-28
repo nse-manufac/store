@@ -754,10 +754,21 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      gs[0].bal === 3 && gs[0].date === '2026-09-01' && gs[0].pos.map(p => p.po).join() === 'P1,P5'
      && gs[1].bal === 1.25 && gs[1].date === '2026-10-01' && gs[1].pos.map(p => p.po).join() === 'P3,P2');
   ok('ไม่มีใบ = []', codePnGroups([]).length === 0 && codePnGroups(null).length === 0);
-  // กฎจ่าย: ไม่คุม BOM (เจ้าของสั่ง) — ใช้ poIssueCheck แบบไม่รู้ยอดตาม BOM = เพดานคือคงเหลือของใบที่เลือกอย่างเดียว
-  const p = { need: null, issued: rows[0].issued, bal: rows[0].bal };
-  ok('จ่ายได้ไม่เกินคงเหลือของ PO ที่เลือก · ไม่มีเพดาน BOM', poIssueCheck(p, 25).ok && !poIssueCheck(p, 25.001).ok
-     && poIssueCheck(p, 25.001).overRecv && poIssueCheck(p, 0).bomLeft === null && poIssueCheck(p, 0).max === 25);
+  // หน้ารายรหัส = เคมี + TERMINAL + SOLDER · จ่ายเกินได้ เตือนอย่างเดียว (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { isPoolItem, codeIssueCheck } = await import('../v2/master/mrp.js');
+  ok('หน้ารายรหัส: หมวด CHEMICAL ทุกตัว · ชื่อมี TERMINAL / SOLDER ไม่ว่าหมวดไหน',
+     isPoolItem('CHEMICAL', 'THINNER') && isPoolItem('METAL PART', 'TERMINAL PIN 1.0') && isPoolItem('WIRE', 'SOLDER WIRE SN99.3')
+     && isPoolItem('METAL PART', 'TERMINALS BRASS') && isPoolItem('chemical', ''));
+  ok('หน้ารายรหัส: METAL PART ตัวอื่น / หมวดอื่นไม่ขึ้น · คำต้องขึ้นต้นคำ',
+     !isPoolItem('METAL PART', 'STRIP CU 0.3') && !isPoolItem('METAL PART', 'CLIP') && !isPoolItem('WIRE', 'WIRE 0.35 UEW')
+     && !isPoolItem('OTHER', 'XTERMINAL') && !isPoolItem('', ''));
+  const k = codeIssueCheck({ bal: 0.3 }, 0.65, 0.5);
+  ok('จ่ายเกินคงเหลือ PO ได้ (ไม่บล็อก) · บอกคงเหลือ PO / ยอดรวมหลังจ่าย', k.ok && k.overPo && !k.overTotal && k.poAfter === -0.2 && k.totalAfter === 0.15);
+  ok('จ่ายเกินยอดคงคลังรวมก็ได้ แต่ธงเตือนขึ้น · 0 / ว่าง / ติดลบ ไม่ผ่าน',
+     codeIssueCheck({ bal: 0 }, 0.2, 1).ok && codeIssueCheck({ bal: 0 }, 0.2, 1).overTotal && codeIssueCheck({ bal: 0 }, 0.2, 1).totalAfter === -0.8
+     && [0, null, '', -1].every(x => !codeIssueCheck({ bal: 1 }, 1, x).ok));
+  ok('codePoRows all: รวมใบที่ของหมด / ติดลบด้วย', codePoRows(stocks, 'CH1', po => head[po] || null, { all: true }).map(r => r.po).join()
+     === 'PO-ZERO,PO-NEG,PO-OLD,PO-NEW,PO-NOHEAD');
 }
 
 {
@@ -770,11 +781,19 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      /<template v-for="g in ciIssGroups"/.test(html) && /@click="ciFold\[g\.pn\] = !ciFold\[g\.pn\]"/.test(html) && /<tr v-for="p in g\.pos"/.test(html)
      && html.includes("{{ g.pn || 'ไม่รู้ P/N' }}") && /codePnGroups\(ciIssPos\.value\)/.test(app)
      && /@click="ciIssSave"\s*:disabled="!ciIssChk \|\| !ciIssChk\.ok \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date"/.test(html));
-  ok('app.js: PO มาจาก codePoRows(poStocks(...)) · กฎ = poIssueCheck แบบไม่รู้ BOM (need: null) · บันทึกผ่าน postPoIssue อ้าง PO + P/N ของใบ',
-     /codePoRows\(poStocks\(entries\.value, entity\.value\), ciIss\.code, poIdx\.value\)/.test(app)
-     && /poIssueCheck\(\{ need: null, issued: ciIssRow\.value\.issued, bal: ciIssRow\.value\.bal \}, ciIss\.qty\)/.test(app)
+  ok('app.js: PO มาจาก codePoRows(poStocks(...), { all }) · ตัวเลข = codeIssueCheck กับยอดคงคลังรวม · บันทึกผ่าน postPoIssue อ้าง PO + P/N ของใบ',
+     /codePoRows\(poStocks\(entries\.value, entity\.value\), ciIss\.code, poIdx\.value, \{ all: ciIss\.all \}\)/.test(app)
+     && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty\)/.test(app)
+     && /bookBalances\.value\.get\(ciIss\.code\)/.test(app)
      && /if \(!c \|\| !c\.ok \|\| !r \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| futureBlocked\(ciIss\.date\)\) return;/.test(app)
      && /postPoIssue\(\{ po: r\.po, code: ciIss\.code, pn: r\.pn,/.test(app));
+  // เคมีจ่ายเป็นขวด — ไม่บล็อกจ่ายเกิน (A4 ข้อยกเว้น · เจ้าของสั่ง 28 พ.ย. 2026) แต่ต้องเห็นยอดรวมและคำเตือน
+  ok('จอ: จ่ายเกินคงเหลือ PO / ยอดรวมไม่ทำให้ปุ่มบันทึกปิด · เตือนสีเหลือง · โชว์คงคลังรวม · ติ๊กแสดง PO ที่ของหมดได้',
+     !/ciIssChk\.overPo[^"]*"[^>]*disabled|:disabled="[^"]*overPo/.test(html) && !html.includes('ciIssChk.overRecv')
+     && /:class="ciIssChk\.overPo \|\| ciIssChk\.overTotal \? 'warn' : 'ok'"/.test(html)
+     && html.includes('data-ciiss-total>{{ mrpNum(ciIssTotal) }}') && html.includes('v-model="ciIss.all"'));
+  ok('หน้ารายรหัสกรองด้วย isPoolItem (เคมี · TERMINAL · SOLDER) แทนเคมี + METAL PART',
+     /isPoolItem\(r\.category, r\.desc\)/.test(app) && !/r\.category === 'METAL PART'/.test(app) && html.includes('เฉพาะเคมี · TERMINAL · SOLDER'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
