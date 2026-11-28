@@ -18,7 +18,7 @@ import { lotsOf, suggestLots, traceLot, receiveLot, relot } from './core/lots.js
 // counts() ของสมุดชื่อชนกับ counts ที่เป็นรอบนับของในไฟล์นี้ จึงเรียกใหม่ว่า alive
 import { makeEntry, voidEntry, REASONS, KINDS, counts as alive, unknownKinds, round5, logRows, logSheet,
          setExpiry, missingExpiry, missingExpiryCounts, fracTolOf, FRAC_TOL, isFracAdj } from './core/ledger.js';
-import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, overIssue, fracSweep, fracTwins, isFracLeft, lastIssueAt } from './core/balance.js';
+import { balances, balancesAt, cardRows, oddBalances, receivedOfDoc, poStockOf, poStocks, poMoves, stillToIssue, overIssue, fracSweep, fracTwins, isFracLeft, lastIssueAt, fracCleanAt } from './core/balance.js';
 import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal, rollDay, futureDateErr } from './core/localtime.js';
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
@@ -1869,18 +1869,10 @@ createApp({
       if (!person || !date || futureBlocked(date)) return;
       /* กันไม่ให้เกิดรายการล้างเศษที่ at เก่ากว่าใบจ่ายออกใบล่าสุด — fracTwins ผูกคู่ไม่เจอ
        * แล้วยกเลิกใบจ่ายทีหลังยอด PO จะขาดไปเท่าเศษเงียบ ๆ (ผู้ตรวจ #198 รอบ 1)
-       * :min ของช่องวันที่เป็นแค่ความสะดวก กันการพิมพ์ค่าเองไม่ได้ ด่านจริงอยู่ที่นี่ */
-      const floor = bpFqFloor.value;
-      let at = atFrom(date);
-      if (floor && at < floor) {
-        if (localDate(at) !== localDate(floor)) {
-          flash(`ล้างเศษย้อนหลังก่อนวันที่จ่ายออกครั้งล่าสุด (${localDate(floor)}) ไม่ได้ — เลือกวันที่ตั้งแต่วันนั้นขึ้นไป`, true);
-          return;
-        }
-        /* วันเดียวกับใบจ่าย แต่ atFrom ยืมเวลาในวันจากนาฬิกาตอนกด ซึ่งย้อนกว่าเวลาในใบที่คีย์ย้อนหลังไว้
-         * ขยับแค่เวลาในวันให้เท่าใบจ่าย — วันที่ที่บันทึกยังเป็นวันที่คนเลือก ไม่ใช่การเปลี่ยนวันเงียบ ๆ */
-        at = floor;
-      }
+       * :min ของช่องวันที่เป็นแค่ความสะดวก กันการพิมพ์ค่าเองไม่ได้ ด่านจริงอยู่ที่นี่ · ตัวตัดสินคือ fracCleanAt (core/balance.js) */
+      const t = fracCleanAt(date, bpFqFloor.value);
+      if (t.err) { flash(t.err, true); return; }
+      const at = t.at;
       try {
         const add = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person, device: device.value, part_no: pn, at });
         if (add.length) { await db.put('entries', add); entries.value.push(...add); db.announce('entries'); }

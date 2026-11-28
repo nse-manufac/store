@@ -9,6 +9,7 @@
  * จึงทำให้ "ลืมไม่ได้" ด้วยการไม่ให้มีค่าเริ่มต้น
  */
 import { signedQty, counts, round5, KINDS, isKnownKind, makeEntry, isFracAdj, FRAC_REASON } from './ledger.js';
+import { atFrom, localDate } from './localtime.js';
 
 function need(entity) {
   if (!entity) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
@@ -224,6 +225,24 @@ export function lastIssueAt(entries, entity, po, code) {
     if (at > max) max = at;
   }
   return max;
+}
+
+/**
+ * เวลา at ของรายการล้างเศษจากกล่องที่ให้คนเลือกวันที่เอง — คืน { at } หรือ { err } (ข้อความแดง)
+ * floor = lastIssueAt ของ PO + รหัสนั้น ('' = ยังไม่มีใบจ่าย ไม่มีพื้น)
+ *   - วันที่เลือกอยู่ก่อนวันของใบจ่ายล่าสุด → err (ล้างย้อนข้ามใบจ่ายไม่ได้)
+ *   - วันเดียวกับใบจ่าย แต่ atFrom ยืมเวลาในวันจากนาฬิกาตอนกด ซึ่งย้อนกว่าเวลาในใบที่คีย์ย้อนหลังไว้
+ *     → at = floor ขยับแค่เวลาในวัน วันที่ที่บันทึกยังเป็นวันที่คนเลือก ไม่ใช่การเปลี่ยนวันเงียบ ๆ
+ * แยกออกมาจาก bpFracClean ให้เทสด้วยการรันจริงได้ (ผู้ตรวจ #198 ข้อสังเกต 2)
+ */
+export function fracCleanAt(date, floor, now = new Date()) {
+  let at = atFrom(date, now);
+  if (floor && at < floor) {
+    if (localDate(at) !== localDate(floor))
+      return { err: `ล้างเศษย้อนหลังก่อนวันที่จ่ายออกครั้งล่าสุด (${localDate(floor)}) ไม่ได้ — เลือกวันที่ตั้งแต่วันนั้นขึ้นไป` };
+    at = floor;
+  }
+  return { at };
 }
 
 /** รายการล้างเศษของ PO + รหัสเดียวกันที่ทำตั้งแต่จ่ายออกรายการนี้เป็นต้นไป (ยังไม่ยกเลิก)
