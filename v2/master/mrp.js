@@ -697,18 +697,6 @@ export function codePnGroups(rows) {
     || (a.date || '9999').localeCompare(b.date || '9999') || a.pn.localeCompare(b.pn));
 }
 
-/**
- * รายการที่หน้ายอดคงคลัง "รายรหัส" แสดง และจ่ายจากยอดรวมได้ (เจ้าของสั่ง 28 พ.ย. 2026 — แทนเคมี + METAL PART ของ 25 พ.ย.)
- *   หมวด CHEMICAL ทั้งหมด + ชื่อมีคำ TERMINAL หรือ SOLDER (ไม่ว่าอยู่หมวดไหน — ทะเบียนไม่มีหมวดสองตัวนี้แยก
- *   terminal อยู่ใน METAL PART ปนกับ STRIP / CLIP / PIN · solder wire ถูกจัดเป็น WIRE หรือ CHEMICAL)
- *   คำต้องขึ้นต้นคำ (TERMINALS · SOLDERING นับ) · METAL PART ตัวอื่นไปดูราย P/N
- */
-const POOL_WORDS = ['TERMINAL', 'SOLDER'];
-export function isPoolItem(category, desc) {
-  if (txt(category).toUpperCase() === 'CHEMICAL') return true;
-  const d = txt(desc).toUpperCase();
-  return POOL_WORDS.some(w => new RegExp('(?:^|[^A-Z0-9])' + w).test(d));
-}
 
 /**
  * ตัวเลขของกล่องจ่ายหน้ารายรหัส (เจ้าของสั่ง 28 พ.ย. 2026) — เคมีจ่ายเป็นขวด ยังไม่รู้ว่าขวดละกี่ KG พนักงานใส่ KG ตามประมาณ

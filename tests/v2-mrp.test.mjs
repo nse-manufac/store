@@ -775,14 +775,8 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      gs[0].bal === 3 && gs[0].date === '2026-09-01' && gs[0].pos.map(p => p.po).join() === 'P1,P5'
      && gs[1].bal === 1.25 && gs[1].date === '2026-10-01' && gs[1].pos.map(p => p.po).join() === 'P3,P2');
   ok('ไม่มีใบ = []', codePnGroups([]).length === 0 && codePnGroups(null).length === 0);
-  // หน้ารายรหัส = เคมี + TERMINAL + SOLDER · จ่ายเกินได้ เตือนอย่างเดียว (เจ้าของสั่ง 28 พ.ย. 2026)
-  const { isPoolItem, codeIssueCheck } = await import('../v2/master/mrp.js');
-  ok('หน้ารายรหัส: หมวด CHEMICAL ทุกตัว · ชื่อมี TERMINAL / SOLDER ไม่ว่าหมวดไหน',
-     isPoolItem('CHEMICAL', 'THINNER') && isPoolItem('METAL PART', 'TERMINAL PIN 1.0') && isPoolItem('WIRE', 'SOLDER WIRE SN99.3')
-     && isPoolItem('METAL PART', 'TERMINALS BRASS') && isPoolItem('chemical', ''));
-  ok('หน้ารายรหัส: METAL PART ตัวอื่น / หมวดอื่นไม่ขึ้น · คำต้องขึ้นต้นคำ',
-     !isPoolItem('METAL PART', 'STRIP CU 0.3') && !isPoolItem('METAL PART', 'CLIP') && !isPoolItem('WIRE', 'WIRE 0.35 UEW')
-     && !isPoolItem('OTHER', 'XTERMINAL') && !isPoolItem('', ''));
+  // หน้ารายรหัส: จ่ายเกินได้ เตือนอย่างเดียว (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { codeIssueCheck } = await import('../v2/master/mrp.js');
   const k = codeIssueCheck({ bal: 0.3 }, 0.65, 0.5);
   ok('จ่ายเกินคงเหลือ PO ได้ (ไม่บล็อก) · บอกคงเหลือ PO / ยอดรวมหลังจ่าย', k.ok && k.overPo && !k.overTotal && k.poAfter === -0.2 && k.totalAfter === 0.15);
   ok('จ่ายเกินยอดคงคลังรวมก็ได้ แต่ธงเตือนขึ้น · 0 / ว่าง / ติดลบ ไม่ผ่าน',
@@ -848,8 +842,6 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty, ciIssHold\.value\.total\)/.test(app)
      && html.includes('data-ciiss-hold') && html.includes('<th class="r">เกิน BOM รอคืน</th>') && html.includes('data-ciiss-holdwarn')
      && !/:disabled="[^"]*holdShort/.test(html));
-  ok('หน้ารายรหัสกรองด้วย isPoolItem (เคมี · TERMINAL · SOLDER) แทนเคมี + METAL PART',
-     /isPoolItem\(r\.category, r\.desc\)/.test(app) && !/r\.category === 'METAL PART'/.test(app) && html.includes('เฉพาะเคมี · TERMINAL · SOLDER'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
