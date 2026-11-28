@@ -1513,6 +1513,44 @@ export function pairTwins(entries, e) {
 }
 
 /**
+ * ยอดที่เคยทดแทนให้เรื่อง short ใบนี้ไปแล้วด้วยคู่ "คืนของ แบบ 2 / 3" (ทุกรอบที่ยังไม่ถูกยกเลิก)
+ * หาจากสมุดตรง ๆ ไม่ต้องเพิ่มช่องใหม่และไม่ต้องอ่านสตริงของหมายเหตุ:
+ * ใบ 'receive' ที่เลขที่ลงท้าย PAIR_SUFFIX · PO + รหัส + นิติบุคคลเดียวกับเรื่อง (A3)
+ * และมีใบ 'sendback' คู่ที่ยังไม่ถูกยกเลิก (ตรรกะเดียวกับ splitPairs)
+ * ⚠️ ยกเลิกคู่แล้วยอดคืนมาเอง เพราะนับแค่ใบที่ยังไม่ถูกยกเลิกทั้งสองข้าง
+ */
+export function pairedInQty(entries, short) {
+  if (!short || !txt(short.po)) return 0;
+  const po = txt(short.po), code = txt(short.code).toUpperCase(), ent = txt(short.entity);
+  const byId = new Map((entries || []).filter(Boolean).map(e => [txt(e.id), e]));
+  let sum = 0;
+  for (const e of entries || []) {
+    if (!e || e.voided || e.kind !== 'receive') continue;
+    const id = txt(e.id);
+    if (!id.endsWith(PAIR_SUFFIX)) continue;
+    if (txt(e.doc_ref) !== po || txt(e.material_code).toUpperCase() !== code) continue;
+    if (ent && txt(e.entity) !== ent) continue;
+    const back = byId.get(id.slice(0, -PAIR_SUFFIX.length));
+    if (!back || back.kind !== 'sendback' || back.voided) continue;
+    sum = round5(sum + (Number(e.qty) || 0));
+  }
+  return sum;
+}
+
+/**
+ * เพดาน PC return ที่ยังเหลือของ PO + รหัสของเรื่อง short ใบนี้ · null = หมายเหตุไฟล์ PO ไม่ได้กำหนดเพดาน
+ * ⚠️ เป็นเพดานของ PO ไม่ใช่ของเรื่อง — เรื่องซ้ำหลายใบของ PO + รหัสเดียวกันใช้เพดานก้อนเดียวกันนี้
+ * ⚠️ เพดาน "Short N" ในหมายเหตุเป็น **ยอดรวม** ไม่ใช่ต่อการกดบันทึกหนึ่งครั้ง
+ *    ไม่หักยอดที่เคยทดแทนไปแล้ว กดสองรอบติดจะทะลุเพดานได้ทุกครั้งที่เพดานมีผล
+ *    (ผู้ตรวจ #205 รอบ 2 ข้อ 1) — over ของ PO หนึ่งจะถูกตัดไปลง short อีก PO
+ *    มากกว่าที่ Delta อนุญาต แล้วกระทบยอดราย PO กับ Delta ไม่ตรง
+ */
+export function pcCapLeft(entries, short, cap) {
+  if (cap == null || cap === '') return null;
+  return Math.max(0, round5(Number(cap) - pairedInQty(entries, short)));
+}
+
+/**
  * picks = [{ row: เรื่อง short, qty }] · แถวที่ qty ว่าง / 0 ข้ามไป
  * คืน { overRec, shortRecs, entries } — ผู้เรียกบันทึก entries ลงสมุดก่อน แล้วค่อยบันทึกเรื่อง
  * ⚠️ date/at = วันที่คืนจริง (แก้ย้อนได้) · updated_at ของเรื่องเป็นเวลาจริงตอนกด (now · D5) แบบ returnOver
@@ -1524,29 +1562,49 @@ export function offsetShorts(over, picks = [], { person = '', device = '', date 
   const use = (picks || []).filter(p => p && p.row && Number(p.qty) > 0);
   if (!use.length) throw new Error('ใส่ยอดที่ทดแทนอย่างน้อยหนึ่งแถว');
   let total = 0;
-  for (const { row: s, qty } of use) {
+  /* เพดาน "Short N" เป็นยอดรวมของ PO + รหัส ไม่ใช่ต่อเรื่อง short — PO + รหัสเดียวกันมีเรื่อง
+   * เปิดค้างได้สองใบ (ฟอร์มคีย์เรื่องเองไม่มีด่านกันซ้ำ · เรื่องซ้ำในชีตมีอยู่แล้ว) ถ้าเทียบ cap
+   * ทีละแถว ทั้งสองแถวได้เพดานเต็มใบละ แล้วรวมกันทะลุที่ Delta แจ้งในการกดครั้งเดียว
+   * (ผู้ตรวจ #205 รอบ 3 ข้อ 1) จึงต้องรวมยอดด้วยกุญแจ PO + รหัส แล้วเทียบยอดสะสม */
+  const capSum = new Map();
+  for (const { row: s, qty, cap } of use) {
     if (s.kind !== 'short' || s.voided) throw new Error('ทดแทนได้เฉพาะเรื่อง short ที่ยังไม่ถูกยกเลิก');
     if (txt(s.entity) !== txt(over.entity)) throw new Error(`short ${txt(s.po)} เป็นของนิติบุคคลอื่น — ทดแทนข้ามนิติบุคคลไม่ได้ (INVARIANTS A3)`);
     if (txt(s.code).toUpperCase() !== txt(over.code).toUpperCase()) throw new Error(`short ${txt(s.po)} เป็นคนละรหัสกับ over`);
     if (!txt(s.po)) throw new Error('เรื่อง short นี้ไม่มีเลข PO — รับเข้าคลังไม่ได้');
     const n = round5(Number(qty));
     if (n > remainOf(s)) throw new Error(`short ${txt(s.po)} ทดแทนได้ไม่เกินยอดที่ยังค้าง (${remainOf(s)})`);
+    /* แบบ 3 PC return: "Short N" ในหมายเหตุไฟล์ PO = เพดานของ PO นั้น (เจ้าของสั่ง 27 พ.ย. 2026)
+     * ⚠️ เพดานเป็นยอดรวมของ PO นั้น ไม่ใช่ต่อครั้งและไม่ใช่ต่อเรื่อง ผู้เรียกต้องส่ง cap ที่หัก
+     *    ยอดที่เคยทดแทนไปแล้วเข้ามา (pcCapLeft) · ส่งเพดานดิบเข้ามา ด่านนี้จะบังคับแค่ต่อครั้ง
+     *    แล้วกดสองรอบติดทะลุได้ · ยอดของหลายเรื่องใน PO เดียวกันรวมกันที่นี่ (capSum) */
+    if (cap != null) {
+      const key = txt(s.po) + '|' + txt(s.code).toUpperCase();
+      const got = capSum.get(key) || { cap: Number(cap), sum: 0 };
+      got.cap = Math.min(got.cap, Number(cap));
+      got.sum = round5(got.sum + n);
+      capSum.set(key, got);
+      if (got.sum > got.cap) throw new Error(got.sum === n
+        ? `short ${txt(s.po)} PC return ได้ไม่เกิน ${got.cap} ตามหมายเหตุในไฟล์ PO`
+        : `short ${txt(s.po)} PC return รวมทุกเรื่องของ PO นี้ ${got.sum} เกินเพดาน ${got.cap} ตามหมายเหตุในไฟล์ PO — ลดยอดที่ใส่ลง`);
+    }
     total = round5(total + n);
   }
   if (total > remainOf(over)) throw new Error(`รวมทดแทน ${total} เกินยอด over ที่ยังค้าง (${remainOf(over)})`);
   const day = txt(date) || txt(at).slice(0, 10);
   const entries = [], shortRecs = [], backIds = [];
-  for (const { row: s, qty } of use) {
+  for (const { row: s, qty, tag } of use) {
     const n = round5(Number(qty));
+    const via = txt(tag) ? `คืนของ · ${txt(tag)}` : 'คืนของ';   // แบบ 3 ติดป้าย PC / MC RETURN ให้ตามรอยได้
     const back = makeEntry({
       kind: 'sendback', entity: over.entity, material_code: over.code, qty: n,
       doc_kind: 'po', doc_ref: txt(over.po), part_no: txt(over.part_no), reason_code: 'carry',
-      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทน short PO ${txt(s.po)} (คืนของ)`
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทน short PO ${txt(s.po)} (${via})`
     });
     const recv = makeEntry({
       id: pairIdOf(back.id), kind: 'receive', entity: s.entity, material_code: s.code, qty: n,
       lot: day || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: txt(s.po), part_no: txt(s.part_no),
-      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทนจาก over PO ${txt(over.po)} (คืนของ)`
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทนจาก over PO ${txt(over.po)} (${via})`
     });
     entries.push(back, recv);
     backIds.push(back.id);

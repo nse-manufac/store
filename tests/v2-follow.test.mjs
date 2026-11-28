@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
-import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, reopenShort as reopenShortP } from '../v2/master/follow.js';
+import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, pairedInQty, pcCapLeft, reopenShort as reopenShortP } from '../v2/master/follow.js';
 import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, SKIP_WHY, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
@@ -2679,6 +2679,111 @@ console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทน�
   const plainUndo = reopenShortP(plainArr.rec, [plainArr.entry, ...r.entries], { by: 'ก', follows });
   ok('รับเข้าจาก "มาแล้ว" ปกติ (ไม่มีคู่) เอากลับแล้วยกเลิกแค่ใบนั้น ไม่แตะเรื่อง over',
      plainUndo.voids.length === 1 && plainUndo.voids[0].id === plainArr.entry.id && plainUndo.overRecs.length === 0);
+}
+
+console.log('\n=== RT3. คืนของ แบบ 3 — PC return (เจ้าของสั่ง 27 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H', at = '2026-11-28T03:00:00.000Z';
+  const ov = { ...makeFollow({ kind: 'over', entity: E, code: 'A1', po: 'TM9269H001', part_no: 'PN-A', qty: 20 }), id: 'OV3' };
+  const sh = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3' };
+  throws('"Short 5.4" ในหมายเหตุ = เพดาน · ใส่ 6 = โยน', () => offsetShorts(ov, [{ row: sh, qty: 6, cap: 5.4, tag: 'PC RETURN' }], { person: 'ก', at }), 'PC return ได้ไม่เกิน 5.4');
+  const r = offsetShorts(ov, [{ row: sh, qty: 5.4, cap: 5.4, tag: 'MC RETURN' }], { person: 'ก', at });
+  ok('ใส่ไม่เกินเพดานได้คู่เหมือนแบบ 2 · หมายเหตุทั้งคู่ติดป้าย MC RETURN ให้ตามรอยได้',
+     r.entries.length === 2 && r.entries.every(e => e.qty === 5.4 && e.note.includes('(คืนของ · MC RETURN)'))
+     && remainOf(r.shortRecs[0]) === 4.6, JSON.stringify(r.entries.map(e => e.note)));
+  ok('ไม่ส่ง tag (แบบ 2) = หมายเหตุเดิม "(คืนของ)"',
+     offsetShorts(ov, [{ row: sh, qty: 1 }], { person: 'ก', at }).entries.every(e => e.note.endsWith('(คืนของ)')));
+  ok('จอ: แบบ 2 / 3 แยกกันด้วย pcReturnIndex · เรื่องเดียวอยู่แบบเดียว · แบบ 3 ส่ง cap + tag เข้า offsetShorts',
+     /const rtList = computed\(\(\) => \(rt\.mode === 1 \? \[\] : rtShorts\.value\.filter\(s => !!rtPcOf\(s\) === \(rt\.mode === 3\)\)\)\);/.test(appOver)
+     && /const rtPcIdx = computed\(\(\) => pcReturnIndex\(pos\.value\)\);/.test(appOver)
+     && /cap: rtCapPo\(s\), tag: rtPcOf\(s\)\.kind \+ ' RETURN'/.test(appOver)
+     && /const big = rtList\.value\.find\(s => round5\(Number\(rt\.pick\[s\.id\]\) \|\| 0\) > rtCap\(s\)\);/.test(appOver));
+  ok('จอ: ปุ่มแบบ 3 + ตารางโชว์หมายเหตุจากไฟล์ PO เป็นหลักฐาน · แบบ 2 บอกว่ามีกี่ PO อยู่แบบ 3',
+     htmlOver.includes('@click="rt.mode = 3">3 · PC return') && htmlOver.includes('{{ rtPcOf(x).text }}')
+     && htmlOver.includes('<tr v-for="x in rtList"') && !htmlOver.includes('<tr v-for="x in rtShorts"')
+     && htmlOver.includes('อยู่ในแบบ 3</div>'));
+  ok('นำเข้าไฟล์ PO ซ้ำ: แถวเดิมที่หมายเหตุ L เปลี่ยนถูกเขียนลงเครื่อง (ติดธงซิงค์) และแทนที่ตัวบนจอ',
+     /plan\.noteUpd = poNoteUpdates\(p\.pos, pos\.value\)/.test(appOver) && /await db\.put\('pos', \[\.\.\.rows, \.\.\.upd\]\);/.test(appOver)
+     && /pos\.value\.splice\(i, 1, u\)/.test(appOver));
+
+  /* เพดาน "Short N" เป็นยอดรวม ไม่ใช่ต่อการกดบันทึกหนึ่งครั้ง (ผู้ตรวจ #205 รอบ 2 ข้อ 1)
+   * เดิมเทียบ cap ดิบทุกรอบ → กดเต็มเพดานรอบแรก ยอดค้างของ short ลดลง
+   * รอบถัดไป cap กลายเป็นยอดค้างที่เหลือ แล้วผ่านด่านอีกครั้ง รวมแล้วทะลุที่ Delta แจ้ง */
+  const CAP = 5.4;
+  const capOf = (book, s) => pcCapLeft(book, s, CAP);
+  ok('pcCapLeft: ยังไม่เคยทดแทน = เพดานเต็ม · ไม่มีเพดานในหมายเหตุ (null) = null',
+     capOf([], sh) === CAP && pcCapLeft([], sh, null) === null && pairedInQty([], sh) === 0);
+
+  // รอบ 1 — ใส่เต็มเพดาน 5.4 (ยอด short ค้าง 10 → เหลือ 4.6)
+  const g1 = offsetShorts(ov, [{ row: sh, qty: CAP, cap: capOf([], sh), tag: 'PC RETURN' }], { person: 'ก', at });
+  const book1 = g1.entries, sh1 = g1.shortRecs[0], ov1 = g1.overRec;
+  ok('pairedInQty: นับยอดที่ทดแทนไปแล้วจากคู่ในสมุด (ใบรับเข้าที่เลขที่ลงท้าย P + มีใบส่งคืนคู่)',
+     pairedInQty(book1, sh1) === CAP && remainOf(sh1) === 4.6, `${pairedInQty(book1, sh1)}`);
+  ok('pcCapLeft: เพดานที่เหลือหลังรอบแรก = 0 (เทียบกับยอด short ที่ยังค้าง 4.6 — จอต้องยังโชว์ "ได้ไม่เกิน 0")',
+     capOf(book1, sh1) === 0);
+  throws('กดรอบสองติด: เพดานสะสมเต็มแล้ว ทดแทนยอดที่เหลือต่อไม่ได้',
+         () => offsetShorts(ov1, [{ row: sh1, qty: 4.6, cap: capOf(book1, sh1), tag: 'PC RETURN' }], { person: 'ก', at }),
+         'PC return ได้ไม่เกิน 0');
+
+  // ทดแทนบางส่วนแล้วกดต่อ — เพดานที่เหลือต้องเป็นส่วนต่าง ไม่ใช่เพดานเต็มอีกรอบ
+  const g2 = offsetShorts(ov, [{ row: sh, qty: 2, cap: capOf([], sh), tag: 'PC RETURN' }], { person: 'ก', at });
+  const book2 = g2.entries, sh2 = g2.shortRecs[0];
+  ok('ทดแทนบางส่วน 2 → เพดานเหลือ 3.4', capOf(book2, sh2) === 3.4, `${capOf(book2, sh2)}`);
+  throws('รอบสองใส่ 4 (รวม 6 เกินเพดาน 5.4) = โยน',
+         () => offsetShorts(g2.overRec, [{ row: sh2, qty: 4, cap: capOf(book2, sh2), tag: 'PC RETURN' }], { person: 'ก', at }),
+         'PC return ได้ไม่เกิน 3.4');
+  ok('รอบสองใส่ 3.4 (รวมพอดีเพดาน) ผ่าน · ยอดรวมที่ทดแทนทั้งสองรอบ = 5.4',
+     (() => {
+       const g3 = offsetShorts(g2.overRec, [{ row: sh2, qty: 3.4, cap: capOf(book2, sh2), tag: 'PC RETURN' }], { person: 'ก', at });
+       const all = [...book2, ...g3.entries];
+       return pairedInQty(all, g3.shortRecs[0]) === CAP && capOf(all, g3.shortRecs[0]) === 0;
+     })());
+  // ยกเลิกคู่แล้วเพดานต้องคืนมา ไม่งั้นแก้รายการผิดแล้วทำต่อไม่ได้
+  ok('ยกเลิกคู่ (ส่งคืนถูกยกเลิก) → ไม่นับเป็นยอดที่ทดแทนแล้ว เพดานกลับมาเต็ม',
+     capOf(book1.map(e => e.kind === 'sendback' ? { ...e, voided: true } : e), sh1) === CAP);
+  ok('pairedInQty: คู่ของ PO / รหัส / นิติบุคคลอื่น ไม่ถูกนับรวม (A3)',
+     pairedInQty(book1, { ...sh1, po: 'TM9999H001' }) === 0
+     && pairedInQty(book1, { ...sh1, code: 'ZZ' }) === 0
+     && pairedInQty(book1, { ...sh1, entity: 'OTHER' }) === 0);
+
+  /* เพดานเป็นยอดรวมของ PO + รหัส ไม่ใช่ต่อเรื่อง short (ผู้ตรวจ #205 รอบ 3 ข้อ 1)
+   * PO + รหัสเดียวกันมีเรื่องเปิดค้างสองใบได้ ถ้าเทียบ cap ทีละแถว ทั้งสองแถวได้เพดานเต็มใบละ
+   * แล้วรวมกันทะลุที่ Delta แจ้งในการกดบันทึกครั้งเดียว โดยไม่มีด่านไหนฟ้อง */
+  {
+    const shA = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3A' };
+    const shB = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3B' };
+    const pick = (a, b) => [{ row: shA, qty: a, cap: CAP, tag: 'PC RETURN' },
+                            { row: shB, qty: b, cap: CAP, tag: 'PC RETURN' }];
+    throws('เรื่อง short สองใบของ PO + รหัสเดียวกัน ใส่ใบละเต็มเพดานในการกดครั้งเดียว = โยน',
+           () => offsetShorts(ov, pick(CAP, CAP), { person: 'ก', at }), 'รวมทุกเรื่องของ PO นี้ 10.8 เกินเพดาน 5.4');
+    throws('สองใบรวมเกินเพดานแม้ใบละไม่เกิน (3 + 3 = 6) = โยน',
+           () => offsetShorts(ov, pick(3, 3), { person: 'ก', at }), 'เกินเพดาน 5.4');
+    const okPair = offsetShorts(ov, pick(3, 2.4), { person: 'ก', at });
+    ok('สองใบรวมพอดีเพดาน (3 + 2.4) ผ่าน · ลงคู่ครบสี่รายการ ยอดรวมที่ทดแทน = เพดาน',
+       okPair.entries.length === 4 && okPair.shortRecs.length === 2
+       && round5(okPair.entries.filter(e => e.kind === 'receive').reduce((t, e) => t + e.qty, 0)) === CAP,
+       JSON.stringify(okPair.entries.map(e => `${e.kind}:${e.qty}`)));
+    ok('เรื่องของ PO อื่นในชุดเดียวกันใช้เพดานของตัวเอง ไม่ถูกรวมข้าม PO',
+       offsetShorts(ov, [{ row: shA, qty: CAP, cap: CAP, tag: 'PC RETURN' },
+                         { row: { ...shB, po: 'TM9999H001' }, qty: CAP, cap: CAP, tag: 'PC RETURN' }],
+                    { person: 'ก', at }).entries.length === 4);
+    ok('แบบ 2 (ไม่ส่ง cap) สองใบของ PO เดียวกันยังไม่ถูกบังคับเพดาน ผลเท่าเดิม',
+       offsetShorts(ov, [{ row: shA, qty: 9 }, { row: shB, qty: 9 }], { person: 'ก', at }).entries.length === 4);
+  }
+
+  ok('จอ: rtCap หักยอดที่กรอกไว้ในแถวอื่นของ PO + รหัสเดียวกัน · ส่งเพดานของ PO (rtCapPo) เข้าชั้นตรรกะ ไม่ใช่เพดานที่หักแล้ว',
+     /const rtOtherPick = s => round5\(rtList\.value\.reduce\(/.test(appOver)
+     && /Math\.min\(remainOf\(s\), Math\.max\(0, round5\(left - rtOtherPick\(s\)\)\)\)/.test(appOver)
+     && /const left = rt\.mode === 3 \? \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.left : null;/.test(appOver)
+     && /rtOtherPick\(big\) > 0 \? `แถวอื่นของ PO นี้ใส่ไว้/.test(appOver));
+
+  ok('จอ: rtCap หักยอดที่ทดแทนไปแล้วผ่าน pcCapLeft (ไม่เทียบเพดานดิบ) · ตารางโชว์ "ทดแทนไปแล้ว"',
+     /done: pairedInQty\(entries\.value, s\), left: pcCapLeft\(entries\.value, s, \(rtPcOf\(s\) \|\| \{\}\)\.cap\)/.test(appOver)
+     && /const rtDone = s => \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.done \|\| 0;/.test(appOver)
+     && /const left = rt\.mode === 3 \? \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.left : null;/.test(appOver)
+     && !/Math\.min\(remainOf\(s\), pc\.cap\)/.test(appOver)
+     && /rtDone,/.test(appOver)
+     && htmlOver.includes('ทดแทนไปแล้ว {{ mrpNum(rtDone(x)) }}'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
