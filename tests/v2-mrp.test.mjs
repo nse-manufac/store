@@ -744,5 +744,20 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
      poOverRows([E(5, '2026-11-01T02:00Z'), E(5, '2026-11-02T02:00Z')], { need: null, issued: 10, bal: 0 }).every(r => r.overBom === 0 && !r.dupOf));
 }
 
+console.log('\n=== หน้ายอดคงคลังรายรหัส: เคมี + TERMINAL + SOLDER (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const { isPoolItem } = await import('../v2/master/mrp.js');
+  ok('หน้ารายรหัส: หมวด CHEMICAL ทุกตัว · ชื่อมี TERMINAL / SOLDER ไม่ว่าหมวดไหน',
+     isPoolItem('CHEMICAL', 'THINNER') && isPoolItem('METAL PART', 'TERMINAL PIN 1.0') && isPoolItem('WIRE', 'SOLDER WIRE SN99.3')
+     && isPoolItem('METAL PART', 'TERMINALS BRASS') && isPoolItem('chemical', ''));
+  ok('หน้ารายรหัส: METAL PART ตัวอื่น / หมวดอื่นไม่ขึ้น · คำต้องขึ้นต้นคำ',
+     !isPoolItem('METAL PART', 'STRIP CU 0.3') && !isPoolItem('METAL PART', 'CLIP') && !isPoolItem('WIRE', 'WIRE 0.35 UEW')
+     && !isPoolItem('OTHER', 'XTERMINAL') && !isPoolItem('', ''));
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('หน้ารายรหัสกรองด้วย isPoolItem (เคมี · TERMINAL · SOLDER) แทนเคมี + METAL PART',
+     /isPoolItem\(r\.category, r\.desc\)/.test(app) && !/r\.category === 'METAL PART'/.test(app) && html.includes('เฉพาะเคมี · TERMINAL · SOLDER'));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
