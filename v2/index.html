@@ -1631,8 +1631,8 @@ textarea{font:inherit}
                                           title="กดเพื่อแก้รายการจ่ายที่คีย์ผิด / คีย์ซ้ำ" @click.stop="bpFixOpen(r.pn, p.po, l.code)">{{ bpDiffLabel(p.issueDiff)[0] }}</button>
                                         <span v-else-if="bpDiffLabel(p.issueDiff)[1]" class="tag" :class="bpDiffLabel(p.issueDiff)[1]">{{ bpDiffLabel(p.issueDiff)[0] }}</span>
                                         <span v-else-if="p.issueDiff == null" class="hint">—</span></td>
-                                      <!-- ติดลบ = จ่ายเกินรับเข้า กดแล้วเปิดกล่องแก้เดียวกับป้าย "จ่ายเกิน" (เจ้าของสั่ง 28 พ.ย. 2026 · เดิมพาไปแท็บ Log)
-                                           ทางไป Log ยังอยู่ — ลิงก์ "ดูทุกรายการใน Log" ในกล่อง -->
+                                      <!-- ติดลบ = จ่ายเกินรับเข้า กดแล้วเปิดกล่องแก้เดียวกับป้าย "จ่ายเกิน" (เจ้าของสั่ง 28 พ.ย. 2026 · เดิมพาไปแท็บ Log
+                                           แก้จากกล่องได้ครบแล้ว เจ้าของให้ถอดทางไป Log ออก) -->
                                       <td class="mono r"><button v-if="p.bal < 0" class="bp-lnk" :data-bpfix-bal="bpKey(p.po, l.code)" @click.stop="bpFixOpen(r.pn, p.po, l.code)"
                                           title="กดเพื่อแก้รายการจ่ายที่คีย์ผิด / คีย์ซ้ำ จนจ่ายเกินของที่รับเข้า">{{ mrpNum(p.bal) }}</button>
                                         <b v-else>{{ mrpNum(p.bal) }}</b>
@@ -3946,7 +3946,6 @@ textarea{font:inherit}
             </template>
           </template>
           <div class="row" style="margin-top:12px">
-            <button class="bp-lnk" style="align-self:center" @click="bpFix.open=false; bpGoLog(bpFix.po, bpFix.code, bpFix.pn)">ดูทุกรายการใน Log</button>
             <div class="grow"></div>
             <button class="btn" @click="bpFix.open=false">ไม่แก้แล้ว</button>
             <button class="btn primary" @click="bpFixSave"
@@ -4111,8 +4110,6 @@ textarea{font:inherit}
     <!-- มาจากป้าย "จบเรื่องแล้ว" ในแท็บ MRP — กดกลับไปใบเดิม แถวเดิม -->
     <button v-if="mrpBack && (tab === 'fshort' || tab === 'fover')" class="btn primary mrp-back" @click="mrpGoBack">
       ‹ กลับไป MRP · {{ mrpBack.po }}</button>
-    <button v-if="bpBack && tab === 'lgout'" class="btn primary mrp-back" @click="bpGoBack">
-      ‹ กลับไปยอดคงคลัง · {{ bpBack.po }}</button>
   </template>
 </div>
 

@@ -489,12 +489,9 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
   }
   {
     const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-    ok('ยอดติดลบราย PO กดแล้วเปิดกล่องแก้ (28 พ.ย. 2026) · ลิงก์ในกล่องพาไปแท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ · มีปุ่มกลับไปยอดคงคลัง (19 พ.ย. 2026)',
+    ok('ยอดติดลบราย PO กดแล้วเปิดกล่องแก้ · ไม่มีทางพาไปแท็บ Log แล้ว (แก้จากกล่องได้ครบ · เจ้าของสั่ง 28 พ.ย. 2026)',
        html.includes('v-if="p.bal < 0" class="bp-lnk" :data-bpfix-bal="bpKey(p.po, l.code)" @click.stop="bpFixOpen(r.pn, p.po, l.code)"')
-       && html.includes('@click="bpFix.open=false; bpGoLog(bpFix.po, bpFix.code, bpFix.pn)">ดูทุกรายการใน Log</button>')
-       && app.includes("Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });") && app.includes("tab.value = 'lgout';")
-       && html.includes('v-if="bpBack && tab === \'lgout\'"') && app.includes('Object.assign(lg, b.lg);'));
-    ok('กลับมาแล้วบรรทัดถูกซ่อน (ยกเลิกแล้วไม่ติดลบ) เลื่อนไปแถว P/N แทน', html.includes(':data-bpn="r.pn"') && app.includes('[data-bpn="${CSS.escape(b.pn)}"]'));
+       && !/bpGoLog|bpGoBack|bpBack/.test(app + html) && !html.includes('ดูทุกรายการใน Log'));
   }
   {
     // จ่ายผิดใบ: ใบหนึ่งติดลบ อีกใบบวกหายกันพอดี — ยอดรวม 0 แต่ห้ามหายจากจอ และต้องขึ้นป้าย "จ่ายเกินรับ"

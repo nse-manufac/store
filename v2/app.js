@@ -1822,28 +1822,7 @@ createApp({
       return bpAll.value.filter(r => !r.empty && (!q || r.pn.toUpperCase().includes(q)
         || r.pos.some(p => p.po.toUpperCase().includes(q)) || r.lines.some(l => l.live && l.code.includes(q))));
     });
-    const bpDraw = drawing(bpShown, r => !!bpOpen[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที (ปุ่มกลับเลื่อนหาแถวนั้น)
-    /* ลิงก์ "ดูทุกรายการใน Log" ในกล่องแก้รายการจ่าย → แท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ (เจ้าของสั่ง 19 พ.ย. 2026)
-     * เดิมกดยอดติดลบแล้วมาที่นี่ตรง ๆ · ตั้งแต่ 28 พ.ย. 2026 ยอดติดลบเปิดกล่องแก้ (bpFixOpen) ก่อน
-     * ปุ่ม "กลับไปยอดคงคลัง" มุมซ้ายล่าง (แบบปุ่มกลับไป MRP) คืนตัวกรองของ Log ที่ตั้งไว้เดิม แล้วเลื่อนกลับไปแถวเดิม */
-    const bpBack = ref(null);
-    watch(tab, k => { if (k !== 'lgout') bpBack.value = null; });
-    function bpGoLog(po, code, pn) {
-      bpBack.value = { po, code, pn, lg: { from: lg.from, to: lg.to, q: lg.q, voided: lg.voided } };
-      Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });
-      tab.value = 'lgout';
-      window.scrollTo(0, 0);
-    }
-    function bpGoBack() {
-      const b = bpBack.value;
-      if (!b) return;
-      Object.assign(lg, b.lg);
-      balView.value = 'pn';
-      tab.value = 'bal';
-      // ยกเลิกแล้วบรรทัดอาจไม่ติดลบ (ถูกซ่อน) → เลื่อนไปแถว P/N แทน
-      nextTick(() => (document.querySelector(`[data-bp="${CSS.escape(bpKey(b.po, b.code))}"]`)
-        || document.querySelector(`[data-bpn="${CSS.escape(b.pn)}"]`))?.scrollIntoView({ block: 'center' }));
-    }
+    const bpDraw = drawing(bpShown, r => !!bpOpen[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที
     // รายการเคลื่อนไหว — คิดเฉพาะ PO × รหัสที่กางอยู่ (แถวที่พับไม่คิด)
     /* ล้างเศษของเก่า (เจ้าของเคาะ 23 พ.ย. 2026) — ปุ่มอยู่ในรายการเคลื่อนไหวของ PO ที่ค้างเศษ ไม่ทำตารางแยก
      * ตรรกะ isFracLeft / fracSweep (core/balance.js) · ตั้งแต่ #185 จ่ายออกแล้วระบบล้างให้เอง ที่เหลือคือของก่อนหน้านั้น */
@@ -1921,7 +1900,7 @@ createApp({
         bpIss.open = false;
       } catch (err) { flash(err.message, true); }
     }
-    /* แก้รายการจ่ายที่เกิน (เจ้าของสั่ง 28 พ.ย. 2026) — กดป้าย "จ่ายเกิน" (เกิน BOM) หรือยอดติดลบ (เกินรับเข้า) ของแถว PO
+    /* แก้รายการจ่ายที่เกิน (เจ้าของสั่ง 28 พ.ย. 2026) — แทนทางเดิมที่กดยอดติดลบแล้วพาไปแท็บ Log (19 พ.ย.) · เจ้าของให้ถอดทางนั้นออก — กดป้าย "จ่ายเกิน" (เกิน BOM) หรือยอดติดลบ (เกินรับเข้า) ของแถว PO
      * → เลือกรายการจ่ายที่ผิด → ใส่จำนวนที่ถูก
      * ยกเลิกรายการเดิม (ยังอยู่ในสมุด · B1) แล้วบันทึกจำนวนที่ถูกแทน วันที่ / ผู้จ่าย / หมายเหตุเดิม · 0 = ยกเลิกอย่างเดียว
      * ไม่ใช้ "คืนของ" เพราะยอดจ่ายราย PO ไม่หักคืนของ (เจ้าของเคาะ) · กฎอยู่ที่ poFixCheck (master/mrp.js) */
@@ -4195,7 +4174,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
