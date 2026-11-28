@@ -781,7 +781,10 @@ console.log('\n=== หน้ายอดคงคลังรายรหัส:
   ok('หน้ารายรหัส: หมวด CHEMICAL ทุกตัว · ชื่อมี TERMINAL / SOLDER ไม่ว่าหมวดไหน',
      isPoolItem('CHEMICAL', 'THINNER') && isPoolItem('METAL PART', 'TERMINAL PIN 1.0') && isPoolItem('WIRE', 'SOLDER WIRE SN99.3')
      && isPoolItem('METAL PART', 'TERMINALS BRASS') && isPoolItem('chemical', ''));
-  ok('หน้ารายรหัส: METAL PART ตัวอื่น / หมวดอื่นไม่ขึ้น · คำต้องขึ้นต้นคำ',
+  ok('หน้ารายรหัส: ตัวเลข / สัญลักษณ์ติดหน้าคำก็นับ (0.3TERMINAL · 1SOLDER · SN-SOLDER) · ตัวอักษรอังกฤษติดหน้าไม่นับ (เจ้าของสั่ง 28 พ.ย. 2026)',
+     isPoolItem('METAL PART', 'STRIP 0.3TERMINAL') && isPoolItem('OTHER', '1SOLDER BAR') && isPoolItem('OTHER', 'SN-SOLDER')
+     && !isPoolItem('OTHER', 'XTERMINAL') && !isPoolItem('OTHER', 'RESOLDERED'));
+  ok('หน้ารายรหัส: METAL PART ตัวอื่น / หมวดอื่นไม่ขึ้น',
      !isPoolItem('METAL PART', 'STRIP CU 0.3') && !isPoolItem('METAL PART', 'CLIP') && !isPoolItem('WIRE', 'WIRE 0.35 UEW')
      && !isPoolItem('OTHER', 'XTERMINAL') && !isPoolItem('', ''));
   const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
