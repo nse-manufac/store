@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, stockPnFocus, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups, codeIssueCheck, fifoSplit, codeReturnHold } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, stockPnFocus, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups, codeIssueCheck, fifoSplit, codeReturnHold, isPoolItem } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1798,10 +1798,11 @@ createApp({
 
     const balShown = computed(() => {
       const t = balQ.value.trim().toUpperCase();
-      // รายรหัสเหลือเฉพาะเคมี (เจ้าของสั่ง 22 พ.ย. 2026) + METAL PART (เจ้าของขอเพิ่ม 25 พ.ย.) — ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
+      // รายรหัส = เคมี + TERMINAL + SOLDER (เจ้าของสั่ง 28 พ.ย. 2026 แทนเคมี + METAL PART) — ของที่จ่ายจากยอดรวม · กฎอยู่ที่ isPoolItem
+      // ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
       const pool = balAll.value.filter(r =>
         (balZero.value || r.qty !== 0) &&
-        (r.category === 'CHEMICAL' || r.category === 'METAL PART') &&
+        isPoolItem(r.category, r.desc) &&
         (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
       return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
     });
@@ -1927,7 +1928,7 @@ createApp({
         bpIss.open = false;
       } catch (err) { flash(err.message, true); }
     }
-    /* จ่ายออกจากหน้ารายรหัส (รายการที่หน้านั้นแสดง · เจ้าของสั่ง 28 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถวรหัส → เลือก P/N → PO ในกล่อง
+    /* จ่ายออกจากหน้ารายรหัส (เคมี · TERMINAL · SOLDER — isPoolItem · เจ้าของสั่ง 28 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถวรหัส → เลือก P/N → PO ในกล่อง
      * เคมีจ่ายรวมข้าม PO จึงให้เลือกใบเอง (ใบเก่าขึ้นก่อน · codePoRows) · โชว์ P/N ของใบ แต่ไม่คุมจ่ายสะสมตาม BOM (เจ้าของสั่ง)
      * ⚠️ ไม่บล็อกจ่ายเกินคงเหลือ PO / ยอดรวม — เคมีจ่ายเป็นขวด ยังไม่รู้ขวดละกี่ KG ใส่ KG ตามประมาณ (ข้อยกเว้นของ A4 · เจ้าของสั่ง)
      *    เตือนสีเหลือง + โชว์ยอดคงคลังรวมไว้คุมของจริง · ตัวเลขอยู่ที่ codeIssueCheck · อ่านจากสมุดทุกครั้งแบบ bpIssRow */

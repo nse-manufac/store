@@ -1560,7 +1560,7 @@ textarea{font:inherit}
               <div class="grow"></div>
               <label v-if="balView==='code'" class="row hint" style="gap:5px;flex-wrap:nowrap"><input type="checkbox" v-model="balZero" style="width:16px;height:16px">
                 แสดงรายการที่ยอดเป็นศูนย์ด้วย</label>
-              <span v-if="balView==='code'" class="hint">เฉพาะเคมี · METAL PART · แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
+              <span v-if="balView==='code'" class="hint">เฉพาะเคมี · TERMINAL · SOLDER · แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
               <template v-else>
                 <label class="row hint" style="gap:5px;flex-wrap:nowrap"><input type="checkbox" v-model="bpClosed" style="width:16px;height:16px">
                   รวม PO ที่ปิดแล้ว</label>
@@ -1705,7 +1705,7 @@ textarea{font:inherit}
                 </tr></tbody>
               </table>
               <p v-if="!balShown.rows.length" class="empty">
-                ยังไม่มียอดคงเหลือของเคมีหรือ METAL PART — หน้านี้แสดงเฉพาะหมวด CHEMICAL กับ METAL PART · หมวดอื่นที่รับเข้าด้วย PO ดูที่ "ราย P/N" · ของที่ยกยอดมา ปรับยอด คืนของ หรือของเสีย ไม่ขึ้นที่ราย P/N ให้ดูที่ "รายการที่ควรไปดู" หรือออก Bin Card
+                ยังไม่มียอดคงเหลือของเคมี · TERMINAL · SOLDER — หน้านี้แสดงเฉพาะหมวด CHEMICAL กับรายการที่ชื่อมีคำว่า TERMINAL หรือ SOLDER · หมวดอื่นที่รับเข้าด้วย PO ดูที่ "ราย P/N" · ของที่ยกยอดมา ปรับยอด คืนของ หรือของเสีย ไม่ขึ้นที่ราย P/N ให้ดูที่ "รายการที่ควรไปดู" หรือออก Bin Card
               </p>
             </div>
           </div>
