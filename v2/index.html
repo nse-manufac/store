@@ -3976,23 +3976,34 @@ textarea{font:inherit}
           <table><tbody>
             <tr><td class="hint" style="width:150px">วัตถุดิบ</td><td><span class="mono"><b>{{ ciIss.code }}</b></span> {{ (matOf(ciIss.code) || {}).description || '' }}</td></tr>
           </tbody></table>
-          <p style="margin:14px 0 4px"><b>1. เลือก PO ที่จะตัดของ</b> <span class="hint">— เฉพาะ PO ที่ยังมีของรหัสนี้ · PO เก่าขึ้นก่อน</span></p>
-          <table class="mrp" style="margin-top:0"><thead><tr><th style="width:30px"></th><th>PO</th><th>PO Date</th><th>P/N</th>
+          <p style="margin:14px 0 4px"><b>1. เลือก P/N แล้วเลือก PO ที่จะตัดของ</b> <span class="hint">— เฉพาะ PO ที่ยังมีของรหัสนี้ · PO เก่าขึ้นก่อน · กด P/N เพื่อกาง</span></p>
+          <!-- P/N → PO แบบหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026) · กลุ่มมาจาก codePnGroups -->
+          <table class="mrp" style="margin-top:0"><thead><tr><th style="width:30px"></th><th>P/N · PO</th><th>PO Date</th>
             <th class="r">รับเข้า</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
             <tbody>
-              <tr v-for="p in ciIssPos" :key="p.po" style="cursor:pointer" @click="ciIss.po = p.po" :data-ciiss-po="p.po">
-                <td><input type="radio" name="ciiss" :checked="ciIss.po === p.po"></td>
-                <td class="mono"><b>{{ p.po }}</b></td><td class="mono">{{ p.date || '—' }}</td>
-                <td class="mono">{{ p.pn || 'ไม่รู้ P/N' }}</td>
-                <td class="mono r">{{ mrpNum(p.recv) }}</td>
-                <td class="mono r">{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(p.sendback) }}</div></td>
-                <td class="mono r"><b>{{ mrpNum(p.bal) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></td></tr>
-              <tr v-if="!ciIssPos.length"><td colspan="7" class="hint">ไม่มี PO ไหนที่ยังมีของรหัสนี้ — คีย์รับเข้าของ PO นั้นก่อน แล้วค่อยจ่าย</td></tr>
+              <template v-for="g in ciIssGroups" :key="'g' + g.pn">
+                <tr class="mrp-po" style="cursor:pointer" @click="ciFold[g.pn] = !ciFold[g.pn]" :aria-expanded="!!ciFold[g.pn]" :data-ciiss-pn="g.pn">
+                  <td><span class="fold-i">{{ ciFold[g.pn] ? '▾' : '▸' }}</span></td>
+                  <td class="mono"><b>{{ g.pn || 'ไม่รู้ P/N' }}</b> <span class="hint">{{ g.pos.length }} ใบ</span></td>
+                  <td class="mono hint">{{ g.date || '—' }}</td><td></td><td></td>
+                  <td class="mono r"><b>{{ mrpNum(g.bal) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></td></tr>
+                <template v-if="ciFold[g.pn]">
+                  <tr v-for="p in g.pos" :key="p.po" style="cursor:pointer" @click="ciIss.po = p.po" :data-ciiss-po="p.po"
+                      :style="ciIss.po === p.po ? 'background:var(--soft)' : ''">
+                    <td></td>
+                    <td class="mono" style="padding-left:22px"><input type="radio" name="ciiss" :checked="ciIss.po === p.po" style="margin-right:8px"><b>{{ p.po }}</b></td>
+                    <td class="mono">{{ p.date || '—' }}</td>
+                    <td class="mono r">{{ mrpNum(p.recv) }}</td>
+                    <td class="mono r">{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(p.sendback) }}</div></td>
+                    <td class="mono r"><b>{{ mrpNum(p.bal) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></td></tr>
+                </template>
+              </template>
+              <tr v-if="!ciIssPos.length"><td colspan="6" class="hint">ไม่มี PO ไหนที่ยังมีของรหัสนี้ — คีย์รับเข้าของ PO นั้นก่อน แล้วค่อยจ่าย</td></tr>
             </tbody></table>
           <template v-if="ciIssRow">
             <p style="margin:14px 0 4px"><b>2. กรอกการจ่าย</b>
-              <span class="hint">— PO {{ ciIssRow.po }} · P/N {{ ciIssRow.pn || 'ไม่รู้ P/N' }} · จ่ายได้สูงสุด</span>
-              <b class="mono">{{ mrpNum(ciIssChk.max) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></p>
+              <span class="hint" style="margin-left:6px">— PO {{ ciIssRow.po }} · P/N {{ ciIssRow.pn || 'ไม่รู้ P/N' }} · จ่ายได้สูงสุด</span>
+              <b class="mono" style="margin-left:4px">{{ mrpNum(ciIssChk.max) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></p>
             <div class="row">
               <label class="f" style="width:150px">วันที่<input v-model="ciIss.date" type="date" :max="todayLocal()"></label>
               <label class="f grow">ชื่อผู้จ่าย<input v-model.trim="ciIss.person"></label>

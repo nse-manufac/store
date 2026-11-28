@@ -743,6 +743,17 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      && rows[2].date === '' && rows[2].pn === '');
   ok('ยอดของใบมาจาก stocks ตรง ๆ (รับ · จ่าย · คงเหลือ)', rows[0].recv === 40 && rows[0].issued === 15 && rows[0].bal === 25);
   ok('รหัสว่าง / ไม่มีใบไหนมีของ = []', codePoRows(stocks, '', () => null).length === 0 && codePoRows(stocks, 'XX', () => null).length === 0);
+  // จัดกลุ่ม P/N → PO (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { codePnGroups } = await import('../v2/master/mrp.js');
+  const gs = codePnGroups([
+    { po: 'P3', date: '2026-11-01', pn: 'PN-B', bal: 1 }, { po: 'P1', date: '2026-09-01', pn: 'PN-A', bal: 2.5 },
+    { po: 'P2', date: '2026-10-01', pn: 'PN-B', bal: 0.25 }, { po: 'P4', date: '2026-08-01', pn: '', bal: 3 },
+    { po: 'P5', date: '2026-11-15', pn: 'PN-A', bal: 0.5 }]);
+  ok('จัดเป็นกลุ่ม P/N · เรียงตาม PO ใบเก่าสุดของกลุ่ม · ไม่รู้ P/N ไว้ท้าย', gs.map(g => g.pn).join() === 'PN-A,PN-B,', gs.map(g => g.pn).join());
+  ok('กลุ่มมีคงเหลือรวม · PO Date เก่าสุด · ใบในกลุ่มคงลำดับเดิม',
+     gs[0].bal === 3 && gs[0].date === '2026-09-01' && gs[0].pos.map(p => p.po).join() === 'P1,P5'
+     && gs[1].bal === 1.25 && gs[1].date === '2026-10-01' && gs[1].pos.map(p => p.po).join() === 'P3,P2');
+  ok('ไม่มีใบ = []', codePnGroups([]).length === 0 && codePnGroups(null).length === 0);
   // กฎจ่าย: ไม่คุม BOM (เจ้าของสั่ง) — ใช้ poIssueCheck แบบไม่รู้ยอดตาม BOM = เพดานคือคงเหลือของใบที่เลือกอย่างเดียว
   const p = { need: null, issued: rows[0].issued, bal: rows[0].bal };
   ok('จ่ายได้ไม่เกินคงเหลือของ PO ที่เลือก · ไม่มีเพดาน BOM', poIssueCheck(p, 25).ok && !poIssueCheck(p, 25.001).ok
@@ -755,8 +766,9 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
   const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   ok('จอ: แถวรหัสมีปุ่ม "จ่าย" เปิด ciIssOpen(r.code) ก่อนปุ่มการ์ด',
      /:data-ciiss="r\.code" @click="ciIssOpen\(r\.code\)">จ่าย<\/button>\s*<button class="btn"[^>]*@click="openCard\(r\.code\)">การ์ด<\/button>/.test(html));
-  ok('จอ: กล่องเลือก PO จาก ciIssPos (โชว์ P/N) · ปุ่มบันทึกปิดเมื่อยังไม่เลือก / ไม่ผ่านกฎ / ไม่มีชื่อ / ไม่มีวันที่',
-     /<tr v-for="p in ciIssPos"/.test(html) && html.includes("{{ p.pn || 'ไม่รู้ P/N' }}")
+  ok('จอ: กล่องเลือก P/N → PO (กาง P/N แบบหน้าราย P/N) · ปุ่มบันทึกปิดเมื่อยังไม่เลือก / ไม่ผ่านกฎ / ไม่มีชื่อ / ไม่มีวันที่',
+     /<template v-for="g in ciIssGroups"/.test(html) && /@click="ciFold\[g\.pn\] = !ciFold\[g\.pn\]"/.test(html) && /<tr v-for="p in g\.pos"/.test(html)
+     && html.includes("{{ g.pn || 'ไม่รู้ P/N' }}") && /codePnGroups\(ciIssPos\.value\)/.test(app)
      && /@click="ciIssSave"\s*:disabled="!ciIssChk \|\| !ciIssChk\.ok \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date"/.test(html));
   ok('app.js: PO มาจาก codePoRows(poStocks(...)) · กฎ = poIssueCheck แบบไม่รู้ BOM (need: null) · บันทึกผ่าน postPoIssue อ้าง PO + P/N ของใบ',
      /codePoRows\(poStocks\(entries\.value, entity\.value\), ciIss\.code, poIdx\.value\)/.test(app)

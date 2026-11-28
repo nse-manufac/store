@@ -666,3 +666,22 @@ export function codePoRows(stocks, code, headerOf) {
   }
   return out.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.po.localeCompare(b.po));
 }
+
+/**
+ * จัด PO ที่ยังมีของ (จาก codePoRows) เป็นกลุ่มราย P/N ให้กล่องจ่ายของหน้ารายรหัสกาง P/N → PO แบบหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   คืน [{ pn, date, bal, pos }] · date = PO Date เก่าสุดของกลุ่ม · bal = คงเหลือรวมของกลุ่ม
+ *   เรียงกลุ่มตาม PO ใบเก่าสุดก่อน (ของเก่าออกก่อน) · ใบในกลุ่มคงลำดับเดิมของ codePoRows · ไม่รู้ P/N รวมเป็นกลุ่ม '' ไว้ท้าย
+ */
+export function codePnGroups(rows) {
+  const m = new Map();
+  for (const r of rows || []) {
+    const k = txt(r.pn);
+    if (!m.has(k)) m.set(k, { pn: k, date: '', bal: 0, pos: [] });
+    const g = m.get(k);
+    g.pos.push(r);
+    g.bal = round5(g.bal + (Number(r.bal) || 0));
+    if (r.date && (!g.date || r.date < g.date)) g.date = r.date;
+  }
+  return [...m.values()].sort((a, b) => (a.pn ? 0 : 1) - (b.pn ? 0 : 1)
+    || (a.date || '9999').localeCompare(b.date || '9999') || a.pn.localeCompare(b.pn));
+}

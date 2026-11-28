@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1910,10 +1910,14 @@ createApp({
      * เคมีจ่ายรวมข้าม PO จึงให้เลือกใบเอง (ใบเก่าขึ้นก่อน · codePoRows) · โชว์ P/N ของใบ แต่ไม่คุมจ่ายสะสมตาม BOM (เจ้าของสั่ง)
      * เพดานคือคงเหลือของใบที่เลือก (A4) — poIssueCheck แบบไม่รู้ยอดตาม BOM · ตัวเลขอ่านจากสมุดทุกครั้งแบบ bpIssRow */
     const ciIss = reactive({ open: false, code: '', po: '', date: '', person: '', requester: '', qty: null });
+    const ciFold = reactive({});   // P/N ที่กางอยู่ในกล่อง — กาง P/N แล้วเห็น PO ของ P/N นั้น แบบหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026)
     function ciIssOpen(code) {
       Object.assign(ciIss, { open: true, code, po: '', date: todayLocal(), requester: '', qty: null });   // ผู้จ่ายจำชื่อล่าสุดไว้ แบบ bpIss
+      for (const k of Object.keys(ciFold)) delete ciFold[k];
+      if (ciIssGroups.value.length === 1) ciFold[ciIssGroups.value[0].pn] = true;   // P/N เดียว กางให้เลย
     }
     const ciIssPos = computed(() => (ciIss.open && entity.value ? codePoRows(poStocks(entries.value, entity.value), ciIss.code, poIdx.value) : []));
+    const ciIssGroups = computed(() => codePnGroups(ciIssPos.value));
     const ciIssRow = computed(() => ciIssPos.value.find(p => p.po === ciIss.po) || null);
     const ciIssChk = computed(() => (ciIssRow.value ? poIssueCheck({ need: null, issued: ciIssRow.value.issued, bal: ciIssRow.value.bal }, ciIss.qty) : null));
     async function ciIssSave() {
@@ -4255,7 +4259,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssGroups, ciFold, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
