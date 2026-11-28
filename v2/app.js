@@ -1823,7 +1823,8 @@ createApp({
         || r.pos.some(p => p.po.toUpperCase().includes(q)) || r.lines.some(l => l.live && l.code.includes(q))));
     });
     const bpDraw = drawing(bpShown, r => !!bpOpen[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที (ปุ่มกลับเลื่อนหาแถวนั้น)
-    /* กดยอดติดลบราย PO → แท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำได้ทันที (เจ้าของสั่ง 19 พ.ย. 2026)
+    /* ลิงก์ "ดูทุกรายการใน Log" ในกล่องแก้รายการจ่าย → แท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ (เจ้าของสั่ง 19 พ.ย. 2026)
+     * เดิมกดยอดติดลบแล้วมาที่นี่ตรง ๆ · ตั้งแต่ 28 พ.ย. 2026 ยอดติดลบเปิดกล่องแก้ (bpFixOpen) ก่อน
      * ปุ่ม "กลับไปยอดคงคลัง" มุมซ้ายล่าง (แบบปุ่มกลับไป MRP) คืนตัวกรองของ Log ที่ตั้งไว้เดิม แล้วเลื่อนกลับไปแถวเดิม */
     const bpBack = ref(null);
     watch(tab, k => { if (k !== 'lgout') bpBack.value = null; });
@@ -1920,7 +1921,8 @@ createApp({
         bpIss.open = false;
       } catch (err) { flash(err.message, true); }
     }
-    /* แก้ยอดจ่ายเกิน BOM (เจ้าของสั่ง 28 พ.ย. 2026) — กดป้าย "จ่ายเกิน" ของแถว PO → เลือกรายการจ่ายที่ผิด → ใส่จำนวนที่ถูก
+    /* แก้รายการจ่ายที่เกิน (เจ้าของสั่ง 28 พ.ย. 2026) — กดป้าย "จ่ายเกิน" (เกิน BOM) หรือยอดติดลบ (เกินรับเข้า) ของแถว PO
+     * → เลือกรายการจ่ายที่ผิด → ใส่จำนวนที่ถูก
      * ยกเลิกรายการเดิม (ยังอยู่ในสมุด · B1) แล้วบันทึกจำนวนที่ถูกแทน วันที่ / ผู้จ่าย / หมายเหตุเดิม · 0 = ยกเลิกอย่างเดียว
      * ไม่ใช้ "คืนของ" เพราะยอดจ่ายราย PO ไม่หักคืนของ (เจ้าของเคาะ) · กฎอยู่ที่ poFixCheck (master/mrp.js) */
     const bpFix = reactive({ open: false, pn: '', po: '', code: '', id: '', qty: null, reason: '', by: '' });
@@ -1943,7 +1945,7 @@ createApp({
       const c = bpFixChk.value, src = bpFixSrc.value, by = bpFix.by.trim();
       if (!c || !c.ok || !src || !by || bpFixWhy.value) return;
       try {
-        const { tw, all } = voidBundle(src, by, `แก้จ่ายเกิน BOM — ${src.qty} → ${c.qty}: ${bpFix.reason.trim()}`);
+        const { tw, all } = voidBundle(src, by, `แก้รายการจ่ายที่เกิน — ${src.qty} → ${c.qty}: ${bpFix.reason.trim()}`);
         const add = c.qty > 0 ? [makeEntry({ entity: src.entity, kind: 'issue', material_code: src.material_code, qty: c.qty,
           lot: src.lot, lot_inferred: src.lot_inferred, doc_kind: src.doc_kind, doc_ref: src.doc_ref, part_no: src.part_no,
           at: src.at, person: src.person, device: device.value, expiry_date: src.expiry_date,

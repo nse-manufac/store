@@ -486,8 +486,9 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
   }
   {
     const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-    ok('ยอดติดลบราย PO กดแล้วไปแท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ · มีปุ่มกลับไปยอดคงคลัง (เจ้าของสั่ง 19 พ.ย. 2026)',
-       html.includes('v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"')
+    ok('ยอดติดลบราย PO กดแล้วเปิดกล่องแก้ (28 พ.ย. 2026) · ลิงก์ในกล่องพาไปแท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ · มีปุ่มกลับไปยอดคงคลัง (19 พ.ย. 2026)',
+       html.includes('v-if="p.bal < 0" class="bp-lnk" :data-bpfix-bal="bpKey(p.po, l.code)" @click.stop="bpFixOpen(r.pn, p.po, l.code)"')
+       && html.includes('@click="bpFix.open=false; bpGoLog(bpFix.po, bpFix.code, bpFix.pn)">ดูทุกรายการใน Log</button>')
        && app.includes("Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });") && app.includes("tab.value = 'lgout';")
        && html.includes('v-if="bpBack && tab === \'lgout\'"') && app.includes('Object.assign(lg, b.lg);'));
     ok('กลับมาแล้วบรรทัดถูกซ่อน (ยกเลิกแล้วไม่ติดลบ) เลื่อนไปแถว P/N แทน', html.includes(':data-bpn="r.pn"') && app.includes('[data-bpn="${CSS.escape(b.pn)}"]'));
@@ -664,6 +665,15 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
      poFixCheck(many, 3, 0).ok && poFixCheck(many, 3, 0).afterDiff === 3 && poFixCheck(many, 3, 0).suggest === 0);
   ok('ไม่รู้ยอดตาม BOM: ลดได้ · ไม่มีคำแนะนำ', poFixCheck({ need: null, issued: 5 }, 5, 2).ok
      && poFixCheck({ need: null, issued: 5 }, 5, 2).suggest === null && poFixCheck({ need: null, issued: 5 }, 5, 2).afterDiff === null);
+  // จ่ายเกินรับเข้า (คงเหลือ PO ติดลบ) — กล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)
+  const neg = { need: 1000, issued: 900, bal: -100 };   // รับ 800 จ่าย 900 · ยังไม่เกิน BOM
+  ok('คงเหลือติดลบ: แนะนำจำนวนที่ทำให้คงเหลือ = 0 · balAfter บอกคงเหลือหลังแก้',
+     poFixCheck(neg, 300, 200).ok && poFixCheck(neg, 300, 0).suggest === 200 && poFixCheck(neg, 300, 200).balAfter === 0
+     && poFixCheck(neg, 300, 250).balAfter === -50);
+  ok('เกินทั้ง BOM และรับเข้า: แนะนำตัวที่ต้องลดมากกว่า (หายทั้งสองข้อ)',
+     poFixCheck({ need: 500, issued: 600, bal: -30 }, 300, 0).suggest === 200
+     && poFixCheck({ need: 500, issued: 530, bal: -80 }, 300, 0).suggest === 220);
+  ok('ไม่รู้ยอดตาม BOM แต่คงเหลือติดลบ: ยังแนะนำได้จากคงเหลือ', poFixCheck({ need: null, issued: 50, bal: -10 }, 20, 0).suggest === 10);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

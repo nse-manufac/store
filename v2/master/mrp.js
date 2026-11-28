@@ -578,25 +578,30 @@ export function poIssueCheck(p, qty) {
 }
 
 /**
- * แก้รายการจ่ายออกที่ทำให้ PO จ่ายเกิน BOM จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026)
+ * แก้รายการจ่ายออกที่ทำให้ PO จ่ายเกิน — เกิน BOM หรือเกินของที่รับเข้า (คงเหลือ PO ติดลบ) จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026)
  *   วิธีแก้ = ยกเลิกรายการเดิม (ยังอยู่ในสมุด ขีดฆ่า · B1) แล้วบันทึกจำนวนที่ถูกแทน — ไม่เปลี่ยนสูตรยอด
- *   p = แถว byPo ({ need, issued }) · oldQty = จำนวนของรายการที่เลือก · newQty = จำนวนที่ถูกต้อง
+ *   p = แถว byPo ({ need, issued, bal }) · oldQty = จำนวนของรายการที่เลือก · newQty = จำนวนที่ถูกต้อง
  * กฎ: ลดได้อย่างเดียว 0 ≤ ใหม่ < เดิม — 0 = รายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO) ยกเลิกอย่างเดียว
  *   จ่ายเพิ่มให้ใช้ปุ่ม "จ่าย" ซึ่งมีกฎ BOM / คงเหลือของมันเอง
- *   หลังแก้ยังเกิน BOM อยู่ก็บันทึกได้ (ดีขึ้นแล้ว · อาจมีอีกรายการที่ต้องแก้) จอบอกยอดที่ยังเกินให้เห็น
- * คืน { qty, old, after, afterDiff, suggest, bigger, ok }
+ *   หลังแก้ยังเกินอยู่ก็บันทึกได้ (ดีขึ้นแล้ว · อาจมีอีกรายการที่ต้องแก้) จอบอกยอดที่ยังเกินให้เห็น
+ * คืน { qty, old, after, afterDiff, balAfter, suggest, bigger, ok }
  *   after = จ่ายรวมของ PO นี้หลังแก้ · afterDiff = after − ตาม BOM (null เมื่อไม่รู้ยอดตาม BOM)
- *   suggest = จำนวนที่ทำให้จ่ายรวมพอดี BOM (ไม่ต่ำกว่า 0) · null เมื่อไม่รู้ยอดตาม BOM
+ *   balAfter = คงเหลือ PO หลังแก้ (คงเหลือเดิม + ที่ลดลง)
+ *   suggest = จำนวนที่ทำให้หายเกินทั้งสองข้อ — จ่ายรวมไม่เกิน BOM และคงเหลือไม่ติดลบ (ไม่ต่ำกว่า 0)
+ *             null เมื่อไม่รู้ยอดตาม BOM และคงเหลือไม่ติดลบ (ไม่มีอะไรให้เทียบ)
  */
 export function poFixCheck(p, oldQty, newQty) {
   const old = round5(Number(oldQty) || 0);
   const issued = round5(Number(p && p.issued) || 0);
+  const bal = round5(Number(p && p.bal) || 0);
   const need = p && p.need != null ? Number(p.need) : null;
   const blank = newQty === '' || newQty == null || !isFinite(Number(newQty));
   const q = blank ? null : round5(Number(newQty));
   const after = q === null ? null : round5(issued - old + q);
   const afterDiff = after === null || need === null ? null : round5(after - need);
-  const suggest = need === null ? null : round5(Math.max(0, old - Math.max(0, issued - need)));
+  const balAfter = q === null ? null : round5(bal + old - q);
+  const cut = Math.max(0, need === null ? 0 : issued - need, -bal);   // ต้องลดอย่างน้อยเท่านี้ถึงหายเกินทั้งสองข้อ
+  const suggest = need === null && bal >= 0 ? null : round5(Math.max(0, old - cut));
   const bigger = q !== null && q >= old;
-  return { qty: q, old, after, afterDiff, suggest, bigger, ok: q !== null && q >= 0 && q < old };
+  return { qty: q, old, after, afterDiff, balAfter, suggest, bigger, ok: q !== null && q >= 0 && q < old };
 }
