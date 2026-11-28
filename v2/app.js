@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1732,13 +1732,18 @@ createApp({
      * เพี้ยนไปเท่ายอดนั้นเงียบ ๆ จึงต้องยกเลิกทั้งคู่เสมอ แบบเดียวกับล้างเศษ (ผู้ตรวจ #199 รอบ 3 ข้อ 1)
      * แยก computed จาก voidTwins เพราะข้อความในกล่องคนละเรื่องกัน (ล้างเศษโชว์ส่วนต่าง · คู่นี้โชว์ PO ปลายทาง) */
     const voidPairs = computed(() => voidBox.row ? pairTwins(entries.value, entries.value.find(e => e.id === voidBox.row.id)) : []);
+    /* ยกเลิกรายการพร้อมของที่ผูกคู่กัน (ล้างเศษ · คู่ทดแทน short) — Log กับปุ่ม "จ่ายเกิน" หน้ายอดคงคลังใช้ตัวเดียวกัน
+     * แยกเมื่อไหร่ ทางหนึ่งจะยกเลิกครึ่งเดียวแล้วคงคลังเพี้ยนเงียบ ๆ */
+    function voidBundle(src, by, reason) {
+      const v = voidEntry(src, { by, reason });
+      const tw = fracTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกตามจ่ายออกที่ถูกยกเลิก: ${reason}` }));
+      const pr = pairTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: ${reason}` }));
+      return { v, tw, pr, all: [v, ...tw, ...pr] };
+    }
     async function doVoid() {
       try {
         const src = entries.value.find(e => e.id === voidBox.row.id), by = voidBox.by.trim(), reason = voidBox.reason.trim();
-        const v = voidEntry(src, { by, reason });
-        const tw = fracTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกตามจ่ายออกที่ถูกยกเลิก: ${reason}` }));
-        const pr = pairTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: ${reason}` }));
-        const all = [v, ...tw, ...pr];
+        const { tw, pr, all } = voidBundle(src, by, reason);
         await db.put('entries', all);
         for (const x of all) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
         db.announce('entries');
@@ -1913,6 +1918,51 @@ createApp({
         flash(`บันทึกจ่ายออก ${bpIss.code} × ${c.qty} · PO ${bpIss.po}` + (crumbs.length ? ' · ล้างเศษแล้ว' : '')
               + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
         bpIss.open = false;
+      } catch (err) { flash(err.message, true); }
+    }
+    /* แก้ยอดจ่ายเกิน BOM (เจ้าของสั่ง 28 พ.ย. 2026) — กดป้าย "จ่ายเกิน" ของแถว PO → เลือกรายการจ่ายที่ผิด → ใส่จำนวนที่ถูก
+     * ยกเลิกรายการเดิม (ยังอยู่ในสมุด · B1) แล้วบันทึกจำนวนที่ถูกแทน วันที่ / ผู้จ่าย / หมายเหตุเดิม · 0 = ยกเลิกอย่างเดียว
+     * ไม่ใช้ "คืนของ" เพราะยอดจ่ายราย PO ไม่หักคืนของ (เจ้าของเคาะ) · กฎอยู่ที่ poFixCheck (master/mrp.js) */
+    const bpFix = reactive({ open: false, pn: '', po: '', code: '', id: '', qty: null, reason: '', by: '' });
+    function bpFixOpen(pn, po, code) {
+      Object.assign(bpFix, { open: true, pn, po, code, id: '', qty: null, reason: '' });   // ชื่อผู้แก้จำไว้
+    }
+    const bpFixRow = computed(() => {
+      if (!bpFix.open) return null;
+      const r = bpAll.value.find(x => x.pn === bpFix.pn), l = r && r.lines.find(x => x.code === bpFix.code);
+      return (l && l.byPo.find(x => x.po === bpFix.po)) || null;
+    });
+    const bpFixList = computed(() => !bpFix.open ? [] : entries.value
+      .filter(e => e.entity === entity.value && e.kind === 'issue' && alive(e) && String(e.doc_ref) === bpFix.po
+                   && normCode(e.material_code) === normCode(bpFix.code))
+      .sort((a, b) => String(a.at).localeCompare(String(b.at))));
+    const bpFixSrc = computed(() => bpFixList.value.find(e => e.id === bpFix.id) || null);
+    const bpFixChk = computed(() => (bpFixRow.value && bpFixSrc.value ? poFixCheck(bpFixRow.value, bpFixSrc.value.qty, bpFix.qty) : null));
+    const bpFixWhy = computed(() => stopWhyProblem(bpFix.reason));
+    async function bpFixSave() {
+      const c = bpFixChk.value, src = bpFixSrc.value, by = bpFix.by.trim();
+      if (!c || !c.ok || !src || !by || bpFixWhy.value) return;
+      try {
+        const { tw, all } = voidBundle(src, by, `แก้จ่ายเกิน BOM — ${src.qty} → ${c.qty}: ${bpFix.reason.trim()}`);
+        const add = c.qty > 0 ? [makeEntry({ entity: src.entity, kind: 'issue', material_code: src.material_code, qty: c.qty,
+          lot: src.lot, lot_inferred: src.lot_inferred, doc_kind: src.doc_kind, doc_ref: src.doc_ref, part_no: src.part_no,
+          at: src.at, person: src.person, device: device.value, expiry_date: src.expiry_date,
+          reqmt_qty: src.reqmt_qty, issued_qty: src.issued_qty,
+          note: [src.note, `แทนรายการ ${src.qty} ที่ยกเลิก (แก้โดย ${by})`].filter(Boolean).join(' · ') })] : [];
+        await db.put('entries', [...all, ...add]);
+        for (const x of all) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
+        entries.value.push(...add);
+        let crumbs = [], crumbErr = '';   // ยกเลิกล้างเศษคู่ไปแล้ว → ถ้ายังเหลือเศษจริงล้างใหม่ ณ วันเดียวกัน (แบบ bpIssSave)
+        try {
+          crumbs = fracSweep(entries.value, entity.value, bpFix.po, [bpFix.code], fracTolAt,
+                             { person: by, device: device.value, at: src.at, part_no: src.part_no });
+          if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
+        } catch (err) { crumbs = []; crumbErr = err.message; }
+        db.announce('entries');
+        flash(`แก้แล้ว ${bpFix.code} · PO ${bpFix.po}: ${src.qty} → ${c.qty}` + (tw.length ? ` · ยกเลิกล้างเศษที่คู่กัน ${tw.length}` : '')
+              + (crumbs.length ? ' · ล้างเศษใหม่แล้ว' : '') + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : '')
+              + ' — รายการเดิมยังอยู่ใน Log (ขีดฆ่า)', !!crumbErr);
+        bpFix.open = false;
       } catch (err) { flash(err.message, true); }
     }
     const bpMoves = computed(() => {
@@ -4143,7 +4193,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,

@@ -576,3 +576,27 @@ export function poIssueCheck(p, qty) {
   const overBom = bomLeft !== null && q > bomLeft, overRecv = q > bal;
   return { qty: q, bomLeft, bal, max, overBom, overRecv, ok: q > 0 && !overBom && !overRecv };
 }
+
+/**
+ * แก้รายการจ่ายออกที่ทำให้ PO จ่ายเกิน BOM จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   วิธีแก้ = ยกเลิกรายการเดิม (ยังอยู่ในสมุด ขีดฆ่า · B1) แล้วบันทึกจำนวนที่ถูกแทน — ไม่เปลี่ยนสูตรยอด
+ *   p = แถว byPo ({ need, issued }) · oldQty = จำนวนของรายการที่เลือก · newQty = จำนวนที่ถูกต้อง
+ * กฎ: ลดได้อย่างเดียว 0 ≤ ใหม่ < เดิม — 0 = รายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO) ยกเลิกอย่างเดียว
+ *   จ่ายเพิ่มให้ใช้ปุ่ม "จ่าย" ซึ่งมีกฎ BOM / คงเหลือของมันเอง
+ *   หลังแก้ยังเกิน BOM อยู่ก็บันทึกได้ (ดีขึ้นแล้ว · อาจมีอีกรายการที่ต้องแก้) จอบอกยอดที่ยังเกินให้เห็น
+ * คืน { qty, old, after, afterDiff, suggest, bigger, ok }
+ *   after = จ่ายรวมของ PO นี้หลังแก้ · afterDiff = after − ตาม BOM (null เมื่อไม่รู้ยอดตาม BOM)
+ *   suggest = จำนวนที่ทำให้จ่ายรวมพอดี BOM (ไม่ต่ำกว่า 0) · null เมื่อไม่รู้ยอดตาม BOM
+ */
+export function poFixCheck(p, oldQty, newQty) {
+  const old = round5(Number(oldQty) || 0);
+  const issued = round5(Number(p && p.issued) || 0);
+  const need = p && p.need != null ? Number(p.need) : null;
+  const blank = newQty === '' || newQty == null || !isFinite(Number(newQty));
+  const q = blank ? null : round5(Number(newQty));
+  const after = q === null ? null : round5(issued - old + q);
+  const afterDiff = after === null || need === null ? null : round5(after - need);
+  const suggest = need === null ? null : round5(Math.max(0, old - Math.max(0, issued - need)));
+  const bigger = q !== null && q >= old;
+  return { qty: q, old, after, afterDiff, suggest, bigger, ok: q !== null && q >= 0 && q < old };
+}

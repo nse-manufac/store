@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.4">
+<meta name="app-version" content="2026-11-28.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1624,7 +1624,10 @@ textarea{font:inherit}
                                       <td class="mono r">{{ mrpNum(p.need) }}</td>
                                       <td class="mono r">{{ mrpNum(p.recv) }}</td>
                                       <td class="mono r">{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(p.sendback) }}</div></td>
-                                      <td class="r"><span v-if="bpDiffLabel(p.issueDiff)[1]" class="tag" :class="bpDiffLabel(p.issueDiff)[1]">{{ bpDiffLabel(p.issueDiff)[0] }}</span>
+                                      <!-- ป้าย "จ่ายเกิน" กดแก้รายการที่ผิดได้เลย (เจ้าของสั่ง 28 พ.ย. 2026) — แบบป้าย "เศษ" -->
+                                      <td class="r"><button v-if="bpDiffLabel(p.issueDiff)[1] === 'bad'" class="tag bad bp-frac" :data-bpfix="bpKey(p.po, l.code)"
+                                          title="กดเพื่อแก้รายการจ่ายที่คีย์ผิด / คีย์ซ้ำ" @click.stop="bpFixOpen(r.pn, p.po, l.code)">{{ bpDiffLabel(p.issueDiff)[0] }}</button>
+                                        <span v-else-if="bpDiffLabel(p.issueDiff)[1]" class="tag" :class="bpDiffLabel(p.issueDiff)[1]">{{ bpDiffLabel(p.issueDiff)[0] }}</span>
                                         <span v-else-if="p.issueDiff == null" class="hint">—</span></td>
                                       <!-- ติดลบ = ลิงก์ไปแท็บ Log จ่ายออก ค้น PO + รหัส ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำ (เจ้าของสั่ง 19 พ.ย. 2026) -->
                                       <td class="mono r"><button v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"
@@ -3864,6 +3867,72 @@ textarea{font:inherit}
             <button class="btn" @click="bpIss.open=false">ไม่จ่ายแล้ว</button>
             <button class="btn primary" @click="bpIssSave"
                     :disabled="!bpIssChk || !bpIssChk.ok || !bpIss.person || !bpIss.requester || !bpIss.date">บันทึกจ่ายออก</button>
+          </div>
+        </div>
+      </div>
+      <!-- แก้ยอดจ่ายเกิน BOM (เจ้าของสั่ง 28 พ.ย. 2026) — กดป้าย "จ่ายเกิน" บนแถว PO · เลือกรายการที่ผิด → ใส่จำนวนที่ถูก
+           ยกเลิกรายการเดิม (ขีดฆ่าใน Log · B1) แล้วบันทึกจำนวนที่ถูกแทน · ลดได้อย่างเดียว · กฎ poFixCheck (master/mrp.js) -->
+      <div class="modal" v-if="bpFix.open" @click.self="bpFix.open=false">
+        <div class="modal-box" style="width:min(660px,100%)" role="dialog" aria-modal="true">
+          <h2>แก้ยอดจ่ายเกิน BOM</h2>
+          <table><tbody>
+            <tr><td class="hint" style="width:150px">P/N</td><td class="mono">{{ bpFix.pn || 'ไม่รู้ P/N' }}</td></tr>
+            <tr><td class="hint">PO</td><td class="mono"><b>{{ bpFix.po }}</b>
+              <span class="hint" v-if="bpFixRow && bpFixRow.date"> · PO Date {{ bpFixRow.date }}</span></td></tr>
+            <tr><td class="hint">วัตถุดิบ</td><td><span class="mono">{{ bpFix.code }}</span> {{ (matOf(bpFix.code) || {}).description || '' }}</td></tr>
+          </tbody></table>
+          <p v-if="!bpFixRow" class="msg bad" style="margin:10px 0 0">ไม่พบ PO นี้ในหน้ายอดคงคลังแล้ว (อาจถูกซ่อนเพราะปิดไปแล้ว) — ปิดกล่องแล้วกดใหม่</p>
+          <template v-else>
+            <table style="margin-top:10px"><tbody>
+              <tr><td class="hint" style="width:150px">ตาม BOM ของ PO นี้</td>
+                <td class="mono r">{{ bpFixRow.need == null ? 'ไม่รู้' : mrpNum(bpFixRow.need) }}</td></tr>
+              <tr><td class="hint">จ่ายไปแล้ว</td><td class="mono r">{{ mrpNum(bpFixRow.issued) }}</td></tr>
+              <tr><td class="hint"><b>เกิน BOM</b></td>
+                <td class="mono r"><b style="color:var(--bad)">{{ bpFixRow.issueDiff > 0 ? mrpNum(bpFixRow.issueDiff) : '0' }}</b>
+                  <span class="hint" style="margin-left:4px">{{ unitOf(bpFix.code) }}</span></td></tr>
+            </tbody></table>
+            <p style="margin:14px 0 4px"><b>1. เลือกรายการจ่ายที่คีย์ผิด หรือคีย์ซ้ำ</b></p>
+            <table class="mrp" style="margin-top:0"><thead><tr><th style="width:30px"></th><th>วันที่</th><th class="r">จำนวน</th><th>ผู้ทำ</th><th>หมายเหตุ</th></tr></thead>
+              <tbody>
+                <tr v-for="e in bpFixList" :key="e.id" style="cursor:pointer" @click="bpFix.id = e.id; bpFix.qty = null">
+                  <td><input type="radio" name="bpfix" :checked="bpFix.id === e.id" :data-bpfix-pick="e.id"></td>
+                  <td class="mono">{{ localDate(e.at) }}</td><td class="mono r">{{ mrpNum(e.qty) }}</td>
+                  <td>{{ e.person }}</td><td style="white-space:normal">{{ e.note || '' }}</td></tr>
+                <tr v-if="!bpFixList.length"><td colspan="5" class="hint">ไม่มีรายการจ่ายของ PO นี้ที่ยังไม่ถูกยกเลิก</td></tr>
+              </tbody></table>
+            <template v-if="bpFixSrc">
+              <p style="margin:14px 0 4px"><b>2. รายการนี้ควรจ่ายเท่าไหร่</b>
+                <span class="hint"> — ใส่ 0 ถ้ารายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO)</span></p>
+              <div class="row">
+                <label class="f" style="width:170px">จำนวนที่ถูกต้อง
+                  <input v-model.number="bpFix.qty" type="number" step="any" min="0" class="mono" data-bpfix-qty></label>
+                <button v-if="bpFixChk && bpFixChk.suggest !== null" class="btn" style="align-self:flex-end" data-bpfix-suggest
+                        @click="bpFix.qty = bpFixChk.suggest">ใช้ {{ mrpNum(bpFixChk.suggest) }} (พอดี BOM)</button>
+              </div>
+              <div class="msg bad" v-if="bpFixChk && bpFixChk.bigger" style="margin:10px 0 0">
+                แก้ได้แค่ลดลง — ใส่น้อยกว่า {{ mrpNum(bpFixChk.old) }} · ถ้าต้องจ่ายเพิ่มให้ใช้ปุ่ม "จ่าย"</div>
+              <div class="msg bad" v-else-if="bpFixChk && bpFixChk.qty !== null && bpFixChk.qty < 0" style="margin:10px 0 0">จำนวนติดลบไม่ได้</div>
+              <div class="msg" v-else-if="bpFixChk && bpFixChk.ok" style="margin:10px 0 0"
+                   :class="bpFixChk.afterDiff > 0 ? 'warn' : 'ok'">
+                หลังแก้: จ่ายรวม {{ mrpNum(bpFixRow.issued) }} − {{ mrpNum(bpFixChk.old) }} + {{ mrpNum(bpFixChk.qty) }} = <b>{{ mrpNum(bpFixChk.after) }}</b>
+                <template v-if="bpFixChk.afterDiff === null"> · ไม่รู้ยอดตาม BOM</template>
+                <template v-else> · ตาม BOM {{ mrpNum(bpFixRow.need) }} →
+                  <b>{{ bpFixChk.afterDiff > 0 ? 'ยังเกิน ' + mrpNum(bpFixChk.afterDiff) + ' — มีรายการอื่นต้องแก้อีก'
+                        : bpFixChk.afterDiff === 0 ? 'พอดี BOM' : 'ยังจ่ายได้อีก ' + mrpNum(-bpFixChk.afterDiff) }}</b></template></div>
+              <div class="row" style="margin-top:12px">
+                <label class="f grow">เหตุผลที่แก้<input v-model="bpFix.reason" data-bpfix-why></label>
+                <label class="f" style="width:180px">ชื่อผู้แก้<input v-model.trim="bpFix.by"></label>
+              </div>
+              <p class="hint" v-if="bpFix.reason && bpFixWhy" style="color:var(--bad);margin:6px 0 0">{{ bpFixWhy }}</p>
+              <p class="hint" style="margin:8px 0 0">รายการเดิมจะถูกยกเลิก (ยังอยู่ใน Log แบบขีดฆ่า) แล้วบันทึกจำนวนใหม่แทน
+                วันที่ · ผู้จ่าย · หมายเหตุ เหมือนเดิม</p>
+            </template>
+          </template>
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="bpFix.open=false">ไม่แก้แล้ว</button>
+            <button class="btn primary" @click="bpFixSave"
+                    :disabled="!bpFixChk || !bpFixChk.ok || !bpFix.by || !!bpFixWhy">บันทึกการแก้</button>
           </div>
         </div>
       </div>

@@ -472,8 +472,11 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        html.includes('{{ mrpNum(l.need) }}') && html.includes('{{ mrpNum(p.need) }}')
        && html.includes('bpDiffLabel(l.issueDiff)[0]') && html.includes('bpDiffLabel(p.issueDiff)[0]'));
     ok('จอ: ป้ายขึ้นเฉพาะครบ / จ่ายเกิน · ยังจ่ายไม่ครบ = ช่องว่าง ไม่ใช่ "—" · ไม่รู้ยอดตาม BOM = "—"',
-       ['l', 'p'].every(v => html.includes(`<span v-if="bpDiffLabel(${v}.issueDiff)[1]" class="tag"`)
-                          && html.includes(`<span v-else-if="${v}.issueDiff == null" class="hint">—</span>`)));
+       html.includes('<span v-if="bpDiffLabel(l.issueDiff)[1]" class="tag"')
+       && html.includes('<span v-else-if="bpDiffLabel(p.issueDiff)[1]" class="tag"')   // แถว PO: จ่ายเกินเป็นปุ่มกดแก้ (28 พ.ย. 2026) ที่เหลือเป็นป้ายเหมือนเดิม
+       && ['l', 'p'].every(v => html.includes(`<span v-else-if="${v}.issueDiff == null" class="hint">—</span>`)));
+    ok('จอ: ป้าย "จ่ายเกิน" ของแถว PO กดแล้วเปิดกล่องแก้ (bpFixOpen) ไม่พับ/กางแถว',
+       /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad'" class="tag bad bp-frac"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)"/.test(html));
     ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
        html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
        && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));
@@ -639,6 +642,28 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
   ok('app.js: ผู้เบิกลงหมายเหตุเป็น "ผู้เบิก: ชื่อ" (ไม่เพิ่มช่องใหม่ ไม่ต้องแก้ Apps Script) · เปิดกล่องใหม่ล้างชื่อผู้เบิก',
      /note: 'ผู้เบิก: ' \+ bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
   ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
+}
+
+console.log('\n=== แก้รายการจ่ายเกิน BOM จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const { poFixCheck } = await import('../v2/master/mrp.js');
+  // เศษ: ตาม BOM 0.0212 · จ่ายไป 0.0216 ครั้งเดียว → แนะนำ 0.0212 แล้วพอดี BOM
+  const crumb = { need: 0.0212, issued: 0.0216 };
+  const a = poFixCheck(crumb, 0.0216, 0.0212);
+  ok('เศษเกิน: แนะนำจำนวนที่ทำให้พอดี BOM · แก้แล้วเกิน 0', a.ok && a.suggest === 0.0212 && a.after === 0.0212 && a.afterDiff === 0);
+  // คีย์ซ้ำ: ตาม BOM 100 · จ่าย 100 สองครั้ง → แนะนำ 0 (รายการนี้ไม่ควรมี) · ใส่ 0 = ยกเลิกอย่างเดียว
+  const dup = { need: 100, issued: 200 };
+  ok('คีย์ซ้ำ: แนะนำ 0 · ใส่ 0 ได้ (ยกเลิกอย่างเดียว)', poFixCheck(dup, 100, 0).ok && poFixCheck(dup, 100, 0).suggest === 0
+     && poFixCheck(dup, 100, 0).afterDiff === 0);
+  ok('ลดได้อย่างเดียว — เท่าเดิม / มากกว่าเดิม / ติดลบ / ว่าง ไม่ผ่าน',
+     !poFixCheck(dup, 100, 100).ok && poFixCheck(dup, 100, 100).bigger && !poFixCheck(dup, 100, 150).ok
+     && !poFixCheck(dup, 100, -1).ok && [null, '', 'x'].every(x => !poFixCheck(dup, 100, x).ok && poFixCheck(dup, 100, x).qty === null));
+  // เกินหลายรายการ: ลดรายการเดียวแล้วยังเกิน → บันทึกได้ จอบอกยอดที่ยังเกิน
+  const many = { need: 10, issued: 16 };
+  ok('ลดแล้วยังเกิน BOM อยู่ = บันทึกได้ · afterDiff บอกยอดที่ยังเกิน · แนะนำไม่ต่ำกว่า 0',
+     poFixCheck(many, 3, 0).ok && poFixCheck(many, 3, 0).afterDiff === 3 && poFixCheck(many, 3, 0).suggest === 0);
+  ok('ไม่รู้ยอดตาม BOM: ลดได้ · ไม่มีคำแนะนำ', poFixCheck({ need: null, issued: 5 }, 5, 2).ok
+     && poFixCheck({ need: null, issued: 5 }, 5, 2).suggest === null && poFixCheck({ need: null, issued: 5 }, 5, 2).afterDiff === null);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
