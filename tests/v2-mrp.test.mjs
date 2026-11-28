@@ -640,9 +640,9 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
   ok('app.js: เปิดกล่องตั้งวันที่เป็นวันนี้ · บันทึกเช็กกฎซ้ำก่อนเขียน · อ้าง PO ของปุ่มที่กด',
      /bpIssOpen\(pn, po, code\) \{\s*Object\.assign\(bpIss, \{ open: true, pn, po, code, date: todayLocal\(\)/.test(app)
      && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.requester \|\| !bpIss\.date \|\| futureBlocked\(bpIss\.date\)\) return;/.test(app)
-     && /postPoIssue\(\{ po: bpIss\.po, code: bpIss\.code, pn: bpIss\.pn,/.test(app) && /doc_kind: 'po', doc_ref: po, part_no: pn,/.test(app));
+     && /postPoIssue\(\{ po: bpIss\.po, code: bpIss\.code, pn: bpIss\.pn,/.test(app) && /doc_kind: 'po', doc_ref: p\.po, part_no: pn,/.test(app));
   ok('app.js: ผู้เบิกลงหมายเหตุเป็น "ผู้เบิก: ชื่อ" (ไม่เพิ่มช่องใหม่ ไม่ต้องแก้ Apps Script) · เปิดกล่องใหม่ล้างชื่อผู้เบิก',
-     /note: 'ผู้เบิก: ' \+ requester/.test(app) && /requester: bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
+     /'ผู้เบิก: ' \+ requester/.test(app) && /requester: bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
   ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
   ok('จอ: กล่องแก้โชว์จ่ายสะสม · แถวแดงกับป้ายเกิน BOM / เกินรับเข้า / ซ้ำกับรายการไหน (poOverRows · เจ้าของสั่ง 28 พ.ย. 2026)',
      /<tr v-for="x in bpFixRows"/.test(html) && html.includes('<th class="r">จ่ายสะสม</th>')
@@ -769,6 +769,19 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      && [0, null, '', -1].every(x => !codeIssueCheck({ bal: 1 }, 1, x).ok));
   ok('codePoRows all: รวมใบที่ของหมด / ติดลบด้วย', codePoRows(stocks, 'CH1', po => head[po] || null, { all: true }).map(r => r.po).join()
      === 'PO-ZERO,PO-NEG,PO-OLD,PO-NEW,PO-NOHEAD');
+  // แบ่งยอดลงหลาย PO ใบเก่าก่อน (เจ้าของเลือกแบบ ก 28 พ.ย. 2026)
+  const { fifoSplit } = await import('../v2/master/mrp.js');
+  const R = [{ po: 'A', pn: 'P1', bal: 0.3 }, { po: 'B', pn: 'P1', bal: 0.3 }, { po: 'C', pn: 'P2', bal: 0.4 }];   // เรียงเก่าก่อนแล้ว
+  const sp = (sel, q) => fifoSplit(R, sel, q).map(x => x.po + ':' + x.qty).join(' ');
+  ok('ไม่เกินคงเหลือใบที่เลือก = ลงใบเดียว', sp(R[1], 0.25) === 'B:0.25');
+  ok('เกิน = ใบที่เลือกก่อน แล้วตัดใบอื่นที่ยังมีของ ใบเก่าก่อน (ข้ามใบที่เลือก)', sp(R[1], 0.5) === 'B:0.3 A:0.2' && sp(R[2], 0.9) === 'C:0.4 A:0.3 B:0.2');
+  ok('ของทั้งคลังไม่พอ = ส่วนที่เหลือลงใบที่เลือก (ใบนั้นติดลบ = สัญญาณให้ตรวจ)', sp(R[0], 1.2) === 'A:0.5 B:0.3 C:0.4',
+     sp(R[0], 1.2));
+  ok('ใบที่เลือกของหมดแล้ว (ติ๊กแสดงใบหมด) = ตัดใบอื่นก่อน ที่เหลือลงใบที่เลือก',
+     sp({ po: 'Z', pn: 'P9', bal: -0.1 }, 0.5) === 'A:0.3 B:0.2' && sp({ po: 'Z', pn: 'P9', bal: 0 }, 1.5) === 'Z:0.5 A:0.3 B:0.3 C:0.4');
+  ok('ยอดรวมของที่แบ่ง = ยอดที่จ่ายเสมอ · ใส่ 0 / ว่าง / ไม่เลือกใบ = []',
+     [0.25, 0.5, 0.9, 1.2, 3.33333].every(q => Math.abs(fifoSplit(R, R[1], q).reduce((t, x) => t + x.qty, 0) - q) < 1e-9)
+     && fifoSplit(R, R[0], 0).length === 0 && fifoSplit(R, R[0], '').length === 0 && fifoSplit(R, null, 1).length === 0);
 }
 
 {
@@ -781,19 +794,20 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      /<template v-for="g in ciIssGroups"/.test(html) && /@click="ciFold\[g\.pn\] = !ciFold\[g\.pn\]"/.test(html) && /<tr v-for="p in g\.pos"/.test(html)
      && html.includes("{{ g.pn || 'ไม่รู้ P/N' }}") && /codePnGroups\(ciIssPos\.value\)/.test(app)
      && /@click="ciIssSave"\s*:disabled="!ciIssChk \|\| !ciIssChk\.ok \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| ciIss\.busy"/.test(html));
-  ok('app.js: PO มาจาก codePoRows(poStocks(...), { all }) · ตัวเลข = codeIssueCheck กับยอดคงคลังรวม · บันทึกผ่าน postPoIssue อ้าง PO + P/N ของใบ',
-     /codePoRows\(poStocks\(entries\.value, entity\.value\), ciIss\.code, poIdx\.value, \{ all: ciIss\.all \}\)/.test(app)
+  ok('app.js: PO มาจาก codePoRows(poStocks(...), { all }) · ตัวเลข = codeIssueCheck กับยอดคงคลังรวม · แบ่งยอดด้วย fifoSplit แล้วบันทึกผ่าน postPoIssues (P/N ของใบที่เลือก)',
+     /codePoRows\(ciStocks\.value, ciIss\.code, poIdx\.value, \{ all: ciIss\.all \}\)/.test(app) && /poStocks\(entries\.value, entity\.value\)/.test(app)
      && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty\)/.test(app)
      && /bookBalances\.value\.get\(ciIss\.code\)/.test(app)
      && /if \(ciIss\.busy \|\| !c \|\| !c\.ok \|\| !r \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| futureBlocked\(ciIss\.date\)\) return;/.test(app)
      // บันทึกแล้วกล่องไม่ปิด จ่ายต่อ PO อื่นได้ — ล้างแค่ PO กับจำนวน (เจ้าของสั่ง 28 พ.ย. 2026)
      && /ciIss\.done\.push\([^)]*\);\s*Object\.assign\(ciIss, \{ po: '', qty: null \}\);/.test(app)
      && !/async function ciIssSave\(\)[\s\S]{0,900}ciIss\.open = false/.test(app) && html.includes('data-ciiss-done')
-     && /postPoIssue\(\{ po: r\.po, code: ciIss\.code, pn: r\.pn,/.test(app));
+     && /const parts = fifoSplit\(ciIssLive\.value, r, c\.qty\)/.test(app)
+     && /await postPoIssues\(parts, \{ code: ciIss\.code, pn: r\.pn,/.test(app));
   // เคมีจ่ายเป็นขวด — ไม่บล็อกจ่ายเกิน (A4 ข้อยกเว้น · เจ้าของสั่ง 28 พ.ย. 2026) แต่ต้องเห็นยอดรวมและคำเตือน
   ok('จอ: จ่ายเกินคงเหลือ PO / ยอดรวมไม่ทำให้ปุ่มบันทึกปิด · เตือนสีเหลือง · โชว์คงคลังรวม · ติ๊กแสดง PO ที่ของหมดได้',
      !/ciIssChk\.overPo[^"]*"[^>]*disabled|:disabled="[^"]*overPo/.test(html) && !html.includes('ciIssChk.overRecv')
-     && /:class="ciIssChk\.overPo \|\| ciIssChk\.overTotal \? 'warn' : 'ok'"/.test(html)
+     && /:class="ciIssShort > 0 \|\| ciIssChk\.overTotal \? 'warn' : 'ok'"/.test(html) && /<div v-for="s in ciIssSplit"/.test(html)
      && html.includes('data-ciiss-total>{{ mrpNum(ciIssTotal) }}') && html.includes('v-model="ciIss.all"'));
   ok('หน้ารายรหัสกรองด้วย isPoolItem (เคมี · TERMINAL · SOLDER) แทนเคมี + METAL PART',
      /isPoolItem\(r\.category, r\.desc\)/.test(app) && !/r\.category === 'METAL PART'/.test(app) && html.includes('เฉพาะเคมี · TERMINAL · SOLDER'));

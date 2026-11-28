@@ -712,3 +712,29 @@ export function codeIssueCheck(p, total, qty) {
   const bal = round5(Number(p && p.bal) || 0), tot = round5(Number(total) || 0);
   return { qty: q, poAfter: round5(bal - q), totalAfter: round5(tot - q), overPo: q > bal, overTotal: q > tot, ok: q > 0 };
 }
+
+/**
+ * แบ่งยอดจ่ายของหน้ารายรหัสลงหลาย PO — ตัดจาก PO ที่เลือกก่อน ที่เกินตัดจาก PO อื่นที่ยังมีของ ใบเก่าก่อน (เจ้าของเลือกแบบ ก 28 พ.ย. 2026)
+ *   เคมีจ่ายตามประมาณและข้าม PO — ถ้าลงใบที่เลือกใบเดียว ใบนั้นติดลบแน่ หน้าราย P/N ขึ้นแดง / ปุ่มแก้ไข ทั้งที่จ่ายถูก
+ *   rows = codePoRows (เฉพาะใบที่ยังมีของ เรียงเก่าก่อน) · sel = ใบที่เลือก ({ po, pn, bal } อาจเป็นใบที่ของหมดแล้ว) · qty = ยอดที่จ่าย
+ *   ของทั้งคลัง (ที่อ้าง PO) ไม่พอ → ส่วนที่เหลือลงใบที่เลือก ใบนั้นติดลบ = สัญญาณจริงว่าลืมคีย์รับเข้า / ประมาณเกิน
+ * คืน [{ po, pn, qty }] ใบที่เลือกอยู่แถวแรกเสมอเมื่อมีส่วนของมัน · ไม่มีอะไรให้ตัด / qty ≤ 0 = []
+ */
+export function fifoSplit(rows, sel, qty) {
+  let left = round5(Number(qty) || 0);
+  const out = [];
+  if (!(left > 0) || !sel || !txt(sel.po)) return out;
+  const take = (r, q) => {
+    const hit = out.find(x => x.po === r.po);
+    if (hit) hit.qty = round5(hit.qty + q); else out.push({ po: r.po, pn: txt(r.pn), qty: round5(q) });
+    left = round5(left - q);
+  };
+  if (Number(sel.bal) > 0) take(sel, Math.min(left, round5(Number(sel.bal))));
+  for (const r of rows || []) {
+    if (!(left > 0)) break;
+    if (r.po === sel.po || !(Number(r.bal) > 0)) continue;
+    take(r, Math.min(left, round5(Number(r.bal))));
+  }
+  if (left > 0) take(sel, left);
+  return out.sort((a, b) => (a.po === sel.po ? -1 : 0) - (b.po === sel.po ? -1 : 0));
+}

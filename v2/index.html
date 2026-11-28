@@ -3990,7 +3990,8 @@ textarea{font:inherit}
           <!-- บันทึกแล้วกล่องไม่ปิด จ่ายต่อ PO อื่นได้ (เจ้าของสั่ง 28 พ.ย. 2026) — โชว์ที่บันทึกไปในรอบนี้ -->
           <div v-if="ciIss.done.length" class="msg ok" style="margin:10px 0 0" data-ciiss-done>
             <b>บันทึกแล้วในรอบนี้ {{ ciIss.done.length }} รายการ</b> — รวม {{ mrpNum(ciIss.done.reduce((t, d) => t + d.qty, 0)) }} {{ unitOf(ciIss.code) }}
-            <div v-for="(d, i) in ciIss.done" :key="i" class="mono">PO {{ d.po }} · P/N {{ d.pn || 'ไม่รู้ P/N' }} · {{ mrpNum(d.qty) }} {{ unitOf(ciIss.code) }} · ผู้เบิก {{ d.requester }}</div>
+            <div v-for="(d, i) in ciIss.done" :key="i" class="mono">P/N {{ d.pn || 'ไม่รู้ P/N' }} · {{ mrpNum(d.qty) }} {{ unitOf(ciIss.code) }}
+              ({{ d.parts.map(p => 'PO ' + p.po + ' ' + mrpNum(p.qty)).join(' + ') }}) · ผู้เบิก {{ d.requester }}</div>
             <div>เลือก PO ถัดไปเพื่อจ่ายต่อ หรือกด "ปิด"</div>
           </div>
           <div class="row" style="margin:14px 0 4px;align-items:center">
@@ -4032,13 +4033,17 @@ textarea{font:inherit}
               <label class="f" style="width:150px">จำนวนที่จ่าย ({{ unitOf(ciIss.code) || 'หน่วย' }})
                 <input v-model.number="ciIss.qty" type="number" step="any" min="0" class="mono" data-ciiss-qty></label>
             </div>
-            <p class="hint" style="margin:4px 0 0">จ่ายเป็นขวดให้ใส่ {{ unitOf(ciIss.code) || 'จำนวน' }} ตามที่ประมาณ · จ่ายเกินคงเหลือ PO ได้ ระบบเตือนอย่างเดียว</p>
-            <!-- ไม่บล็อก (A4 ข้อยกเว้น) — โชว์ผลหลังจ่ายทั้งของ PO และยอดรวม · เหลืองเมื่อเกิน -->
-            <div class="msg" v-if="ciIssChk.ok" :class="ciIssChk.overPo || ciIssChk.overTotal ? 'warn' : 'ok'" style="margin:10px 0 0" data-ciiss-after>
-              หลังจ่าย: คงเหลือ PO {{ ciIssRow.po }} {{ mrpNum(ciIssRow.bal) }} − {{ mrpNum(ciIssChk.qty) }} = <b>{{ mrpNum(ciIssChk.poAfter) }}</b>
-              · คงคลังรวม {{ mrpNum(ciIssTotal) }} − {{ mrpNum(ciIssChk.qty) }} = <b>{{ mrpNum(ciIssChk.totalAfter) }}</b>
-              <div v-if="ciIssChk.overPo">เกินคงเหลือของ PO นี้ — บันทึกได้ (เคมีจ่ายเป็นขวด) · PO นี้จะติดลบ ไว้ตรวจกับของจริงตอนนับ</div>
-              <div v-if="ciIssChk.overTotal">เกินยอดคงคลังรวม — บันทึกได้ แต่ตรวจก่อนว่าคีย์รับเข้าของที่มาแล้วครบหรือยัง</div></div>
+            <p class="hint" style="margin:4px 0 0">จ่ายเป็นขวดให้ใส่ {{ unitOf(ciIss.code) || 'จำนวน' }} ตามที่ประมาณ · เกินคงเหลือ PO นี้ได้ ระบบตัดส่วนที่เกินจาก PO อื่นให้ ใบเก่าก่อน</p>
+            <!-- ไม่บล็อก (A4 ข้อยกเว้น) — โชว์ว่าจะตัดจาก PO ไหนเท่าไหร่ก่อนกด (fifoSplit · เจ้าของเลือกแบบ ก) + ยอดรวมหลังจ่าย
+                 เหลืองเมื่อของทุก PO ไม่พอ (ใบที่เลือกจะติดลบ) หรือเกินยอดคงคลังรวม -->
+            <div class="msg" v-if="ciIssChk.ok" :class="ciIssShort > 0 || ciIssChk.overTotal ? 'warn' : 'ok'" style="margin:10px 0 0" data-ciiss-after>
+              <div v-if="ciIssSplit.length > 1">เกินคงเหลือของ PO {{ ciIssRow.po }} ({{ mrpNum(ciIssRow.bal) }}) — ระบบตัดส่วนที่เกินจาก PO อื่นที่ยังมีของ ใบเก่าก่อน:</div>
+              <div v-else>จะตัดจาก</div>
+              <div v-for="s in ciIssSplit" :key="s.po" class="mono" style="padding-left:12px" data-ciiss-split>
+                PO {{ s.po }} · P/N {{ s.pn || 'ไม่รู้ P/N' }} · <b>{{ mrpNum(s.qty) }}</b> {{ unitOf(ciIss.code) }}</div>
+              <div>คงคลังรวม {{ mrpNum(ciIssTotal) }} − {{ mrpNum(ciIssChk.qty) }} = <b>{{ mrpNum(ciIssChk.totalAfter) }}</b></div>
+              <div v-if="ciIssShort > 0">ของทุก PO รวมกันไม่พอ — ส่วนที่ขาด {{ mrpNum(ciIssShort) }} ลงที่ PO {{ ciIssRow.po }} (PO นี้จะติดลบ) · ตรวจก่อนว่าคีย์รับเข้าของที่มาแล้วครบหรือยัง</div>
+              <div v-else-if="ciIssChk.overTotal">เกินยอดคงคลังรวม — บันทึกได้ แต่ตรวจก่อนว่าคีย์รับเข้าของที่มาแล้วครบหรือยัง</div></div>
           </template>
           <p v-else-if="ciIss.po" class="msg bad" style="margin:10px 0 0">PO {{ ciIss.po }} ไม่มีของรหัสนี้เหลือแล้ว (อาจมีเครื่องอื่นจ่ายไป) — เลือก PO อื่น</p>
           <div class="row" style="margin-top:12px">

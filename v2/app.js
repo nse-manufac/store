@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups, isPoolItem, codeIssueCheck } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups, isPoolItem, codeIssueCheck, fifoSplit } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1880,24 +1880,26 @@ createApp({
       return (l && l.byPo.find(x => x.po === bpIss.po)) || null;
     });
     const bpIssChk = computed(() => (bpIssRow.value ? poIssueCheck(bpIssRow.value, bpIss.qty) : null));
-    /* บันทึกจ่ายออกหนึ่งรายการอ้าง PO แล้วล้างเศษของ PO นั้น — กล่องจ่ายของหน้าราย P/N กับหน้ารายรหัสใช้ตัวเดียวกัน
-     * ผู้เรียกเช็กกฎ (poIssueCheck) กับวันอนาคต (futureBlocked) ก่อนเรียก · โยน error ให้ผู้เรียกขึ้นข้อความเอง */
-    async function postPoIssue({ po, code, pn, date, person, requester, qty }) {
-      const at = atFrom(date);   // เวลาเดียวกับล้างเศษ ให้ยกเลิกแล้วผูกคู่กันได้ (แบบ saveOut)
-      const e = makeEntry({ entity: entity.value, kind: 'issue', material_code: code, qty, lot: '', lot_inferred: false,
-                            doc_kind: 'po', doc_ref: po, part_no: pn, at, person, device: device.value,
-                            note: 'ผู้เบิก: ' + requester });   // ไม่มีช่องผู้เบิกแยก — เจ้าของเลือกใส่หมายเหตุ (28 พ.ย. 2026) ไม่ต้องแก้ Apps Script
-      await db.put('entries', [e]);
-      entries.value.push(e);
+    /* บันทึกจ่ายออกอ้าง PO แล้วล้างเศษของ PO นั้น — กล่องจ่ายของหน้าราย P/N กับหน้ารายรหัสใช้ตัวเดียวกัน
+     * parts = [{ po, qty, note? }] ลงสมุดก้อนเดียว (หน้ารายรหัสแบ่งยอดลงหลาย PO · fifoSplit) · ทุกส่วนเวลาเดียวกัน P/N เดียวกัน
+     * ผู้เรียกเช็กกฎ (poIssueCheck / codeIssueCheck) กับวันอนาคต (futureBlocked) ก่อนเรียก · โยน error ให้ผู้เรียกขึ้นข้อความเอง */
+    async function postPoIssues(parts, { code, pn, date, person, requester }) {
+      const at = atFrom(date);   // เวลาเดียวกับล้างเศษ ให้ยกเลิกแล้วผูกคู่กันได้ (แบบ saveOut) · เรียกครั้งเดียวทุกส่วน
+      const es = parts.map(p => makeEntry({ entity: entity.value, kind: 'issue', material_code: code, qty: p.qty, lot: '', lot_inferred: false,
+                            doc_kind: 'po', doc_ref: p.po, part_no: pn, at, person, device: device.value,
+                            note: ['ผู้เบิก: ' + requester, p.note].filter(Boolean).join(' · ') }));   // ไม่มีช่องผู้เบิกแยก — เจ้าของเลือกใส่หมายเหตุ (28 พ.ย. 2026) ไม่ต้องแก้ Apps Script
+      await db.put('entries', es);
+      entries.value.push(...es);
       let crumbs = [], crumbErr = '';
       try {
-        crumbs = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person, device: device.value, at, part_no: pn });
+        for (const p of parts) crumbs.push(...fracSweep(entries.value, entity.value, p.po, [code], fracTolAt, { person, device: device.value, at, part_no: pn }));
         if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
       } catch (err) { crumbs = []; crumbErr = err.message; }
       db.announce('entries');
-      flash(`บันทึกจ่ายออก ${code} × ${qty} · PO ${po}` + (crumbs.length ? ' · ล้างเศษแล้ว' : '')
+      flash(`บันทึกจ่ายออก ${code} · ` + parts.map(p => `PO ${p.po} × ${p.qty}`).join(' · ') + (crumbs.length ? ' · ล้างเศษแล้ว' : '')
             + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
     }
+    const postPoIssue = ({ po, qty, ...rest }) => postPoIssues([{ po, qty }], rest);
     async function bpIssSave() {
       const c = bpIssChk.value;
       if (!c || !c.ok || !bpIss.person || !bpIss.requester || !bpIss.date || futureBlocked(bpIss.date)) return;
@@ -1918,11 +1920,20 @@ createApp({
       for (const k of Object.keys(ciFold)) delete ciFold[k];
       if (ciIssGroups.value.length === 1) ciFold[ciIssGroups.value[0].pn] = true;   // P/N เดียว กางให้เลย
     }
-    const ciIssPos = computed(() => (ciIss.open && entity.value ? codePoRows(poStocks(entries.value, entity.value), ciIss.code, poIdx.value, { all: ciIss.all }) : []));
+    const ciStocks = computed(() => (ciIss.open && entity.value ? poStocks(entries.value, entity.value) : new Map()));
+    const ciIssPos = computed(() => codePoRows(ciStocks.value, ciIss.code, poIdx.value, { all: ciIss.all }));
+    const ciIssLive = computed(() => codePoRows(ciStocks.value, ciIss.code, poIdx.value));   // ใบที่ยังมีของ (ไม่ขึ้นกับช่องติ๊ก) ไว้แบ่งยอด
     const ciIssTotal = computed(() => (ciIss.open ? bookBalances.value.get(ciIss.code) || 0 : 0));   // ยอดคงคลังรวมของรหัส (ทุก PO + ที่ไม่อ้าง PO) — ตัวเดียวกับคอลัมน์คงเหลือ
     const ciIssGroups = computed(() => codePnGroups(ciIssPos.value));
     const ciIssRow = computed(() => ciIssPos.value.find(p => p.po === ciIss.po) || null);
     const ciIssChk = computed(() => (ciIssRow.value ? codeIssueCheck(ciIssRow.value, ciIssTotal.value, ciIss.qty) : null));
+    // เกินคงเหลือใบที่เลือก → ตัดส่วนที่เกินจากใบอื่นที่ยังมีของ ใบเก่าก่อน (เจ้าของเลือกแบบ ก 28 พ.ย. 2026) · จอโชว์ก่อนกดบันทึก
+    const ciIssSplit = computed(() => (ciIssChk.value && ciIssChk.value.ok ? fifoSplit(ciIssLive.value, ciIssRow.value, ciIssChk.value.qty) : []));
+    // ส่วนที่ของทุก PO รวมกันไม่พอ → ลงใบที่เลือก ใบนั้นติดลบเท่านี้ (0 = ไม่ติดลบ)
+    const ciIssShort = computed(() => {
+      const r = ciIssRow.value, s = r && ciIssSplit.value.find(p => p.po === r.po);
+      return s ? round5(Math.max(0, s.qty - Math.max(0, r.bal))) : 0;
+    });
     /* บันทึกแล้วกล่องไม่ปิด — จ่ายต่อให้ PO อื่นได้เลย (เจ้าของสั่ง 28 พ.ย. 2026) · ล้างแค่ PO กับจำนวน วันที่ / ผู้จ่าย / ผู้เบิกคงไว้
      * จดรายการที่บันทึกในรอบนี้ไว้โชว์ในกล่อง · busy กันกดบันทึกซ้ำระหว่างรอเขียนลงเครื่อง (กล่องยังเปิดอยู่ กดซ้ำได้ง่าย) */
     async function ciIssSave() {
@@ -1930,9 +1941,10 @@ createApp({
       if (ciIss.busy || !c || !c.ok || !r || !ciIss.person || !ciIss.requester || !ciIss.date || futureBlocked(ciIss.date)) return;
       ciIss.busy = true;
       try {
-        await postPoIssue({ po: r.po, code: ciIss.code, pn: r.pn, date: ciIss.date,
-                            person: ciIss.person, requester: ciIss.requester, qty: c.qty });
-        ciIss.done.push({ po: r.po, pn: r.pn, qty: c.qty, requester: ciIss.requester });
+        const parts = fifoSplit(ciIssLive.value, r, c.qty)   // คิดใหม่ตอนกด ไม่ใช้ค่าที่จอโชว์ค้าง — สมุดอาจขยับระหว่างกรอก
+          .map(p => ({ po: p.po, qty: p.qty, note: p.po === r.po ? '' : `แบ่งจากการจ่ายที่ PO ${r.po} (ตัดใบเก่าก่อน)` }));
+        await postPoIssues(parts, { code: ciIss.code, pn: r.pn, date: ciIss.date, person: ciIss.person, requester: ciIss.requester });
+        ciIss.done.push({ po: r.po, pn: r.pn, qty: c.qty, requester: ciIss.requester, parts });
         Object.assign(ciIss, { po: '', qty: null });
       } catch (err) { flash(err.message, true); }
       finally { ciIss.busy = false; }
@@ -4267,7 +4279,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssGroups, ciFold, ciIssTotal, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssGroups, ciFold, ciIssTotal, ciIssSplit, ciIssShort, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
