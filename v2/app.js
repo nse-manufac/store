@@ -1911,10 +1911,10 @@ createApp({
      * เคมีจ่ายรวมข้าม PO จึงให้เลือกใบเอง (ใบเก่าขึ้นก่อน · codePoRows) · โชว์ P/N ของใบ แต่ไม่คุมจ่ายสะสมตาม BOM (เจ้าของสั่ง)
      * ⚠️ ไม่บล็อกจ่ายเกินคงเหลือ PO / ยอดรวม — เคมีจ่ายเป็นขวด ยังไม่รู้ขวดละกี่ KG ใส่ KG ตามประมาณ (ข้อยกเว้นของ A4 · เจ้าของสั่ง)
      *    เตือนสีเหลือง + โชว์ยอดคงคลังรวมไว้คุมของจริง · ตัวเลขอยู่ที่ codeIssueCheck · อ่านจากสมุดทุกครั้งแบบ bpIssRow */
-    const ciIss = reactive({ open: false, code: '', po: '', date: '', person: '', requester: '', qty: null, all: false });
+    const ciIss = reactive({ open: false, code: '', po: '', date: '', person: '', requester: '', qty: null, all: false, busy: false, done: [] });
     const ciFold = reactive({});   // P/N ที่กางอยู่ในกล่อง — กาง P/N แล้วเห็น PO ของ P/N นั้น แบบหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026)
     function ciIssOpen(code) {
-      Object.assign(ciIss, { open: true, code, po: '', date: todayLocal(), requester: '', qty: null, all: false });   // ผู้จ่ายจำชื่อล่าสุดไว้ แบบ bpIss
+      Object.assign(ciIss, { open: true, code, po: '', date: todayLocal(), requester: '', qty: null, all: false, busy: false, done: [] });   // ผู้จ่ายจำชื่อล่าสุดไว้ แบบ bpIss
       for (const k of Object.keys(ciFold)) delete ciFold[k];
       if (ciIssGroups.value.length === 1) ciFold[ciIssGroups.value[0].pn] = true;   // P/N เดียว กางให้เลย
     }
@@ -1923,14 +1923,19 @@ createApp({
     const ciIssGroups = computed(() => codePnGroups(ciIssPos.value));
     const ciIssRow = computed(() => ciIssPos.value.find(p => p.po === ciIss.po) || null);
     const ciIssChk = computed(() => (ciIssRow.value ? codeIssueCheck(ciIssRow.value, ciIssTotal.value, ciIss.qty) : null));
+    /* บันทึกแล้วกล่องไม่ปิด — จ่ายต่อให้ PO อื่นได้เลย (เจ้าของสั่ง 28 พ.ย. 2026) · ล้างแค่ PO กับจำนวน วันที่ / ผู้จ่าย / ผู้เบิกคงไว้
+     * จดรายการที่บันทึกในรอบนี้ไว้โชว์ในกล่อง · busy กันกดบันทึกซ้ำระหว่างรอเขียนลงเครื่อง (กล่องยังเปิดอยู่ กดซ้ำได้ง่าย) */
     async function ciIssSave() {
       const c = ciIssChk.value, r = ciIssRow.value;
-      if (!c || !c.ok || !r || !ciIss.person || !ciIss.requester || !ciIss.date || futureBlocked(ciIss.date)) return;
+      if (ciIss.busy || !c || !c.ok || !r || !ciIss.person || !ciIss.requester || !ciIss.date || futureBlocked(ciIss.date)) return;
+      ciIss.busy = true;
       try {
         await postPoIssue({ po: r.po, code: ciIss.code, pn: r.pn, date: ciIss.date,
                             person: ciIss.person, requester: ciIss.requester, qty: c.qty });
-        ciIss.open = false;
+        ciIss.done.push({ po: r.po, pn: r.pn, qty: c.qty, requester: ciIss.requester });
+        Object.assign(ciIss, { po: '', qty: null });
       } catch (err) { flash(err.message, true); }
+      finally { ciIss.busy = false; }
     }
     /* แก้รายการจ่ายที่เกิน (เจ้าของสั่ง 28 พ.ย. 2026) — แทนทางเดิมที่กดยอดติดลบแล้วพาไปแท็บ Log (19 พ.ย.) · เจ้าของให้ถอดทางนั้นออก — กดป้าย "จ่ายเกิน" (เกิน BOM) หรือยอดติดลบ (เกินรับเข้า) ของแถว PO
      * → เลือกรายการจ่ายที่ผิด → ใส่จำนวนที่ถูก

@@ -780,12 +780,15 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
   ok('จอ: กล่องเลือก P/N → PO (กาง P/N แบบหน้าราย P/N) · ปุ่มบันทึกปิดเมื่อยังไม่เลือก / ไม่ผ่านกฎ / ไม่มีชื่อ / ไม่มีวันที่',
      /<template v-for="g in ciIssGroups"/.test(html) && /@click="ciFold\[g\.pn\] = !ciFold\[g\.pn\]"/.test(html) && /<tr v-for="p in g\.pos"/.test(html)
      && html.includes("{{ g.pn || 'ไม่รู้ P/N' }}") && /codePnGroups\(ciIssPos\.value\)/.test(app)
-     && /@click="ciIssSave"\s*:disabled="!ciIssChk \|\| !ciIssChk\.ok \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date"/.test(html));
+     && /@click="ciIssSave"\s*:disabled="!ciIssChk \|\| !ciIssChk\.ok \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| ciIss\.busy"/.test(html));
   ok('app.js: PO มาจาก codePoRows(poStocks(...), { all }) · ตัวเลข = codeIssueCheck กับยอดคงคลังรวม · บันทึกผ่าน postPoIssue อ้าง PO + P/N ของใบ',
      /codePoRows\(poStocks\(entries\.value, entity\.value\), ciIss\.code, poIdx\.value, \{ all: ciIss\.all \}\)/.test(app)
      && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty\)/.test(app)
      && /bookBalances\.value\.get\(ciIss\.code\)/.test(app)
-     && /if \(!c \|\| !c\.ok \|\| !r \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| futureBlocked\(ciIss\.date\)\) return;/.test(app)
+     && /if \(ciIss\.busy \|\| !c \|\| !c\.ok \|\| !r \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| futureBlocked\(ciIss\.date\)\) return;/.test(app)
+     // บันทึกแล้วกล่องไม่ปิด จ่ายต่อ PO อื่นได้ — ล้างแค่ PO กับจำนวน (เจ้าของสั่ง 28 พ.ย. 2026)
+     && /ciIss\.done\.push\([^)]*\);\s*Object\.assign\(ciIss, \{ po: '', qty: null \}\);/.test(app)
+     && !/async function ciIssSave\(\)[\s\S]{0,900}ciIss\.open = false/.test(app) && html.includes('data-ciiss-done')
      && /postPoIssue\(\{ po: r\.po, code: ciIss\.code, pn: r\.pn,/.test(app));
   // เคมีจ่ายเป็นขวด — ไม่บล็อกจ่ายเกิน (A4 ข้อยกเว้น · เจ้าของสั่ง 28 พ.ย. 2026) แต่ต้องเห็นยอดรวมและคำเตือน
   ok('จอ: จ่ายเกินคงเหลือ PO / ยอดรวมไม่ทำให้ปุ่มบันทึกปิด · เตือนสีเหลือง · โชว์คงคลังรวม · ติ๊กแสดง PO ที่ของหมดได้',
