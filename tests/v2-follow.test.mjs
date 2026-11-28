@@ -2796,8 +2796,9 @@ console.log('\n=== SPL. แยกปุ่ม ยกเลิกแล้ว / �
   const oldC = { ...base, id: 'C0', po: 'P3', code: 'A1', void_reason: CANCEL_MARK + ' — รอบแรก', void_at: '2026-11-10T01:00:00.000Z' };
   const newK = { ...base, id: 'K3', po: 'P3', code: 'A1', void_reason: SKIP_MARK + ' — รอบสอง', void_at: '2026-11-22T01:00:00.000Z' };
   const all = [c1, k1, oldC, newK];
-  const ids = o => stoppedShorts(all, { entity: E, ...o }).map(x => x.s.id).join();
-  ok('stoppedShorts mark: cancel = เฉพาะยกเลิก · skip = เฉพาะไม่ติดตาม · ไม่ส่ง = ทั้งหมดเหมือนเดิม',
+  // แยกปุ่มแบบเดียวกับจอ (fsStopHit): x.mark === ปุ่มที่เลือก · ไม่ส่ง = รายการเต็มของตัวนับ
+  const ids = o => stoppedShorts(all, { entity: E }).filter(x => !o.mark || x.mark === o.mark).map(x => x.s.id).join();
+  ok('แยกด้วย mark: cancel = เฉพาะยกเลิก · skip = เฉพาะไม่ติดตาม · ไม่ส่ง = ทั้งหมดเหมือนเดิม',
      ids({ mark: 'cancel' }) === 'C1' && ids({ mark: 'skip' }) === 'K3,K1' && ids({}) === 'K3,K1,C1', [ids({ mark: 'cancel' }), ids({ mark: 'skip' }), ids({})].join(' | '));
   ok('หยุดสองรอบ: รอบเก่า (ยกเลิก) ไม่โผล่ในปุ่มยกเลิกแล้ว — กรองหลังเลือกรอบล่าสุด', !ids({ mark: 'cancel' }).includes('C0'));
   ok('stopCounts นับแยกสองปุ่ม · รวมกัน = ตัวนับเดิม',
