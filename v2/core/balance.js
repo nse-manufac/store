@@ -165,6 +165,9 @@ export function poMoves(entries, entity, docRef, code) {
  * แยกเป็นรายการปรับยอดต่างหาก ไม่แก้ยอดจ่าย (เจ้าของเลือกแบบ ก) — ยอดจ่ายยังตรงกับที่คีย์
  * counted_qty = 0 · book = คงเหลือ PO ก่อนล้าง → delta = −เศษ · ยอดรวมของรหัสก็ขยับตามด้วย (เศษนั้นไม่มีอยู่จริง)
  * ผู้เรียกต้องเขียนรายการที่คืนลงสมุดเอง · ไม่มีเศษ = []
+ * at ของรายการล้างเศษไม่เก่ากว่าใบจ่ายออกใบล่าสุดของ PO + รหัสนั้น (lastIssueAt) — ผู้ตรวจ #198 ข้อสังเกต 1
+ *   คีย์จ่ายย้อนหลังก่อนใบที่มีอยู่แล้ว → ล้างเศษที่เวลาใบล่าสุดแทนเวลาที่คีย์ย้อน ไม่งั้น fracTwins ของใบล่าสุดผูกคู่ไม่เจอ
+ *   ยกเลิกใบนั้นทีหลัง รายการ −เศษ ค้าง ยอด PO ขาดไปเท่าเศษเงียบ ๆ · ด่านอยู่ที่นี่ที่เดียว ครอบทุกทางที่เรียก
  */
 export function fracSweep(entries, entity, po, codes, tolOf, by = {}) {
   need(entity);
@@ -174,7 +177,9 @@ export function fracSweep(entries, entity, po, codes, tolOf, by = {}) {
   for (const c of new Set((codes || []).map(String))) {
     const r = st.get(c), tol = Number(tolOf(c)) || 0;
     if (!isFracLeft(r, tol)) continue;
-    out.push(fracEntry(entity, { po: ref, code: c, bal: r.bal, tol }, by, seen));
+    const floor = lastIssueAt(entries, entity, ref, c);
+    const at = by.at && floor && String(by.at) < floor ? floor : by.at;
+    out.push(fracEntry(entity, { po: ref, code: c, bal: r.bal, tol }, { ...by, at }, seen));
   }
   return out;
 }
