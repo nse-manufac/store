@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, stockPnFocus, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1830,6 +1830,21 @@ createApp({
       const q = balQ.value.trim().toUpperCase();
       return bpAll.value.filter(r => !r.empty && (!q || r.pn.toUpperCase().includes(q)
         || r.pos.some(p => p.po.toUpperCase().includes(q)) || r.lines.some(l => l.live && l.code.includes(q))));
+    });
+    /* ค้นด้วยรหัส = กาง P/N ที่มีรหัสนั้น แล้วโชว์แค่บรรทัดนั้น (เจ้าของขอ 28 พ.ย. 2026) · กฎอยู่ที่ stockPnFocus
+     * กางให้เฉพาะตอนพิมพ์รหัสเต็มตัว · คนกดพับเองแล้วไม่กางกลับจนกว่าคำค้นจะเปลี่ยน (watch ยิงตอนคำค้นเปลี่ยนเท่านั้น)
+     * คำค้นเปลี่ยน / ล้างช่อง = พับแถวที่คำค้นเก่ากางไว้ให้ก่อน (bpAuto) ไม่งั้นล้างช่องแล้วจอค้างกางเต็มหน้า */
+    const bpFocus = computed(() => stockPnFocus(bpShown.value, balQ.value));
+    const bpLinesOf = r => {
+      const base = r.lines.filter(x => bpFull[r.pn] || x.live), hit = bpFocus.value.hits.get(r.pn);
+      return hit ? base.filter(l => hit.has(l.code)) : base;
+    };
+    let bpAuto = [];
+    watch(() => balView.value === 'pn' ? bpFocus.value.exact.map(x => bpKey(x.pn, x.code)).join(',') : '', () => {
+      if (balView.value !== 'pn') return;
+      for (const x of bpAuto) { bpOpen[x.pn] = false; bpCode[bpKey(x.pn, x.code)] = false; }
+      bpAuto = bpFocus.value.exact;
+      for (const x of bpAuto) { bpOpen[x.pn] = true; bpCode[bpKey(x.pn, x.code)] = true; }
     });
     const bpDraw = drawing(bpShown, r => !!bpOpen[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที
     // รายการเคลื่อนไหว — คิดเฉพาะ PO × รหัสที่กางอยู่ (แถวที่พับไม่คิด)
@@ -4239,7 +4254,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFocus, bpLinesOf, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
