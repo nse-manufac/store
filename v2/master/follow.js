@@ -901,6 +901,11 @@ export function stopWhyProblem(why) {
   if (s.replace(/\s/g, '').length < WHY_MIN) return `เหตุผลสั้นเกินไป — พิมพ์อย่างน้อย ${WHY_MIN} ตัวอักษร`;
   return '';
 }
+/* ปุ่ม "ไม่ติดตาม" ไม่ถามเหตุผล (เจ้าของสั่ง 28 พ.ย. 2026) — ปุ่มนี้มีไว้เคลียร์ยอดน้อยอย่างเดียว เหตุผลมีแค่ข้อเดียว
+ * บังคับพิมพ์ทุกครั้งไม่ได้อะไรเพิ่ม แต่ทำให้งานสะดุด · ระบบจดให้เป็น "ไม่ติดตาม — ยอดน้อย"
+ * ยอดที่หยุด (ขาด / เกิน ณ ตอนกด) อยู่ในการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ข้างเหตุผลอยู่แล้ว คนตรวจเห็นว่าน้อยจริงไหม
+ * ปุ่ม "ยกเลิกเรื่อง" ยังต้องพิมพ์เหตุผลเหมือนเดิม (เหตุผลมีได้หลายแบบ) */
+export const SKIP_WHY = 'ยอดน้อย';
 function needWhy(why) {
   const bad = stopWhyProblem(why);
   if (bad) throw new Error(bad);
@@ -1008,11 +1013,10 @@ function cancelStop(row, kind, { by = '', why = '' } = {}) {
 }
 
 /** over: ไม่ติดตามแถวที่ระบบคิดได้ (ยังไม่มีเรื่อง) — ตั้งเรื่องด้วย fromOverRow แล้วยกเลิกทันที เก็บยอดเกิน ณ ตอนกดไว้เทียบ */
-export function skipOver(calcRow, { entity, person = '', unit = '', date = '', at = '', why = '', follows = null } = {}) {
+export function skipOver(calcRow, { entity, person = '', unit = '', date = '', at = '', follows = null } = {}) {
   if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครตัดสินใจไม่ติดตาม');
-  needWhy(why);
   const rec = fromOverRow(calcRow, { entity, person, unit, date, at, follows });
-  return voidFollow(rec, { by: person, reason: stopReason(SKIP_MARK, why) });
+  return voidFollow(rec, { by: person, reason: stopReason(SKIP_MARK, SKIP_WHY) });
 }
 
 /** over: คำเตือนก่อน "ยกเลิกเรื่อง" — ยอดค้างในเรื่องไม่ตรงกับยอดเกินที่ระบบคิดได้ · calc null = คิดไม่ได้ ไม่เตือน
@@ -1026,11 +1030,10 @@ export function cancelOverWarn(row, calc) {
 }
 
 /** ไม่ติดตามแถวที่ระบบคิดได้ (ยังไม่มีเรื่อง) — ตั้งเรื่องแล้วยกเลิกทันที เก็บยอดขาด ณ ตอนกดไว้เทียบ */
-export function skipShort(calcRow, { entity, person = '', unit = '', date = '', at = '', why = '', follows = null } = {}) {
+export function skipShort(calcRow, { entity, person = '', unit = '', date = '', at = '', follows = null } = {}) {
   if (!txt(person)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครตัดสินใจไม่ติดตาม');
-  needWhy(why);
   const rec = fromShortRow(calcRow, { entity, person, unit, date, at, follows });
-  return voidFollow(rec, { by: person, reason: stopReason(SKIP_MARK, why) });
+  return voidFollow(rec, { by: person, reason: stopReason(SKIP_MARK, SKIP_WHY) });
 }
 
 /**
