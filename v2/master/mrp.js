@@ -67,7 +67,7 @@ function daysBefore(date, n) {
  *   lines = [{ code, usage, need, have, issued, diff, state, via }]
  *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · oskip (เกินแต่จบเรื่องแล้ว)
  *            · extra (ไม่อยู่ในสูตร) · zero (สูตรใช้ 0) · na (ใบคิดไม่ได้)
- *     via: skip / oskip = { how: 'stop' | 'done', id } เรื่องที่ทำให้จบ (ป้ายกดไปแถวนั้นในแท็บ short / over) · อื่น ๆ = null
+ *     via: skip / oskip = { how: 'cancel' | 'skip' | 'done', id } เรื่องที่ทำให้จบ (ป้ายกดไปแถวนั้นในแท็บ short / over) · อื่น ๆ = null
  *   noDate = ใบในไฟล์ PO ที่ไม่มีวันที่ — จอให้เติมวันที่ได้
  *   state ของใบ: short (มี Short) · over (มี Over ไม่มี Short) · ok · na (คิดไม่ได้ — why บอกเหตุ)
  *
