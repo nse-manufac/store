@@ -477,6 +477,9 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        && ['l', 'p'].every(v => html.includes(`<span v-else-if="${v}.issueDiff == null" class="hint">—</span>`)));
     ok('จอ: ป้าย "จ่ายเกิน" ของแถว PO กดแล้วเปิดกล่องแก้ (bpFixOpen) ไม่พับ/กางแถว',
        /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad'" class="tag bad bp-frac"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)"/.test(html));
+    ok('จอ: ปุ่ม "แก้ไข" สีแดงต่อจากปุ่มจ่าย ขึ้นเฉพาะแถวที่ป้ายจ่ายเกิน หรือคงเหลือติดลบ · เปิดกล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)',
+       /\.btn\.danger\{background:var\(--bad\)/.test(html)
+       && /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad' \|\| p\.bal < 0" class="btn danger"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)">แก้ไข<\/button>/.test(html));
     ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
        html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
        && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));

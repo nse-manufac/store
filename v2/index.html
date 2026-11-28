@@ -73,6 +73,8 @@ input:focus,select:focus{outline:2px solid var(--brand);outline-offset:-1px}
 .btn:hover{background:#f0f4f8}
 .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
 .btn.primary:hover{filter:brightness(1.12)}
+.btn.danger{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:600}
+.btn.danger:hover{filter:brightness(1.12)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{background:#eef2f7;text-align:left;padding:7px 8px;border-bottom:2px solid var(--line);
@@ -1638,8 +1640,11 @@ textarea{font:inherit}
                                         <button v-if="bpFrac(p, l.code)" class="tag warn bp-frac" style="margin-left:4px" :data-bpfrac="bpKey(p.po, l.code)"
                                           title="กดเพื่อล้างเศษของ PO นี้" @click.stop="bpFracOpen(p.po, l.code, r.pn)">เศษ</button></td>
                                       <!-- จ่ายออกทีละ PO (เจ้าของสั่ง 25 พ.ย. 2026) — กดแล้วขึ้นกล่องกรอก ไม่พับ/กางแถว -->
-                                      <td class="noprint"><button class="btn primary" style="padding:3px 14px" :data-bpiss="bpKey(p.po, l.code)"
-                                          @click.stop="bpIssOpen(r.pn, p.po, l.code)">จ่าย</button></td>
+                                      <!-- ปุ่มแก้ไขสีแดง ขึ้นเฉพาะแถวที่จ่ายเกิน BOM หรือคงเหลือติดลบ ให้เห็นชัด (เจ้าของสั่ง 28 พ.ย. 2026) — เปิดกล่องเดียวกับป้าย -->
+                                      <td class="noprint" style="white-space:nowrap"><button class="btn primary" style="padding:3px 14px" :data-bpiss="bpKey(p.po, l.code)"
+                                          @click.stop="bpIssOpen(r.pn, p.po, l.code)">จ่าย</button>
+                                        <button v-if="bpDiffLabel(p.issueDiff)[1] === 'bad' || p.bal < 0" class="btn danger" style="padding:3px 14px;margin-left:6px" :data-bpfix-btn="bpKey(p.po, l.code)"
+                                          @click.stop="bpFixOpen(r.pn, p.po, l.code)">แก้ไข</button></td>
                                     </tr>
                                     <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="9" style="padding:4px 0 10px">
                                       <table class="mrp mrp-bom" style="margin-top:0">
