@@ -647,6 +647,35 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
      /<tr v-for="x in bpFixRows"/.test(html) && html.includes('<th class="r">จ่ายสะสม</th>')
      && html.includes('เกิน BOM {{ mrpNum(x.overBom) }}') && html.includes('เกินรับเข้า {{ mrpNum(x.overRecv) }}')
      && html.includes('ซ้ำกับรายการ {{ localDate(x.dupOf.at) }}') && /poOverRows\(bpFixList\.value, bpFixRow\.value/.test(app));
+  // ผู้ตรวจ #206 รอบ 1: แก้แถวเก่าแล้วล้างเศษ ต้องไม่ลงวันเก่ากว่าใบจ่ายใบล่าสุด — ยกเลิกใบใหม่ทีหลังยอด PO ยังตรง (ยอดจริง ไม่ใช่รูปโค้ด)
+  const { fixSweepAt } = await import('../v2/master/mrp.js');
+  const { makeEntry, voidEntry } = await import('../v2/core/ledger.js');
+  const { poStockOf, fracSweep, fracTwins } = await import('../v2/core/balance.js');
+  const run = (pickAt) => {
+    const mk = (kind, qty, at) => makeEntry({ entity: 'E', kind, material_code: 'C1', qty, doc_kind: 'po', doc_ref: 'PO-1', person: 'ก',
+                                              at, ...(kind === 'receive' ? { lot: 'L1' } : {}) });
+    const A = mk('issue', 60, '2026-11-02T01:00:00.000Z'), B = mk('issue', 40.5, '2026-11-05T01:00:00.000Z');
+    let book = [mk('receive', 100, '2026-11-01T01:00:00.000Z'), A, B];
+    // ทางเดียวกับ bpFixSave: ยกเลิก A (+ ล้างเศษคู่) → ใบแทน 59 ณ วันของ A → ล้างเศษ
+    const gone = [voidEntry(A, { by: 'ข', reason: 'แก้' }), ...fracTwins(book, A).map(t => voidEntry(t, { by: 'ข', reason: 'แก้' }))];
+    book = book.map(e => gone.find(g => g.id === e.id) || e).concat(mk('issue', 59, A.at));
+    const crumbs = fracSweep(book, 'E', 'PO-1', ['C1'], () => 1, { person: 'ข', at: pickAt(book, A.at) });
+    book = book.concat(crumbs);
+    const afterFix = poStockOf(book, 'E', 'PO-1').get('C1').bal;
+    // วันหลังมีคนยกเลิกใบ B จากหน้า Log (doVoid ยกเลิกล้างเศษที่ผูกคู่ไปด้วย)
+    const gone2 = [voidEntry(B, { by: 'ค', reason: 'ผิด' }), ...fracTwins(book, B).map(t => voidEntry(t, { by: 'ค', reason: 'ผิด' }))];
+    book = book.map(e => gone2.find(g => g.id === e.id) || e);
+    return { crumbs, afterFix, afterVoidB: poStockOf(book, 'E', 'PO-1').get('C1').bal };
+  };
+  const good = run((book, srcAt) => fixSweepAt(book, 'E', 'PO-1', 'C1', srcAt));
+  const old = run((book, srcAt) => srcAt);   // แบบเดิมก่อนแก้ — ยืนยันว่าเทสจับได้
+  ok('แก้แถวเก่า: ล้างเศษลงวันของใบจ่ายใบล่าสุด (5 พ.ย.) ไม่ใช่วันใบเก่า · ยกเลิกใบใหม่ทีหลัง ยอด PO = 41 ตรง (ผู้ตรวจ #206)',
+     good.crumbs.length === 1 && good.crumbs[0].at === '2026-11-05T01:00:00.000Z' && good.afterFix === 0 && good.afterVoidB === 41,
+     JSON.stringify(good));
+  ok('แบบเดิม (ล้างเศษ ณ วันใบเก่า) ยอดเพี้ยน 40.5 — เทสนี้จับได้จริง', old.afterVoidB === 40.5, JSON.stringify(old));
+  ok('fixSweepAt: ไม่มีใบที่ใหม่กว่า → ใช้วันของใบที่แก้ · bpFixSave เรียกหลังใส่ใบแทนแล้ว',
+     fixSweepAt([], 'E', 'PO-1', 'C1', '2026-11-02T01:00:00.000Z') === '2026-11-02T01:00:00.000Z'
+     && /entries\.value\.push\(\.\.\.add\);[\s\S]{0,400}const at = fixSweepAt\(entries\.value, entity\.value, bpFix\.po, src\.material_code, src\.at\);/.test(app));
 }
 
 console.log('\n=== แก้รายการจ่ายเกิน BOM จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026) ===');

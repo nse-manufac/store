@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1944,10 +1944,12 @@ createApp({
         await db.put('entries', [...all, ...add]);
         for (const x of all) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
         entries.value.push(...add);
-        let crumbs = [], crumbErr = '';   // ยกเลิกล้างเศษคู่ไปแล้ว → ถ้ายังเหลือเศษจริงล้างใหม่ ณ วันเดียวกัน (แบบ bpIssSave)
+        let crumbs = [], crumbErr = '';   // ยกเลิกล้างเศษคู่ไปแล้ว → ถ้ายังเหลือเศษจริงล้างใหม่
         try {
-          crumbs = fracSweep(entries.value, entity.value, bpFix.po, [bpFix.code], fracTolAt,
-                             { person: by, device: device.value, at: src.at, part_no: src.part_no });
+          // ไม่เก่ากว่าใบจ่ายใบล่าสุด — แก้แถวเก่าแล้วล้างเศษ ณ วันใบเก่า จะผูกคู่กับใบที่ใหม่กว่าไม่ได้ (ผู้ตรวจ #206)
+          const at = fixSweepAt(entries.value, entity.value, bpFix.po, src.material_code, src.at);
+          crumbs = fracSweep(entries.value, entity.value, bpFix.po, [src.material_code], fracTolAt,
+                             { person: by, device: device.value, at, part_no: src.part_no });
           if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
         } catch (err) { crumbs = []; crumbErr = err.message; }
         db.announce('entries');
