@@ -563,6 +563,27 @@ export function stockPnRows(stocks, { headerOf, bomRowsOf, catOf = () => '', kee
 }
 
 /**
+ * ค้นรหัสในหน้ายอดคงคลังราย P/N (เจ้าของขอ 28 พ.ย. 2026)
+ * เดิมค้นรหัสแล้วเหลือแถว P/N ที่พับไว้ ต้องกางเองแล้วไล่หาว่ารหัสนั้นอยู่บรรทัดไหน
+ *
+ * hits  = P/N → รหัสที่ตรงคำค้น (เฉพาะบรรทัดที่ยังมีของ แบบเดียวกับตัวกรองแถว P/N) — ใช้ซ่อนบรรทัดอื่นตอนกาง
+ *         P/N ที่เจอเพราะเลข P/N / PO ตรง แต่ไม่มีรหัสไหนตรง ไม่อยู่ใน hits → กางแล้วเห็นทุกบรรทัดเหมือนเดิม
+ * exact = รหัสที่พิมพ์มาเต็มตัว — แอปกาง P/N กับยอดราย PO ของรหัสนั้นให้เลย
+ *         พิมพ์ไม่ครบไม่กางให้ เพราะเลขสองสามตัวตรงเกือบทุก P/N แล้วจอจะกางทั้งหน้า
+ */
+export function stockPnFocus(rows, q) {
+  const t = txt(q).toUpperCase(), hits = new Map(), exact = [];
+  if (!t) return { hits, exact };
+  for (const r of rows || []) {
+    const s = new Set((r.lines || []).filter(l => l.live && txt(l.code).toUpperCase().includes(t)).map(l => l.code));
+    if (!s.size) continue;
+    hits.set(r.pn, s);
+    for (const c of s) if (txt(c).toUpperCase() === t) exact.push({ pn: r.pn, code: c });
+  }
+  return { hits, exact };
+}
+
+/**
  * จ่ายออกทีละ PO จากหน้ายอดคงคลังราย P/N (เจ้าของสั่ง 25 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถว PO ใต้วัตถุดิบ
  *   p = แถว byPo จาก stockPnRows ({ need, recv, sendback, issued, bal }) · qty = ยอดที่จะจ่ายครั้งนี้
  * กฎสองข้อ (เจ้าของสั่ง):

@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
-         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, openPoKeep, bpDiffLabel } from '../v2/master/mrp.js';
+         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, stockPnFocus, openPoKeep, bpDiffLabel } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
          skipOver, cancelOver, overAll, overPending, fromOverRow,
          shortSettled, overSettled, stoppedShorts, sliceKeep } from '../v2/master/follow.js';
@@ -516,7 +516,9 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        JSON.stringify({ bal: l2.bal, live: l2.live, neg: l2.neg, nLeft: r2.nLeft, nNeg: r2.nNeg, empty: r2.empty }));
     const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: ตัวกรองบรรทัดวัตถุดิบกับช่องค้นหาใช้ l.live (ไม่ใช่ยอดรวม) จะได้ไม่ซ่อนใบที่ติดลบ',
-       html.includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
+       // ตัวกรองบรรทัดย้ายเข้า bpLinesOf ใน app.js (ค้นรหัสแล้วโชว์แค่บรรทัดนั้น · 28 พ.ย. 2026) — ยังต้องใช้ x.live เหมือนเดิม
+       html.includes('v-for="l in bpLinesOf(r)"')
+       && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
        && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.some(l => l.live && l.code.includes(q))'));
   }
   {
@@ -744,6 +746,35 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
      poOverRows([E(5, '2026-11-01T02:00Z'), E(5, '2026-11-02T02:00Z')], { need: null, issued: 10, bal: 0 }).every(r => r.overBom === 0 && !r.dupOf));
 }
 
+console.log('\n=== ยอดคงคลังราย P/N — ค้นรหัสแล้วกางเฉพาะบรรทัดนั้น (เจ้าของขอ 28 พ.ย. 2026) ===');
+{
+  const L = (code, live = true) => ({ code, live });
+  const rows = [
+    { pn: 'TM5267H332', lines: [L('3199360100'), L('3199360101'), L('1010022000')] },
+    { pn: 'TM5267H401', lines: [L('3199360100'), L('1040050200')] },
+    { pn: 'TM5267H500', lines: [L('3199360100', false), L('1040050200')] },
+    { pn: '', lines: [L('ab-77'), L('1010022000')] }
+  ];
+  const f = stockPnFocus(rows, ' 3199360100 ');
+  ok('รหัสเต็มตัว → กาง 2 P/N ที่ยังมีของรหัสนั้น', f.exact.map(x => x.pn).join() === 'TM5267H332,TM5267H401', JSON.stringify(f.exact));
+  ok('P/N ที่รหัสนั้นไม่มีของแล้ว ไม่ถูกกาง และไม่ถูกตัดบรรทัด', !f.hits.has('TM5267H500'));
+  ok('บรรทัดที่เหลือในแถวที่เจอ = รหัสที่ค้นอย่างเดียว', [...f.hits.get('TM5267H332')].join() === '3199360100');
+  const p = stockPnFocus(rows, '3199360');
+  ok('พิมพ์ไม่ครบ → ตัดบรรทัดให้ แต่ไม่กางให้', p.exact.length === 0 && p.hits.get('TM5267H332').size === 2);
+  const n = stockPnFocus(rows, 'TM5267H401');
+  ok('ค้นด้วยเลข P/N (ไม่ใช่รหัส) → ไม่ตัดบรรทัด ไม่กาง', n.hits.size === 0 && n.exact.length === 0);
+  ok('รหัสที่มีตัวอักษร พิมพ์เล็ก/ใหญ่ก็เจอ · P/N ว่างก็กางได้',
+     stockPnFocus(rows, 'AB-77').exact[0].pn === '' && stockPnFocus(rows, 'ab-77').exact.length === 1);
+  ok('คำค้นว่าง = ไม่ทำอะไร', stockPnFocus(rows, '').hits.size === 0 && stockPnFocus(rows, null).exact.length === 0);
+  ok('ไม่มีแถวก็ไม่พัง', stockPnFocus(undefined, 'X').hits.size === 0);
+}
+
+{
+  // watch ที่กางให้ต้องดูแค่ balQ — ถ้าเอา bpFocus มาเป็นตัวที่ watch จะลาก bpAll มาคิดทุกครั้งที่บันทึก (ผู้ตรวจ #208 รอบ 3 · G2)
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('app.js: watch ที่กาง P/N ตามคำค้นดูแค่ balQ ไม่ลาก bpFocus / bpAll ทุกครั้งที่บันทึก',
+     app.includes('watch(balQ, () => {') && !/watch\(\s*\(\)\s*=>[^,]*bpFocus/.test(app));
+}
 console.log('\n=== หน้ายอดคงคลังรายรหัส: เคมี + TERMINAL + SOLDER (เจ้าของสั่ง 28 พ.ย. 2026) ===');
 {
   const { isPoolItem } = await import('../v2/master/mrp.js');
