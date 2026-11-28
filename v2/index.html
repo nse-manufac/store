@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.14">
+<meta name="app-version" content="2026-11-28.16">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1478,18 +1478,9 @@ textarea{font:inherit}
 
         <!-- ── รายการยอด ── -->
         <template v-if="!cardCode">
+          <!-- ช่องค้นหา + ติ๊กยอดศูนย์ ย้ายไปอยู่ข้างปุ่ม ราย P/N | รายรหัส ในการ์ดยอดคงคลัง (เจ้าของขอ 28 พ.ย. 2026) -->
           <div class="card noprint">
-            <div class="row">
-              <label class="f grow" style="min-width:230px">ค้นหา
-                <input v-model.trim="balQ" placeholder="พิมพ์รหัสหรือชื่อ"></label>
-              <label class="f" style="justify-content:flex-end">
-                <span>&nbsp;</span>
-                <span class="row" style="gap:5px;flex-wrap:nowrap">
-                  <input type="checkbox" v-model="balZero" id="bz" style="width:16px;height:16px">
-                  <label for="bz" style="font-size:13px">แสดงรายการที่ยอดเป็นศูนย์ด้วย</label>
-                </span></label>
-            </div>
-            <div class="row" style="margin-top:12px;gap:28px">
+            <div class="row" style="gap:28px">
               <div><div class="hint">รหัสที่มีของอยู่</div><div class="big">{{ balSum.codes }}</div></div>
               <div><div class="hint">ยอดติดลบ</div>
                 <div class="big" :class="balSum.negative?'bad':''">{{ balSum.negative }}</div></div>
@@ -1563,7 +1554,12 @@ textarea{font:inherit}
                 <button :aria-pressed="balView==='pn'" @click="balView='pn'">ราย P/N</button>
                 <button :aria-pressed="balView==='code'" @click="balView='code'">รายรหัส</button>
               </div>
+              <!-- ช่องเดียวใช้ทั้งสองมุมมอง แต่ค้นได้ต่างกัน (bpShown · balShown) — ข้อความในช่องจึงเปลี่ยนตามมุมมอง -->
+              <input v-model.trim="balQ" class="noprint" style="width:260px;margin-left:12px" aria-label="ค้นหา"
+                     :placeholder="balView==='pn' ? 'ค้นหา P/N · PO · รหัส' : 'ค้นหารหัสหรือชื่อ'">
               <div class="grow"></div>
+              <label v-if="balView==='code'" class="row hint" style="gap:5px;flex-wrap:nowrap"><input type="checkbox" v-model="balZero" style="width:16px;height:16px">
+                แสดงรายการที่ยอดเป็นศูนย์ด้วย</label>
               <span v-if="balView==='code'" class="hint">เฉพาะเคมี · METAL PART · แสดง {{ balShown.rows.length }} จาก {{ balShown.total }} รายการ</span>
               <template v-else>
                 <label class="row hint" style="gap:5px;flex-wrap:nowrap"><input type="checkbox" v-model="bpClosed" style="width:16px;height:16px">
@@ -1597,7 +1593,7 @@ textarea{font:inherit}
                         <thead><tr><th style="width:24px"></th><th>รหัส</th><th>วัตถุดิบ</th><th class="r">ตาม BOM</th><th class="r">รับเข้า</th>
                           <th class="r">จ่ายออก</th><th class="r">จ่ายเทียบ BOM</th><th class="r">คงเหลือ</th></tr></thead>
                         <tbody>
-                          <template v-for="l in r.lines.filter(x => bpFull[r.pn] || x.live)" :key="l.code">
+                          <template v-for="l in bpLinesOf(r)" :key="l.code">
                             <tr class="mrp-po" @click="flip(bpCode, bpKey(r.pn, l.code))" :aria-expanded="!!bpCode[bpKey(r.pn, l.code)]">
                               <td><span class="fold-i">{{ bpCode[bpKey(r.pn, l.code)] ? '▾' : '▸' }}</span></td>
                               <td class="mono">{{ l.code }}</td>
@@ -1677,7 +1673,9 @@ textarea{font:inherit}
                           </template>
                         </tbody>
                       </table>
-                      <button class="btn" style="margin-top:8px;padding:2px 9px" @click="flip(bpFull, r.pn)">
+                      <!-- ค้นด้วยรหัสอยู่ = โชว์แค่บรรทัดที่ตรง (stockPnFocus) · บอกว่าซ่อนไปกี่บรรทัด แทนปุ่มแสดงทุกรายการ -->
+                      <div v-if="bpFocus.hits.has(r.pn)" class="hint" style="margin-top:8px">แสดงเฉพาะรหัสที่ค้น {{ bpLinesOf(r).length }} จาก {{ r.nLeft }} รายการที่มีของ</div>
+                      <button v-else class="btn" style="margin-top:8px;padding:2px 9px" @click="flip(bpFull, r.pn)">
                         {{ bpFull[r.pn] ? 'แสดงเฉพาะที่ยังมีของ' : 'แสดงทุกรายการตาม BOM (' + r.lines.length + ')' }}</button>
                     </div></td></tr>
                   </template>
