@@ -224,6 +224,11 @@ console.log('\n=== hard copy — ชื่อ/หน่วยจากทะเ�
   ok('ยอดต่อชิ้นรายแถวคืนมาให้จอโชว์ — ค่าเดียวกับที่บันทึก (ข้อ ง)', t.lineUsage[0] === t.rows[0].usage && t.lineUsage[1] === null);
   ok('วันที่ว่าง = วันนี้ตามเวลาไทยที่ส่งมา ไม่ใช่วันที่ UTC (ข้อ จ — 03:00 น. ไทย = 20:00Z เมื่อวาน)',
      P({ pn: 'Q', lines: [{ code: '9100000101', qty: 1 }] }, { today: '2026-10-10' }).rows[0].valid_from === '2026-10-10');
+  const fut = P({ pn: 'Q', valid_from: '2026-10-11', lines: [{ code: '9100000101', qty: 1 }] }, { today: '2026-10-10' });
+  ok('วันที่มีผลเป็นวันอนาคต = ผิด บันทึกไม่ได้ · วันนี้/ย้อนหลังได้ (เจ้าของสั่ง 27 พ.ย. 2026)',
+     !fut.ok && /ยังไม่ถึง/.test(fut.errors[0].why)
+     && P({ pn: 'Q', valid_from: '2026-10-10', lines: [{ code: '9100000101', qty: 1 }] }, { today: '2026-10-10' }).ok
+     && P({ pn: 'Q', valid_from: '2026-01-02', lines: [{ code: '9100000101', qty: 1 }] }, { today: '2026-10-10' }).ok);
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ช่องชื่อไม่ให้พิมพ์ · ป้าย P/N ใหม่ (ข้อ ฉ) · ต่อชิ้นมาจาก plan ไม่คิดซ้ำในเทมเพลต (ข้อ ง)',
      !html.includes('v-model.trim="l.desc"') && html.includes('P/N ใหม่ — ยังไม่มีสูตรในเครื่อง')
