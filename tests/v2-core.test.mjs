@@ -402,7 +402,9 @@ console.log('\n=== ยกเลิกรายการจากหน้า Log
   // กล่องยืนยันตัวเดียวกับการ์ด: ต้องอยู่นอกแท็บ ไม่งั้นกดจากหน้า Log แล้วไม่มีอะไรขึ้น
   const box = html.indexOf('<div class="modal" v-if="voidBox.row"'), lastTab = html.lastIndexOf("v-else-if=\"tab==='");
   ok('กล่องยืนยันยกเลิกอยู่นอกแท็บ (ขึ้นได้จากทุกหน้า)', box > lastTab && box > 0);
-  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /async function doVoid\(\)[\s\S]*?voidEntry\(src,[\s\S]*?for \(const x of \[v, \.\.\.tw\]\) entries\.value\.splice\(entries\.value\.findIndex\(e => e\.id === x\.id\), 1, x\)/.test(src));
+  // ใบที่ยกเลิกพร้อมกัน: ล้างเศษ (tw) + คู่ทดแทน short ของ "คืนของ แบบ 2" (pr · ผู้ตรวจ #199 รอบ 3)
+  // splice แทนที่ในตำแหน่งเดิมด้วยใบที่ติดธงแล้ว — ไม่ใช่ลบออกจากสมุด (B1)
+  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /async function doVoid\(\)[\s\S]*?voidEntry\(src,[\s\S]*?const all = \[v, \.\.\.tw, \.\.\.pr\];[\s\S]*?for \(const x of all\) entries\.value\.splice\(entries\.value\.findIndex\(e => e\.id === x\.id\), 1, x\)/.test(src));
 }
 
 console.log('\n=== หน้ารอเติมวันหมดอายุ (แท็บย่อยใน Log · เจ้าของเคาะ 28 ก.ย. 2026) ===');
@@ -616,9 +618,10 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
   ok('จอ: กล่องยกเลิกรายการ ถ้าการปรับยอดที่อยู่หลังเป็นล้างเศษ ไม่เขียน "ที่เคยนับได้" (ผู้ตรวจ #185)',
      /v-if="isFracAdj\(voidAfterAdjust\)">รายการนั้นคือ <b>ล้างเศษ PO/.test(htmlV)
      && /e\.at > r\.at\s*&& !voidTwins\.value\.some\(t => t\.id === e\.id\)\)/.test(app) && /<span class="hint" v-else>ส่วนต่างของการปรับยอด/.test(htmlV)
-     && /voidTwins, reasonLabel, noteCell, isFracAdj \};/.test(app));
+     && /voidTwins, voidPairs, reasonLabel, noteCell, isFracAdj \};/.test(app));
   ok('จอ: ยกเลิกจ่ายออกแล้วยกเลิกล้างเศษที่คู่กันในรอบเดียวกัน · กล่องยืนยันบอกก่อน (เจ้าของเคาะ 23 พ.ย.)',
-     /const tw = fracTwins\(entries\.value, src\)\.map\(t => voidEntry\(t,/.test(app) && /await db\.put\('entries', \[v, \.\.\.tw\]\)/.test(app)
+     /const tw = fracTwins\(entries\.value, src\)\.map\(t => voidEntry\(t,/.test(app)
+     && /const all = \[v, \.\.\.tw, \.\.\.pr\];\s*await db\.put\('entries', all\)/.test(app)
      && /<p class="hint" v-if="voidTwins\.length"/.test(htmlV));
   ok('จอ: บันทึกจ่ายออกแล้วล้างเศษของ PO นั้น (try ของตัวเอง) · ช่องเลือกเหตุผลกรองของ auto ออก · "นับได้" ไม่ขึ้นกับล้างเศษ',
      /fracSweep\(entries\.value, entity\.value, outH\.po, posted\.map\(e => e\.material_code\), fracTolAt,/.test(so)
