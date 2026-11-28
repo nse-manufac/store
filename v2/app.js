@@ -1978,7 +1978,7 @@ createApp({
       const c = bpFixChk.value, src = bpFixSrc.value, by = bpFix.by.trim();
       if (!c || !c.ok || !src || !by || bpFixWhy.value) return;
       try {
-        const { tw, all } = voidBundle(src, by, `แก้รายการจ่ายที่เกิน — ${src.qty} → ${c.qty}: ${bpFix.reason.trim()}`);
+        const { tw, all } = voidBundle(src, by, `แก้รายการจ่าย — ${src.qty} → ${c.qty}: ${bpFix.reason.trim()}`);
         const add = c.qty > 0 ? [makeEntry({ entity: src.entity, kind: 'issue', material_code: src.material_code, qty: c.qty,
           lot: src.lot, lot_inferred: src.lot_inferred, doc_kind: src.doc_kind, doc_ref: src.doc_ref, part_no: src.part_no,
           at: src.at, person: src.person, device: device.value, expiry_date: src.expiry_date,
