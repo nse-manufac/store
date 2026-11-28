@@ -38,7 +38,7 @@ import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPo
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
-         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
+         FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, offsetShorts, pairTwins, splitPairs, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
@@ -3088,13 +3088,13 @@ createApp({
       // ที่ค้างในเรื่องไม่ตรงกับที่ระบบคิดได้ = เตือนก่อน (เพดาน "ไม่ขึ้นอีก" คือยอดที่ค้าง)
       const warn = cancelShortWarn(row, fsCheck(row).calc);
       if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
-      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)');
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปปุ่ม "ยกเลิกแล้ว" บนหัวหน้า)');
       if (why === null) return;
       try {
         // กันกดซ้ำ — ทางเดียวกับปุ่มอื่นในหน้านี้
         await startOnce(starting, 'fsvoid|' + row.id, async () => {
           await fsPut(cancelShort(plain(row), { by: fsBy.value, why }));
-          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่ปุ่ม "ยกเลิกแล้ว" บนหัวหน้า`);
         });
       } catch (err) { flash(err.message, true); }
     }
@@ -3111,7 +3111,7 @@ createApp({
     }
     const fsStopped = computed(() => stoppedShorts(shorts.value, { entity: entity.value }));
     // ค้นก่อนตัดที่ SHOW_MAX (ผู้ตรวจ #177) — pickStory ประกาศทีหลัง เรียกตอนคิดจึงไม่ติด
-    const fsStopHit = computed(() => filterPick(fsStopped.value, { pick: x => pickStory(x.s), q: fsSearch.value }));
+    const fsStopHit = computed(() => filterPick(fsStopped.value.filter(x => x.mark === fsSeg.value), { pick: x => pickStory(x.s), q: fsSearch.value }));
     const fsStopShown = computed(() => sliceKeep(fsStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
     async function fsRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
@@ -3133,12 +3133,12 @@ createApp({
       // ระบบคิดไม่ได้ = ไม่เตือน · คิดได้ = ยอดเกินตอนนี้ (0 หรือติดลบก็เตือนได้ — foCalc0 ไม่มีเพดาน)
       const warn = cancelOverWarn(row, foCalcOf(row.po, row.code));
       if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
-      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)');
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปปุ่ม "ยกเลิกแล้ว" บนหัวหน้า)');
       if (why === null) return;
       try {
         await startOnce(starting, 'fovoid|' + row.id, async () => {
           await fsPut(cancelOver(plain(row), { by: fsBy.value, why }));
-          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่ปุ่ม "ยกเลิกแล้ว" บนหัวหน้า`);
         });
       } catch (err) { flash(err.message, true); }
     }
@@ -3154,19 +3154,19 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     const foStopped = computed(() => stoppedOvers(shorts.value, { entity: entity.value }));
-    const foStopHit = computed(() => filterPick(foStopped.value, { pick: x => pickStory(x.s), q: foSearch.value }));
+    const foStopHit = computed(() => filterPick(foStopped.value.filter(x => x.mark === foSeg.value), { pick: x => pickStory(x.s), q: foSearch.value }));
     const foStopShown = computed(() => sliceKeep(foStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
 
     /* ── หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026) ── กฎอยู่ที่ master/follow.js groupByPo
      * ปุ่มกรองเลือกว่าจะจัดกลุ่มรายการไหน · ค่าตั้งต้นกางทุกใบ (fold[po] = true คือพับ) · ช่องค้นใช้ได้ทุกปุ่ม */
-    const fsCounts = computed(() => ({ new: fsNew.value.length, stop: fsStopped.value.length,
+    const fsCounts = computed(() => ({ new: fsNew.value.length, ...stopCounts(fsStopped.value),
       ...followCounts(shorts.value, { kind: 'short', entity: entity.value }) }));
-    const foCounts = computed(() => ({ new: foNew.value.length, stop: foStopped.value.length,
+    const foCounts = computed(() => ({ new: foNew.value.length, ...stopCounts(foStopped.value),
       ...followCounts(shorts.value, { kind: 'over', entity: entity.value }) }));
     const pickStory = s => ({ po: s.po, pn: partNoOf(s, poIdx.value).pn, code: s.code, text: s.void_reason });
     const groupsOf = (seg, q, calc, rows, stopped) =>
       seg === 'new' ? groupByPo(calc, { pick: r => r, q })
-      : seg === 'stop' ? groupByPo(stopped, { pick: x => pickStory(x.s) })   // ค้นไปแล้วใน fsStopHit / foStopHit
+      : isStopSeg(seg) ? groupByPo(stopped, { pick: x => pickStory(x.s) })   // ค้นไปแล้วใน fsStopHit / foStopHit
       : groupByPo(rows, { pick: r => pickStory(r.s) });   // ค้นไปแล้วใน listFollow
     const fsGroups = computed(() => groupsOf(fsSeg.value, fsSearch.value, fsNew.value, fsRows.value, fsStopShown.value));
     const foGroups = computed(() => groupsOf(foSeg.value, foSearch.value, foNew.value, foRows.value, foStopShown.value));
@@ -3203,8 +3203,8 @@ createApp({
       const over = l.state === 'oskip';
       // เปิดปุ่มกรองที่เรื่องนั้นอยู่ แล้วค้นด้วยเลข PO ให้เหลือใบเดียว
       if (v.how === 'done') fsSeg.value = 'done';
-      else if (over) foSeg.value = 'stop';
-      else fsSeg.value = 'stop';
+      else if (over) foSeg.value = v.how;   // 'cancel' | 'skip' = ปุ่มที่เรื่องนั้นอยู่
+      else fsSeg.value = v.how;
       if (over) foSearch.value = po; else fsSearch.value = po;
       followPin.value = v.id;   // แถวนี้ขึ้นเสมอแม้อยู่เลย SHOW_MAX แถว (sliceKeep)
       // ใบที่พับไว้ไม่มีแถวใน DOM — กางใบเป้าหมายก่อนเสมอ แบบที่ mrpGoBack กาง mrpOpen (ผู้ตรวจ #177 รอบ 2)
@@ -4226,7 +4226,7 @@ createApp({
       fsAssign, fsClose, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
-      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, overSetEv, foStopEv,
+      FOLLOW_SEG, isStopSeg, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, overSetEv, foStopEv,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,

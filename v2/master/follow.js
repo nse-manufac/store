@@ -462,13 +462,21 @@ export function sumFollow(rows, { today = '' } = {}) {
 
 /* ══════════ หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026 · แบบเดียวกับแท็บ MRP) ══════════ */
 
-/** ปุ่มกรองบนหัวหน้า — ลำดับตามขั้นของงาน · k ตรงกับคีย์ของ followCounts */
+/** ปุ่มกรองบนหัวหน้า — ลำดับตามขั้นของงาน · k ตรงกับคีย์ของ followCounts / stopCounts
+ *  ยกเลิก กับ ไม่ติดตาม แยกเป็นสองปุ่ม (เจ้าของสั่ง 28 พ.ย. 2026) · k = ค่าของ stopMarkOf */
 export const FOLLOW_SEG = {
   short: [{ k: 'new', label: 'ต้องตั้งเรื่อง', dot: 'warn' }, { k: 'open', label: 'รอของ', dot: 'bad' },
-          { k: 'done', label: 'ปิดแล้ว', dot: 'ok' }, { k: 'stop', label: 'ยกเลิก / ไม่ติดตาม', dot: '' }],
+          { k: 'done', label: 'ปิดแล้ว', dot: 'ok' },
+          { k: 'cancel', label: 'ยกเลิกแล้ว', dot: '' }, { k: 'skip', label: 'ไม่ติดตามแล้ว', dot: '' }],
   over:  [{ k: 'new', label: 'ต้องตั้งเรื่อง', dot: 'warn' }, { k: 'open', label: 'รอคืน', dot: 'bad' },
-          { k: 'done', label: 'คืนแล้ว', dot: 'ok' }, { k: 'stop', label: 'ยกเลิก / ไม่ติดตาม', dot: '' }]
+          { k: 'done', label: 'คืนแล้ว', dot: 'ok' },
+          { k: 'cancel', label: 'ยกเลิกแล้ว', dot: '' }, { k: 'skip', label: 'ไม่ติดตามแล้ว', dot: '' }]
 };
+/** ปุ่มกรองนี้เป็นของเรื่องที่หยุดตามไหม (ยกเลิกแล้ว / ไม่ติดตามแล้ว) */
+export const isStopSeg = k => k === 'cancel' || k === 'skip';
+/** ตัวนับของสองปุ่มหยุดตาม — รับแถวจาก stoppedShorts / stoppedOvers */
+export const stopCounts = rows => ({ cancel: (rows || []).filter(x => x.mark === 'cancel').length,
+                                     skip: (rows || []).filter(x => x.mark === 'skip').length });
 
 /** ตัวเลขบนปุ่มกรอง — open นับรวมที่ได้มาบางส่วน (partial) · กรองชนิดและนิติบุคคลแบบเดียวกับ listFollow */
 export function followCounts(rows, { kind = '', entity = '' } = {}) {
@@ -801,7 +809,7 @@ export function shortSettled(follows) {
 
 /**
  * เหมือน shortSettled แต่บอกด้วยว่าจบเพราะเรื่องไหน — คืน (po, code, ยอดขาด) => { how, id } | null
- * how: 'stop' = ยกเลิกเรื่อง / ไม่ติดตาม (อยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว") · 'done' = ปิดเรื่องตรงยอด
+ * how: 'cancel' / 'skip' = ยกเลิกเรื่อง / ไม่ติดตาม (ตรงกับคีย์ปุ่มกรองที่เรื่องนั้นอยู่) · 'done' = ปิดเรื่องตรงยอด
  * id = เรื่องที่ทำให้จบ — แท็บ MRP ใช้กระโดดไปแถวนั้นในแท็บ short (เจ้าของสั่ง 15 พ.ย. 2026)
  * ⚠️ เรื่องหยุดมาก่อน — การ์ดยกเลิกเป็นที่ที่เจ้าของขอให้ลิงก์ไป · ปิดตรงยอดใช้เมื่อไม่มีเรื่องหยุด
  */
@@ -820,7 +828,7 @@ export function shortSettledBy(follows) {
   const stillStopped = stopGate(follows, 'short');
   return (po, code, short) => {
     const st = stillStopped(po, code, short);
-    if (st) return { how: 'stop', id: st.id };
+    if (st) return { how: stopMarkOf(st), id: st.id };
     const d = sameAsClosed(po, code, short);
     return d ? { how: 'done', id: d.id } : null;
   };
@@ -837,10 +845,10 @@ export function overSettled(follows) {
   return (po, code, over) => !!gate(po, code, over);
 }
 
-/** เหมือน overSettled แต่บอกเรื่องที่ทำให้จบ — คืน (po, code, ยอดเกิน) => { how: 'stop', id } | null (ดู shortSettledBy) */
+/** เหมือน overSettled แต่บอกเรื่องที่ทำให้จบ — คืน (po, code, ยอดเกิน) => { how: 'cancel' | 'skip', id } | null (ดู shortSettledBy) */
 export function overSettledBy(follows) {
   const gate = stopGate(follows, 'over');
-  return (po, code, over) => { const f = gate(po, code, over); return f ? { how: 'stop', id: f.id } : null; };
+  return (po, code, over) => { const f = gate(po, code, over); return f ? { how: stopMarkOf(f), id: f.id } : null; };
 }
 
 /**
@@ -1057,7 +1065,7 @@ export function sliceKeep(rows, max, keep) {
 }
 /** การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ของ over — กติกาเดียวกับ short */
 export function stoppedOvers(follows, opts = {}) { return stoppedOf(follows, 'over', opts); }
-function stoppedOf(follows, kind, { entity } = {}) {
+function stoppedOf(follows, kind, { entity, mark = '' } = {}) {
   if (!txt(entity)) return [];
   const live = (follows || []).filter(f => f && f.kind === kind && !f.voided && f.entity === entity);
   const rows = (follows || [])
@@ -1074,7 +1082,8 @@ function stoppedOf(follows, kind, { entity } = {}) {
   }
   return [...newest.values()]
     .sort((a, b) => txt(b.void_at).localeCompare(txt(a.void_at)))
-    .map(s => ({ s, mark: stopMarkOf(s) }));
+    .map(s => ({ s, mark: stopMarkOf(s) }))
+    .filter(x => !mark || x.mark === mark);   // แยกปุ่ม ยกเลิกแล้ว / ไม่ติดตามแล้ว — กรองหลังเลือกรอบล่าสุด
 }
 
 /** over: กลับมาติดตาม — ตั้งเรื่อง over ใหม่ด้วยยอดที่ยังค้าง (ของเดิมยังยกเลิกอยู่ เป็นประวัติ) · ยอดที่คืนไปแล้วไม่นับซ้ำ */

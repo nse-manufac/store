@@ -13,7 +13,7 @@ import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum,
 import { writeBuyPo } from '../v2/export/bincard.js';
 import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, pairedInQty, pcCapLeft, reopenShort as reopenShortP } from '../v2/master/follow.js';
 import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
-import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
+import { FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, SKIP_WHY, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -1956,7 +1956,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   const htmlS = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ปุ่มยกเลิกเรื่องในตาราง short · ไม่ติดตามในการ์ดคิดได้ · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม',
      htmlS.includes('@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>') && htmlS.includes('@click="fsSkip(r)">ไม่ติดตาม</button>')
-     && appS.includes('stop: fsStopped.value.length') && htmlS.includes("<template v-if=\"fsSeg === 'stop'\">") && htmlS.includes('@click="fsRestart(x.s)">กลับมาติดตาม</button>')
+     && appS.includes('...stopCounts(fsStopped.value)') && htmlS.includes("<template v-if=\"isStopSeg(fsSeg)\">") && htmlS.includes('@click="fsRestart(x.s)">กลับมาติดตาม</button>')
      && /fsStopped = computed\(\(\) => stoppedShorts\(shorts\.value, \{ entity: entity\.value \}\)\)/.test(appS));
 }
 
@@ -2231,7 +2231,7 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   const htmlO = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ไม่ติดตามในการ์ดคิดได้ · ยกเลิกเรื่องจาง · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม · เตือนก่อนยกเลิก',
      htmlO.includes('@click="foSkip(r)">ไม่ติดตาม</button>') && htmlO.includes(`:disabled="starting.has('fovoid|' + r.s.id)"`)
-     && htmlO.includes("<template v-if=\"foSeg === 'stop'\">") && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
+     && htmlO.includes("<template v-if=\"isStopSeg(foSeg)\">") && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
      && /const warn = cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\);\s*if \(warn && !confirm\(/.test(appO) && /cancelOver\(plain\(row\), \{ by: fsBy\.value, why \}\)/.test(appO));
 }
 
@@ -2297,7 +2297,7 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
      && htmlP.includes('<input v-model.trim="fsSearch" placeholder="ค้น PO · P/N · รหัส"'));
   ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N',
      appP.includes('const pickStory = s => ({ po: s.po, pn: partNoOf(s, poIdx.value).pn')
-     && /seg === 'stop' \? groupByPo\(stopped, \{ pick: x => pickStory\(x\.s\)/.test(appP));
+     && /isStopSeg\(seg\) \? groupByPo\(stopped, \{ pick: x => pickStory\(x\.s\)/.test(appP));
   ok('จอ: ตาราง short / over ส่งตัวหา PO ให้ช่องค้น', (appP.match(/showDone: [^\n]*headerOf: poIdx\.value/g) || []).length === 2);
   // ตาราง buy แสดง part_no ของเรื่องเอง และ listFollow ค้น part_no · note อยู่แล้ว — ป้ายต้องบอก (ผู้ตรวจ #151 รอบ 2 ข้อ 1)
   ok('จอ: ป้ายช่องค้นของตาราง ซื้อแมททดแทน บอกว่าค้น P/N · ข้อความได้',
@@ -2438,7 +2438,7 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
   ok('ตัวนับปุ่มกรอง: รอของนับรวมที่มาบางส่วน · ปิดแล้วแยก · ยกเลิกไม่นับ · ไม่ปนนิติบุคคลอื่น (A3) · ไม่ปนชนิดอื่น',
      c.open === 2 && c.partial === 1 && c.done === 2, JSON.stringify(c));
   ok('ปุ่มกรองเรียงตามขั้นของงาน และคีย์ตรงกับตัวนับ',
-     ['short', 'over'].every(k => FOLLOW_SEG[k].map(x => x.k).join() === 'new,open,done,stop'));
+     ['short', 'over'].every(k => FOLLOW_SEG[k].map(x => x.k).join() === 'new,open,done,cancel,skip'));
 
   const items = [{ po: 'P2', pn: '', code: 'A' }, { po: 'P1', pn: 'N1', code: 'B' }, { po: 'P2', pn: 'N2', code: 'C' }];
   const g = groupByPo(items, { pick: r => r });
@@ -2531,14 +2531,14 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
   const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlG = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ตัวนับบนปุ่มกรองนับจากรายการเต็ม · ปุ่มกรองแทนช่องติ๊กแสดงที่ปิดแล้ว',
-     appG.includes('const fsCounts = computed(() => ({ new: fsNew.value.length, stop: fsStopped.value.length,')
+     appG.includes('const fsCounts = computed(() => ({ new: fsNew.value.length, ...stopCounts(fsStopped.value),')
      && appG.includes("const fsShowDone = computed(() => fsSeg.value === 'done');") && !htmlG.includes('v-model="fsShowDone"')
      && !htmlG.includes('v-model="foShowDone"'));
   ok('จอ: พับ / กาง ใช้ reactive ไม่ส่ง ref เข้าฟังก์ชัน (บทเรียน #175) · ค่าตั้งต้นกางทุกใบ',
      appG.includes('const fsFold = reactive({}), foFold = reactive({});') && htmlG.includes('@click="foldFlip(fsFold, g.po)"')
      && htmlG.includes('<template v-if="!fsFold[g.po]">'));
   ok('จอ: ป้ายจาก MRP เปิดปุ่มกรองที่เรื่องนั้นอยู่ แล้วค้นด้วยเลข PO',
-     /if \(v\.how === 'done'\) fsSeg\.value = 'done';\s*else if \(over\) foSeg\.value = 'stop';\s*else fsSeg\.value = 'stop';/.test(appG));
+     /if \(v\.how === 'done'\) fsSeg\.value = 'done';\s*else if \(over\) foSeg\.value = v\.how;[^\n]*\s*else fsSeg\.value = v\.how;/.test(appG));
   ok('จอ: ไม่โชว์ ETA ในหน้า short / over แล้ว (เจ้าของแจ้ง 21 พ.ย. 2026 — ช่องรับ short จากใบ PO ปิดไปแล้ว)',
      !htmlG.includes('v-model="fu.eta"') && !htmlG.includes('เลย ETA'));
   // กฎ "กล่องเหตุผลเปิดมาช่องว่าง ไม่เติมคำให้" (เจ้าของสั่ง 25 พ.ย. 2026) เฝ้าที่นี่ —
@@ -2784,6 +2784,33 @@ console.log('\n=== RT3. คืนของ แบบ 3 — PC return (เจ้�
      && !/Math\.min\(remainOf\(s\), pc\.cap\)/.test(appOver)
      && /rtDone,/.test(appOver)
      && htmlOver.includes('ทดแทนไปแล้ว {{ mrpNum(rtDone(x)) }}'));
+}
+
+console.log('\n=== SPL. แยกปุ่ม ยกเลิกแล้ว / ไม่ติดตามแล้ว (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H';
+  const base = { kind: 'short', entity: E, voided: true, qty: 5, unit: 'PCE' };
+  const c1 = { ...base, id: 'C1', po: 'P1', code: 'A1', void_reason: CANCEL_MARK + ' — ของไม่มาแล้ว', void_at: '2026-11-20T01:00:00.000Z' };
+  const k1 = { ...base, id: 'K1', po: 'P2', code: 'A1', void_reason: SKIP_MARK + ' — ขาดเศษนิดเดียว', void_at: '2026-11-21T01:00:00.000Z' };
+  // คู่เดียวกันหยุดสองรอบ: รอบเก่ายกเลิก รอบใหม่ไม่ติดตาม → อยู่ปุ่มไม่ติดตามแล้วปุ่มเดียว (รอบล่าสุด)
+  const oldC = { ...base, id: 'C0', po: 'P3', code: 'A1', void_reason: CANCEL_MARK + ' — รอบแรก', void_at: '2026-11-10T01:00:00.000Z' };
+  const newK = { ...base, id: 'K3', po: 'P3', code: 'A1', void_reason: SKIP_MARK + ' — รอบสอง', void_at: '2026-11-22T01:00:00.000Z' };
+  const all = [c1, k1, oldC, newK];
+  const ids = o => stoppedShorts(all, { entity: E, ...o }).map(x => x.s.id).join();
+  ok('stoppedShorts mark: cancel = เฉพาะยกเลิก · skip = เฉพาะไม่ติดตาม · ไม่ส่ง = ทั้งหมดเหมือนเดิม',
+     ids({ mark: 'cancel' }) === 'C1' && ids({ mark: 'skip' }) === 'K3,K1' && ids({}) === 'K3,K1,C1', [ids({ mark: 'cancel' }), ids({ mark: 'skip' }), ids({})].join(' | '));
+  ok('หยุดสองรอบ: รอบเก่า (ยกเลิก) ไม่โผล่ในปุ่มยกเลิกแล้ว — กรองหลังเลือกรอบล่าสุด', !ids({ mark: 'cancel' }).includes('C0'));
+  ok('stopCounts นับแยกสองปุ่ม · รวมกัน = ตัวนับเดิม',
+     JSON.stringify(stopCounts(stoppedShorts(all, { entity: E }))) === JSON.stringify({ cancel: 1, skip: 2 })
+     && JSON.stringify(stopCounts(undefined)) === JSON.stringify({ cancel: 0, skip: 0 }));
+  ok('isStopSeg: เฉพาะ cancel / skip', isStopSeg('cancel') && isStopSeg('skip') && !isStopSeg('stop') && !isStopSeg('done') && !isStopSeg('open'));
+  ok('ป้ายปุ่มบอกสถานะ (ยกเลิกแล้ว · ไม่ติดตามแล้ว) ไม่ซ้ำชื่อปุ่มกดในแถว',
+     ['short', 'over'].every(k => FOLLOW_SEG[k].slice(3).map(x => x.label).join() === 'ยกเลิกแล้ว,ไม่ติดตามแล้ว'));
+  const appSp = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: รายการของปุ่มที่กดกรองด้วย mark ก่อนค้น · ทั้ง short และ over',
+     appSp.includes('filterPick(fsStopped.value.filter(x => x.mark === fsSeg.value)')
+     && appSp.includes('filterPick(foStopped.value.filter(x => x.mark === foSeg.value)')
+     && appSp.includes('...stopCounts(foStopped.value)'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
