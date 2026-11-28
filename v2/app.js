@@ -36,7 +36,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, stockPnFocus, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, stockPnFocus, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, isPoolItem } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1799,10 +1799,11 @@ createApp({
 
     const balShown = computed(() => {
       const t = balQ.value.trim().toUpperCase();
-      // รายรหัสเหลือเฉพาะเคมี (เจ้าของสั่ง 22 พ.ย. 2026) + METAL PART (เจ้าของขอเพิ่ม 25 พ.ย.) — ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
+      // รายรหัส = เคมี + TERMINAL + SOLDER (เจ้าของสั่ง 28 พ.ย. 2026 แทนเคมี + METAL PART) — ของที่จ่ายจากยอดรวม · กฎอยู่ที่ isPoolItem
+      // ของอื่นดูราย P/N · ออก Bin Card กับรายการที่ควรไปดูยังนับทุกหมวด
       const pool = balAll.value.filter(r =>
         (balZero.value || r.qty !== 0) &&
-        (r.category === 'CHEMICAL' || r.category === 'METAL PART') &&
+        isPoolItem(r.category, r.desc) &&
         (!t || r.code.toUpperCase().includes(t) || r.desc.toUpperCase().includes(t)));
       return { rows: pool.slice(0, SHOW_MAX), total: pool.length };
     });
