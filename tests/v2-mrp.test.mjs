@@ -648,7 +648,6 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
      && html.includes('เกิน BOM {{ mrpNum(x.overBom) }}') && html.includes('เกินรับเข้า {{ mrpNum(x.overRecv) }}')
      && html.includes('ซ้ำกับรายการ {{ localDate(x.dupOf.at) }}') && /poOverRows\(bpFixList\.value, bpFixRow\.value/.test(app));
   // ผู้ตรวจ #206 รอบ 1: แก้แถวเก่าแล้วล้างเศษ ต้องไม่ลงวันเก่ากว่าใบจ่ายใบล่าสุด — ยกเลิกใบใหม่ทีหลังยอด PO ยังตรง (ยอดจริง ไม่ใช่รูปโค้ด)
-  const { fixSweepAt } = await import('../v2/master/mrp.js');
   const { makeEntry, voidEntry } = await import('../v2/core/ledger.js');
   const { poStockOf, fracSweep, fracTwins } = await import('../v2/core/balance.js');
   const run = (pickAt) => {
@@ -667,15 +666,14 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
     book = book.map(e => gone2.find(g => g.id === e.id) || e);
     return { crumbs, afterFix, afterVoidB: poStockOf(book, 'E', 'PO-1').get('C1').bal };
   };
-  const good = run((book, srcAt) => fixSweepAt(book, 'E', 'PO-1', 'C1', srcAt));
+  const good = run((book, srcAt) => srcAt);   // แบบ bpFixSave: ส่งวันของใบที่แก้ตรง ๆ ให้ fracSweep ยกพื้นเวลาเอง (#202)
   ok('แก้แถวเก่า: ล้างเศษลงวันของใบจ่ายใบล่าสุด (5 พ.ย.) ไม่ใช่วันใบเก่า · ยกเลิกใบใหม่ทีหลัง ยอด PO = 41 ตรง (ผู้ตรวจ #206)',
      good.crumbs.length === 1 && good.crumbs[0].at === '2026-11-05T01:00:00.000Z' && good.afterFix === 0 && good.afterVoidB === 41,
      JSON.stringify(good));
-  // ไม่เทียบกับ "แบบเดิมต้องเพี้ยน" — #202 ใส่พื้นเวลาเดียวกันไว้ใน fracSweep แล้ว เมิจเมื่อไหร่แบบเดิมก็ไม่เพี้ยนอีก
-  //   (ลองถอด fixSweepAt ออกจาก run() ตอนเขียนเทสนี้ บน main ที่ยังไม่มี #202 → ข้อบนแดง ได้ 40.5)
-  ok('fixSweepAt: ไม่มีใบที่ใหม่กว่า → ใช้วันของใบที่แก้ · bpFixSave เรียกหลังใส่ใบแทนแล้ว',
-     fixSweepAt([], 'E', 'PO-1', 'C1', '2026-11-02T01:00:00.000Z') === '2026-11-02T01:00:00.000Z'
-     && /entries\.value\.push\(\.\.\.add\);[\s\S]{0,400}const at = fixSweepAt\(entries\.value, entity\.value, bpFix\.po, src\.material_code, src\.at\);/.test(app));
+  //   (บน main ก่อนมี #202 ส่งวันใบเก่าตรง ๆ แล้วข้อบนแดง ได้ 40.5 — ตอนนั้นจึงมี fixSweepAt แยก · เอาออกแล้วเพราะซ้ำกับพื้นใน fracSweep)
+  ok('bpFixSave: ล้างเศษหลังใส่ใบแทนแล้ว ส่งวันของใบที่แก้ให้ fracSweep · ไม่มี fixSweepAt ซ้ำอีกชั้น',
+     /entries\.value\.push\(\.\.\.add\);[\s\S]{0,400}fracSweep\(entries\.value, entity\.value, bpFix\.po, \[src\.material_code\], fracTolAt,\s*\{ person: by, device: device\.value, at: src\.at, part_no: src\.part_no \}\)/.test(app)
+     && !/fixSweepAt/.test(app));
 }
 
 console.log('\n=== แก้รายการจ่ายเกิน BOM จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026) ===');

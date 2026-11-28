@@ -44,7 +44,6 @@
  *    เรื่องติดตามใช้ sameEntity (เรื่องที่ยังไม่มีเจ้าของนับให้ทุกนิติบุคคล — แบบการ์ด short)
  */
 import { round5 } from '../core/ledger.js';
-import { lastIssueAt } from '../core/balance.js';
 import { shortWhyOf, shortSettledBy, overSettledBy, sameEntity, OVER_MIN } from './follow.js';
 import { poHeaderIndex } from './po-kit.js';
 import { CATEGORIES } from './materials.js';
@@ -632,16 +631,4 @@ export function poOverRows(list, p, dayOf = e => String(e.at || '').slice(0, 10)
     if (d) r.dupOf = d.e;
   });
   return rows;
-}
-
-/**
- * เวลาที่ใช้ล้างเศษหลังแก้รายการจ่ายที่เกิน (ผู้ตรวจ #206 รอบ 1)
- *   กล่องแก้ให้เลือกแถวเก่าได้ (รายการที่ผิดจริงอาจเป็นแถวก่อนหน้า) — ถ้าล้างเศษ ณ วันของใบเก่า
- *   แล้ววันหลังมีคนยกเลิกใบจ่ายที่ใหม่กว่า fracTwins ผูกคู่ไม่เจอ รายการ −เศษ ค้าง ยอด PO ขาดเงียบ ๆ
- *   → ใช้เวลาที่ไม่เก่ากว่าใบจ่ายใบล่าสุดที่ยังไม่ยกเลิกของ PO + รหัสนั้น (lastIssueAt · core/balance.js)
- *   ต้องเรียกหลังใส่ใบแทนลงสมุดแล้ว · ห้ามแก้ fracTwins แทน (core/balance.js · CLAUDE.md ข้อ 7)
- */
-export function fixSweepAt(entries, entity, po, code, srcAt) {
-  const floor = lastIssueAt(entries, entity, po, code);
-  return floor && String(floor) > String(srcAt || '') ? floor : srcAt;
 }
