@@ -3972,14 +3972,21 @@ textarea{font:inherit}
            เพดาน = คงเหลือของใบที่เลือก (A4) · บันทึกผ่าน postPoIssue ตัวเดียวกับกล่องจ่ายของหน้าราย P/N -->
       <div class="modal" v-if="ciIss.open" @click.self="ciIss.open=false">
         <div class="modal-box" style="width:min(760px,100%)" role="dialog" aria-modal="true">
-          <h2>จ่ายออก</h2>
-          <table><tbody>
-            <tr><td class="hint" style="width:150px">วัตถุดิบ</td><td><span class="mono"><b>{{ ciIss.code }}</b></span> {{ (matOf(ciIss.code) || {}).description || '' }}</td></tr>
-            <!-- ยอดรวมไว้คุมของจริง — จ่ายเกินคงเหลือ PO ได้ จึงต้องเห็นยอดรวมเสมอ (เจ้าของสั่ง 28 พ.ย. 2026) -->
-            <tr><td class="hint"><b>คงคลังรวม (ทุก PO)</b></td>
-              <td class="mono"><b :style="ciIssTotal < 0 ? 'color:var(--bad)' : ''" data-ciiss-total>{{ mrpNum(ciIssTotal) }}</b>
-                <span class="hint" style="margin-left:4px">{{ unitOf(ciIss.code) }}</span></td></tr>
-          </tbody></table>
+          <!-- หัวกล่อง: วัตถุดิบตัวใหญ่ซ้าย · คงคลังรวมเลขใหญ่ขวา (เจ้าของขอ 28 พ.ย. 2026 — ตัวเล็กเกิน)
+               ยอดรวมไว้คุมของจริง — จ่ายเกินคงเหลือ PO ได้ จึงต้องเห็นยอดรวมเสมอ -->
+          <div class="row" style="align-items:flex-start;gap:16px">
+            <div class="grow">
+              <h2 style="margin-bottom:6px">จ่ายออก</h2>
+              <div class="mono" style="font-size:20px;font-weight:700">{{ ciIss.code }}</div>
+              <div style="font-size:17px;margin-top:2px">{{ (matOf(ciIss.code) || {}).description || '' }}</div>
+            </div>
+            <div style="text-align:right;white-space:nowrap">
+              <div class="hint" style="font-size:14px">คงคลังรวม (ทุก PO)</div>
+              <span class="mono" style="font-size:36px;font-weight:700;line-height:1.15"
+                    :style="ciIssTotal < 0 ? 'color:var(--bad)' : ''" data-ciiss-total>{{ mrpNum(ciIssTotal) }}</span>
+              <span class="hint" style="font-size:16px;margin-left:6px">{{ unitOf(ciIss.code) }}</span>
+            </div>
+          </div>
           <div class="row" style="margin:14px 0 4px;align-items:center">
             <p style="margin:0"><b>1. เลือก P/N แล้วเลือก PO ที่จะตัดของ</b> <span class="hint">— PO เก่าขึ้นก่อน · กด P/N เพื่อกาง</span></p>
             <div class="grow"></div>
