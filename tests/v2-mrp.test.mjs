@@ -668,11 +668,11 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
     return { crumbs, afterFix, afterVoidB: poStockOf(book, 'E', 'PO-1').get('C1').bal };
   };
   const good = run((book, srcAt) => fixSweepAt(book, 'E', 'PO-1', 'C1', srcAt));
-  const old = run((book, srcAt) => srcAt);   // แบบเดิมก่อนแก้ — ยืนยันว่าเทสจับได้
   ok('แก้แถวเก่า: ล้างเศษลงวันของใบจ่ายใบล่าสุด (5 พ.ย.) ไม่ใช่วันใบเก่า · ยกเลิกใบใหม่ทีหลัง ยอด PO = 41 ตรง (ผู้ตรวจ #206)',
      good.crumbs.length === 1 && good.crumbs[0].at === '2026-11-05T01:00:00.000Z' && good.afterFix === 0 && good.afterVoidB === 41,
      JSON.stringify(good));
-  ok('แบบเดิม (ล้างเศษ ณ วันใบเก่า) ยอดเพี้ยน 40.5 — เทสนี้จับได้จริง', old.afterVoidB === 40.5, JSON.stringify(old));
+  // ไม่เทียบกับ "แบบเดิมต้องเพี้ยน" — #202 ใส่พื้นเวลาเดียวกันไว้ใน fracSweep แล้ว เมิจเมื่อไหร่แบบเดิมก็ไม่เพี้ยนอีก
+  //   (ลองถอด fixSweepAt ออกจาก run() ตอนเขียนเทสนี้ บน main ที่ยังไม่มี #202 → ข้อบนแดง ได้ 40.5)
   ok('fixSweepAt: ไม่มีใบที่ใหม่กว่า → ใช้วันของใบที่แก้ · bpFixSave เรียกหลังใส่ใบแทนแล้ว',
      fixSweepAt([], 'E', 'PO-1', 'C1', '2026-11-02T01:00:00.000Z') === '2026-11-02T01:00:00.000Z'
      && /entries\.value\.push\(\.\.\.add\);[\s\S]{0,400}const at = fixSweepAt\(entries\.value, entity\.value, bpFix\.po, src\.material_code, src\.at\);/.test(app));
