@@ -278,3 +278,65 @@ export function syncBadge({ url = '', state = '', error = '', pending = 0, lastO
 /** เซิร์ฟเวอร์ยังเป็นสคริปต์เวอร์ชันเก่าหรือเปล่า — ดูจากข้อความที่ตอบกลับมา */
 export const looksLikeOldScript = msg =>
   /ไม่รู้จัก(คำสั่ง|ตาราง)/.test(String(msg || ''));
+
+/* ═══════════ ซิงค์ให้เครื่องอื่นเห็นเร็ว (เจ้าของสั่ง 28 พ.ย. 2026) ═══════════
+ * เดิมซิงค์เต็ม 8 ตารางทุก 2 นาที เครื่องอื่นจึงเห็นของใหม่ช้าได้ถึงราว 4 นาที
+ * (รอรอบของเครื่องที่ส่ง แล้วรอรอบของเครื่องที่ดึงอีกชั้น) และยิงเซิร์ฟเวอร์ 8 ครั้งทุกรอบแม้ไม่มีอะไรเปลี่ยน
+ * ตอนนี้: บันทึกแล้วส่งเฉพาะตารางที่มีของค้างภายในไม่กี่วินาที · ทุก ~20 วินาทีถามคำเดียวว่าตารางไหนเปลี่ยน
+ * (คำสั่ง changes ไม่อ่านชีต ไม่จับ lock) แล้วดึงเฉพาะตารางนั้น · ซิงค์เต็มเหลือเป็นตัวสำรองทุก 10 นาที */
+export const ASK_MS = 20000;
+export const PUSH_DELAY_MS = 4000;
+export const FULL_MS = 10 * 60000;
+export const FULL_MS_OLD = 120000;   // สคริปต์รุ่นเก่าที่ยังไม่มี changes · หรือรอบก่อนพัง = ซิงค์เต็มทุก 2 นาทีเหมือนเดิม
+
+/**
+ * รอบนี้ทำอะไร: 'full' ซิงค์เต็ม · 'push' ส่งเฉพาะตารางที่มีของค้าง · 'ask' ถามว่าตารางไหนเปลี่ยน · '' ไม่ทำ
+ * canAsk = เซิร์ฟเวอร์รู้จัก changes
+ * failed = รอบก่อนพัง → กลับไปแบบเดิมทุกอย่าง (ซิงค์เต็มทุก 2 นาที ไม่ส่ง ไม่ถาม ระหว่างนั้น)
+ *   ไม่งั้นช่วงเน็ตหลุดหรือเซิร์ฟเวอร์แน่น จะลองส่งซ้ำทุก 20 วินาที ป้ายกะพริบ และไปเพิ่มคิวให้เซิร์ฟเวอร์
+ * hidden = แท็บถูกซ่อน → ไม่ถาม (ไม่มีใครดูอยู่ · กลับมาที่หน้าจอแล้วถามทันที) แต่ยังส่งของค้างและซิงค์เต็มตามรอบ
+ * busy + มีของค้าง = 'again' → ให้ต่อรอบทันทีที่รอบที่วิ่งอยู่จบ (บันทึกระหว่างซิงค์ ไม่ต้องรอรอบ 20 วินาทีถัดไป)
+ */
+export function syncTick({ now = 0, lastFullAt = 0, pending = 0, hidden = false, canAsk = true, failed = false, busy = false } = {}) {
+  if (busy) return pending ? 'again' : '';
+  if (now - lastFullAt >= (canAsk && !failed ? FULL_MS : FULL_MS_OLD)) return 'full';
+  if (failed) return '';
+  if (pending) return 'push';
+  if (hidden || !canAsk) return '';
+  return 'ask';
+}
+
+/** ตารางที่มีของค้างส่ง (ชื่อตารางในเครื่อง) */
+export const dirtyTables = store =>
+  Object.keys(TABLES).filter(t => dirtyRows((store && store[t]) || []).length);
+
+/** since ในเครื่อง (รายชื่อตารางในเครื่อง) → รูปที่คำสั่ง changes รับ (รายชื่อชีต) */
+export const sinceBySheet = since =>
+  Object.fromEntries(Object.entries(TABLES).map(([t, d]) => [d.sheet, String((since && since[t]) || '')]));
+
+const ISO_AT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/;
+
+/**
+ * ตารางที่ต้องดึงจากคำตอบของ changes (คืนชื่อตารางในเครื่อง)
+ *
+ * res.changed = ชีตที่เซิร์ฟเวอร์บอกว่าเปลี่ยน · res.stamps = เวลาที่จดของแต่ละชีต
+ * seen = { ชีต: เวลาที่จด } ที่เครื่องนี้ดึงตามไปสำเร็จแล้ว
+ *
+ * ข้ามชีตที่เวลาที่จดเท่ากับที่ดึงตามไปแล้ว — ไม่งั้นทางเผื่อหนึ่งนาทีของเซิร์ฟเวอร์ (CHANGE_SLACK_MS)
+ * ทำให้ทุกเครื่องดึงชีตเดิมซ้ำราวสามรอบต่อการเปลี่ยนหนึ่งครั้ง แล้วกลับไปแย่ง lock กันเหมือนเดิม
+ * ข้ามได้ปลอดภัยเพราะ push จดเวลา "ใต้ lock" ก่อนเขียนแถว → การดึงที่เริ่มหลังเห็นเวลานั้น
+ * ต้องรอ lock จน push ก้อนนั้นเขียนเสร็จ จึงได้แถวครบแล้ว · มีคนส่งใหม่ = เวลาที่จดเปลี่ยน = ดึงอีก
+ * ⚠️ seen ต้องตั้งหลัง "ดึง" สำเร็จเท่านั้น (ดู syncNow ใน app.js) — ส่งผ่านแต่ดึงพัง แล้วตั้ง seen
+ *    = ของที่เครื่องอื่นส่งไว้ก่อนหน้าถูกข้ามไปจนถึงรอบซิงค์เต็ม
+ * เวลาที่จดว่างหรืออ่านไม่ออก = ดึงเสมอ (สงสัยเมื่อไหร่ให้ดึง)
+ */
+export function askPlan(res, seen = {}) {
+  const changed = res && Array.isArray(res.changed) ? res.changed : [];
+  const stamps = (res && res.stamps) || {};
+  return Object.keys(TABLES).filter(t => {
+    const sh = TABLES[t].sheet;
+    if (!changed.includes(sh)) return false;
+    const at = String(stamps[sh] || '');
+    return !(ISO_AT.test(at) && seen && seen[sh] === at);
+  });
+}

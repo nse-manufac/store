@@ -147,6 +147,7 @@ function handle(e, body) {
       case 'pullTable': return json(doPullTable(body.table || p.table, body.since || p.since || ''));
       case 'pushTable': return json(doPushTable(body.table, body.rows || [], body.device || ''));
       case 'planShip':  return json(doPlanShip());
+      case 'changes':   return json(doChanges(body.since));
       default:          return json({ ok: false, error: 'ไม่รู้จักคำสั่ง: ' + action });
     }
   } catch (err) {
@@ -183,12 +184,13 @@ function nowIso() { return new Date().toISOString(); }
  *    (เวลาที่จดถูกคนแก้มือเป็น "1" จะเรียงก่อนทุกเวลา แล้วตารางนั้นเข้าทางลัดตลอด · ผู้ตรวจ #136 รอบ 2 ข้อ ค)
  * ⚠️ แก้ชีตด้วยมือ onEdit จดให้ด้วย — ไม่งั้นแถวที่แก้มือจะไม่ถูกส่งอีกเลยหลัง deploy นี้ */
 var CHANGE_SLACK_MS = 60000;
+var CHANGED_AT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/;   // ต้องเป็น ISO ที่ nowIso เขียน · Date.parse('1') ยังได้ปี 2001
 function props() { return PropertiesService.getScriptProperties(); }
-function markChanged(table) { props().setProperty('changed_' + table, nowIso()); }
-function unchangedSince(table, since) {
+function markChanged(table) { var t = nowIso(); props().setProperty('changed_' + table, t); return t; }
+function unchangedSince(table, since, known) {
   if (!since) return false;
-  var c = props().getProperty('changed_' + table) || '';
-  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(c)) return false;   // ต้องเป็น ISO ที่ nowIso เขียน · Date.parse('1') ยังได้ปี 2001
+  var c = (known ? known['changed_' + table] : props().getProperty('changed_' + table)) || '';
+  if (!CHANGED_AT.test(c)) return false;
   var t = Date.parse ? Date.parse(since) : NaN;
   if (!isFinite(t)) return false;
   return c < new Date(t - CHANGE_SLACK_MS).toISOString();
@@ -198,6 +200,29 @@ function onEdit(e) {
     var n = e && e.range && e.range.getSheet().getName();
     if (n && TABLES[n]) markChanged(n);
   } catch (err) {}
+}
+
+/* ═══════════ ตารางไหนเปลี่ยนบ้าง — คำขอเดียวตอบครบทุกตาราง (เจ้าของสั่ง 28 พ.ย. 2026) ═══════════
+ * เดิมเครื่องอื่นเห็นของใหม่ช้าได้ถึงราว 4 นาที (รอบ 2 นาทีของเครื่องที่ส่ง + รอบ 2 นาทีของเครื่องที่ดึง)
+ * โปรแกรมถามคำสั่งนี้ทุก ~20 วินาที แล้วดึงจริงเฉพาะตารางที่เปลี่ยน
+ * ไม่อ่านชีต ไม่จับ lock · อ่าน ScriptProperties ครั้งเดียวต่อคำขอ (มีโควตาอ่านรายวัน)
+ * ⚠️ ตัดสินด้วย unchangedSince ตัวเดียวกับทางลัดของ doPullTable — ห้ามเขียนกฎชุดที่สอง
+ * since = { ชื่อชีต: เวลา } · ตารางที่ไม่ส่งเวลามา = นับว่าเปลี่ยน (สงสัยเมื่อไหร่ให้ดึง)
+ * stamps = เวลาที่จดไว้ของแต่ละตาราง ให้โปรแกรมรู้ว่าการเปลี่ยนครั้งนั้นดึงไปแล้วหรือยัง (ดู askPlan ใน core/sync.js)
+ * ⚠️ ตารางที่ยังไม่เคยจด (หรือจดไว้อ่านไม่ออก) = จดเป็น "ตอนนี้" ให้เลย
+ *    ไม่งั้นทุกเครื่องเห็นว่า "เปลี่ยน" ทุกครั้งที่ถาม แล้วดึงตารางนั้นทั้งชีตทุก 20 วินาทีไปตลอด
+ *    จดเวลาที่ใหม่กว่าความจริงปลอดภัย — ได้แค่ดึงเกินหนึ่งรอบ ไม่ทำให้อะไรถูกข้าม */
+function doChanges(since) {
+  var stamp = nowIso();
+  var known = props().getProperties();
+  var sin = (since && typeof since === 'object') ? since : {};
+  var changed = [], stamps = {};
+  for (var name in TABLES) {
+    stamps[name] = String(known['changed_' + name] || '');
+    if (!CHANGED_AT.test(stamps[name])) stamps[name] = markChanged(name);
+    if (!unchangedSince(name, String(sin[name] || ''), known)) changed.push(name);
+  }
+  return { ok: true, serverTime: stamp, changed: changed, stamps: stamps };
 }
 
 function sheetOf(name) {
@@ -383,7 +408,7 @@ function doPushTable(table, rows, device) {
     /* ⚠️ จดเวลาเปลี่ยน "ติดกับ" stamp ของแถว — ก่อน stamp และหลังอ่านหัวตาราง/คอลัมน์กุญแจ (ดูหัวบล็อก markChanged)
      *    ความปลอดภัยของทางลัดใน doPullTable ต้องการให้ stamp ไม่ช้ากว่าเวลาที่จดเกิน CHANGE_SLACK_MS
      *    จดก่อนอ่านคอลัมน์กุญแจ = ช่องว่างเท่ากับเวลาอ่าน ซึ่งช่วงเซิร์ฟเวอร์ช้าอาจถึงหลายสิบวินาที (ผู้ตรวจ #136 ข้อ ก) */
-    markChanged(table);
+    var changedAt = markChanged(table);   // ส่งกลับให้โปรแกรมรู้ว่าการเปลี่ยนครั้งนี้เป็นของตัวเอง (ดู askPlan)
     var stamp = nowIso();
     var appends = [];
     for (var k = 0; k < rows.length; k++) {
@@ -399,7 +424,7 @@ function doPushTable(table, rows, device) {
       sheet.getRange(sheet.getLastRow() + 1, 1, appends.length, def.cols.length).setValues(appends);
     }
     SpreadsheetApp.flush();
-    return { ok: true, serverTime: stamp, saved: rows.length, added: appends.length };
+    return { ok: true, serverTime: stamp, saved: rows.length, added: appends.length, changedAt: changedAt };
   } finally {
     lock.releaseLock();
   }
