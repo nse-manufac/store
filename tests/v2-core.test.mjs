@@ -380,14 +380,15 @@ console.log('\n=== วาดตารางยาวทีละช่วง (�
      src.includes("const mrpDraw = drawing(mrpShown, r => r.po === mrpPin.value);"));
 }
 
-console.log('\n=== หน้ายอดคงคลังไม่มีปุ่มจ่ายออก (เจ้าของสั่ง 22 พ.ย. 2026) ===');
+console.log('\n=== หน้ายอดคงคลังไม่มีปุ่มพาไปหน้าจ่ายออก (เจ้าของสั่ง 22 พ.ย. 2026) ===');
 {
-  // พนักงานกดจ่ายออกจากหน้ายอดคงคลัง (รายรหัส · การ์ด) แล้วสับสน — จ่ายออกที่หน้าจ่ายออกที่เดียว
+  // 22 พ.ย.: ปุ่มเดิมพาไปเติมใบเบิกในหน้าจ่ายออก พนักงานสับสน จึงถอด — ห้ามกลับมา
+  // ปุ่ม "จ่าย" ที่เจ้าของสั่งทีหลัง (ราย P/N 25 พ.ย. · รายรหัส 28 พ.ย.) เปิดกล่องแล้วบันทึกในหน้านี้เลย ไม่พาไปหน้าอื่น — ไม่ขัดกับข้อนี้
   const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const i = html.indexOf(`<template v-else-if="tab==='bal'">`);
   const bal = html.slice(i, html.indexOf('<template v-else-if="tab===', i + 10));
-  ok('หน้ายอดคงคลัง (รายรหัส + การ์ด) ไม่มีปุ่มจ่ายออก · ปุ่มเปิดการ์ดยังอยู่',
+  ok('หน้ายอดคงคลัง (รายรหัส + การ์ด) ไม่มีปุ่มพาไปหน้าจ่ายออก (goIssue / จ่ายออกรหัสนี้) · ปุ่มเปิดการ์ดยังอยู่',
      i >= 0 && !/goIssue|จ่ายออกรหัสนี้|>จ่ายออก<\/button>/.test(bal) && bal.includes('@click="openCard(r.code)">การ์ด</button>'));
   ok('ไม่มีฟังก์ชันพาไปจ่ายออกค้างอยู่ใน app.js', !/goIssue/.test(src));
 }
@@ -691,7 +692,7 @@ console.log('\n=== ห้ามลงวันอนาคตทุกช่อ�
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const body = name => { const i = app.indexOf('function ' + name + '('); return i < 0 ? '' : app.slice(i, app.indexOf('\n    }\n', i)); };
   // ทุกปุ่มบันทึกที่รับวันที่จากคน — ตรวจก่อนเขียนลงเครื่อง (เพิ่มช่องวันที่ใหม่ต้องเพิ่มที่นี่ด้วย)
-  const saves = { saveIn: 'inH.date', saveOut: 'outH.date', saveMisc: 'mk.date', bpFracClean: 'date', bpIssSave: 'bpIss.date',
+  const saves = { saveIn: 'inH.date', saveOut: 'outH.date', saveMisc: 'mk.date', bpFracClean: 'date', bpIssSave: 'bpIss.date', ciIssSave: 'ciIss.date',
                   saveWeekly: 'wkH.date', fsClose: 'fsDayNow()', mrpSetDate: 'date', saveReturnPop: 'rt.date', fbIssue: 'fbDoc.date',
                   fbReqSubmit: 'fbReqDayNow()', fbClose: 'fbDayNow()' };
   const miss = Object.entries(saves).filter(([f, v]) => { const b = body(f); const i = b.indexOf('futureBlocked(' + v + ')');

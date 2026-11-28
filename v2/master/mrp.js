@@ -677,6 +677,113 @@ export function fixSweepAt(entries, entity, po, code, srcAt) {
 }
 
 /**
+ * PO ของรหัสหนึ่ง — ให้กล่องจ่ายออกจากหน้ายอดคงคลัง "รายรหัส" เลือก PO (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   stocks = poStocks(entries, entity) · headerOf = poHeaderIndex(posVisible) ให้ PO Date กับ P/N ของใบ
+ *   ปกติเฉพาะใบที่คงเหลือ > 0 · all = true รวมใบที่ของหมด / ติดลบด้วย (ใบที่เคยมีความเคลื่อนไหวของรหัสนี้)
+ *     — หน้านี้จ่ายเกินคงเหลือ PO ได้ (เคมีจ่ายเป็นขวด · A4 ข้อยกเว้น) ใบที่ของหมดแล้วจึงยังต้องเลือกได้
+ *   ไม่กรองใบที่ปิดแล้ว — เคมีใช้รวมกันข้ามใบ ของค้างในใบเก่าได้
+ *   เรียง PO Date เก่าก่อน (ของเก่าออกก่อน) · ไม่รู้วันที่ไว้ท้าย
+ *   ยอดของใบมาจาก poStocks ตัวเดียวกับหน้าราย P/N และหน้าจ่ายออก — ห้ามคิดใหม่ในนี้
+ * คืน [{ po, date, pn, recv, sendback, issued, bal }]
+ */
+export function codePoRows(stocks, code, headerOf, { all = false } = {}) {
+  const c = txt(code), out = [];
+  if (!c) return out;
+  for (const [po, codes] of stocks || []) {
+    const s = codes && codes.get(c);
+    if (!s || !(all || s.bal > 0)) continue;
+    const h = headerOf ? headerOf(po) : null;
+    out.push({ po, date: h ? txt(h.date) : '', pn: h ? txt(h.pn) : '',
+               recv: s.recv, sendback: s.sendback, issued: s.issued, bal: s.bal });
+  }
+  return out.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.po.localeCompare(b.po));
+}
+
+/**
+ * จัด PO ที่ยังมีของ (จาก codePoRows) เป็นกลุ่มราย P/N ให้กล่องจ่ายของหน้ารายรหัสกาง P/N → PO แบบหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   คืน [{ pn, date, bal, pos }] · date = PO Date เก่าสุดของกลุ่ม · bal = คงเหลือรวมของกลุ่ม
+ *   เรียงกลุ่มตาม PO ใบเก่าสุดก่อน (ของเก่าออกก่อน) · ใบในกลุ่มคงลำดับเดิมของ codePoRows · ไม่รู้ P/N รวมเป็นกลุ่ม '' ไว้ท้าย
+ */
+export function codePnGroups(rows) {
+  const m = new Map();
+  for (const r of rows || []) {
+    const k = txt(r.pn);
+    if (!m.has(k)) m.set(k, { pn: k, date: '', bal: 0, pos: [] });
+    const g = m.get(k);
+    g.pos.push(r);
+    g.bal = round5(g.bal + (Number(r.bal) || 0));
+    if (r.date && (!g.date || r.date < g.date)) g.date = r.date;
+  }
+  return [...m.values()].sort((a, b) => (a.pn ? 0 : 1) - (b.pn ? 0 : 1)
+    || (a.date || '9999').localeCompare(b.date || '9999') || a.pn.localeCompare(b.pn));
+}
+
+
+/**
+ * ตัวเลขของกล่องจ่ายหน้ารายรหัส (เจ้าของสั่ง 28 พ.ย. 2026) — เคมีจ่ายเป็นขวด ยังไม่รู้ว่าขวดละกี่ KG พนักงานใส่ KG ตามประมาณ
+ *   จึง **ไม่บล็อก** จ่ายเกินคงเหลือ PO / เกินยอดคงคลังรวม (ข้อยกเว้นของ A4) และไม่คุม BOM — เตือนอย่างเดียว ให้เห็นยอดรวมไว้คุมของจริง
+ *   p = แถวของ PO ที่เลือก ({ bal }) · total = ยอดคงคลังรวมของรหัส (balances) · qty = จำนวนที่จะจ่าย
+ *   hold = ยอดที่ต้องเก็บไว้คืน Delta ของรหัสนี้ (codeReturnHold) — จ่ายจนคงคลังเหลือน้อยกว่านี้ = กินของที่ต้องคืน (เตือน ไม่บล็อก)
+ * คืน { qty, poAfter, totalAfter, overPo, overTotal, free, holdShort, ok } · ok = qty > 0 อย่างเดียว
+ *   free = จ่ายได้โดยไม่กินของคืน (ไม่ต่ำกว่า 0) · holdShort = ของคืนจะขาดเท่านี้หลังจ่าย (0 = ไม่ขาด)
+ */
+export function codeIssueCheck(p, total, qty, hold = 0) {
+  const q = round5(Number(qty) || 0);
+  const bal = round5(Number(p && p.bal) || 0), tot = round5(Number(total) || 0), h = round5(Math.max(0, Number(hold) || 0));
+  const totalAfter = round5(tot - q);
+  return { qty: q, poAfter: round5(bal - q), totalAfter, overPo: q > bal, overTotal: q > tot,
+           free: round5(Math.max(0, tot - h)), holdShort: q > 0 ? round5(Math.max(0, h - totalAfter)) : 0,
+           ok: q > 0 };
+}
+
+/**
+ * แบ่งยอดจ่ายของหน้ารายรหัสลงหลาย PO — ตัดจาก PO ที่เลือกก่อน ที่เกินตัดจาก PO อื่นที่ยังมีของ ใบเก่าก่อน (เจ้าของเลือกแบบ ก 28 พ.ย. 2026)
+ *   เคมีจ่ายตามประมาณและข้าม PO — ถ้าลงใบที่เลือกใบเดียว ใบนั้นติดลบแน่ หน้าราย P/N ขึ้นแดง / ปุ่มแก้ไข ทั้งที่จ่ายถูก
+ *   rows = codePoRows (เฉพาะใบที่ยังมีของ เรียงเก่าก่อน) · sel = ใบที่เลือก ({ po, pn, bal } อาจเป็นใบที่ของหมดแล้ว) · qty = ยอดที่จ่าย
+ *   ของทั้งคลัง (ที่อ้าง PO) ไม่พอ → ส่วนที่เหลือลงใบที่เลือก ใบนั้นติดลบ = สัญญาณจริงว่าลืมคีย์รับเข้า / ประมาณเกิน
+ * คืน [{ po, pn, qty }] ใบที่เลือกอยู่แถวแรกเสมอเมื่อมีส่วนของมัน · ไม่มีอะไรให้ตัด / qty ≤ 0 = []
+ */
+export function fifoSplit(rows, sel, qty) {
+  let left = round5(Number(qty) || 0);
+  const out = [];
+  if (!(left > 0) || !sel || !txt(sel.po)) return out;
+  const take = (r, q) => {
+    const hit = out.find(x => x.po === r.po);
+    if (hit) hit.qty = round5(hit.qty + q); else out.push({ po: r.po, pn: txt(r.pn), qty: round5(q) });
+    left = round5(left - q);
+  };
+  if (Number(sel.bal) > 0) take(sel, Math.min(left, round5(Number(sel.bal))));
+  for (const r of rows || []) {
+    if (!(left > 0)) break;
+    if (r.po === sel.po || !(Number(r.bal) > 0)) continue;
+    take(r, Math.min(left, round5(Number(r.bal))));
+  }
+  if (left > 0) take(sel, left);
+  return out.sort((a, b) => (a.po === sel.po ? -1 : 0) - (b.po === sel.po ? -1 : 0));
+}
+
+/**
+ * ของเกิน BOM ที่ยังไม่คืน Delta ของรหัสหนึ่ง — ต้องเก็บไว้ ไม่งั้นสุดท้ายไม่มีของคืน (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   หน้ารายรหัสจ่ายไม่คุม BOM (เคมีจ่ายเป็นขวด) จึงหยิบของเกินไปใช้ได้ — กล่องจ่ายเตือนเมื่อจ่ายจนเหลือน้อยกว่ายอดนี้
+ *   overRows = overAll(..., { min: -Infinity }) (master/follow.js · เกิน = รับ − คืน Delta แล้ว − ตาม BOM ต่อ PO) · ไม่คิดใหม่ในนี้
+ *   isStopped = overSettled(follows) — เรื่อง over ที่ยกเลิก / ไม่ติดตามแล้ว ตัดสินแล้วว่าไม่คืน ไม่นับ
+ * คืน { pos: [{ po, pn, over }], total, unknown } · unknown = จำนวน PO ของรหัสนี้ที่คิดของเกินไม่ได้ (ไม่รู้ P/N / จำนวนสั่ง / ไม่อยู่ในสูตร)
+ */
+export function codeReturnHold(overRows, code, isStopped = () => false) {
+  const c = txt(code).toUpperCase(), pos = [];
+  let total = 0, unknown = 0;
+  if (!c) return { pos, total, unknown };
+  for (const r of overRows || []) {
+    if (!r || txt(r.code).toUpperCase() !== c) continue;
+    if (r.why) { unknown++; continue; }
+    if (!(Number(r.over) > 0) || isStopped(r.po, r.code, r.over)) continue;
+    pos.push({ po: r.po, pn: txt(r.pn), over: round5(Number(r.over)) });
+    total = round5(total + Number(r.over));
+  }
+  return { pos, total, unknown };
+}
+
+/**
  * รายการที่หน้ายอดคงคลัง "รายรหัส" แสดง และจ่ายจากยอดรวมได้ (เจ้าของสั่ง 28 พ.ย. 2026 — แทนเคมี + METAL PART ของ 25 พ.ย.)
  *   หมวด CHEMICAL ทั้งหมด + ชื่อมีคำ TERMINAL หรือ SOLDER (ไม่ว่าอยู่หมวดไหน — ทะเบียนไม่มีหมวดสองตัวนี้แยก
  *   terminal อยู่ใน METAL PART ปนกับ STRIP / CLIP / PIN · solder wire ถูกจัดเป็น WIRE หรือ CHEMICAL)

@@ -654,9 +654,10 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
      /ชื่อผู้จ่าย<input v-model\.trim="bpIss\.person"><\/label>\s*<label class="f grow">ชื่อผู้เบิก<input v-model\.trim="bpIss\.requester"/.test(html));
   ok('app.js: เปิดกล่องตั้งวันที่เป็นวันนี้ · บันทึกเช็กกฎซ้ำก่อนเขียน · อ้าง PO ของปุ่มที่กด',
      /bpIssOpen\(pn, po, code\) \{\s*Object\.assign\(bpIss, \{ open: true, pn, po, code, date: todayLocal\(\)/.test(app)
-     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.requester \|\| !bpIss\.date \|\| futureBlocked\(bpIss\.date\)\) return;/.test(app) && /doc_ref: bpIss\.po, part_no: bpIss\.pn/.test(app));
+     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.requester \|\| !bpIss\.date \|\| futureBlocked\(bpIss\.date\)\) return;/.test(app)
+     && /postPoIssue\(\{ po: bpIss\.po, code: bpIss\.code, pn: bpIss\.pn,/.test(app) && /doc_kind: 'po', doc_ref: p\.po, part_no: pn,/.test(app));
   ok('app.js: ผู้เบิกลงหมายเหตุเป็น "ผู้เบิก: ชื่อ" (ไม่เพิ่มช่องใหม่ ไม่ต้องแก้ Apps Script) · เปิดกล่องใหม่ล้างชื่อผู้เบิก',
-     /note: 'ผู้เบิก: ' \+ bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
+     /'ผู้เบิก: ' \+ requester/.test(app) && /requester: bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
   ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
   ok('จอ: กล่องแก้โชว์จ่ายสะสม · แถวแดงกับป้ายเกิน BOM / เกินรับเข้า / ซ้ำกับรายการไหน (poOverRows · เจ้าของสั่ง 28 พ.ย. 2026)',
      /<tr v-for="x in bpFixRows"/.test(html) && html.includes('<th class="r">จ่ายสะสม</th>')
@@ -744,6 +745,105 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
      ng[0].overRecv === 0 && ng[1].overRecv === 100 && ng.every(r => r.overBom === 0));
   ok('ไม่รู้ยอดตาม BOM: ไม่ชี้เกิน BOM · วันต่างกันไม่นับว่าซ้ำ',
      poOverRows([E(5, '2026-11-01T02:00Z'), E(5, '2026-11-02T02:00Z')], { need: null, issued: 10, bal: 0 }).every(r => r.overBom === 0 && !r.dupOf));
+}
+
+console.log('\n=== จ่ายออกจากหน้ายอดคงคลังรายรหัส — เลือก PO ในกล่อง (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const { codePoRows, poIssueCheck } = await import('../v2/master/mrp.js');
+  const S = (recv, issued, sendback = 0) => ({ recv, sendback, issued, bal: Math.round((recv - sendback - issued) * 1e5) / 1e5 });
+  const stocks = new Map([
+    ['PO-NEW', new Map([['CH1', S(50, 10)]])],
+    ['PO-OLD', new Map([['CH1', S(40, 15)], ['CH2', S(5, 0)]])],
+    ['PO-NEG', new Map([['CH1', S(10, 12)]])],
+    ['PO-ZERO', new Map([['CH1', S(8, 8)]])],
+    ['PO-NOHEAD', new Map([['CH1', S(3, 0)]])],
+  ]);
+  const head = { 'PO-NEW': { date: '2026-11-20', pn: 'PN-B' }, 'PO-OLD': { date: '2026-10-01', pn: 'PN-A' },
+                 'PO-NEG': { date: '2026-09-01', pn: 'PN-C' }, 'PO-ZERO': { date: '2026-08-01', pn: 'PN-D' } };
+  const rows = codePoRows(stocks, 'CH1', po => head[po] || null);
+  ok('เฉพาะใบที่ยังมีของ (คงเหลือ > 0) · ใบติดลบ / ศูนย์ไม่ขึ้น', rows.map(r => r.po).join() === 'PO-OLD,PO-NEW,PO-NOHEAD', rows.map(r => r.po).join());
+  ok('เรียง PO Date เก่าก่อน · ไม่รู้วันที่ไว้ท้าย · มี P/N ของใบ', rows[0].date === '2026-10-01' && rows[0].pn === 'PN-A'
+     && rows[2].date === '' && rows[2].pn === '');
+  ok('ยอดของใบมาจาก stocks ตรง ๆ (รับ · จ่าย · คงเหลือ)', rows[0].recv === 40 && rows[0].issued === 15 && rows[0].bal === 25);
+  ok('รหัสว่าง / ไม่มีใบไหนมีของ = []', codePoRows(stocks, '', () => null).length === 0 && codePoRows(stocks, 'XX', () => null).length === 0);
+  // จัดกลุ่ม P/N → PO (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { codePnGroups } = await import('../v2/master/mrp.js');
+  const gs = codePnGroups([
+    { po: 'P3', date: '2026-11-01', pn: 'PN-B', bal: 1 }, { po: 'P1', date: '2026-09-01', pn: 'PN-A', bal: 2.5 },
+    { po: 'P2', date: '2026-10-01', pn: 'PN-B', bal: 0.25 }, { po: 'P4', date: '2026-08-01', pn: '', bal: 3 },
+    { po: 'P5', date: '2026-11-15', pn: 'PN-A', bal: 0.5 }]);
+  ok('จัดเป็นกลุ่ม P/N · เรียงตาม PO ใบเก่าสุดของกลุ่ม · ไม่รู้ P/N ไว้ท้าย', gs.map(g => g.pn).join() === 'PN-A,PN-B,', gs.map(g => g.pn).join());
+  ok('กลุ่มมีคงเหลือรวม · PO Date เก่าสุด · ใบในกลุ่มคงลำดับเดิม',
+     gs[0].bal === 3 && gs[0].date === '2026-09-01' && gs[0].pos.map(p => p.po).join() === 'P1,P5'
+     && gs[1].bal === 1.25 && gs[1].date === '2026-10-01' && gs[1].pos.map(p => p.po).join() === 'P3,P2');
+  ok('ไม่มีใบ = []', codePnGroups([]).length === 0 && codePnGroups(null).length === 0);
+  // หน้ารายรหัส: จ่ายเกินได้ เตือนอย่างเดียว (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { codeIssueCheck } = await import('../v2/master/mrp.js');
+  const k = codeIssueCheck({ bal: 0.3 }, 0.65, 0.5);
+  ok('จ่ายเกินคงเหลือ PO ได้ (ไม่บล็อก) · บอกคงเหลือ PO / ยอดรวมหลังจ่าย', k.ok && k.overPo && !k.overTotal && k.poAfter === -0.2 && k.totalAfter === 0.15);
+  ok('จ่ายเกินยอดคงคลังรวมก็ได้ แต่ธงเตือนขึ้น · 0 / ว่าง / ติดลบ ไม่ผ่าน',
+     codeIssueCheck({ bal: 0 }, 0.2, 1).ok && codeIssueCheck({ bal: 0 }, 0.2, 1).overTotal && codeIssueCheck({ bal: 0 }, 0.2, 1).totalAfter === -0.8
+     && [0, null, '', -1].every(x => !codeIssueCheck({ bal: 1 }, 1, x).ok));
+  // ของเกิน BOM ที่ต้องเก็บไว้คืน Delta — เตือนเมื่อจ่ายจนกินของคืน (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { codeReturnHold } = await import('../v2/master/mrp.js');
+  const ov = [{ po: 'A', pn: 'P1', code: 'ch1', over: 0.4 }, { po: 'B', pn: 'P1', code: 'CH1', over: -0.2 },
+              { po: 'C', pn: '', code: 'CH1', why: 'ยังไม่รู้ P/N ของใบนี้' }, { po: 'D', pn: 'P2', code: 'CH1', over: 0.2 },
+              { po: 'E', pn: 'P2', code: 'CH1', over: 0.15 }, { po: 'F', pn: 'P3', code: 'OTHER', over: 9 }];
+  const hd = codeReturnHold(ov, 'CH1', po => po === 'D');
+  ok('ยอดต้องเก็บไว้คืน = รวมของเกินที่ยังไม่คืนของรหัสนี้ · ไม่นับใบที่คืนเกินแล้ว (ติดลบ) / ไม่ติดตามแล้ว / รหัสอื่น · นับใบที่คิดไม่ได้แยก',
+     hd.total === 0.55 && hd.pos.map(p => p.po).join() === 'A,E' && hd.unknown === 1, JSON.stringify(hd));
+  ok('รหัสว่าง / ไม่มีของเกิน = 0', codeReturnHold(ov, '').total === 0 && codeReturnHold([], 'CH1').total === 0);
+  const h1 = codeIssueCheck({ bal: 0.3 }, 0.95, 0.5, 0.6);
+  ok('จ่ายจนคงคลังเหลือน้อยกว่าที่ต้องคืน = holdShort บอกยอดของคืนที่จะขาด · free = จ่ายได้โดยไม่กินของคืน · ยังบันทึกได้',
+     h1.ok && h1.free === 0.35 && h1.holdShort === 0.15 && codeIssueCheck({ bal: 1 }, 0.95, 0.3, 0.6).holdShort === 0
+     && codeIssueCheck({ bal: 1 }, 0.95, 0.3).free === 0.95 && codeIssueCheck({ bal: 1 }, 0.2, 0.1, 0.6).free === 0);
+  ok('codePoRows all: รวมใบที่ของหมด / ติดลบด้วย', codePoRows(stocks, 'CH1', po => head[po] || null, { all: true }).map(r => r.po).join()
+     === 'PO-ZERO,PO-NEG,PO-OLD,PO-NEW,PO-NOHEAD');
+  // แบ่งยอดลงหลาย PO ใบเก่าก่อน (เจ้าของเลือกแบบ ก 28 พ.ย. 2026)
+  const { fifoSplit } = await import('../v2/master/mrp.js');
+  const R = [{ po: 'A', pn: 'P1', bal: 0.3 }, { po: 'B', pn: 'P1', bal: 0.3 }, { po: 'C', pn: 'P2', bal: 0.4 }];   // เรียงเก่าก่อนแล้ว
+  const sp = (sel, q) => fifoSplit(R, sel, q).map(x => x.po + ':' + x.qty).join(' ');
+  ok('ไม่เกินคงเหลือใบที่เลือก = ลงใบเดียว', sp(R[1], 0.25) === 'B:0.25');
+  ok('เกิน = ใบที่เลือกก่อน แล้วตัดใบอื่นที่ยังมีของ ใบเก่าก่อน (ข้ามใบที่เลือก)', sp(R[1], 0.5) === 'B:0.3 A:0.2' && sp(R[2], 0.9) === 'C:0.4 A:0.3 B:0.2');
+  ok('ของทั้งคลังไม่พอ = ส่วนที่เหลือลงใบที่เลือก (ใบนั้นติดลบ = สัญญาณให้ตรวจ)', sp(R[0], 1.2) === 'A:0.5 B:0.3 C:0.4',
+     sp(R[0], 1.2));
+  ok('ใบที่เลือกของหมดแล้ว (ติ๊กแสดงใบหมด) = ตัดใบอื่นก่อน ที่เหลือลงใบที่เลือก',
+     sp({ po: 'Z', pn: 'P9', bal: -0.1 }, 0.5) === 'A:0.3 B:0.2' && sp({ po: 'Z', pn: 'P9', bal: 0 }, 1.5) === 'Z:0.5 A:0.3 B:0.3 C:0.4');
+  ok('ยอดรวมของที่แบ่ง = ยอดที่จ่ายเสมอ · ใส่ 0 / ว่าง / ไม่เลือกใบ = []',
+     [0.25, 0.5, 0.9, 1.2, 3.33333].every(q => Math.abs(fifoSplit(R, R[1], q).reduce((t, x) => t + x.qty, 0) - q) < 1e-9)
+     && fifoSplit(R, R[0], 0).length === 0 && fifoSplit(R, R[0], '').length === 0 && fifoSplit(R, null, 1).length === 0);
+}
+
+{
+  // จอ: ปุ่มจ่ายท้ายแถวรหัส → กล่องเลือก PO · บันทึกผ่าน postPoIssue ตัวเดียวกับหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026)
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: แถวรหัสมีปุ่ม "จ่าย" เปิด ciIssOpen(r.code) ก่อนปุ่มการ์ด',
+     /:data-ciiss="r\.code" @click="ciIssOpen\(r\.code\)">จ่าย<\/button>\s*<button class="btn"[^>]*@click="openCard\(r\.code\)">การ์ด<\/button>/.test(html));
+  ok('จอ: กล่องเลือก P/N → PO (กาง P/N แบบหน้าราย P/N) · ปุ่มบันทึกปิดเมื่อยังไม่เลือก / ไม่ผ่านกฎ / ไม่มีชื่อ / ไม่มีวันที่',
+     /<template v-for="g in ciIssGroups"/.test(html) && /@click="ciFold\[g\.pn\] = !ciFold\[g\.pn\]"/.test(html) && /<tr v-for="p in g\.pos"/.test(html)
+     && html.includes("{{ g.pn || 'ไม่รู้ P/N' }}") && /codePnGroups\(ciIssPos\.value\)/.test(app)
+     && /@click="ciIssSave"\s*:disabled="!ciIssChk \|\| !ciIssChk\.ok \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| ciIss\.busy"/.test(html));
+  ok('app.js: PO มาจาก codePoRows(poStocks(...), { all }) · ตัวเลข = codeIssueCheck กับยอดคงคลังรวม · แบ่งยอดด้วย fifoSplit แล้วบันทึกผ่าน postPoIssues (P/N ของใบที่เลือก)',
+     /codePoRows\(ciStocks\.value, ciIss\.code, poIdx\.value, \{ all: ciIss\.all \}\)/.test(app) && /poStocks\(entries\.value, entity\.value\)/.test(app)
+     && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty, ciIssHold\.value\.total\)/.test(app)
+     && /bookBalances\.value\.get\(ciIss\.code\)/.test(app)
+     && /if \(ciIss\.busy \|\| !c \|\| !c\.ok \|\| !r \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| futureBlocked\(ciIss\.date\)\) return;/.test(app)
+     // บันทึกแล้วกล่องไม่ปิด จ่ายต่อ PO อื่นได้ — ล้างแค่ PO กับจำนวน (เจ้าของสั่ง 28 พ.ย. 2026)
+     && /ciIss\.done\.push\([^)]*\);\s*Object\.assign\(ciIss, \{ po: '', qty: null \}\);/.test(app)
+     && !/async function ciIssSave\(\)[\s\S]{0,900}ciIss\.open = false/.test(app) && html.includes('data-ciiss-done')
+     && /const parts = fifoSplit\(ciIssLive\.value, r, c\.qty\)/.test(app)
+     && /await postPoIssues\(parts, \{ code: ciIss\.code, pn: r\.pn,/.test(app));
+  // เคมีจ่ายเป็นขวด — ไม่บล็อกจ่ายเกิน (A4 ข้อยกเว้น · เจ้าของสั่ง 28 พ.ย. 2026) แต่ต้องเห็นยอดรวมและคำเตือน
+  ok('จอ: จ่ายเกินคงเหลือ PO / ยอดรวมไม่ทำให้ปุ่มบันทึกปิด · เตือนสีเหลือง · โชว์คงคลังรวม · ติ๊กแสดง PO ที่ของหมดได้',
+     !/ciIssChk\.overPo[^"]*"[^>]*disabled|:disabled="[^"]*overPo/.test(html) && !html.includes('ciIssChk.overRecv')
+     && /:class="ciIssShort > 0 \|\| ciIssChk\.overTotal \|\| ciIssChk\.holdShort > 0 \? 'warn' : 'ok'"/.test(html) && /<div v-for="s in ciIssSplit"/.test(html)
+     && html.includes('data-ciiss-total>{{ mrpNum(ciIssTotal) }}') && html.includes('v-model="ciIss.all"'));
+  ok('จอ: กล่องจ่ายโชว์ยอดต้องเก็บไว้คืน Delta · คอลัมน์เกิน BOM รอคืนราย PO · เตือนเมื่อกินของคืน (ไม่บล็อก)',
+     /codeReturnHold\(foCalc0\.value, ciIss\.code, overSettled\(shorts\.value\)\)/.test(app)
+     && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty, ciIssHold\.value\.total\)/.test(app)
+     && html.includes('data-ciiss-hold') && html.includes('<th class="r">เกิน BOM รอคืน</th>') && html.includes('data-ciiss-holdwarn')
+     && !/:disabled="[^"]*holdShort/.test(html));
 }
 
 console.log('\n=== ยอดคงคลังราย P/N — ค้นรหัสแล้วกางเฉพาะบรรทัดนั้น (เจ้าของขอ 28 พ.ย. 2026) ===');
