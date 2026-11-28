@@ -3039,13 +3039,12 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     async function fsSkip(row) {
+      // ไม่ถามเหตุผล — ระบบจด "ยอดน้อย" ให้ (เจ้าของสั่ง 28 พ.ย. 2026 · กฎอยู่ที่ skipShort) · กดผิดกด "กลับมาติดตาม" ได้
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      const why = askWhy(`ไม่ติดตาม ${row.po} · ${row.code} (ขาด ${row.short}) เพราะอะไร`);
-      if (why === null) return;
       try {
         await startOnce(starting, startKey('short', row), async () => {
           await fsPut(skipShort(row, { entity: entity.value, person: fsBy.value, unit: unitOf(row.code),
-                                       date: todayLocal(), why, follows: shorts.value }));
+                                       date: todayLocal(), follows: shorts.value }));
           flash(`ไม่ติดตาม ${row.po} · ${row.code} แล้ว — ถ้ายอดขาดเพิ่มขึ้นจะกลับมาขึ้นอีก`);
         });
       } catch (err) { flash(err.message, true); }
@@ -3084,13 +3083,12 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     async function foSkip(row) {
+      // ไม่ถามเหตุผล — ระบบจด "ยอดน้อย" ให้ (เจ้าของสั่ง 28 พ.ย. 2026 · กฎอยู่ที่ skipOver) · กดผิดกด "กลับมาติดตาม" ได้
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      const why = askWhy(`ไม่ติดตาม ${row.po} · ${row.code} (เกิน ${row.over}) เพราะอะไร`);
-      if (why === null) return;
       try {
         await startOnce(starting, startKey('over', row), async () => {
           await fsPut(skipOver(row, { entity: entity.value, person: fsBy.value, unit: unitOf(row.code),
-                                      date: todayLocal(), why, follows: shorts.value }));
+                                      date: todayLocal(), follows: shorts.value }));
           flash(`ไม่ติดตาม ${row.po} · ${row.code} แล้ว — ถ้ายอดเกินเพิ่มขึ้นจะกลับมาขึ้นอีก`);
         });
       } catch (err) { flash(err.message, true); }

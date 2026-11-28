@@ -14,7 +14,7 @@ import { writeBuyPo } from '../v2/export/bincard.js';
 import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, reopenShort as reopenShortP } from '../v2/master/follow.js';
 import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
-import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
+import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, SKIP_WHY, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -1872,7 +1872,11 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   // ต้องพิมพ์เหตุผลทุกครั้ง (เจ้าของสั่ง 25 พ.ย. 2026) — เคยเติมคำให้ก่อน แล้วพนักงานกดตกลงเลยไม่แก้
   throws('ยกเลิกเรื่องไม่ใส่เหตุผล = โยน', () => cancelShort(open, { by: 'ก' }), 'เหตุผล');
   throws('ยกเลิกเรื่องเหตุผลมีแต่ช่องว่าง = โยน', () => cancelShort(open, { by: 'ก', why: '   ' }), 'เหตุผล');
-  throws('ไม่ติดตาม short ไม่ใส่เหตุผล = โยน', () => skipShort(calc, { entity: E, person: 'ก', at }), 'เหตุผล');
+  // ปุ่มไม่ติดตามไม่ถามเหตุผลแล้ว (เจ้าของสั่ง 28 พ.ย. 2026 — มีไว้เคลียร์ยอดน้อยอย่างเดียว) ระบบจด "ยอดน้อย" ให้
+  const skNo = skipShort(calc, { entity: E, person: 'ก', at });
+  ok('ไม่ติดตาม short ไม่ต้องใส่เหตุผล · ระบบจด "ไม่ติดตาม — ยอดน้อย" · ยังจดยอดขาดตอนกด',
+     SKIP_WHY === 'ยอดน้อย' && skNo.voided && skNo.void_reason === SKIP_MARK + ' — ' + SKIP_WHY
+     && stopMarkOf(skNo) === 'skip' && stopWhy(skNo) === SKIP_WHY && skNo.qty === 5, JSON.stringify(skNo));
   // เจ้าของเลือกข้อ 2: มีตัวหนังสือไทย/อังกฤษ + ยาวอย่างน้อย 5 ตัวไม่นับช่องว่าง
   for (const w of ['-', '.', '---', '12345', '- - - - -', 'ก', 'ไม่', ' a b ']) {
     ok(`เหตุผล "${w}" ไม่ผ่าน`, stopWhyProblem(w) !== '', stopWhyProblem(w));
@@ -1882,7 +1886,8 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   }
   ok('ไม่ผ่านแล้วบอกสาเหตุ', stopWhyProblem('-').includes('ตัวหนังสือ') && stopWhyProblem('ไม่').includes(`${WHY_MIN} ตัวอักษร`));
   throws('ยกเลิกเรื่องเหตุผล "-" = โยน', () => cancelShort(open, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
-  throws('ไม่ติดตาม short เหตุผลสั้นเกิน = โยน', () => skipShort(calc, { entity: E, person: 'ก', at, why: 'ไม่' }), 'สั้นเกินไป');
+  ok('ไม่ติดตาม short: คำที่ส่งมาทาง why ไม่ถูกใช้ (ปุ่มนี้มีเหตุผลเดียว)',
+     skipShort(calc, { entity: E, person: 'ก', at, why: '-' }).void_reason === SKIP_MARK + ' — ' + SKIP_WHY);
   // ยกเลิกเรื่องหน้าซื้อ — กฎเหตุผลเดียวกัน (เจ้าของสั่ง 26 พ.ย. 2026)
   throws('ยกเลิกเรื่องซื้อไม่ใส่เหตุผล = โยน', () => cancelBuy(bu, { by: 'ก' }), 'เหตุผล');
   throws('ยกเลิกเรื่องซื้อเหตุผล "-" = โยน', () => cancelBuy(bu, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
@@ -2188,7 +2193,9 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   ok('ไม่ติดตาม = เรื่อง over ที่ยกเลิกไว้ · จดยอดเกินตอนกด · คำนำหน้าเดียวกับ short',
      sk.kind === 'over' && sk.voided && sk.qty === 3 && sk.void_reason === SKIP_MARK + ' — ยอดน้อย' && stopMarkOf(sk) === 'skip');
   throws('ไม่ติดตามแต่ไม่มีชื่อ = โยน', () => skipOver(calc, { entity: E, at: t(1) }), 'ผู้บันทึก');
-  throws('ไม่ติดตาม over ไม่ใส่เหตุผล = โยน', () => skipOver(calc, { entity: E, person: 'ก', at: t(1) }), 'เหตุผล');
+  const skNo = skipOver(calc, { entity: E, person: 'ก', at: t(1) });
+  ok('ไม่ติดตาม over ไม่ต้องใส่เหตุผล · ระบบจด "ไม่ติดตาม — ยอดน้อย" (เจ้าของสั่ง 28 พ.ย. 2026)',
+     skNo.voided && skNo.qty === 3 && skNo.void_reason === SKIP_MARK + ' — ' + SKIP_WHY && stopMarkOf(skNo) === 'skip');
   const pend = (over, all, opt) => overPending([{ ...calc, over }], all, opt).length;
   ok('ยอดเกินเท่าเดิม / ลดลง = ไม่ขึ้น · เพิ่มขึ้น = กลับมาขึ้น', pend(3, [sk]) === 0 && pend(2, [sk]) === 0 && pend(4, [sk]) === 1);
   ok('ใบตัดยอดของ Delta (stops: false) ยังนับของที่ไม่ติดตาม', pend(3, [sk], { stops: false }) === 1);
@@ -2538,13 +2545,16 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
   // stopWhyProblem กันเหตุผลขยะได้ แต่คำเติมอย่าง "ยอดน้อย ไม่ติดตาม" ผ่านกฎนั้นสบาย ๆ
   // ถ้าใครใส่ค่าเริ่มต้นกลับ อาการเดิม (พนักงานกดตกลงทันที) กลับมาโดยไม่มีเทสข้ออื่นแดง
   const countIn = (s, sub) => s.split(sub).length - 1;
-  ok('จอ: กล่องถามเหตุผลเปิดมาช่องว่างทุกครั้ง · สี่ปุ่ม short / over + ยกเลิกเรื่องหน้าซื้อ ถามผ่าน askWhy · ไม่มีคำเติมค้างเป็นค่าเริ่มต้นของ prompt',
+  ok('จอ: กล่องถามเหตุผลเปิดมาช่องว่างทุกครั้ง · ยกเลิกเรื่อง short / over / หน้าซื้อ ถามผ่าน askWhy · ไม่มีคำเติมค้างเป็นค่าเริ่มต้นของ prompt',
      appG.includes("let why = prompt(msg, '');")
-     && (appG.match(/askWhy\(/g) || []).length === 6                  // 5 จุดเรียก + 1 บรรทัดประกาศ
+     && (appG.match(/askWhy\(/g) || []).length === 4                  // 3 จุดเรียก + 1 บรรทัดประกาศ
      && countIn(appG, "askWhy('ยกเลิกเรื่องนี้เพราะอะไร") === 3       // fsVoid + foVoid + fbVoid (หน้าซื้อ · 26 พ.ย. 2026)
      && !appG.includes("prompt('ยกเลิกเรื่องนี้เพราะอะไร')")           // fbVoid เดิมถามตรง ๆ แล้วรับเหตุผลขยะ
-     && countIn(appG, 'askWhy(`ไม่ติดตาม ') === 2                     // fsSkip + foSkip
      && !/prompt\([^)]*,\s*['"`]ยอดน้อย/.test(appG));
+  // ปุ่มไม่ติดตามกดแล้วบันทึกเลย ไม่มีกล่องถาม (เจ้าของสั่ง 28 พ.ย. 2026 — ถามแล้วงานสะดุด เหตุผลมีข้อเดียว)
+  const body = name => (appG.split(`async function ${name}(`)[1] || '').split(/\r?\n    }\r?\n/)[0];
+  ok('จอ: fsSkip / foSkip ไม่ถามเหตุผล ไม่มี prompt / confirm · ยังเช็กชื่อผู้บันทึก',
+     ['fsSkip', 'foSkip'].every(n => { const b = body(n); return b && !/askWhy\(|prompt\(|confirm\(|why/.test(b) && b.includes('fsBy.value'); }));
 }
 
 console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทนเรื่อง short ที่ค้าง (เจ้าของสั่ง 27 พ.ย. 2026) ===');
