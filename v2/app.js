@@ -23,7 +23,8 @@ import { localDate, localTime, localDateTime, atFrom, atFromDateTime, todayLocal
 import { writeBinCard, toCardLines, sheetNameFor, safeFileName, writeBuyPo } from './export/bincard.js';
 import { TABLES, dirtyRows, mergeIncoming, settlePushed, chunk, toWire,
          syncPlan, looksLikeOldScript, normKeysAll, missingTables,
-         normalizeScriptUrl, syncBadge } from './core/sync.js';
+         normalizeScriptUrl, syncBadge, syncTick, dirtyTables, sinceBySheet, askPlan,
+         ASK_MS, PUSH_DELAY_MS } from './core/sync.js';
 import { versionFromHtml, isStale, filesToBust, NOTICE_ID, noticeDue, noticeCanClose, atScrollEnd } from './core/version.js';
 import { parsePoFile, pcReturnIndex, poNoteUpdates, parseKitList, parseKitChem, pickKitSheet, kitFileCheck, kitEntityMismatch, kitsOfPo, kitLinesOfPo, kitPrefill, kitsToKeep, deltaSentOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, poHeaderIndex, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos, importPlan as importPlanKit } from './master/po-kit.js';
@@ -3712,6 +3713,8 @@ createApp({
                             since: {},
                             needDeploy: false, msg: '' });
     let syncing = false;
+    let lastFullAt = 0, askOffUntil = 0, asking = false, again = false, pushTimer = 0;
+    const seen = {};   // { ชีต: เวลาที่จด } ที่ดึงตามไปแล้ว (ดู askPlan ใน core/sync.js)
 
     /**
      * ถอดความเป็น reactive ออกก่อนเขียนลงฐานข้อมูล
@@ -3880,14 +3883,19 @@ createApp({
       { time: localTime, date: localDate, today: todayLocal() }));
     function onBadge() { if (!sync.url) tab.value = 'sync'; else syncNow(false); }
 
-    async function syncNow(silent = false) {
-      if (!sync.url || syncing) return;
+    /* only = ซิงค์เฉพาะตารางเหล่านี้ (ส่งหลังบันทึก · ดึงตามคำตอบของ changes) · ว่าง = ซิงค์เต็ม
+     * stamps = เวลาที่จดจากคำตอบของ changes — ดึงตารางนั้นสำเร็จแล้วจำไว้ใน seen (ดู askPlan ใน core/sync.js) */
+    async function syncNow(silent = false, only = null, stamps = {}) {
+      if (!sync.url) return;
+      if (syncing) { again = true; return; }
       syncing = true; sync.state = 'busy'; sync.error = ''; sync.needDeploy = false;
+      if (!only) lastFullAt = Date.now();
       let up = 0, down = 0;
       try {
-        for (const t of Object.keys(TABLES)) {
+        for (const t of only || Object.keys(TABLES)) {
           const key = TABLES[t].key;
           const list = listOf(t);
+          let mark = stamps[TABLES[t].sheet] || '';
 
           // ── ส่งขึ้นก่อน ──
           // ส่งก่อนดึงเสมอ เพื่อให้ของที่เครื่องนี้เพิ่งคีย์ไปถึงเซิร์ฟเวอร์
@@ -3901,6 +3909,7 @@ createApp({
             // เอาเวลาของเซิร์ฟเวอร์มาใช้ ไม่ใช่เวลาเครื่อง — ดูเหตุผลใน core/sync.js
             // แถวที่ถูกแก้ระหว่างรอเซิร์ฟเวอร์ คงธงไว้ ห้ามเขียนสำเนาตอนส่งทับ (settlePushed)
             const { done } = settlePushed(list.value, part, sentJson, res.serverTime, key);
+            if (res.changedAt) mark = res.changedAt;
             if (done.length) await db.put(t, done.map(plain), { synced: true });
             up += part.length;
           }
@@ -3919,6 +3928,7 @@ createApp({
           }
           if (m.updated.length) await db.put(t, m.updated.map(plain), { synced: true });
           sync.since[t] = d.serverTime;
+          if (mark) seen[TABLES[t].sheet] = mark;   // ⚠️ หลังดึงสำเร็จเท่านั้น
           down += m.changed;
         }
         // แถวที่เพิ่งดึงลงมาอาจมาจากเครื่องที่ยังไม่รู้เรื่องการย้าย ต้องย้ายให้ด้วย
@@ -3936,7 +3946,10 @@ createApp({
         // ไม่ใช่ปล่อยให้เห็นข้อความดิบแล้วเดาเอาเองว่าพังตรงไหน
         if (looksLikeOldScript(err.message)) sync.needDeploy = true;
         if (!silent) flash('ซิงค์ไม่สำเร็จ: ' + err.message, true);
-      } finally { syncing = false; }
+      } finally {
+        syncing = false;
+        if (again) { again = false; setTimeout(syncTickNow, 0); }   // บันทึกระหว่างซิงค์ = ต่อรอบทันที ไม่รอรอบถัดไป
+      }
     }
 
     /**
@@ -3969,7 +3982,37 @@ createApp({
 
     // ซิงค์อัตโนมัติเมื่อว่าง — เน็ตโรงงานหลุดบ่อย จึงต้องลองใหม่เรื่อย ๆ เอง
     // ไม่ใช่รอให้พนักงานนึกได้ว่าต้องกดปุ่ม
-    setInterval(() => { if (sync.auto && sync.url && !syncing) syncNow(true); }, 120000);
+    // ⚠️ ตัดสินว่ารอบนี้ทำอะไรอยู่ที่ syncTick (core/sync.js) · ที่นี่แค่ต่อสาย
+    async function syncTickNow() {
+      if (!sync.auto || !sync.url) return;
+      const now = Date.now();
+      const what = syncTick({ now, lastFullAt, pending: pending.value.total, hidden: document.hidden,
+                              canAsk: now >= askOffUntil, failed: sync.state === 'error', busy: syncing || asking });
+      if (what === 'full') return syncNow(true);
+      if (what === 'push') return syncNow(true, dirtyTables(syncStore.value));
+      if (what !== 'ask') return;
+      asking = true;
+      let res = null;
+      try { res = await api('changes', { since: sinceBySheet(sync.since) }); }
+      catch (err) {
+        // สคริปต์รุ่นเก่ายังไม่มี changes = กลับไปซิงค์เต็มทุก 2 นาที แล้วลองถามใหม่ใน 10 นาที
+        // เน็ตหลุด = เงียบไว้ ป้ายไม่กะพริบแดงทุก 20 วินาที · รอบซิงค์เต็มเป็นคนรายงาน
+        if (looksLikeOldScript(err.message)) askOffUntil = Date.now() + 10 * 60000;
+      } finally { asking = false; }
+      if (!res) return;
+      const ts = askPlan(res, seen);
+      if (ts.length) return syncNow(true, ts, res.stamps || {});
+      // ไม่มีอะไรค้างส่ง และไม่มีตารางไหนเปลี่ยน = ข้อมูลในเครื่องเป็นปัจจุบัน
+      if (!pending.value.total && sync.state !== 'error') sync.lastOkAt = new Date().toISOString();
+    }
+    setInterval(syncTickNow, ASK_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTickNow(); });
+    // บันทึกแล้ว (ของค้างส่งเพิ่ม) = ส่งภายในไม่กี่วินาที · รวมการบันทึกติด ๆ กันเป็นรอบเดียว
+    watch(() => pending.value.total, (n, o) => {
+      if (!(n > o)) return;
+      clearTimeout(pushTimer);
+      pushTimer = setTimeout(syncTickNow, PUSH_DELAY_MS);
+    });
     window.addEventListener('online', () => { if (sync.auto && sync.url) syncNow(true); });
 
     // ── ตรวจเวอร์ชัน ───────────────────────────────────────────────

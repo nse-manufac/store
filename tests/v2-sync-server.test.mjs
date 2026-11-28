@@ -97,9 +97,12 @@ function loadScript(opts = {}) {
   const book = new SS();
   const locks = { taken: 0, available: opts.lockAvailable !== false };
   const store = opts.props || {};
+  const propReads = { one: 0, all: 0 };
   const env = {
     PropertiesService: { getScriptProperties: () => ({
-      getProperty: k => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = String(v); } }) },
+      getProperty: k => { propReads.one++; return k in store ? store[k] : null; },
+      getProperties: () => { propReads.all++; return { ...store }; },
+      setProperty: (k, v) => { store[k] = String(v); } }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => book, flush() {},
       openById: id => { if (opts.books && opts.books[id]) return opts.books[id]; throw new Error('เปิดสเปรดชีตไม่ได้: ' + id); } },
     LockService: { getScriptLock: () => ({
@@ -116,7 +119,7 @@ function loadScript(opts = {}) {
   const call = (action, body = {}) =>
     JSON.parse(api.handle({ parameter: {} },
       Object.assign({ action, token: opts.token || TEST_TOKEN }, body)).body);
-  return { call, book, locks, store, onEdit: api.onEdit };
+  return { call, book, locks, store, propReads, onEdit: api.onEdit };
 }
 
 const { call, book } = loadScript();
@@ -506,6 +509,47 @@ console.log('=== P. สถานะส่งของจาก plan (planShip ·
   ok('รหัสชีตผิด / ไม่มีสิทธิ์ = ตอบ error เป็นข้อความ',
      loadScript({ planId: 'ไม่มีจริง', books: {} }).call('planShip').ok === false);
   ok('token ผิด = ไม่ให้ดึง', loadScript({ planId: 'PLAN-ID-ทดสอบ', books: { 'PLAN-ID-ทดสอบ': plan }, token: 'ผิด' }).call('planShip').ok === false);
+}
+
+console.log('\n=== J. ถามว่าตารางไหนเปลี่ยน (changes) — คำขอเดียว ไม่อ่านชีต ไม่จับ lock (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  let now = Date.parse('2026-11-28T03:00:00.000Z');
+  class Clock extends Date { constructor(...a) { super(...(a.length ? a : [now])); } static parse(x) { return Date.parse(x); } }
+  const s = loadScript({ Date: Clock });
+  const ALL = ['Entries', 'Materials', 'BOM', 'POs', 'Kits', 'Shorts', 'Entities', 'PoWeeks'];
+  const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/;
+  const first = s.call('changes', { since: {} });
+  ok('ยังไม่เคยดึง (ไม่มี since) = ทุกตารางนับว่าเปลี่ยน', first.ok && ALL.every(n => first.changed.includes(n)), JSON.stringify(first.changed));
+  ok('ตารางที่ยังไม่เคยจด = จดเป็นตอนนี้ให้ · stamps อ่านออกครบทุกตาราง',
+     ALL.every(n => ISO.test(first.stamps[n]) && s.store['changed_' + n] === first.stamps[n]), JSON.stringify(first.stamps));
+
+  now += 5 * 60000;
+  const since = Object.fromEntries(ALL.map(n => [n, new Clock().toISOString()]));
+  now += 20000;
+  let reads = 0;
+  for (const sh of s.book.sheets.values()) sh.onRead = () => { reads++; };
+  const taken = s.locks.taken, one = s.propReads.one, all = s.propReads.all;
+  const quiet = s.call('changes', { since });
+  ok('ไม่มีใครส่งอะไรตั้งแต่ since = ไม่มีตารางไหนเปลี่ยน', quiet.ok && quiet.changed.length === 0, JSON.stringify(quiet));
+  ok('ไม่อ่านชีต · ไม่จับ lock · อ่าน ScriptProperties ครั้งเดียวต่อคำขอ (โควตาอ่านรายวัน)',
+     reads === 0 && s.locks.taken === taken && s.propReads.all - all === 1 && s.propReads.one === one,
+     JSON.stringify({ reads, lk: s.locks.taken - taken, all: s.propReads.all - all, one: s.propReads.one - one }));
+  ok('ตอบได้แม้ lock ไม่ว่าง', loadScript({ Date: Clock, lockAvailable: false, props: s.store }).call('changes', { since }).ok === true);
+
+  now += 20000;
+  const pushed = s.call('pushTable', { table: 'Entries', rows: [{ id: 'E-1', qty: 1 }] });
+  ok('push ส่งเวลาที่จดกลับมา (changedAt) = ค่าที่จดไว้จริง', ISO.test(pushed.changedAt) && pushed.changedAt === s.store.changed_Entries,
+     pushed.changedAt + ' vs ' + s.store.changed_Entries);
+  const moved = s.call('changes', { since });
+  ok('มีเครื่องส่ง Entries หลัง since = บอกแค่ Entries · stamps ตรงกับ changedAt',
+     JSON.stringify(moved.changed) === '["Entries"]' && moved.stamps.Entries === pushed.changedAt, JSON.stringify(moved));
+  ok('กฎเดียวกับทางลัดของ pullTable — changes บอกเปลี่ยน ⇔ pullTable ไม่เข้าทางลัด',
+     ALL.every(n => moved.changed.includes(n) === !s.call('pullTable', { table: n, since: since[n] }).unchanged));
+  ok('since ไม่ใช่ object = นับว่าเปลี่ยนทุกตาราง ไม่พัง', s.call('changes', { since: 'แปลก' }).changed.length === ALL.length);
+  s.store.changed_Kits = '1';
+  const odd = s.call('changes', { since });
+  ok('เวลาที่จดอ่านไม่ออก = นับว่าเปลี่ยน แล้วจดใหม่ให้อ่านออก', odd.changed.includes('Kits') && ISO.test(s.store.changed_Kits), s.store.changed_Kits);
+  ok('token ผิด = ไม่ตอบ', loadScript({ token: 'ผิด' }).call('changes', { since }).ok === false);
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

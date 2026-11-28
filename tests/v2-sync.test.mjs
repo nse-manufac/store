@@ -8,7 +8,8 @@
 import fs from 'node:fs';
 import { TABLES, asText, asBool, asNum, dirtyRows, mergeIncoming, markSynced, settlePushed,
          chunk, toWire, syncPlan, looksLikeOldScript, normKeys, normKeysAll,
-         KEY_COLS, missingTables, normalizeScriptUrl, syncBadge } from '../v2/core/sync.js';
+         KEY_COLS, missingTables, normalizeScriptUrl, syncBadge,
+         syncTick, dirtyTables, sinceBySheet, askPlan, FULL_MS, FULL_MS_OLD } from '../v2/core/sync.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -294,6 +295,52 @@ console.log('\n=== ของที่นำเข้าต้องมีธง�
   ok('ด่านนี้จับแบบเดิมได้จริง', copyThenPushOriginal(
     "await db.put('pos', p.plan.fresh.map(plain));\n pos.value.push(...p.plan.fresh);\n"
     + "await db.put('materials', plain(recs));\n materials.value.push(...recs);").length === 2);
+}
+
+console.log('\n=== Q. ซิงค์ให้เครื่องอื่นเห็นเร็ว — ส่งหลังบันทึก · ถามทุก 20 วินาที (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const T = 10 * 3600000;
+  const tk = o => syncTick({ now: T, lastFullAt: T - 30000, ...o });
+  ok('กำลังซิงค์/กำลังถามอยู่ = ไม่ทำอะไรซ้อน', tk({ busy: true, pending: 3 }) === '');
+  ok('เพิ่งเปิดโปรแกรม (ยังไม่เคยซิงค์เต็ม) = ซิงค์เต็ม', syncTick({ now: T }) === 'full');
+  ok('มีของค้างส่ง = ส่ง (เฉพาะตารางที่ค้าง)', tk({ pending: 2 }) === 'push');
+  ok('ไม่มีของค้าง = ถามว่าตารางไหนเปลี่ยน', tk({}) === 'ask');
+  ok('แท็บถูกซ่อน = ไม่ถาม แต่ยังส่งของค้าง', tk({ hidden: true }) === '' && tk({ hidden: true, pending: 1 }) === 'push');
+  ok('ถามได้ = ซิงค์เต็มเหลือทุก 10 นาที', syncTick({ now: T, lastFullAt: T - FULL_MS + 1000 }) === 'ask'
+     && syncTick({ now: T, lastFullAt: T - FULL_MS }) === 'full');
+  ok('สคริปต์รุ่นเก่า (ถามไม่ได้) = ซิงค์เต็มทุก 2 นาทีเหมือนเดิม ไม่ถาม',
+     syncTick({ now: T, lastFullAt: T - FULL_MS_OLD, canAsk: false }) === 'full' && tk({ canAsk: false }) === '');
+  ok('สคริปต์รุ่นเก่ายังส่งของค้างหลังบันทึกได้', tk({ canAsk: false, pending: 1 }) === 'push');
+  ok('รอบก่อนพัง = กลับไปแบบเดิม: ไม่ส่งซ้ำทุก 20 วินาที · ซิงค์เต็มทุก 2 นาที',
+     tk({ failed: true, pending: 4 }) === '' && syncTick({ now: T, lastFullAt: T - FULL_MS_OLD, failed: true }) === 'full');
+
+  const store = { entries: [{ id: 'a', dirty: true }], materials: [{ material_code: 'm', dirty: false }], weeks: [{ id: 'w', dirty: true }] };
+  ok('ตารางที่มีของค้างส่ง', JSON.stringify(dirtyTables(store)) === '["entries","weeks"]', JSON.stringify(dirtyTables(store)));
+  const sb = sinceBySheet({ entries: '2026-11-28T01:00:00.000Z', weeks: '2026-11-28T02:00:00.000Z' });
+  ok('since ส่งเป็นชื่อชีต ครบทุกตาราง · ที่ยังไม่เคยดึง = ว่าง',
+     sb.Entries === '2026-11-28T01:00:00.000Z' && sb.PoWeeks === '2026-11-28T02:00:00.000Z' && sb.Materials === ''
+     && Object.keys(sb).length === Object.keys(TABLES).length, JSON.stringify(sb));
+
+  const A = '2026-11-28T03:00:00.000Z', B = '2026-11-28T03:00:20.000Z';
+  const res = { changed: ['Entries', 'Shorts'], stamps: { Entries: A, Shorts: A, Materials: A } };
+  ok('ดึงเฉพาะชีตที่เซิร์ฟเวอร์บอกว่าเปลี่ยน (คืนชื่อตารางในเครื่อง)', JSON.stringify(askPlan(res, {})) === '["entries","shorts"]',
+     JSON.stringify(askPlan(res, {})));
+  ok('เวลาที่จดเท่ากับที่ดึงตามไปแล้ว = ข้าม (ไม่ดึงซ้ำทุก 20 วินาทีในช่วงเผื่อหนึ่งนาที)',
+     JSON.stringify(askPlan(res, { Entries: A })) === '["shorts"]');
+  ok('มีคนส่งใหม่ (เวลาที่จดเปลี่ยน) = ดึงอีก', JSON.stringify(askPlan({ ...res, stamps: { ...res.stamps, Entries: B } }, { Entries: A, Shorts: A })) === '["entries"]');
+  ok('เวลาที่จดว่างหรืออ่านไม่ออก = ดึงเสมอ แม้ seen ตรงกัน',
+     askPlan({ changed: ['Entries'], stamps: { Entries: '' } }, { Entries: '' }).length === 1
+     && askPlan({ changed: ['Entries'], stamps: { Entries: '1' } }, { Entries: '1' }).length === 1);
+  ok('ชีตที่ไม่ได้เปลี่ยน ไม่ดึงแม้ seen ไม่ตรง', askPlan({ changed: [], stamps: { Entries: B } }, { Entries: A }).length === 0);
+  ok('คำตอบแปลก/ว่าง = ไม่ดึงอะไร ไม่พัง', askPlan(null).length === 0 && askPlan({}).length === 0);
+
+  // ต่อสายใน app.js — seen ต้องตั้งหลังดึงสำเร็จ (หลัง since) ไม่ใช่หลังส่ง
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const at = s => app.indexOf(s);
+  ok('app.js ตั้ง seen หลังดึงสำเร็จเท่านั้น (หลังบรรทัด since)',
+     at('if (mark) seen[TABLES[t].sheet] = mark;') > at('sync.since[t] = d.serverTime;') && at('sync.since[t] = d.serverTime;') > 0);
+  ok('app.js ใช้ syncTick ตัดสินรอบ ไม่เหลือ setInterval 2 นาทีแบบเดิม',
+     app.includes('setInterval(syncTickNow, ASK_MS)') && !/setInterval\([^\n]*120000\)/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
