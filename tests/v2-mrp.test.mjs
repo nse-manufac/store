@@ -767,6 +767,19 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
   ok('จ่ายเกินยอดคงคลังรวมก็ได้ แต่ธงเตือนขึ้น · 0 / ว่าง / ติดลบ ไม่ผ่าน',
      codeIssueCheck({ bal: 0 }, 0.2, 1).ok && codeIssueCheck({ bal: 0 }, 0.2, 1).overTotal && codeIssueCheck({ bal: 0 }, 0.2, 1).totalAfter === -0.8
      && [0, null, '', -1].every(x => !codeIssueCheck({ bal: 1 }, 1, x).ok));
+  // ของเกิน BOM ที่ต้องเก็บไว้คืน Delta — เตือนเมื่อจ่ายจนกินของคืน (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { codeReturnHold } = await import('../v2/master/mrp.js');
+  const ov = [{ po: 'A', pn: 'P1', code: 'ch1', over: 0.4 }, { po: 'B', pn: 'P1', code: 'CH1', over: -0.2 },
+              { po: 'C', pn: '', code: 'CH1', why: 'ยังไม่รู้ P/N ของใบนี้' }, { po: 'D', pn: 'P2', code: 'CH1', over: 0.2 },
+              { po: 'E', pn: 'P2', code: 'CH1', over: 0.15 }, { po: 'F', pn: 'P3', code: 'OTHER', over: 9 }];
+  const hd = codeReturnHold(ov, 'CH1', po => po === 'D');
+  ok('ยอดต้องเก็บไว้คืน = รวมของเกินที่ยังไม่คืนของรหัสนี้ · ไม่นับใบที่คืนเกินแล้ว (ติดลบ) / ไม่ติดตามแล้ว / รหัสอื่น · นับใบที่คิดไม่ได้แยก',
+     hd.total === 0.55 && hd.pos.map(p => p.po).join() === 'A,E' && hd.unknown === 1, JSON.stringify(hd));
+  ok('รหัสว่าง / ไม่มีของเกิน = 0', codeReturnHold(ov, '').total === 0 && codeReturnHold([], 'CH1').total === 0);
+  const h1 = codeIssueCheck({ bal: 0.3 }, 0.95, 0.5, 0.6);
+  ok('จ่ายจนคงคลังเหลือน้อยกว่าที่ต้องคืน = holdShort บอกยอดของคืนที่จะขาด · free = จ่ายได้โดยไม่กินของคืน · ยังบันทึกได้',
+     h1.ok && h1.free === 0.35 && h1.holdShort === 0.15 && codeIssueCheck({ bal: 1 }, 0.95, 0.3, 0.6).holdShort === 0
+     && codeIssueCheck({ bal: 1 }, 0.95, 0.3).free === 0.95 && codeIssueCheck({ bal: 1 }, 0.2, 0.1, 0.6).free === 0);
   ok('codePoRows all: รวมใบที่ของหมด / ติดลบด้วย', codePoRows(stocks, 'CH1', po => head[po] || null, { all: true }).map(r => r.po).join()
      === 'PO-ZERO,PO-NEG,PO-OLD,PO-NEW,PO-NOHEAD');
   // แบ่งยอดลงหลาย PO ใบเก่าก่อน (เจ้าของเลือกแบบ ก 28 พ.ย. 2026)
@@ -796,7 +809,7 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
      && /@click="ciIssSave"\s*:disabled="!ciIssChk \|\| !ciIssChk\.ok \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| ciIss\.busy"/.test(html));
   ok('app.js: PO มาจาก codePoRows(poStocks(...), { all }) · ตัวเลข = codeIssueCheck กับยอดคงคลังรวม · แบ่งยอดด้วย fifoSplit แล้วบันทึกผ่าน postPoIssues (P/N ของใบที่เลือก)',
      /codePoRows\(ciStocks\.value, ciIss\.code, poIdx\.value, \{ all: ciIss\.all \}\)/.test(app) && /poStocks\(entries\.value, entity\.value\)/.test(app)
-     && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty\)/.test(app)
+     && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty, ciIssHold\.value\.total\)/.test(app)
      && /bookBalances\.value\.get\(ciIss\.code\)/.test(app)
      && /if \(ciIss\.busy \|\| !c \|\| !c\.ok \|\| !r \|\| !ciIss\.person \|\| !ciIss\.requester \|\| !ciIss\.date \|\| futureBlocked\(ciIss\.date\)\) return;/.test(app)
      // บันทึกแล้วกล่องไม่ปิด จ่ายต่อ PO อื่นได้ — ล้างแค่ PO กับจำนวน (เจ้าของสั่ง 28 พ.ย. 2026)
@@ -807,8 +820,13 @@ console.log('\n=== จ่ายออกจากหน้ายอดคงค�
   // เคมีจ่ายเป็นขวด — ไม่บล็อกจ่ายเกิน (A4 ข้อยกเว้น · เจ้าของสั่ง 28 พ.ย. 2026) แต่ต้องเห็นยอดรวมและคำเตือน
   ok('จอ: จ่ายเกินคงเหลือ PO / ยอดรวมไม่ทำให้ปุ่มบันทึกปิด · เตือนสีเหลือง · โชว์คงคลังรวม · ติ๊กแสดง PO ที่ของหมดได้',
      !/ciIssChk\.overPo[^"]*"[^>]*disabled|:disabled="[^"]*overPo/.test(html) && !html.includes('ciIssChk.overRecv')
-     && /:class="ciIssShort > 0 \|\| ciIssChk\.overTotal \? 'warn' : 'ok'"/.test(html) && /<div v-for="s in ciIssSplit"/.test(html)
+     && /:class="ciIssShort > 0 \|\| ciIssChk\.overTotal \|\| ciIssChk\.holdShort > 0 \? 'warn' : 'ok'"/.test(html) && /<div v-for="s in ciIssSplit"/.test(html)
      && html.includes('data-ciiss-total>{{ mrpNum(ciIssTotal) }}') && html.includes('v-model="ciIss.all"'));
+  ok('จอ: กล่องจ่ายโชว์ยอดต้องเก็บไว้คืน Delta · คอลัมน์เกิน BOM รอคืนราย PO · เตือนเมื่อกินของคืน (ไม่บล็อก)',
+     /codeReturnHold\(foCalc0\.value, ciIss\.code, overSettled\(shorts\.value\)\)/.test(app)
+     && /codeIssueCheck\(ciIssRow\.value, ciIssTotal\.value, ciIss\.qty, ciIssHold\.value\.total\)/.test(app)
+     && html.includes('data-ciiss-hold') && html.includes('<th class="r">เกิน BOM รอคืน</th>') && html.includes('data-ciiss-holdwarn')
+     && !/:disabled="[^"]*holdShort/.test(html));
   ok('หน้ารายรหัสกรองด้วย isPoolItem (เคมี · TERMINAL · SOLDER) แทนเคมี + METAL PART',
      /isPoolItem\(r\.category, r\.desc\)/.test(app) && !/r\.category === 'METAL PART'/.test(app) && html.includes('เฉพาะเคมี · TERMINAL · SOLDER'));
 }

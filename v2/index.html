@@ -3985,6 +3985,12 @@ textarea{font:inherit}
               <span class="mono" style="font-size:36px;font-weight:700;line-height:1.15"
                     :style="ciIssTotal < 0 ? 'color:var(--bad)' : ''" data-ciiss-total>{{ mrpNum(ciIssTotal) }}</span>
               <span class="hint" style="font-size:16px;margin-left:6px">{{ unitOf(ciIss.code) }}</span>
+              <!-- ของเกิน BOM ที่ต้องเก็บไว้คืน Delta — จ่ายไม่คุม BOM จึงหยิบของเกินไปใช้ได้ (เจ้าของสั่ง 28 พ.ย. 2026) · codeReturnHold -->
+              <div style="font-size:15px;margin-top:4px" data-ciiss-hold>ต้องเก็บไว้คืน Delta
+                <b class="mono" style="margin-left:4px" :style="ciIssHold.total > 0 ? 'color:var(--warn)' : ''">{{ mrpNum(ciIssHold.total) }}</b></div>
+              <div style="font-size:15px">จ่ายได้โดยไม่กินของคืน
+                <b class="mono" style="margin-left:4px">{{ mrpNum(Math.max(0, ciIssTotal - ciIssHold.total)) }}</b></div>
+              <div v-if="ciIssHold.unknown" class="hint" style="font-size:12px">มี {{ ciIssHold.unknown }} PO ที่คิดของเกินไม่ได้ (ไม่รู้ P/N / จำนวนสั่ง / ไม่อยู่ในสูตร) — ไม่นับ</div>
             </div>
           </div>
           <!-- บันทึกแล้วกล่องไม่ปิด จ่ายต่อ PO อื่นได้ (เจ้าของสั่ง 28 พ.ย. 2026) — โชว์ที่บันทึกไปในรอบนี้ -->
@@ -4001,13 +4007,13 @@ textarea{font:inherit}
           </div>
           <!-- P/N → PO แบบหน้าราย P/N (เจ้าของสั่ง 28 พ.ย. 2026) · กลุ่มมาจาก codePnGroups -->
           <table class="mrp" style="margin-top:0"><thead><tr><th style="width:30px"></th><th>P/N · PO</th><th>PO Date</th>
-            <th class="r">รับเข้า</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
+            <th class="r">รับเข้า</th><th class="r">จ่ายออก</th><th class="r">เกิน BOM รอคืน</th><th class="r">คงเหลือ</th></tr></thead>
             <tbody>
               <template v-for="g in ciIssGroups" :key="'g' + g.pn">
                 <tr class="mrp-po" style="cursor:pointer" @click="ciFold[g.pn] = !ciFold[g.pn]" :aria-expanded="!!ciFold[g.pn]" :data-ciiss-pn="g.pn">
                   <td><span class="fold-i">{{ ciFold[g.pn] ? '▾' : '▸' }}</span></td>
                   <td class="mono"><b>{{ g.pn || 'ไม่รู้ P/N' }}</b> <span class="hint">{{ g.pos.length }} ใบ</span></td>
-                  <td class="mono hint">{{ g.date || '—' }}</td><td></td><td></td>
+                  <td class="mono hint">{{ g.date || '—' }}</td><td></td><td></td><td></td>
                   <td class="mono r"><b>{{ mrpNum(g.bal) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></td></tr>
                 <template v-if="ciFold[g.pn]">
                   <tr v-for="p in g.pos" :key="p.po" style="cursor:pointer" @click="ciIss.po = p.po" :data-ciiss-po="p.po"
@@ -4017,10 +4023,11 @@ textarea{font:inherit}
                     <td class="mono">{{ p.date || '—' }}</td>
                     <td class="mono r">{{ mrpNum(p.recv) }}</td>
                     <td class="mono r">{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(p.sendback) }}</div></td>
+                    <td class="mono r" :style="ciHoldOf(p.po) > 0 ? 'color:var(--warn);font-weight:600' : ''">{{ ciHoldOf(p.po) > 0 ? mrpNum(ciHoldOf(p.po)) : '—' }}</td>
                     <td class="mono r"><b :style="p.bal < 0 ? 'color:var(--bad)' : ''">{{ mrpNum(p.bal) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></td></tr>
                 </template>
               </template>
-              <tr v-if="!ciIssPos.length"><td colspan="6" class="hint">{{ ciIss.all ? 'ไม่มี PO ไหนเคยรับรหัสนี้' : 'ไม่มี PO ไหนที่ยังมีของรหัสนี้ — ติ๊ก "แสดง PO ที่ของหมดแล้วด้วย" เพื่อเลือกใบที่ของหมดแล้ว' }}</td></tr>
+              <tr v-if="!ciIssPos.length"><td colspan="7" class="hint">{{ ciIss.all ? 'ไม่มี PO ไหนเคยรับรหัสนี้' : 'ไม่มี PO ไหนที่ยังมีของรหัสนี้ — ติ๊ก "แสดง PO ที่ของหมดแล้วด้วย" เพื่อเลือกใบที่ของหมดแล้ว' }}</td></tr>
             </tbody></table>
           <template v-if="ciIssRow">
             <p style="margin:14px 0 4px"><b>2. กรอกการจ่าย</b>
@@ -4036,14 +4043,17 @@ textarea{font:inherit}
             <p class="hint" style="margin:4px 0 0">จ่ายเป็นขวดให้ใส่ {{ unitOf(ciIss.code) || 'จำนวน' }} ตามที่ประมาณ · เกินคงเหลือ PO นี้ได้ ระบบตัดส่วนที่เกินจาก PO อื่นให้ ใบเก่าก่อน</p>
             <!-- ไม่บล็อก (A4 ข้อยกเว้น) — โชว์ว่าจะตัดจาก PO ไหนเท่าไหร่ก่อนกด (fifoSplit · เจ้าของเลือกแบบ ก) + ยอดรวมหลังจ่าย
                  เหลืองเมื่อของทุก PO ไม่พอ (ใบที่เลือกจะติดลบ) หรือเกินยอดคงคลังรวม -->
-            <div class="msg" v-if="ciIssChk.ok" :class="ciIssShort > 0 || ciIssChk.overTotal ? 'warn' : 'ok'" style="margin:10px 0 0" data-ciiss-after>
+            <div class="msg" v-if="ciIssChk.ok" :class="ciIssShort > 0 || ciIssChk.overTotal || ciIssChk.holdShort > 0 ? 'warn' : 'ok'" style="margin:10px 0 0" data-ciiss-after>
               <div v-if="ciIssSplit.length > 1">เกินคงเหลือของ PO {{ ciIssRow.po }} ({{ mrpNum(ciIssRow.bal) }}) — ระบบตัดส่วนที่เกินจาก PO อื่นที่ยังมีของ ใบเก่าก่อน:</div>
               <div v-else>จะตัดจาก</div>
               <div v-for="s in ciIssSplit" :key="s.po" class="mono" style="padding-left:12px" data-ciiss-split>
                 PO {{ s.po }} · P/N {{ s.pn || 'ไม่รู้ P/N' }} · <b>{{ mrpNum(s.qty) }}</b> {{ unitOf(ciIss.code) }}</div>
               <div>คงคลังรวม {{ mrpNum(ciIssTotal) }} − {{ mrpNum(ciIssChk.qty) }} = <b>{{ mrpNum(ciIssChk.totalAfter) }}</b></div>
               <div v-if="ciIssShort > 0">ของทุก PO รวมกันไม่พอ — ส่วนที่ขาด {{ mrpNum(ciIssShort) }} ลงที่ PO {{ ciIssRow.po }} (PO นี้จะติดลบ) · ตรวจก่อนว่าคีย์รับเข้าของที่มาแล้วครบหรือยัง</div>
-              <div v-else-if="ciIssChk.overTotal">เกินยอดคงคลังรวม — บันทึกได้ แต่ตรวจก่อนว่าคีย์รับเข้าของที่มาแล้วครบหรือยัง</div></div>
+              <div v-else-if="ciIssChk.overTotal">เกินยอดคงคลังรวม — บันทึกได้ แต่ตรวจก่อนว่าคีย์รับเข้าของที่มาแล้วครบหรือยัง</div>
+              <div v-if="ciIssChk.holdShort > 0" data-ciiss-holdwarn><b>กินของที่ต้องคืน Delta</b> — จ่ายแล้วเหลือ {{ mrpNum(ciIssChk.totalAfter) }}
+                น้อยกว่าที่ต้องเก็บไว้คืน {{ mrpNum(ciIssHold.total) }} · ของคืนจะขาด {{ mrpNum(ciIssChk.holdShort) }}
+                · ตรวจก่อนว่าเบิกเกินจริงไหม (จ่ายได้โดยไม่กินของคืนอีก {{ mrpNum(ciIssChk.free) }})</div></div>
           </template>
           <p v-else-if="ciIss.po" class="msg bad" style="margin:10px 0 0">PO {{ ciIss.po }} ไม่มีของรหัสนี้เหลือแล้ว (อาจมีเครื่องอื่นจ่ายไป) — เลือก PO อื่น</p>
           <div class="row" style="margin-top:12px">

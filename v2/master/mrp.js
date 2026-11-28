@@ -705,12 +705,17 @@ export function isPoolItem(category, desc) {
  * ตัวเลขของกล่องจ่ายหน้ารายรหัส (เจ้าของสั่ง 28 พ.ย. 2026) — เคมีจ่ายเป็นขวด ยังไม่รู้ว่าขวดละกี่ KG พนักงานใส่ KG ตามประมาณ
  *   จึง **ไม่บล็อก** จ่ายเกินคงเหลือ PO / เกินยอดคงคลังรวม (ข้อยกเว้นของ A4) และไม่คุม BOM — เตือนอย่างเดียว ให้เห็นยอดรวมไว้คุมของจริง
  *   p = แถวของ PO ที่เลือก ({ bal }) · total = ยอดคงคลังรวมของรหัส (balances) · qty = จำนวนที่จะจ่าย
- * คืน { qty, poAfter, totalAfter, overPo, overTotal, ok } · ok = qty > 0 อย่างเดียว
+ *   hold = ยอดที่ต้องเก็บไว้คืน Delta ของรหัสนี้ (codeReturnHold) — จ่ายจนคงคลังเหลือน้อยกว่านี้ = กินของที่ต้องคืน (เตือน ไม่บล็อก)
+ * คืน { qty, poAfter, totalAfter, overPo, overTotal, free, holdShort, ok } · ok = qty > 0 อย่างเดียว
+ *   free = จ่ายได้โดยไม่กินของคืน (ไม่ต่ำกว่า 0) · holdShort = ของคืนจะขาดเท่านี้หลังจ่าย (0 = ไม่ขาด)
  */
-export function codeIssueCheck(p, total, qty) {
+export function codeIssueCheck(p, total, qty, hold = 0) {
   const q = round5(Number(qty) || 0);
-  const bal = round5(Number(p && p.bal) || 0), tot = round5(Number(total) || 0);
-  return { qty: q, poAfter: round5(bal - q), totalAfter: round5(tot - q), overPo: q > bal, overTotal: q > tot, ok: q > 0 };
+  const bal = round5(Number(p && p.bal) || 0), tot = round5(Number(total) || 0), h = round5(Math.max(0, Number(hold) || 0));
+  const totalAfter = round5(tot - q);
+  return { qty: q, poAfter: round5(bal - q), totalAfter, overPo: q > bal, overTotal: q > tot,
+           free: round5(Math.max(0, tot - h)), holdShort: q > 0 ? round5(Math.max(0, h - totalAfter)) : 0,
+           ok: q > 0 };
 }
 
 /**
@@ -737,4 +742,25 @@ export function fifoSplit(rows, sel, qty) {
   }
   if (left > 0) take(sel, left);
   return out.sort((a, b) => (a.po === sel.po ? -1 : 0) - (b.po === sel.po ? -1 : 0));
+}
+
+/**
+ * ของเกิน BOM ที่ยังไม่คืน Delta ของรหัสหนึ่ง — ต้องเก็บไว้ ไม่งั้นสุดท้ายไม่มีของคืน (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   หน้ารายรหัสจ่ายไม่คุม BOM (เคมีจ่ายเป็นขวด) จึงหยิบของเกินไปใช้ได้ — กล่องจ่ายเตือนเมื่อจ่ายจนเหลือน้อยกว่ายอดนี้
+ *   overRows = overAll(..., { min: -Infinity }) (master/follow.js · เกิน = รับ − คืน Delta แล้ว − ตาม BOM ต่อ PO) · ไม่คิดใหม่ในนี้
+ *   isStopped = overSettled(follows) — เรื่อง over ที่ยกเลิก / ไม่ติดตามแล้ว ตัดสินแล้วว่าไม่คืน ไม่นับ
+ * คืน { pos: [{ po, pn, over }], total, unknown } · unknown = จำนวน PO ของรหัสนี้ที่คิดของเกินไม่ได้ (ไม่รู้ P/N / จำนวนสั่ง / ไม่อยู่ในสูตร)
+ */
+export function codeReturnHold(overRows, code, isStopped = () => false) {
+  const c = txt(code).toUpperCase(), pos = [];
+  let total = 0, unknown = 0;
+  if (!c) return { pos, total, unknown };
+  for (const r of overRows || []) {
+    if (!r || txt(r.code).toUpperCase() !== c) continue;
+    if (r.why) { unknown++; continue; }
+    if (!(Number(r.over) > 0) || isStopped(r.po, r.code, r.over)) continue;
+    pos.push({ po: r.po, pn: txt(r.pn), over: round5(Number(r.over)) });
+    total = round5(total + Number(r.over));
+  }
+  return { pos, total, unknown };
 }

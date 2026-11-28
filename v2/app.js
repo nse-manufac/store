@@ -35,11 +35,11 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups, isPoolItem, codeIssueCheck, fifoSplit } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows, codePnGroups, isPoolItem, codeIssueCheck, fifoSplit, codeReturnHold } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
-         overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, offsetShorts, pairTwins, splitPairs, shortOfPo, shortWhyOf,
+         overAll, overPending, overCutMatch, overSettled, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, offsetShorts, pairTwins, splitPairs, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
          cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, cardShortOver, codeShortOver,
@@ -1926,7 +1926,10 @@ createApp({
     const ciIssTotal = computed(() => (ciIss.open ? bookBalances.value.get(ciIss.code) || 0 : 0));   // ยอดคงคลังรวมของรหัส (ทุก PO + ที่ไม่อ้าง PO) — ตัวเดียวกับคอลัมน์คงเหลือ
     const ciIssGroups = computed(() => codePnGroups(ciIssPos.value));
     const ciIssRow = computed(() => ciIssPos.value.find(p => p.po === ciIss.po) || null);
-    const ciIssChk = computed(() => (ciIssRow.value ? codeIssueCheck(ciIssRow.value, ciIssTotal.value, ciIss.qty) : null));
+    // ของเกิน BOM ที่ยังไม่คืน Delta ของรหัสนี้ — ต้องเก็บไว้คืน (เจ้าของสั่ง 28 พ.ย. 2026) · ใช้ของเกินชุดเดียวกับหน้า over (foCalc0)
+    const ciIssHold = computed(() => (ciIss.open ? codeReturnHold(foCalc0.value, ciIss.code, overSettled(shorts.value)) : { pos: [], total: 0, unknown: 0 }));
+    const ciHoldOf = po => (ciIssHold.value.pos.find(p => p.po === po) || {}).over || 0;
+    const ciIssChk = computed(() => (ciIssRow.value ? codeIssueCheck(ciIssRow.value, ciIssTotal.value, ciIss.qty, ciIssHold.value.total) : null));
     // เกินคงเหลือใบที่เลือก → ตัดส่วนที่เกินจากใบอื่นที่ยังมีของ ใบเก่าก่อน (เจ้าของเลือกแบบ ก 28 พ.ย. 2026) · จอโชว์ก่อนกดบันทึก
     const ciIssSplit = computed(() => (ciIssChk.value && ciIssChk.value.ok ? fifoSplit(ciIssLive.value, ciIssRow.value, ciIssChk.value.qty) : []));
     // ส่วนที่ของทุก PO รวมกันไม่พอ → ลงใบที่เลือก ใบนั้นติดลบเท่านี้ (0 = ไม่ติดลบ)
@@ -4279,7 +4282,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssGroups, ciFold, ciIssTotal, ciIssSplit, ciIssShort, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssGroups, ciFold, ciIssTotal, ciIssHold, ciHoldOf, ciIssSplit, ciIssShort, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
