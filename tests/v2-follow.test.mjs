@@ -1210,10 +1210,10 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
     const EH = 'TUE-H', PO = 'TM5269H789', PN = '2877679001', CODE = '3513605200';
     const at = '2026-10-03T02:00:00.000Z';
     // แถวไฟล์ Delta หนึ่งแถว: [วันที่, P/O, PN, CODE, DES., P/O(สั่ง), ACTUAL(ส่งจริง), VAR., หมายเหตุ, หมายเหตุ]
-    const matRow = (order, actual) => rowToFollow(['2026-10-03', PO, PN, CODE, '', order, actual, round5(order - actual), '', '']);
-    const overwritten = (setCalc, order, actual) => {
+    const matRow = (order, actual, note = '') => rowToFollow(['2026-10-03', PO, PN, CODE, '', order, actual, round5(order - actual), note, '']);
+    const overwritten = (setCalc, order, actual, note = '') => {
       const set = fromShortRow({ ...setCalc, po: PO, pn: PN, code: CODE, why: '' }, { entity: EH, date: '2026-10-01' });
-      const plan = planMatFollow([matRow(order, actual)], [set], { now: at, by: 'ก' });
+      const plan = planMatFollow([matRow(order, actual, note)], [set], { now: at, by: 'ก' });
       if (plan.update.length !== 1) throw new Error('ไฟล์ไม่ได้ทับเรื่องเดิม: ' + JSON.stringify(plan.failed) + plan.create.length);
       return { set, rec: plan.update[0].rec };
     };
@@ -1247,6 +1247,33 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
     ok('หมายเหตุประจำของเรื่องที่ระบบตั้งหาย = สัญญาณว่าไฟล์ทับ (ไฟล์ทับช่องหมายเหตุทุกครั้งที่ทับตัวเลข)',
        splitNoteTrace(one.note).base === splitNoteTrace(b.set.note).base && splitNoteTrace(b.rec.note).base !== splitNoteTrace(b.set.note).base
        && shortDiffExplainer(oneNow, [], null)({ ...one, note: '' })[0].includes("มาจากไฟล์ MAT'L FOLLOWING"), JSON.stringify([one.note, b.rec.note]));
+
+    /* ── ผู้ตรวจ #209 รอบ 3 ข้อ 1 — แถวที่ไฟล์แจ้ง Cut Return ก็ห้ามกุเหตุ ──
+       rowToFollow ตั้ง qty = VAR − cut (matfollow.js) รูปยอด order_qty − recv_qty จึงเกินไปเท่า cut
+       ไม่เผื่อ cut ที่หมายเหตุบอกไว้ แถวพวกนี้ตกไปกิ่งล่างแล้วกุเหตุเหมือนก่อนแก้ทุกตัวอักษร */
+    const cutA = overwritten({ order: 200, need: 2.6, have: 0, short: 2.6 }, 2.6, 0, 'Cut Return 0.5');
+    ok('ไฟล์แจ้ง Cut Return — qty = VAR − cut จริง และหมายเหตุประจำถูกไฟล์ทับไปแล้ว (ทางข้อมูลที่ทำให้พัง)',
+       cutA.rec.qty === 2.1 && cutA.rec.order_qty === 2.6 && cutA.rec.recv_qty === 0
+       && splitNoteTrace(cutA.rec.note).base.includes('Cut Return 0.5'), JSON.stringify([cutA.rec.qty, cutA.rec.note]));
+    const cutAWhy = shortDiffExplainer([{ po: PO, pn: PN, code: CODE, order: 200, need: 2.778, have: 0, short: 2.778, why: '' }], [], null)(cutA.rec);
+    ok('ไฟล์แจ้ง Cut Return — ไม่กุว่า "จำนวนสั่ง" / "ต่อชิ้น" เปลี่ยน · บอกว่ายอดมาจากไฟล์ พร้อมยอดที่หัก Cut Return ไว้',
+       cutAWhy.length === 1 && !cutAWhy[0].includes('จำนวนสั่ง') && !cutAWhy[0].includes('ต่อชิ้น')
+       && !cutAWhy[0].includes('ไม่ได้มาจากสูตรตอนตั้ง')
+       && cutAWhy[0].includes("มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง 2.6 · ส่งจริง 0 · หัก Cut Return 0.5)")
+       && cutAWhy[0].includes('ตามสูตร 2.778 − รับแล้ว 0 = 2.778'), JSON.stringify(cutAWhy));
+
+    // คลังรับ 0 เท่าเดิมตลอด · Delta แจ้ง ACTUAL 0.6 พร้อม Cut Return — ห้ามกุว่ามีคนยกเลิกใบรับเข้า
+    const cutB = overwritten({ order: 200, need: 2.6, have: 0, short: 2.6 }, 2.6, 0.6, 'Cut Return 0.5');
+    const cutBWhy = shortDiffExplainer([{ po: PO, pn: PN, code: CODE, order: 200, need: 2.6, have: 0, short: 2.6, why: '' }], [], null)(cutB.rec);
+    ok('ไฟล์แจ้ง Cut Return + ACTUAL ไม่ตรงกับที่คลังรับ — ไม่กุว่ายกเลิกใบรับเข้า / ส่งคืน ทั้งที่คลังไม่ขยับ',
+       cutB.rec.qty === 1.5 && cutBWhy.length === 1 && !cutBWhy[0].includes('ยกเลิกใบรับเข้า') && !cutBWhy[0].includes('ลดลงหลังตั้งเรื่อง')
+       && cutBWhy[0].includes("(สั่ง 2.6 · ส่งจริง 0.6 · หัก Cut Return 0.5)")
+       && cutBWhy[0].includes('ตามสูตร 2.6 − รับแล้ว 0 = 2.6'), JSON.stringify([cutB.rec.qty, cutBWhy]));
+
+    /* หมายเหตุประจำยังเป็นสัญญาณกันเคส C เหมือนเดิม — SYS_SHORT_NOTE ไม่มีคำว่า cut return
+       แถวที่ไฟล์ไม่เคยทับจึงได้ cut = null แล้วตกลงเป็นเงื่อนไขเดิมเป๊ะ ไม่ได้ถอดสัญญาณไหนออก */
+    ok('ต่อชิ้น = 1 ไฟล์ไม่เคยทับ — การเผื่อ Cut Return ไม่ทำให้แถวนี้เปลี่ยนคำตอบ',
+       JSON.stringify(shortDiffExplainer(oneNow, [], null)(one)) === JSON.stringify(cWhy), JSON.stringify(cWhy));
   }
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',

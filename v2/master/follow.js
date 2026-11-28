@@ -1202,13 +1202,21 @@ export function shortDiffExplainer(calcRows, follows, bomRowOf) {
      *      ลำพังข้อนี้ไม่พอ: แถว auto ที่ต่อชิ้น = 1 พอดี (ป้าย 1 ดวงต่อชิ้น) ก็เข้ารูปนี้ เพราะจำนวนสั่ง = ยอดตามสูตร
      *   2. หมายเหตุประจำที่ fromShortRow ติดไว้หายไป — ไฟล์ทับช่องหมายเหตุทุกครั้งที่ทับตัวเลข (fields.note ใน planMatFollow)
      *      และ planMatFollow เป็นทางเดียวที่ทับสามช่องแช่แข็งของเรื่องที่มีอยู่แล้ว (ไล่ทุกที่ที่เขียนสามช่องนี้แล้ว)
-     * ⚠️ ยังไม่ครอบแถวที่ไฟล์แจ้ง Cut Return (qty = สั่ง − ส่งจริง − cut ข้อ 1 จึงไม่เข้ารูป) — กันสนิทต้องติดธงลงในเรื่อง = แตะโครงข้อมูล (E2)
+     * ⚠️ แถวที่ไฟล์แจ้ง Cut Return ต้องเผื่อด้วย — rowToFollow ตั้ง qty = VAR − cut (matfollow.js) รูปยอดจึงเพี้ยนไปเท่า cut
+     *    ไม่เผื่อแล้วแถวพวกนั้นตกไปกิ่งล่างแล้วกุเหตุเหมือนก่อนแก้ทุกตัวอักษร (ผู้ตรวจ #209 รอบ 3 ข้อ 1)
+     *    เลขอยู่ในช่องหมายเหตุของเรื่องแล้ว (ไฟล์เขียน `Cut Return <เลข>` ลงไปเสมอ) ไม่ต้องเพิ่มช่องใหม่ ไม่แตะ E2
+     *    ⚠️ ห้าม import readNote จาก matfollow.js — matfollow.js import ไฟล์นี้อยู่แล้ว จะ import วนกัน (ใช้ regex เดียวกันในไฟล์นี้)
      */
     const canBom = has(follow.bom_qty) && fo > 0;
-    const deltaShaped = canBom && Math.abs(round5(fo - fr) - q) < 5e-4
-      && splitNoteTrace(follow.note).base !== SYS_SHORT_NOTE;
+    const base = splitNoteTrace(follow.note).base;
+    const cutM = /cut\s*return\s*:?\s*(-?[\d,.]+)/i.exec(base);
+    const cutN = cutM ? Number(String(cutM[1]).replace(/,/g, '')) : null;
+    const cut = cutN != null && isFinite(cutN) ? cutN : null;
+    const plainShaped = Math.abs(round5(fo - fr) - q) < 5e-4;
+    const cutShaped = !plainShaped && cut != null && Math.abs(round5(fo - fr - cut) - q) < 5e-4;
+    const deltaShaped = canBom && (plainShaped || cutShaped) && base !== SYS_SHORT_NOTE;
     if (deltaShaped) {
-      out.push(`ยอดในเรื่อง ${n(q)} มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง ${n(fo)} · ส่งจริง ${n(fr)}) ไม่ใช่ยอดตอนตั้งเรื่อง`
+      out.push(`ยอดในเรื่อง ${n(q)} มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง ${n(fo)} · ส่งจริง ${n(fr)}${cutShaped ? ` · หัก Cut Return ${n(cut)}` : ''}) ไม่ใช่ยอดตอนตั้งเรื่อง`
         + (done > 0 ? ` (มาแล้ว ${n(done)} ยังค้าง ${n(remain)})` : '')
         + ` · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
     } else if (canBom) {
