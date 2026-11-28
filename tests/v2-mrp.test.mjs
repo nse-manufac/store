@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          mrpOrder, planShipList, planMap, planWeek, lotWeek,
-         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, openPoKeep, bpDiffLabel } from '../v2/master/mrp.js';
+         weekKeyOf, weekNumOf, parseWeekInput, setPoWeek, poWeekMap, stockPnRows, stockPnFocus, openPoKeep, bpDiffLabel } from '../v2/master/mrp.js';
 import { makeFollow, closeFollow, skipShort, cancelShort, shortAll, shortPending, OVER_MIN,
          skipOver, cancelOver, overAll, overPending, fromOverRow,
          shortSettled, overSettled, stoppedShorts, sliceKeep } from '../v2/master/follow.js';
@@ -206,6 +206,15 @@ ok('ป้ายรายรหัส: ครบ · Short X · Over X · นอ�
    && mrpLineLabel(line('TM0001H963', A)).join() === 'Over 3,warn' && mrpLineLabel(line('TM0001H963', X))[0] === 'ไม่อยู่ใน BOM · Over 3'
    && mrpLineLabel(line('TM0001H962', B, run({ follows: [skipped] })))[0] === 'ขาด 1 · จบเรื่องแล้ว');
 ok('ตัวเลข: คั่นหลักพัน · ทศนิยมไม่เกินสี่ · ไม่มีค่า = —', mrpNum(1234.56789) === '1,234.5679' && mrpNum(null) === '—' && mrpNum(0.0011) === '0.0011');
+ok('ตัวเลข: ศูนย์ติดลบจากการปัด ไม่ขึ้น "-0" (เจ้าของแจ้ง 28 พ.ย. 2026)', mrpNum(-0) === '0' && mrpNum(-266.6 + 516 - 249.4) === '0'
+   && mrpNum(-0.000001) === '0' && mrpNum(-0.5) === '-0.5'
+   // ติดลบจิ๋วที่ผ่าน round5 แต่จัดรูปแล้วเหลือ 0 (ผู้ตรวจ #212 ข้อสังเกต 1)
+   && [-0.00001, -0.00002, -0.00003, -0.00004].every(x => mrpNum(x) === '0') && mrpNum(-0.00005) === '-0.0001');
+{
+  // กล่องลอยทุกอันเลื่อนลงได้ — กล่องแก้รายการจ่ายสูงเกินจอแล้วปุ่มบันทึกตกขอบ กดไม่ได้ (เจ้าของแจ้ง 28 พ.ย. 2026)
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  ok('จอ: .modal เลื่อนได้ (overflow-y:auto) เมื่อกล่องสูงเกินจอ', /\.modal\{[^}]*overflow-y:auto[^}]*\}/.test(html));
+}
 ok('ปุ่มตัวกรองบนจอมีครบทุกตัวกรอง', MRP_SEG.every(s => MRP_FILTERS[s.k]) && MRP_SEG.length === Object.keys(MRP_FILTERS).length);
 
 console.log('=== M7. ดึงสถานะส่งของจาก plan (เจ้าของสั่ง 13 พ.ย. 2026) ===');
@@ -477,9 +486,13 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        && ['l', 'p'].every(v => html.includes(`<span v-else-if="${v}.issueDiff == null" class="hint">—</span>`)));
     ok('จอ: ป้าย "จ่ายเกิน" ของแถว PO กดแล้วเปิดกล่องแก้ (bpFixOpen) ไม่พับ/กางแถว',
        /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad'" class="tag bad bp-frac"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)"/.test(html));
-    ok('จอ: ปุ่ม "แก้ไข" สีแดงต่อจากปุ่มจ่าย ขึ้นเฉพาะแถวที่ป้ายจ่ายเกิน หรือคงเหลือติดลบ · เปิดกล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)',
+    ok('จอ: ปุ่ม "แก้ไข" ต่อจากปุ่มจ่าย ทุกแถวที่มีรายการจ่าย · แดงเฉพาะแถวจ่ายเกิน / คงเหลือติดลบ · เปิดกล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)',
        /\.btn\.danger\{background:var\(--bad\)/.test(html)
-       && /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad' \|\| p\.bal < 0" class="btn danger"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)">แก้ไข<\/button>/.test(html));
+       && /<button v-if="p\.issued > 0" class="btn" :class="\{ danger: bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad' \|\| p\.bal < 0 \}"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)">แก้ไข<\/button>/.test(html));
+    ok('จอ: หัวกล่องแก้ใช้เกณฑ์ "เกิน" ตัวเดียวกับสีปุ่ม (bpDiffLabel) · แถวที่เพิ่มไม่ได้บอกว่าเพิ่มไม่ได้ ไม่ขึ้นเพดานเท่ายอดเดิม (ผู้ตรวจ #212)',
+       /bpFixRow && \(bpDiffLabel\(bpFixRow\.issueDiff\)\[1\] === 'bad' \|\| bpFixRow\.bal < 0\) \? 'แก้รายการจ่ายที่เกิน'/.test(html)
+       && /v-if="bpFixChk && bpFixChk\.maxUp > bpFixChk\.old">· คีย์น้อยไปใส่เพิ่มได้ไม่เกิน/.test(html) && html.includes('· เพิ่มไม่ได้ — ')
+       && !html.includes('ลดได้อย่างเดียว') && !html.includes('ปุ่มแก้ไขสีแดง ขึ้นเฉพาะแถว'));
     ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
        html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
        && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));
@@ -503,7 +516,9 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        JSON.stringify({ bal: l2.bal, live: l2.live, neg: l2.neg, nLeft: r2.nLeft, nNeg: r2.nNeg, empty: r2.empty }));
     const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: ตัวกรองบรรทัดวัตถุดิบกับช่องค้นหาใช้ l.live (ไม่ใช่ยอดรวม) จะได้ไม่ซ่อนใบที่ติดลบ',
-       html.includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
+       // ตัวกรองบรรทัดย้ายเข้า bpLinesOf ใน app.js (ค้นรหัสแล้วโชว์แค่บรรทัดนั้น · 28 พ.ย. 2026) — ยังต้องใช้ x.live เหมือนเดิม
+       html.includes('v-for="l in bpLinesOf(r)"')
+       && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.filter(x => bpFull[r.pn] || x.live)')
        && readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8').includes('r.lines.some(l => l.live && l.code.includes(q))'));
   }
   {
@@ -689,8 +704,16 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
   const dup = { need: 100, issued: 200 };
   ok('คีย์ซ้ำ: แนะนำ 0 · ใส่ 0 ได้ (ยกเลิกอย่างเดียว)', poFixCheck(dup, 100, 0).ok && poFixCheck(dup, 100, 0).suggest === 0
      && poFixCheck(dup, 100, 0).afterDiff === 0);
-  ok('ลดได้อย่างเดียว — เท่าเดิม / มากกว่าเดิม / ติดลบ / ว่าง ไม่ผ่าน',
-     !poFixCheck(dup, 100, 100).ok && poFixCheck(dup, 100, 100).bigger && !poFixCheck(dup, 100, 150).ok
+  // เพิ่มได้ถ้าไม่เกิน BOM / คงเหลือ PO (ปุ่มแก้ไขทุกแถว · เจ้าของสั่ง 28 พ.ย. 2026)
+  const low = { need: 1000, issued: 600, bal: 300 };   // คีย์ 300 ทั้งที่ควร 400 · BOM ยังให้อีก 400 · ของยังมี 300
+  ok('คีย์น้อยไป: เพิ่มได้ไม่เกิน เดิม + min(ที่ BOM ยังให้, คงเหลือ PO)', poFixCheck(low, 300, 400).ok && poFixCheck(low, 300, 400).up
+     && poFixCheck(low, 300, 0).maxUp === 600 && poFixCheck(low, 300, 600).ok && !poFixCheck(low, 300, 600.001).ok
+     && poFixCheck(low, 300, 600.001).overUp && poFixCheck({ need: 400, issued: 380, bal: 500 }, 80, 0).maxUp === 100
+     && poFixCheck({ need: null, issued: 5, bal: 2 }, 5, 0).maxUp === 7);
+  ok('ไม่เกินอะไร: ปุ่มแนะนำไม่มีความหมาย (suggest = เดิม) · คีย์มากไปลดได้ตามปกติ',
+     poFixCheck(low, 300, 0).suggest === 300 && poFixCheck(low, 300, 250).ok && !poFixCheck(low, 300, 250).up);
+  ok('เท่าเดิม / เพิ่มเกิน / ติดลบ / ว่าง ไม่ผ่าน',
+     !poFixCheck(dup, 100, 100).ok && poFixCheck(dup, 100, 100).same && !poFixCheck(dup, 100, 150).ok && poFixCheck(dup, 100, 150).overUp
      && !poFixCheck(dup, 100, -1).ok && [null, '', 'x'].every(x => !poFixCheck(dup, 100, x).ok && poFixCheck(dup, 100, x).qty === null));
   // เกินหลายรายการ: ลดรายการเดียวแล้วยังเกิน → บันทึกได้ จอบอกยอดที่ยังเกิน
   const many = { need: 10, issued: 16 };
@@ -723,5 +746,34 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
      poOverRows([E(5, '2026-11-01T02:00Z'), E(5, '2026-11-02T02:00Z')], { need: null, issued: 10, bal: 0 }).every(r => r.overBom === 0 && !r.dupOf));
 }
 
+console.log('\n=== ยอดคงคลังราย P/N — ค้นรหัสแล้วกางเฉพาะบรรทัดนั้น (เจ้าของขอ 28 พ.ย. 2026) ===');
+{
+  const L = (code, live = true) => ({ code, live });
+  const rows = [
+    { pn: 'TM5267H332', lines: [L('3199360100'), L('3199360101'), L('1010022000')] },
+    { pn: 'TM5267H401', lines: [L('3199360100'), L('1040050200')] },
+    { pn: 'TM5267H500', lines: [L('3199360100', false), L('1040050200')] },
+    { pn: '', lines: [L('ab-77'), L('1010022000')] }
+  ];
+  const f = stockPnFocus(rows, ' 3199360100 ');
+  ok('รหัสเต็มตัว → กาง 2 P/N ที่ยังมีของรหัสนั้น', f.exact.map(x => x.pn).join() === 'TM5267H332,TM5267H401', JSON.stringify(f.exact));
+  ok('P/N ที่รหัสนั้นไม่มีของแล้ว ไม่ถูกกาง และไม่ถูกตัดบรรทัด', !f.hits.has('TM5267H500'));
+  ok('บรรทัดที่เหลือในแถวที่เจอ = รหัสที่ค้นอย่างเดียว', [...f.hits.get('TM5267H332')].join() === '3199360100');
+  const p = stockPnFocus(rows, '3199360');
+  ok('พิมพ์ไม่ครบ → ตัดบรรทัดให้ แต่ไม่กางให้', p.exact.length === 0 && p.hits.get('TM5267H332').size === 2);
+  const n = stockPnFocus(rows, 'TM5267H401');
+  ok('ค้นด้วยเลข P/N (ไม่ใช่รหัส) → ไม่ตัดบรรทัด ไม่กาง', n.hits.size === 0 && n.exact.length === 0);
+  ok('รหัสที่มีตัวอักษร พิมพ์เล็ก/ใหญ่ก็เจอ · P/N ว่างก็กางได้',
+     stockPnFocus(rows, 'AB-77').exact[0].pn === '' && stockPnFocus(rows, 'ab-77').exact.length === 1);
+  ok('คำค้นว่าง = ไม่ทำอะไร', stockPnFocus(rows, '').hits.size === 0 && stockPnFocus(rows, null).exact.length === 0);
+  ok('ไม่มีแถวก็ไม่พัง', stockPnFocus(undefined, 'X').hits.size === 0);
+}
+
+{
+  // watch ที่กางให้ต้องดูแค่ balQ — ถ้าเอา bpFocus มาเป็นตัวที่ watch จะลาก bpAll มาคิดทุกครั้งที่บันทึก (ผู้ตรวจ #208 รอบ 3 · G2)
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('app.js: watch ที่กาง P/N ตามคำค้นดูแค่ balQ ไม่ลาก bpFocus / bpAll ทุกครั้งที่บันทึก',
+     app.includes('watch(balQ, () => {') && !/watch\(\s*\(\)\s*=>[^,]*bpFocus/.test(app));
+}
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
