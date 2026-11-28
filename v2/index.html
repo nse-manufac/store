@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.15">
+<meta name="app-version" content="2026-11-28.17">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -188,6 +188,10 @@ tbody.shut tr.fol-po > td:first-child{box-shadow:inset 4px 0 0 #c5ced8}
 .fol-head .hint{font-size:15px}
 .fol-n{margin-left:auto}
 .fol-key{font-weight:600;font-size:17px}
+button.tag.why-tag{border:0;cursor:pointer;font-family:inherit;text-decoration:underline dotted}
+.why-cell{position:relative}
+.why-pop{position:absolute;right:calc(100% + 8px);top:calc(100% - 8px);z-index:30;width:420px;text-align:left;white-space:normal;font-size:14px;font-weight:400;line-height:1.6;font-family:"Segoe UI","Sarabun","Noto Sans Thai",system-ui,sans-serif;font-variant-numeric:normal;color:var(--ink);background:#fff;border:1px solid #f0d799;border-left:4px solid var(--warn);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:8px 12px}
+.why-pop b{color:var(--warn)}
 .fol-act{white-space:normal}
 .fol-act .btn{font-size:15px;padding:6px 16px}
 .fol-got{display:inline-block;min-width:120px;text-align:right;margin-right:16px}
@@ -2607,10 +2611,16 @@ textarea{font:inherit}
                     <!-- ตั้งไว้ − มาแล้ว = ยังค้าง ให้เห็นการลบในแถวเดียว · เรื่องที่ไม่ได้แจ้งจำนวน = — -->
                     <td class="mono r">{{ r.s.qty > 0 ? mrpNum(r.s.qty) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
                     <td class="mono r">{{ mrpNum(Number(r.s.done_qty) || 0) }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span></td>
-                    <td class="mono r fol-key">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span>
+                    <td class="mono r fol-key why-cell">{{ r.s.qty > 0 ? mrpNum(r.remain) : '—' }} <span v-if="r.s.qty > 0" class="hint">{{ r.s.unit }}</span>
                       <!-- ยอดค้างไม่เท่ากับยอดขาดที่ระบบคิดจากการรับเข้าเทียบสูตร = ป้าย ต่าง อย่างเดียว · ตัวเลขอยู่ในกล่องข้อความตอนชี้เมาส์ (เจ้าของสั่ง 26 พ.ย. 2026) -->
-                      <div v-if="fsCheck(r.s).same === false" style="font-weight:400"><span class="tag warn" style="cursor:help"
-                           :title="'ยอดที่ยังค้าง ' + mrpNum(r.remain) + ' แต่ระบบคิดจากการรับเข้าเทียบสูตรได้ ' + mrpNum(fsCheck(r.s).calc) + ' — ไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง'">ต่าง</span></div></td>
+                      <!-- กดป้าย "ต่าง" = bubble บอกเหตุพร้อมตัวเลข (เจ้าของขอ 25 พ.ย. 2026) — ตรรกะอยู่ที่ shortDiffExplainer (master/follow.js)
+                           บอกเหตุไม่ได้ = ป้ายเดิมที่ชี้เมาส์แล้วขึ้นกล่องข้อความ -->
+                      <div v-if="fsCheck(r.s).same === false" style="font-weight:400"><button v-if="fsWhy(r.s).length" type="button" class="tag warn why-tag"
+                           title="กดดูว่าทำไมต่าง" @click.stop="fsWhyFlip(r.s.id)">ต่าง</button><span v-else class="tag warn" style="cursor:help"
+                           :title="'ยอดที่ยังค้าง ' + mrpNum(r.remain) + ' แต่ระบบคิดจากการรับเข้าเทียบสูตรได้ ' + mrpNum(fsCheck(r.s).calc) + ' — ไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง'">ต่าง</span></div>
+                      <div v-if="fsWhyId === r.s.id" class="why-pop" @click.stop><b>ทำไมต่าง</b>
+                        <div>ยอดที่ยังค้าง <b>{{ mrpNum(r.remain) }}</b> แต่ระบบคิดจากการรับเข้าเทียบสูตรได้ <b>{{ mrpNum(fsCheck(r.s).calc) }}</b></div>
+                        <div v-for="(w, i) in fsWhy(r.s)" :key="i">· {{ w }}</div></div></td>
                     <td class="fol-act">
                       <!-- ช่องจำนวนทุกแถว (เจ้าของสั่ง 10 ต.ค. 2026) · เว้นว่าง = มาครบ · เรื่องที่ไม่ระบุจำนวนต้องใส่ เพราะรับเข้าคลังทุกครั้ง (26 พ.ย. 2026) -->
                       <input v-model="fsGot[r.s.id]" type="number" step="any" class="mono fol-qty"
@@ -2672,7 +2682,8 @@ textarea{font:inherit}
               กด <b>เอากลับ</b> = ยกเลิกรายการรับเข้านั้นให้ด้วย<br>
               แถวที่ไม่ได้บอกจำนวน (ช่องขึ้นว่า "จำนวน") ต้องใส่จำนวนที่มาก่อนกด<br>
               ป้าย <b>ต่าง</b> ใต้ <b>ยอดที่ยังค้าง</b> = ยอดขาดที่<b>ระบบคิดได้</b>จากการรับเข้าเทียบสูตรตอนนี้ ไม่เท่ากับยอดที่ยังค้าง
-              — ชี้เมาส์ที่ป้ายเพื่อดูทั้งสองยอด แล้วไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง · เท่ากันไม่ขึ้นป้าย</p>
+              — <b>กดที่ป้าย</b> เพื่อดูทั้งสองยอดพร้อมเหตุว่าทำไมต่าง (สูตรเปลี่ยนหลังตั้งเรื่อง · จำนวนสั่งเปลี่ยน · รับเข้าไม่ตรงกับที่กด "มาแล้ว" · ยอดมาจากไฟล์ Delta · คู่ PO+รหัสนี้มีอีกเรื่อง) ·
+              แถวที่บอกเหตุไม่ได้ ชี้เมาส์ที่ป้ายจะเห็นทั้งสองยอด แล้วไปดูว่าของที่มาแล้วถูกรับเข้าคลังครบหรือยัง · เท่ากันไม่ขึ้นป้าย</p>
             <p><b>ยกเลิกแล้ว</b> / <b>ไม่ติดตามแล้ว</b> = เรื่องที่กด "ยกเลิกเรื่อง" / "ไม่ติดตาม" แยกกันคนละปุ่ม · ไม่ลบทิ้ง ·
               ไม่ขึ้นในปุ่ม "ต้องตั้งเรื่อง" จนกว่ายอดขาดจะมากกว่า <b>ยอดค้าง</b> ตอนกด ·
               กดกลับมาติดตามหรือตั้งเรื่องใหม่แล้ว = ขึ้นตามปกติ · นำเข้าไฟล์ Delta ซ้ำด้วยยอดเท่าเดิมไม่สร้างใหม่</p>

@@ -1156,6 +1156,113 @@ export function shortChecker(calcRows) {
 }
 export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow);
 
+/**
+ * ทำไม "ค้าง" ในเรื่องถึงไม่ตรงกับ "ระบบคิดได้" — คืนบรรทัดหลักฐานให้จอโชว์ใต้ป้าย "ต่าง" (เจ้าของขอ 25 พ.ย. 2026)
+ * เดิมต้องเปิดชีตไล่เทียบ BOM / PO / รับเข้าเองทีละตัว ใช้เวลาเป็นวัน
+ *
+ * เกณฑ์ "ต่าง" ตรงกับ shortChecker — เทียบยอดที่ยังค้าง (qty − done_qty) กับที่คิดได้ตอนนี้
+ * เทียบยอดที่แช่แข็งไว้ตอนตั้งเรื่อง (order_qty · bom_qty · recv_qty) กับที่คิดได้ตอนนี้ แยกเป็นตัวต่อตัว:
+ *   ตามสูตรเปลี่ยน (ต่อชิ้น / จำนวนสั่ง) · ยอดรับเข้าไม่เท่ากับที่กด "มาแล้ว" · ยอดในเรื่องไม่ได้มาจากสูตรตอนตั้ง
+ * ⚠️ รับเข้าหลังตั้งเรื่องหักยอดที่กด "มาแล้ว" ในเรื่องนี้ก่อน — มาบางส่วนแล้วกดมาแล้วตามปกติ ไม่ใช่เหตุที่ต่าง
+ * ⚠️ เรื่องที่ไฟล์ MAT'L FOLLOWING ของ Delta ทับยอดแช่แข็งไปแล้ว ห้ามประกาศเหตุจากสามช่องนั้น — ดูคอมเมนต์ที่ deltaShaped
+ * แล้วบอกเรื่องอื่นของคู่ PO + รหัสเดียวกันที่ยังไม่ยกเลิก (เช่นเรื่องที่ปิดไปแล้ว แต่มีคนเอาเรื่องเก่ากลับมา)
+ *
+ * calcRows = shortAll(..., { all: true }) · follows = เรื่องทั้งหมด · bomRowOf(pn, code) = บรรทัดสูตรตอนนี้ (ไม่ส่ง = ไม่บอกที่มาสูตร)
+ * คืน follow => [ข้อความ] · [] = ไม่มีอะไรต้องอธิบาย (ตรงกัน หรือคิดไม่ได้)
+ */
+export function shortDiffExplainer(calcRows, follows, bomRowOf) {
+  const calcOf = new Map(), byPair = new Map();
+  for (const r of calcRows || []) if (!r.why) calcOf.set(pairKey(r.po, r.code), r);
+  for (const f of follows || []) {
+    if (!f || f.kind !== 'short' || f.voided) continue;
+    const k = pairKey(f.po, f.code);
+    if (!byPair.has(k)) byPair.set(k, []);
+    byPair.get(k).push(f);
+  }
+  const n = x => String(round5(Number(x) || 0));
+  const sign = d => (d > 0 ? '+' : '') + n(d);
+  const has = x => x != null && x !== '' && isFinite(Number(x));
+  const SRC = { delta: 'ใบที่ Delta แจ้ง', file: 'ไฟล์ PO', manual: 'ที่ตั้งเอง' };
+  return follow => {
+    const k = pairKey(follow && follow.po, follow && follow.code);
+    const now = calcOf.get(k), q = Number(follow && follow.qty) || 0;
+    if (!now || !(q > 0)) return [];
+    const remain = remainOf(follow), done = round5(Number(follow.done_qty) || 0);
+    if (Math.abs(remain - now.short) < 5e-4) return [];
+    const out = [];
+    const fo = Number(follow.order_qty), fb = Number(follow.bom_qty), fr = Number(follow.recv_qty) || 0;
+    /* ⚠️ แถวที่นำเข้าไฟล์ MAT'L FOLLOWING ของ Delta ทับแล้ว — ห้ามอ่าน order_qty / recv_qty เป็นค่าตอนตั้งเรื่อง
+     *    planMatFollow (matfollow.js) ทับสองช่องนี้ลงบนเรื่องที่มีอยู่แล้ว โดยไม่แตะ bom_qty และไม่เปลี่ยน source
+     *    ความหมายเปลี่ยนไปคนละเรื่อง: order_qty จาก "จำนวนสั่ง (ชิ้น)" → "ยอดในคอลัมน์ P/O"
+     *    · recv_qty จาก "รับเข้าคลังตอนตั้งเรื่อง" → "ACTUAL (ส่งจริง) ที่ Delta แจ้ง"
+     *    อ่านตรง ๆ แล้วกุเหตุที่ไม่เคยเกิด — "จำนวนสั่ง 2.6 → 200" · "มีการยกเลิกใบรับเข้า" ทั้งที่คลังไม่ขยับ
+     *    (ผู้ตรวจ #209 รอบ 2 · กับดักเดียวกับที่ overSetEvidence / overStopEvidence เตือนไว้ในไฟล์นี้)
+     * สัญญาณที่ใช้คือ **หมายเหตุประจำที่ fromShortRow ติดไว้หายไป** อย่างเดียว
+     *   ไฟล์ทับช่องหมายเหตุทุกครั้งที่ทับตัวเลข (fields.note ใน planMatFollow) และ planMatFollow เป็นทางเดียว
+     *   ที่ทับสามช่องแช่แข็ง + ช่องหมายเหตุของเรื่องที่มีอยู่แล้ว (ไล่ทุกที่ที่เขียนสามช่องนี้และ note แล้ว
+     *   ไม่มีช่องแก้หมายเหตุบนจอ · reopenFollow / restartShort ยก base เดิมมา · migrateFollow ไม่แตะ)
+     *   และ bom_qty เขียนจาก 4 ที่เท่านั้น (fromShortRow · fromOverRow · restartShort · restartOver)
+     *   แถวที่เข้ากิ่ง canBom จึงเป็นแถว auto กับลูกของมันเท่านั้น
+     * ⚠️ ห้ามเอารูปยอด (order_qty − recv_qty ≈ qty) มาเป็นสัญญาณร่วม — เคยทำแล้วพลาดสองทาง (ผู้ตรวจ #209 รอบ 4 ข้อ 1)
+     *    restartShort ยกยอดแช่แข็งกับ base มาครบ แต่ตั้ง qty = ยอดที่ยังค้าง รูปยอดจึงหลุดทันทีที่กด "มาแล้ว" ไว้ก่อนยกเลิก
+     *    แล้วเรื่องที่ "กลับมาติดตาม" ตกมากิ่งล่างแล้วกุเหตุชุดเดิมกลับมาทั้งดุ้น (ปุ่มที่ cancelShortWarn แนะให้พนักงานกดเอง)
+     *    หมายเหตุประจำเป็นธงที่ติดทนข้ามการยกเลิก / กลับมาติดตาม ต่างจากรูปยอดที่เพี้ยนทันทีที่ qty เปลี่ยน
+     * cut (Cut Return ที่ไฟล์เขียนลงหมายเหตุ) ใช้แค่พิมพ์ในข้อความ ไม่ใช้ตัดสินแล้ว — rowToFollow ตั้ง qty = VAR − cut
+     *    ⚠️ ห้าม import readNote จาก matfollow.js — matfollow.js import ไฟล์นี้อยู่แล้ว จะ import วนกัน (ใช้ regex เดียวกันในไฟล์นี้)
+     */
+    const canBom = has(follow.bom_qty) && fo > 0;
+    const base = splitNoteTrace(follow.note).base;
+    const cutM = /cut\s*return\s*:?\s*(-?[\d,.]+)/i.exec(base);
+    const cutN = cutM ? Number(String(cutM[1]).replace(/,/g, '')) : null;
+    const cut = cutN != null && isFinite(cutN) ? cutN : null;
+    const deltaShaped = canBom && base !== SYS_SHORT_NOTE;
+    if (deltaShaped) {
+      out.push(`ยอดในเรื่อง ${n(q)} มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง ${n(fo)} · ส่งจริง ${n(fr)}${cut != null ? ` · หัก Cut Return ${n(cut)}` : ''}) ไม่ใช่ยอดตอนตั้งเรื่อง`
+        + (done > 0 ? ` (มาแล้ว ${n(done)} ยังค้าง ${n(remain)})` : '')
+        + ` · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
+    } else if (canBom) {
+      const dNeed = round5(now.need - fb);
+      if (Math.abs(dNeed) >= 5e-4) {
+        const parts = [];
+        if (Math.abs(fo - now.order) >= 5e-4) parts.push(`จำนวนสั่ง ${n(fo)} → ${n(now.order)}`);
+        const u0 = fb / fo, u1 = now.order ? now.need / now.order : 0;
+        if (Math.abs(u0 - u1) > 1e-9 * Math.max(1, Math.abs(u1))) parts.push(`ต่อชิ้น ${n(u0)} → ${n(u1)}`);
+        const b = typeof bomRowOf === 'function' ? bomRowOf(now.pn, now.code) : null;
+        const from = b && (b.source || b.imported_at)
+          ? ` · สูตรตอนนี้มาจาก ${txt(b.source) || '—'}${b.imported_at ? ' โหลด ' + localDate(b.imported_at) : ''}` : '';
+        out.push(`ตามสูตรเปลี่ยนหลังตั้งเรื่อง ${n(fb)} → ${n(now.need)} (${sign(dNeed)})`
+          + (parts.length ? ': ' + parts.join(' · ') : '') + from);
+      }
+      const dHave = round5(now.have - fr), x = round5(dHave - done);
+      if (Math.abs(x) >= 5e-4) {
+        const recv = `${n(fr)} → ${n(now.have)}`;
+        out.push(x > 0
+          ? `รับเข้าตาม PO นี้หลังตั้งเรื่อง ${n(dHave)} (${recv}) แต่${done > 0 ? `กด "มาแล้ว" ในเรื่องนี้แค่ ${n(done)}` : 'ไม่ได้กด "มาแล้ว" ในเรื่องนี้'} — รับเข้าเกินที่กดไว้ ${n(x)}`
+          : done > 0
+            ? `กด "มาแล้ว" ในเรื่องนี้ ${n(done)} แต่รับเข้าตาม PO นี้หลังตั้งเรื่องแค่ ${n(dHave)} (${recv}) — ส่วนต่าง ${n(-x)} อาจกดมาแล้วโดยไม่ได้รับเข้าคลัง หรือรับเข้าด้วย PO อื่น`
+            : `ยอดรับเข้าตาม PO นี้ลดลงหลังตั้งเรื่อง ${recv} — มีการยกเลิกใบรับเข้า หรือส่งคืน Delta`);
+      }
+      const atSet = round5(Math.max(0, fb - fr));
+      if (Math.abs(q - atSet) >= 5e-4) {
+        out.push(`ยอดในเรื่อง ${n(q)} ไม่ได้มาจากสูตรตอนตั้ง (ตามสูตร ${n(fb)} − รับแล้ว ${n(fr)} = ${n(atSet)})`);
+      }
+    } else {
+      const src = SRC[txt(follow.source)] || 'ที่ตั้งไว้';
+      out.push(`ยอดในเรื่อง ${n(q)} มาจาก${src} ไม่ได้คิดจากสูตร`
+        + (done > 0 ? ` (มาแล้ว ${n(done)} ยังค้าง ${n(remain)})` : '')
+        + ` · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
+    }
+    for (const o of byPair.get(k) || []) {
+      if (o.id === follow.id || o.entity !== follow.entity) continue;
+      const st = statusOf(o);
+      out.push(st === 'done'
+        ? `คู่นี้มีอีกเรื่องที่ปิดแล้ว — ตั้ง ${txt(o.date) || '—'} ยอด ${n(o.qty)} · มาครบ ${o.done_at ? localDate(o.done_at) : '—'} ยอด ${has(o.done_qty) ? n(o.done_qty) : '—'}`
+        : `คู่นี้มีอีกเรื่องที่ยังเปิดอยู่ — ตั้ง ${txt(o.date) || '—'} ยอด ${n(o.qty)}`);
+    }
+    return out;
+  };
+}
+
 /* หมายเหตุประจำที่ fromShortRow ติดให้ทุกแถวที่ระบบตั้ง — เหมือนกันเป๊ะทุกใบ
  * ⚠️ ประกาศไว้ที่เดียว เพราะ enriched (บรรทัด ~705) ต้องไม่นับข้อความนี้ว่าเป็น "ข้อมูลเพิ่ม" */
 const SYS_SHORT_NOTE = 'รับไม่ครบตามสูตร (ระบบคำนวณจากการรับเข้า)';
