@@ -9,6 +9,7 @@
  * จึงทำให้ "ลืมไม่ได้" ด้วยการไม่ให้มีค่าเริ่มต้น
  */
 import { signedQty, counts, round5, KINDS, isKnownKind, makeEntry, isFracAdj, FRAC_REASON } from './ledger.js';
+import { atFrom, localDate } from './localtime.js';
 
 function need(entity) {
   if (!entity) throw new Error('ต้องระบุนิติบุคคล — INVARIANTS A3');
@@ -158,7 +159,9 @@ export function poMoves(entries, entity, docRef, code) {
 /**
  * ล้างเศษของ PO (เจ้าของเคาะ 22 พ.ย. 2026) — คืนรายการปรับยอด "ล้างเศษ" ของรหัสที่คงเหลือ PO เป็นเศษ
  *   เศษ = 0 < |คงเหลือ PO| < tolOf(code) (FRAC_TOL ของหน่วย · core/ledger.js) ทั้งเหลือและติดลบ
- *   เช่น รับ 438 ชิ้น จ่ายตามสูตร 437.10025 → ล้าง −0.89975 · รับ 65 จ่าย 65.005 → ล้าง +0.005
+ *   เช่น รับ 438 ชิ้น จ่ายตามสูตร 437.10025 → ล้าง −0.89975
+ *   ฝั่งติดลบ เช่น รับ 65 จ่าย 65.005 → ล้าง +0.005 — ตั้งแต่ 25 พ.ย. 2026 จ่ายเกินคงเหลือ PO ไม่ได้แล้ว (A4 · overIssue)
+ *   จึงเหลือแค่จากรายการเก่าก่อนวันนั้น หรือทางอื่นที่ยังตัดของได้โดยไม่บล็อก เช่นส่งคืน Delta หลังจ่ายไปแล้ว
  * แยกเป็นรายการปรับยอดต่างหาก ไม่แก้ยอดจ่าย (เจ้าของเลือกแบบ ก) — ยอดจ่ายยังตรงกับที่คีย์
  * counted_qty = 0 · book = คงเหลือ PO ก่อนล้าง → delta = −เศษ · ยอดรวมของรหัสก็ขยับตามด้วย (เศษนั้นไม่มีอยู่จริง)
  * ผู้เรียกต้องเขียนรายการที่คืนลงสมุดเอง · ไม่มีเศษ = []
@@ -203,6 +206,45 @@ function fracEntry(entity, { po, code, bal, tol }, { person, device = '', at, pa
                      note: `ล้างเศษ PO ${po}: คงเหลือ ${bal} ต่ำกว่าเกณฑ์ ${tol}` });
 }
 
+/**
+ * เวลา at ของใบจ่ายออกที่ยังไม่ยกเลิก ใบล่าสุดของ PO + รหัสนั้น — '' ถ้ายังไม่มีใบจ่าย
+ * = พื้นเวลาที่รายการล้างเศษของคู่นี้ต้องไม่เก่ากว่า เพราะ fracTwins ผูกคู่ด้วย String(x.at) >= String(e.at)
+ * ล้างเศษที่ at เก่ากว่าใบจ่าย → ยกเลิกใบจ่ายแล้วรายการ −เศษ ค้างอยู่ ยอด PO ขาดไปเท่าเศษเงียบ ๆ
+ * (คงเหลือที่ค้างเกินเกณฑ์ ป้าย "เศษ" จึงไม่ขึ้นให้ใครเห็นอีก · ผู้ตรวจ #198 รอบ 1)
+ * ทุกทางที่ให้คนเลือกวันที่ล้างเศษเองต้องเทียบกับค่านี้ก่อนบันทึก — ห้ามแก้ fracTwins แทน (CLAUDE.md ข้อ 7)
+ */
+export function lastIssueAt(entries, entity, po, code) {
+  need(entity);
+  const ref = String(po || ''), c = String(code);
+  if (!ref) return '';
+  let max = '';
+  for (const e of entries) {
+    if (e.entity !== entity || !counts(e) || e.kind !== 'issue') continue;
+    if (String(e.doc_ref) !== ref || String(e.material_code) !== c) continue;
+    const at = String(e.at || '');
+    if (at > max) max = at;
+  }
+  return max;
+}
+
+/**
+ * เวลา at ของรายการล้างเศษจากกล่องที่ให้คนเลือกวันที่เอง — คืน { at } หรือ { err } (ข้อความแดง)
+ * floor = lastIssueAt ของ PO + รหัสนั้น ('' = ยังไม่มีใบจ่าย ไม่มีพื้น)
+ *   - วันที่เลือกอยู่ก่อนวันของใบจ่ายล่าสุด → err (ล้างย้อนข้ามใบจ่ายไม่ได้)
+ *   - วันเดียวกับใบจ่าย แต่ atFrom ยืมเวลาในวันจากนาฬิกาตอนกด ซึ่งย้อนกว่าเวลาในใบที่คีย์ย้อนหลังไว้
+ *     → at = floor ขยับแค่เวลาในวัน วันที่ที่บันทึกยังเป็นวันที่คนเลือก ไม่ใช่การเปลี่ยนวันเงียบ ๆ
+ * แยกออกมาจาก bpFracClean ให้เทสด้วยการรันจริงได้ (ผู้ตรวจ #198 ข้อสังเกต 2)
+ */
+export function fracCleanAt(date, floor, now = new Date()) {
+  let at = atFrom(date, now);
+  if (floor && at < floor) {
+    if (localDate(at) !== localDate(floor))
+      return { err: `ล้างเศษย้อนหลังก่อนวันที่จ่ายออกครั้งล่าสุด (${localDate(floor)}) ไม่ได้ — เลือกวันที่ตั้งแต่วันนั้นขึ้นไป` };
+    at = floor;
+  }
+  return { at };
+}
+
 /** รายการล้างเศษของ PO + รหัสเดียวกันที่ทำตั้งแต่จ่ายออกรายการนี้เป็นต้นไป (ยังไม่ยกเลิก)
  *  ยกเลิกจ่ายออกแล้วต้องยกเลิกพวกนี้ด้วย (เจ้าของเคาะ 23 + 25 พ.ย. 2026)
  *  เศษที่ล้างหลังจ่ายรายการนี้ คิดจากยอดที่รวมรายการนี้อยู่ — จ่ายหายไปแล้วเศษนั้นก็ไม่มีจริง
@@ -221,6 +263,29 @@ export function fracTwins(entries, e) {
 export function stillToIssue(reqmt, issued) {
   if (reqmt === null || reqmt === undefined || reqmt === '' || !isFinite(Number(reqmt))) return null;
   return round5(Number(reqmt) - (Number(issued) || 0));
+}
+
+/**
+ * รหัสที่จะจ่ายเกินของที่มี — หน้าจ่ายออกห้ามบันทึกถ้ามีสักรหัส (INVARIANTS A4 · เจ้าของสั่ง 25 พ.ย. 2026)
+ * ของมาแล้วต้องคีย์รับเข้าก่อน ไม่ใช่จ่ายไปก่อนแล้วตามคีย์รับทีหลัง
+ * lines = [{code, qty}] · balOf(code) = ยอดที่มี (ของ PO บนหัวจอ หรือยอดรวมถ้าไม่ใส่ PO)
+ * รหัสเดียวกันหลายบรรทัดรวมยอดก่อนเทียบ — แยกบรรทัดแล้วผ่านทีละบรรทัดไม่ได้
+ * คืน [{code, bal, qty, short}] · ว่าง = จ่ายได้
+ */
+export function overIssue(lines, balOf, key = c => String(c || '').trim().toUpperCase()) {
+  const sum = new Map();
+  for (const l of lines) {
+    const q = Number(l.qty) || 0;
+    if (!l.code || q <= 0) continue;
+    const k = key(l.code), cur = sum.get(k);
+    sum.set(k, { code: cur ? cur.code : l.code, qty: round5((cur ? cur.qty : 0) + q) });
+  }
+  const out = [];
+  for (const { code, qty } of sum.values()) {
+    const bal = round5(Number(balOf(code)) || 0), short = round5(qty - bal);
+    if (short > 0) out.push({ code, bal, qty, short });
+  }
+  return out;
 }
 
 /**

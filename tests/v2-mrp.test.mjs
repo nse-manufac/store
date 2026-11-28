@@ -126,11 +126,11 @@ ok('คืนของ (return) หักจากยอดจ่าย', line('
 console.log('=== M4. ยอดขาดจบเรื่องแล้ว — กฎเดียวกับการ์ด "ยังรับไม่ครบตาม BOM" ===');
 const calc = shortAll(ents, EN, { headerOf: po => { const p = poList.find(x => x.po === po); return p ? { pn: p.pn, order: p.qty } : null; }, bomRowsOf, all: true });
 const calcB = calc.find(r => r.po === 'TM0001H962' && r.code === B);
-const skipped = skipShort(calcB, { entity: EN, person: 'ก' });
+const skipped = skipShort(calcB, { entity: EN, person: 'ก', why: 'ยอดน้อย' });
 const r962 = fl => run({ follows: fl }).find(r => r.po === 'TM0001H962');
 ok('ไม่ติดตาม = skip นับว่าครบ · การ์ดก็ไม่ขึ้น', r962([skipped]).state === 'ok' && r962([skipped]).nSkip === 1
    && shortPending([calcB], [skipped]).length === 0);
-const cancelled = cancelShort(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 1 }), { by: 'ก' });
+const cancelled = cancelShort(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 1 }), { by: 'ก', why: 'ยอดน้อย' });
 ok('ยกเลิกเรื่อง = skip เหมือนไม่ติดตาม', r962([cancelled]).nSkip === 1);
 const closedSame = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 1 }), { by: 'ก' });
 const closedOdd = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', source: 'delta', entity: EN, po: 'TM0001H962', code: B, qty: 3 }), { by: 'ก' });
@@ -143,7 +143,7 @@ console.log('=== M4b. ยอดเกินจบเรื่องแล้ว 
 const ocalc = overAll(ents, EN, { headerOf: po => { const p = poList.find(x => x.po === po); return p ? { pn: p.pn, order: p.qty } : null; },
                                   usageOf: (pn, code) => { const b = (BOM[pn] || []).find(x => x.code === code); return b ? b.usage : null; } });
 const oA = ocalc.find(r => r.po === 'TM0001H963' && r.code === A);
-const oSkipped = skipOver(oA, { entity: EN, person: 'ก' });
+const oSkipped = skipOver(oA, { entity: EN, person: 'ก', why: 'ยอดน้อย' });
 const r963 = (fl, more = []) => run({ ents: [...ents, ...more], follows: fl }).find(r => r.po === 'TM0001H963');
 ok('ไม่ติดตาม Over = oskip ไม่นับเป็น Over · การ์ด over ก็ไม่ขึ้น',
    line('TM0001H963', A, run({ follows: [oSkipped] })).state === 'oskip' && r963([oSkipped]).nOver === 1
@@ -151,12 +151,12 @@ ok('ไม่ติดตาม Over = oskip ไม่นับเป็น Over
 ok('ป้าย: เกิน N · จบเรื่องแล้ว (สีเทา)', mrpLineLabel(line('TM0001H963', A, run({ follows: [oSkipped] })))[0] === 'เกิน 3 · จบเรื่องแล้ว'
    && mrpLineLabel(line('TM0001H963', A, run({ follows: [oSkipped] })))[1] === 'mute');
 ok('นับรวมใน "จบเรื่องแล้ว N รายการ"', r963([oSkipped]).nSkip === 1);
-const oCancel = cancelOver(fromOverRow(oA, { entity: EN, person: 'ก' }), { by: 'ก' });
+const oCancel = cancelOver(fromOverRow(oA, { entity: EN, person: 'ก' }), { by: 'ก', why: 'ยอดน้อย' });
 ok('ยกเลิกเรื่อง Over = oskip เหมือนไม่ติดตาม', r963([oCancel]).lines.find(l => l.code === A).state === 'oskip');
 ok('รับเกินเพิ่มหลังหยุดตาม = กลับมาเป็น Over (ตรงกับการ์ด)',
    r963([oSkipped], [mk('receive', 'TM0001H963', A, 2)]).lines.find(l => l.code === A).state === 'over');
 ok('เรื่องของนิติบุคคลอื่น = ไม่นับ (A3)', r963([{ ...oSkipped, entity: 'TUE-U' }]).lines.find(l => l.code === A).state === 'over');
-const xFollow = cancelOver(makeFollow({ kind: 'over', type: 'เกิน', source: 'manual', entity: EN, po: 'TM0001H963', part_no: 'PN-A', code: X, qty: 3 }), { by: 'ก' });
+const xFollow = cancelOver(makeFollow({ kind: 'over', type: 'เกิน', source: 'manual', entity: EN, po: 'TM0001H963', part_no: 'PN-A', code: X, qty: 3 }), { by: 'ก', why: 'ยอดน้อย' });
 ok('รหัสนอกสูตรที่หยุดตามแล้ว = oskip ไม่นับเป็น Over', r963([oSkipped, xFollow]).lines.find(l => l.code === X).state === 'oskip',
    JSON.stringify(r963([oSkipped, xFollow]).lines));
 ok('ทุกรหัสที่เกินจบเรื่องแล้ว = ใบนี้ครบ (ป้ายเขียว)', r963([oSkipped, xFollow]).nOver === 0 && r963([oSkipped, xFollow]).state === 'ok'
@@ -164,12 +164,12 @@ ok('ทุกรหัสที่เกินจบเรื่องแล้�
 
 console.log('=== M4c. ป้าย "จบเรื่องแล้ว" รู้ว่าจบเพราะเรื่องไหน — กดไปแถวนั้นในแท็บ short / over (เจ้าของสั่ง 15 พ.ย. 2026) ===');
 const via962 = fl => r962(fl).lines.find(l => l.code === B).via;
-ok('ไม่ติดตาม = via ชี้เรื่องที่หยุดไว้ (การ์ดยกเลิก)', JSON.stringify(via962([skipped])) === JSON.stringify({ how: 'stop', id: skipped.id }));
-ok('ยกเลิกเรื่อง = via ชี้เรื่องที่ยกเลิก', JSON.stringify(via962([cancelled])) === JSON.stringify({ how: 'stop', id: cancelled.id }));
+ok('ไม่ติดตาม = via ชี้เรื่องที่หยุดไว้ (การ์ดยกเลิก)', JSON.stringify(via962([skipped])) === JSON.stringify({ how: 'skip', id: skipped.id }));
+ok('ยกเลิกเรื่อง = via ชี้เรื่องที่ยกเลิก', JSON.stringify(via962([cancelled])) === JSON.stringify({ how: 'cancel', id: cancelled.id }));
 ok('ปิดเรื่องตรงยอด = via done ชี้เรื่องที่ปิด', JSON.stringify(via962([closedSame])) === JSON.stringify({ how: 'done', id: closedSame.id }));
 const sOld = { ...skipped, id: 'F-OLD', void_at: '2026-11-01T01:00:00.000Z' }, sNew = { ...skipped, id: 'F-NEW', void_at: '2026-11-10T01:00:00.000Z' };
 const closedEarly = { ...closedSame, created_at: '2026-11-05T01:00:00.000Z' };
-ok('ปิดตรงยอดไว้ก่อน แล้วมาหยุดทีหลัง = ชี้การ์ดยกเลิก', JSON.stringify(via962([closedEarly, sNew])) === JSON.stringify({ how: 'stop', id: 'F-NEW' }));
+ok('ปิดตรงยอดไว้ก่อน แล้วมาหยุดทีหลัง = ชี้การ์ดยกเลิก', JSON.stringify(via962([closedEarly, sNew])) === JSON.stringify({ how: 'skip', id: 'F-NEW' }));
 ok('หยุดไว้ก่อน แล้วมีเรื่องตั้งทีหลังและปิดตรงยอด = ชี้เรื่องที่ปิด (เพดานหยุดหมดอายุ — กฎ stopGate เดิม)',
    JSON.stringify(via962([sOld, closedEarly])) === JSON.stringify({ how: 'done', id: closedSame.id }));
 ok('หยุดไว้หลายรอบ = ชี้รอบล่าสุด ตรงกับแถวที่การ์ดยกเลิกแสดง (stoppedShorts)',
@@ -464,13 +464,22 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        r3.lines[0].byPo[1].need === null && r3.lines[0].byPo[0].need === 20 && r3.lines[0].need === null && r3.lines[0].issueDiff === null);
     const [r4] = stockPnRows(st, { headerOf: head, bomRowsOf: () => [{ code: A, usage: 0 }, { code: A, usage: 3 }] });
     ok('สูตรมีรหัสซ้ำ: ใช้บรรทัดแรกที่ใช้ > 0 แบบ mrpRows', r4.lines[0].usage === 3 && r4.lines[0].byPo[0].need === 30);
-    ok('ป้ายจ่ายเทียบ BOM: เกิน · ค้าง · ครบ (เศษหลักที่ 5 นับว่าครบ) · null',
+    ok('ป้ายจ่ายเทียบ BOM: เกิน · ยังจ่ายไม่ครบ = ไม่มีป้าย (เจ้าของสั่ง 27 พ.ย. 2026) · ครบ (เศษหลักที่ 5 นับว่าครบ) · null',
        [bpDiffLabel(2.5), bpDiffLabel(-7), bpDiffLabel(0), bpDiffLabel(0.00001), bpDiffLabel(null)].map(x => x.join(':')).join()
-       === 'จ่ายเกิน 2.5:bad,ค้างจ่าย 7:warn,ครบ:ok,ครบ:ok,—:');
+       === 'จ่ายเกิน 2.5:bad,:,ครบ:ok,ครบ:ok,—:');
     const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: คอลัมน์ ตาม BOM / จ่ายเทียบ BOM ทั้งแถววัตถุดิบและแถวราย PO',
        html.includes('{{ mrpNum(l.need) }}') && html.includes('{{ mrpNum(p.need) }}')
        && html.includes('bpDiffLabel(l.issueDiff)[0]') && html.includes('bpDiffLabel(p.issueDiff)[0]'));
+    ok('จอ: ป้ายขึ้นเฉพาะครบ / จ่ายเกิน · ยังจ่ายไม่ครบ = ช่องว่าง ไม่ใช่ "—" · ไม่รู้ยอดตาม BOM = "—"',
+       html.includes('<span v-if="bpDiffLabel(l.issueDiff)[1]" class="tag"')
+       && html.includes('<span v-else-if="bpDiffLabel(p.issueDiff)[1]" class="tag"')   // แถว PO: จ่ายเกินเป็นปุ่มกดแก้ (28 พ.ย. 2026) ที่เหลือเป็นป้ายเหมือนเดิม
+       && ['l', 'p'].every(v => html.includes(`<span v-else-if="${v}.issueDiff == null" class="hint">—</span>`)));
+    ok('จอ: ป้าย "จ่ายเกิน" ของแถว PO กดแล้วเปิดกล่องแก้ (bpFixOpen) ไม่พับ/กางแถว',
+       /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad'" class="tag bad bp-frac"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)"/.test(html));
+    ok('จอ: ปุ่ม "แก้ไข" สีแดงต่อจากปุ่มจ่าย ขึ้นเฉพาะแถวที่ป้ายจ่ายเกิน หรือคงเหลือติดลบ · เปิดกล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)',
+       /\.btn\.danger\{background:var\(--bad\)/.test(html)
+       && /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad' \|\| p\.bal < 0" class="btn danger"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)">แก้ไข<\/button>/.test(html));
     ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
        html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
        && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));
@@ -480,11 +489,9 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
   }
   {
     const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-    ok('ยอดติดลบราย PO กดแล้วไปแท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ · มีปุ่มกลับไปยอดคงคลัง (เจ้าของสั่ง 19 พ.ย. 2026)',
-       html.includes('v-if="p.bal < 0" class="bp-lnk" @click.stop="bpGoLog(p.po, l.code, r.pn)"')
-       && app.includes("Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });") && app.includes("tab.value = 'lgout';")
-       && html.includes('v-if="bpBack && tab === \'lgout\'"') && app.includes('Object.assign(lg, b.lg);'));
-    ok('กลับมาแล้วบรรทัดถูกซ่อน (ยกเลิกแล้วไม่ติดลบ) เลื่อนไปแถว P/N แทน', html.includes(':data-bpn="r.pn"') && app.includes('[data-bpn="${CSS.escape(b.pn)}"]'));
+    ok('ยอดติดลบราย PO กดแล้วเปิดกล่องแก้ · ไม่มีทางพาไปแท็บ Log แล้ว (แก้จากกล่องได้ครบ · เจ้าของสั่ง 28 พ.ย. 2026)',
+       html.includes('v-if="p.bal < 0" class="bp-lnk" :data-bpfix-bal="bpKey(p.po, l.code)" @click.stop="bpFixOpen(r.pn, p.po, l.code)"')
+       && !/bpGoLog|bpGoBack|bpBack/.test(app + html) && !html.includes('ดูทุกรายการใน Log'));
   }
   {
     // จ่ายผิดใบ: ใบหนึ่งติดลบ อีกใบบวกหายกันพอดี — ยอดรวม 0 แต่ห้ามหายจากจอ และต้องขึ้นป้าย "จ่ายเกินรับ"
@@ -600,6 +607,120 @@ console.log('\n=== ช่องกางไม่ดันตารางล้�
   const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: .mrp-in ให้ข้อความขึ้นบรรทัดใหม่ได้ (white-space:normal)', /\.mrp-in\{[^}]*white-space:normal/.test(html));
   ok('จอ: บรรทัด "PO ที่นับ" ยังอยู่ใน .mrp-in', /<div class="mrp-in">\s*<div class="hint">PO ที่นับ:/.test(html));
+}
+
+console.log('\n=== จ่ายออกทีละ PO จากหน้ายอดคงคลัง (เจ้าของสั่ง 25 พ.ย. 2026) ===');
+{
+  const { poIssueCheck } = await import('../v2/master/mrp.js');
+  // ตาม BOM 3 · รับ 2.604 · ยังไม่จ่าย → จ่ายได้สูงสุด = คงเหลือ 2.604 (น้อยกว่าที่ BOM ยังให้จ่าย)
+  const p = { need: 3, recv: 2.604, sendback: 0, issued: 0, bal: 2.604 };
+  const a = poIssueCheck(p, 2.604);
+  ok('จ่ายเท่าคงเหลือพอดี = ผ่าน · จ่ายได้สูงสุด = min(ตาม BOM − จ่ายแล้ว, คงเหลือ PO)', a.ok && a.max === 2.604 && a.bomLeft === 3);
+  ok('เกินคงเหลือของ PO นี้ (ของที่รับเข้ามา) = ไม่ผ่าน · ไม่เผื่อเศษ', !poIssueCheck(p, 2.605).ok && poIssueCheck(p, 2.605).overRecv);
+  // ตาม BOM 10 · จ่ายไปแล้ว 8 · ยังมีของ 5 → จ่ายสะสมเกิน BOM ถ้าครั้งนี้เกิน 2
+  const q = { need: 10, recv: 13, sendback: 0, issued: 8, bal: 5 };
+  ok('จ่ายสะสมเกิน BOM = ไม่ผ่าน แม้ยังมีของ', poIssueCheck(q, 2).ok && !poIssueCheck(q, 2.5).ok && poIssueCheck(q, 2.5).overBom
+     && !poIssueCheck(q, 2.5).overRecv && poIssueCheck(q, 0).max === 2);
+  ok('จ่ายเกิน BOM ไปแล้ว: จ่ายได้สูงสุด 0 · จ่ายเพิ่มไม่ได้', poIssueCheck({ need: 5, issued: 6, bal: 3 }, 1).max === 0
+     && !poIssueCheck({ need: 5, issued: 6, bal: 3 }, 1).ok);
+  ok('ไม่รู้ยอดตาม BOM (นอกสูตร / ไม่รู้ PO qty.) = ใช้แค่คงเหลือ PO', poIssueCheck({ need: null, issued: 0, bal: 40 }, 40).ok
+     && poIssueCheck({ need: null, issued: 0, bal: 40 }, 0).bomLeft === null && !poIssueCheck({ need: null, issued: 0, bal: 40 }, 41).ok);
+  ok('0 · ว่าง · ติดลบ = ยังจ่ายไม่ได้', [0, null, '', -1].every(x => !poIssueCheck(p, x).ok));
+  ok('คงเหลือติดลบ: จ่ายได้สูงสุด 0', poIssueCheck({ need: 10, issued: 12, bal: -2 }, 0).max === 0);
+
+  // จอ: ปุ่มจ่ายอยู่ท้ายแถว PO ใต้วัตถุดิบ · กดแล้วไม่พับแถว · ปุ่มบันทึกปิดเมื่อไม่ผ่าน · ไม่มีทางลัดไปหน้าจ่ายออก (#178)
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: ปุ่ม "จ่าย" ท้ายแถว PO เรียก bpIssOpen(r.pn, p.po, l.code) แบบ @click.stop',
+     /@click\.stop="bpIssOpen\(r\.pn, p\.po, l\.code\)">จ่าย<\/button>/.test(html));
+  ok('จอ: ปุ่มบันทึกปิดเมื่อไม่ผ่านกฎ / ไม่มีชื่อผู้จ่าย / ไม่มีชื่อผู้เบิก / ไม่มีวันที่',
+     /@click="bpIssSave"\s*:disabled="!bpIssChk \|\| !bpIssChk\.ok \|\| !bpIss\.person \|\| !bpIss\.requester \|\| !bpIss\.date"/.test(html));
+  ok('จอ: มีช่องชื่อผู้เบิก ต่อจากชื่อผู้จ่าย (เจ้าของขอ 28 พ.ย. 2026)',
+     /ชื่อผู้จ่าย<input v-model\.trim="bpIss\.person"><\/label>\s*<label class="f grow">ชื่อผู้เบิก<input v-model\.trim="bpIss\.requester"/.test(html));
+  ok('app.js: เปิดกล่องตั้งวันที่เป็นวันนี้ · บันทึกเช็กกฎซ้ำก่อนเขียน · อ้าง PO ของปุ่มที่กด',
+     /bpIssOpen\(pn, po, code\) \{\s*Object\.assign\(bpIss, \{ open: true, pn, po, code, date: todayLocal\(\)/.test(app)
+     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.requester \|\| !bpIss\.date \|\| futureBlocked\(bpIss\.date\)\) return;/.test(app) && /doc_ref: bpIss\.po, part_no: bpIss\.pn/.test(app));
+  ok('app.js: ผู้เบิกลงหมายเหตุเป็น "ผู้เบิก: ชื่อ" (ไม่เพิ่มช่องใหม่ ไม่ต้องแก้ Apps Script) · เปิดกล่องใหม่ล้างชื่อผู้เบิก',
+     /note: 'ผู้เบิก: ' \+ bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
+  ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
+  ok('จอ: กล่องแก้โชว์จ่ายสะสม · แถวแดงกับป้ายเกิน BOM / เกินรับเข้า / ซ้ำกับรายการไหน (poOverRows · เจ้าของสั่ง 28 พ.ย. 2026)',
+     /<tr v-for="x in bpFixRows"/.test(html) && html.includes('<th class="r">จ่ายสะสม</th>')
+     && html.includes('เกิน BOM {{ mrpNum(x.overBom) }}') && html.includes('เกินรับเข้า {{ mrpNum(x.overRecv) }}')
+     && html.includes('ซ้ำกับรายการ {{ localDate(x.dupOf.at) }}') && /poOverRows\(bpFixList\.value, bpFixRow\.value/.test(app));
+  // ผู้ตรวจ #206 รอบ 1: แก้แถวเก่าแล้วล้างเศษ ต้องไม่ลงวันเก่ากว่าใบจ่ายใบล่าสุด — ยกเลิกใบใหม่ทีหลังยอด PO ยังตรง (ยอดจริง ไม่ใช่รูปโค้ด)
+  const { fixSweepAt } = await import('../v2/master/mrp.js');
+  const { makeEntry, voidEntry } = await import('../v2/core/ledger.js');
+  const { poStockOf, fracSweep, fracTwins } = await import('../v2/core/balance.js');
+  const run = (pickAt) => {
+    const mk = (kind, qty, at) => makeEntry({ entity: 'E', kind, material_code: 'C1', qty, doc_kind: 'po', doc_ref: 'PO-1', person: 'ก',
+                                              at, ...(kind === 'receive' ? { lot: 'L1' } : {}) });
+    const A = mk('issue', 60, '2026-11-02T01:00:00.000Z'), B = mk('issue', 40.5, '2026-11-05T01:00:00.000Z');
+    let book = [mk('receive', 100, '2026-11-01T01:00:00.000Z'), A, B];
+    // ทางเดียวกับ bpFixSave: ยกเลิก A (+ ล้างเศษคู่) → ใบแทน 59 ณ วันของ A → ล้างเศษ
+    const gone = [voidEntry(A, { by: 'ข', reason: 'แก้' }), ...fracTwins(book, A).map(t => voidEntry(t, { by: 'ข', reason: 'แก้' }))];
+    book = book.map(e => gone.find(g => g.id === e.id) || e).concat(mk('issue', 59, A.at));
+    const crumbs = fracSweep(book, 'E', 'PO-1', ['C1'], () => 1, { person: 'ข', at: pickAt(book, A.at) });
+    book = book.concat(crumbs);
+    const afterFix = poStockOf(book, 'E', 'PO-1').get('C1').bal;
+    // วันหลังมีคนยกเลิกใบ B จากหน้า Log (doVoid ยกเลิกล้างเศษที่ผูกคู่ไปด้วย)
+    const gone2 = [voidEntry(B, { by: 'ค', reason: 'ผิด' }), ...fracTwins(book, B).map(t => voidEntry(t, { by: 'ค', reason: 'ผิด' }))];
+    book = book.map(e => gone2.find(g => g.id === e.id) || e);
+    return { crumbs, afterFix, afterVoidB: poStockOf(book, 'E', 'PO-1').get('C1').bal };
+  };
+  const good = run((book, srcAt) => fixSweepAt(book, 'E', 'PO-1', 'C1', srcAt));
+  ok('แก้แถวเก่า: ล้างเศษลงวันของใบจ่ายใบล่าสุด (5 พ.ย.) ไม่ใช่วันใบเก่า · ยกเลิกใบใหม่ทีหลัง ยอด PO = 41 ตรง (ผู้ตรวจ #206)',
+     good.crumbs.length === 1 && good.crumbs[0].at === '2026-11-05T01:00:00.000Z' && good.afterFix === 0 && good.afterVoidB === 41,
+     JSON.stringify(good));
+  // ไม่เทียบกับ "แบบเดิมต้องเพี้ยน" — #202 ใส่พื้นเวลาเดียวกันไว้ใน fracSweep แล้ว เมิจเมื่อไหร่แบบเดิมก็ไม่เพี้ยนอีก
+  //   (ลองถอด fixSweepAt ออกจาก run() ตอนเขียนเทสนี้ บน main ที่ยังไม่มี #202 → ข้อบนแดง ได้ 40.5)
+  ok('fixSweepAt: ไม่มีใบที่ใหม่กว่า → ใช้วันของใบที่แก้ · bpFixSave เรียกหลังใส่ใบแทนแล้ว',
+     fixSweepAt([], 'E', 'PO-1', 'C1', '2026-11-02T01:00:00.000Z') === '2026-11-02T01:00:00.000Z'
+     && /entries\.value\.push\(\.\.\.add\);[\s\S]{0,400}const at = fixSweepAt\(entries\.value, entity\.value, bpFix\.po, src\.material_code, src\.at\);/.test(app));
+}
+
+console.log('\n=== แก้รายการจ่ายเกิน BOM จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const { poFixCheck } = await import('../v2/master/mrp.js');
+  // เศษ: ตาม BOM 0.0212 · จ่ายไป 0.0216 ครั้งเดียว → แนะนำ 0.0212 แล้วพอดี BOM
+  const crumb = { need: 0.0212, issued: 0.0216 };
+  const a = poFixCheck(crumb, 0.0216, 0.0212);
+  ok('เศษเกิน: แนะนำจำนวนที่ทำให้พอดี BOM · แก้แล้วเกิน 0', a.ok && a.suggest === 0.0212 && a.after === 0.0212 && a.afterDiff === 0);
+  // คีย์ซ้ำ: ตาม BOM 100 · จ่าย 100 สองครั้ง → แนะนำ 0 (รายการนี้ไม่ควรมี) · ใส่ 0 = ยกเลิกอย่างเดียว
+  const dup = { need: 100, issued: 200 };
+  ok('คีย์ซ้ำ: แนะนำ 0 · ใส่ 0 ได้ (ยกเลิกอย่างเดียว)', poFixCheck(dup, 100, 0).ok && poFixCheck(dup, 100, 0).suggest === 0
+     && poFixCheck(dup, 100, 0).afterDiff === 0);
+  ok('ลดได้อย่างเดียว — เท่าเดิม / มากกว่าเดิม / ติดลบ / ว่าง ไม่ผ่าน',
+     !poFixCheck(dup, 100, 100).ok && poFixCheck(dup, 100, 100).bigger && !poFixCheck(dup, 100, 150).ok
+     && !poFixCheck(dup, 100, -1).ok && [null, '', 'x'].every(x => !poFixCheck(dup, 100, x).ok && poFixCheck(dup, 100, x).qty === null));
+  // เกินหลายรายการ: ลดรายการเดียวแล้วยังเกิน → บันทึกได้ จอบอกยอดที่ยังเกิน
+  const many = { need: 10, issued: 16 };
+  ok('ลดแล้วยังเกิน BOM อยู่ = บันทึกได้ · afterDiff บอกยอดที่ยังเกิน · แนะนำไม่ต่ำกว่า 0',
+     poFixCheck(many, 3, 0).ok && poFixCheck(many, 3, 0).afterDiff === 3 && poFixCheck(many, 3, 0).suggest === 0);
+  ok('ไม่รู้ยอดตาม BOM: ลดได้ · ไม่มีคำแนะนำ', poFixCheck({ need: null, issued: 5 }, 5, 2).ok
+     && poFixCheck({ need: null, issued: 5 }, 5, 2).suggest === null && poFixCheck({ need: null, issued: 5 }, 5, 2).afterDiff === null);
+  // จ่ายเกินรับเข้า (คงเหลือ PO ติดลบ) — กล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)
+  const neg = { need: 1000, issued: 900, bal: -100 };   // รับ 800 จ่าย 900 · ยังไม่เกิน BOM
+  ok('คงเหลือติดลบ: แนะนำจำนวนที่ทำให้คงเหลือ = 0 · balAfter บอกคงเหลือหลังแก้',
+     poFixCheck(neg, 300, 200).ok && poFixCheck(neg, 300, 0).suggest === 200 && poFixCheck(neg, 300, 200).balAfter === 0
+     && poFixCheck(neg, 300, 250).balAfter === -50);
+  ok('เกินทั้ง BOM และรับเข้า: แนะนำตัวที่ต้องลดมากกว่า (หายทั้งสองข้อ)',
+     poFixCheck({ need: 500, issued: 600, bal: -30 }, 300, 0).suggest === 200
+     && poFixCheck({ need: 500, issued: 530, bal: -80 }, 300, 0).suggest === 220);
+  ok('ไม่รู้ยอดตาม BOM แต่คงเหลือติดลบ: ยังแนะนำได้จากคงเหลือ', poFixCheck({ need: null, issued: 50, bal: -10 }, 20, 0).suggest === 10);
+  // รายการไหนทำให้เกิน (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { poOverRows } = await import('../v2/master/mrp.js');
+  const E = (qty, at) => ({ qty, at });
+  const cr = poOverRows([E(3, '2026-11-12T02:00Z'), E(3.0004, '2026-11-14T02:00Z')], { need: 6, issued: 6.0004, bal: 0.4996 });
+  ok('เศษ: รายการที่สองทำให้เกิน BOM 0.0004 · รายการแรกไม่เกิน · จ่ายสะสมถูก',
+     cr[0].overBom === 0 && cr[1].overBom === 0.0004 && cr[1].cum === 6.0004 && cr.every(r => r.overRecv === 0 && !r.dupOf));
+  const du = poOverRows([E(300, '2026-11-12T02:00Z'), E(300, '2026-11-12T02:00Z')], { need: 500, issued: 600, bal: 100 });
+  ok('คีย์ซ้ำ: รายการที่สองเกิน BOM 100 และชี้ว่าซ้ำกับรายการแรก (วันเดียวกัน จำนวนเท่ากัน)',
+     du[1].overBom === 100 && du[1].dupOf === du[0].e && du[0].dupOf === null);
+  const ng = poOverRows([E(500, '2026-11-12T02:00Z'), E(400, '2026-11-15T02:00Z')], { need: 1000, issued: 900, bal: -100 });
+  ok('จ่ายเกินรับเข้า: เพดาน = คงเหลือ + จ่ายแล้ว (800) · รายการที่สองเกินรับเข้า 100 · ไม่เกิน BOM',
+     ng[0].overRecv === 0 && ng[1].overRecv === 100 && ng.every(r => r.overBom === 0));
+  ok('ไม่รู้ยอดตาม BOM: ไม่ชี้เกิน BOM · วันต่างกันไม่นับว่าซ้ำ',
+     poOverRows([E(5, '2026-11-01T02:00Z'), E(5, '2026-11-02T02:00Z')], { need: null, issued: 10, bal: 0 }).every(r => r.overBom === 0 && !r.dupOf));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

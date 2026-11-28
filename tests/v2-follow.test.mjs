@@ -8,12 +8,13 @@
  * และถ้าย้ายไม่ idempotent ทุกแถวจะติดธง dirty ใหม่ทุกครั้งที่เปิดโปรแกรม
  */
 import fs from 'node:fs';
-import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver } from '../v2/master/follow.js';
+import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
-import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
-import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
-import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK } from '../v2/master/follow.js';
+import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, pairedInQty, pcCapLeft, reopenShort as reopenShortP } from '../v2/master/follow.js';
+import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
+import { FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
+import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, SKIP_WHY, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
          listFollow, openFollow, orphanFollow, sumFollow,
@@ -624,42 +625,38 @@ ok('การ์ด "ของเกินที่ระบบคำนวณ�
 ok('foStart ส่งวันที่ตามเวลาไทยเข้าไปเอง ไม่ปล่อยให้เป็น UTC',
    /fromOverRow\(row, \{[\s\S]{0,160}date: todayLocal\(\)/.test(appOver));
 
-// ปุ่มนี้ตัดของจริงออกจากคลัง ห้ามเป็นปุ่มติ๊กเดียวจบ
-// เจ้าของสั่ง 5 พ.ย. 2026: คืนแล้วกดทีเดียวแบบ "มาแล้ว" ของ short · กล่องเดิมยังอยู่ที่ลิงก์ "รายละเอียด…"
-ok('ปุ่มคืนแล้วกดทีเดียว · ลิงก์รายละเอียดยังเปิดกล่องเดิมได้',
-   /@click="foReturn\(r\.s\)">คืนแล้ว<\/button>/.test(htmlOver) && /@click="askReturn\(r\.s\)">รายละเอียด…<\/button>/.test(htmlOver)
-   && /v-if="rb\.row"/.test(htmlOver));
-ok('กล่องคืนของให้เลือกล็อตจากของที่มีจริง และไม่ใช้ datalist (issue #26)',
-   /rbLots/.test(htmlOver) && /@click="rb\.lot = l\.lot"/.test(htmlOver)
-   && !/id="rblots"/.test(htmlOver));
-ok('กล่องคืนของบอกยอดหลังคืน และย้อมแดงเมื่อติดลบ',
-   /rbAfter/.test(htmlOver) && /rbAfter < 0/.test(htmlOver));
+// 27 พ.ย. 2026: ปุ่ม "คืนแล้ว" + ช่องยอด + กล่อง "รายละเอียด…" ถูกแทนด้วยหน้าต่าง "คืนของ" (เจ้าของสั่ง)
+//   ล็อตตัดทิ้ง · เหตุผล + หมายเหตุอยู่ในแบบ 1 · ไม่ถามซ้ำเมื่อคงคลังจะติดลบ (over ต้องคืนได้ทุกกรณี)
+ok('ปุ่มคืนของเปิดหน้าต่าง · ไม่มีปุ่มคืนแล้ว ช่องยอดในแถว หรือกล่องรายละเอียดเดิมเหลืออยู่',
+   /@click="openReturn\(r\.s\)">คืนของ<\/button>/.test(htmlOver) && /v-if="rt\.row"/.test(htmlOver)
+   && !/foReturn|askReturn|doReturn|foGot|v-if="rb\.row"|รายละเอียด…<\/button>/.test(htmlOver + appOver));
+ok('หน้าต่างคืนของไม่มีช่องล็อต (เจ้าของสั่งตัด 27 พ.ย. 2026)',
+   !/rt\.lot|rbLots/.test(htmlOver + appOver));
 /* ⚠️ เคมีคิดเป็นกิโลกรัม มีทศนิยม · ลบ float ดิบ ๆ ในเทมเพลตจะได้ 1.3499999999999999
- *    ขณะที่ตารางข้างหลังขึ้น 1.35 เพราะผ่าน remainOf — สองตัวเลขในจอเดียวกันไม่ตรงกัน
- *    บนกล่องที่ตัดของจริงออกจากคลัง (ผู้ตรวจ #90 รอบ 1 · INVARIANTS A2) */
-ok('ยอด "ยังค้าง" ในกล่องคืนของมาจาก remainOf ไม่ใช่ลบ float ดิบ ๆ ในเทมเพลต — A2',
-   /ยังค้าง \{\{ rbRemain \}\}/.test(htmlOver)
-   && !/rb\.row\.qty\s*-\s*\(?rb\.row\.done_qty/.test(htmlOver));
-ok('rbRemain ต่อสายไว้จริงและส่งออกให้เทมเพลตใช้ได้',
-   /const rbRemain = computed\(\(\) => \(rb\.row \? remainOf\(rb\.row\) : 0\)\)/.test(appOver)
-   && /\brbRemain\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
-{ // ค่าที่ rbRemain คืน ต้องตรงกับค่าตั้งต้นของช่อง "จำนวนที่คืน" เป๊ะ (ทางเดียวกัน)
+ *    ขณะที่ตารางข้างหลังขึ้น 1.35 เพราะผ่าน remainOf (ผู้ตรวจ #90 รอบ 1 · INVARIANTS A2) */
+ok('ยอด "ยังค้าง" ในหน้าต่างคืนของมาจาก remainOf ผ่าน mrpNum ไม่ใช่ลบ float ดิบ ๆ ในเทมเพลต — A2',
+   /const rtRemain = computed\(\(\) => \(rt\.row \? remainOf\(rt\.row\) : 0\)\)/.test(appOver)
+   && htmlOver.includes('{{ mrpNum(rtRemain) }}') && !/rt\.row\.qty\s*-\s*\(?(Number\()?rt\.row\.done_qty/.test(htmlOver)
+   && /\brtRemain\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+{ // ค่าที่ rtRemain คืน ต้องตรงกับค่าตั้งต้นของช่อง "จำนวนที่คืน" เป๊ะ (ทางเดียวกัน)
   const frac2 = { qty: 2.96, done_qty: 1.61 };
   ok('เคสทศนิยมที่เคยโชว์ยาวเกินจอ ผ่าน remainOf แล้วได้ 1.35',
      remainOf(frac2) === 1.35 && frac2.qty - frac2.done_qty !== 1.35,
      `${remainOf(frac2)} vs ${frac2.qty - frac2.done_qty}`);
 }
-ok('เตือนเมื่อใบนั้นยังรับมาไม่ครบ แต่ยังกดต่อได้ (A4)',
-   /v-if="rbShort\.length"/.test(htmlOver)
-   && /:disabled="!rbReady \|\| rb\.busy"/.test(htmlOver));
-ok('บันทึกลงสมุดก่อน แล้วค่อยปิดเรื่อง และผูกเลขที่รายการไว้ให้ไล่ย้อนได้',
-   /async function saveReturn\(rec, entry\) \{\s*await db\.put\('entries', \[entry\]\)[\s\S]{0,120}await fsPut\(rec\)/.test(appOver)
-   && /db\.put\('entries', e\)[\s\S]{0,200}await fsPut\(rec\)/.test(appOver) && /rec\.return_entry_id = /.test(fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8')));
+ok('ใบยังรับไม่ครบตามสูตร / คืนเกินยอดที่ระบบคิดได้ = เตือนในหน้าต่าง ไม่บล็อก (rtWarn ไม่อยู่ในเงื่อนไขปุ่ม)',
+   htmlOver.includes('v-if="rtWarn"') && /const rtWarn = computed/.test(appOver)
+   && /const rtReady = computed\(\(\) => !!\(rt\.row && !rt\.busy && rtQty\.value > 0 && rt\.person\.trim\(\) && !rtProblem\.value\)\)/.test(appOver));
+ok('คงคลังจะติดลบ = ไม่ถามซ้ำ ไม่บล็อก (เจ้าของสั่ง 27 พ.ย. 2026 — ให้หน้ายอดคงคลังขึ้นจ่ายเกินเอง)',
+   !/confirm\(/.test(appOver.slice(appOver.indexOf('async function saveReturnPop'), appOver.indexOf('async function foReopen'))));
+ok('บันทึกลงสมุดก่อน แล้วค่อยบันทึกเรื่อง และผูกเลขที่รายการไว้ให้ไล่ย้อนได้',
+   /await db\.put\('entries', add\);[\s\S]{0,120}for \(const r of recs\) await fsPut\(r\)/.test(appOver)
+   && /rec\.return_entry_id = /.test(fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8')));
 
 /* ── ข้อสังเกตหกข้อของผู้ตรวจ #90 (เจ้าของสั่งให้แก้ 20 ก.ย. 2026) ── */
-ok('จับค่าจาก rb.row ไว้ก่อน await — กล่องปิดกลางคันแล้วต้องไม่โยน TypeError',
-   /const row = plain\(rb\.row\);[\s\S]{0,120}const qty = Number\(rb\.qty\);/.test(appOver)
-   && !/flash\(`คืน \$\{rb\.row/.test(appOver));
+ok('จับค่าจาก rt.row ไว้ก่อน await — หน้าต่างปิดกลางคันแล้วต้องไม่โยน TypeError',
+   /const row = plain\(rt\.row\), at = atFrom\(rt\.date\), person = rt\.person\.trim\(\);/.test(appOver)
+   && !/flash\(`[^`]*\$\{rt\.row/.test(appOver));
 {
   // ย้ายไปอยู่ใน returnOver (ทั้งกล่องและปุ่มกดทีเดียวใช้ตัวเดียวกัน) — เทสพฤติกรรมแทนการอ่านซอร์ส
   const ov = makeFollow({ kind: 'over', entity: 'TUE-H', po: 'TM0001H901', code: 'C9', part_no: 'PN', qty: 5 });
@@ -668,22 +665,39 @@ ok('จับค่าจาก rb.row ไว้ก่อน await — กล่
   ok('คืนหลายรอบต้องต่อท้ายเลขที่รายการ ไม่ทับของเดิม',
      a2.rec.return_entry_id === a1.entry.id + ' ' + a2.entry.id && remainOf(a2.rec) === 2);
 }
-ok('กล่องคืนของมีช่องวันที่ และส่ง atFrom(rb.date) เข้าไป',
-   /v-model="rb\.date" type="date"/.test(htmlOver) && /at: atFrom\(rb\.date\)/.test(appOver)
-   && /rb\.date = todayLocal\(\)/.test(appOver));
-ok('กล่องส่งวันที่ที่คนคีย์ไปเป็นวันที่ปิดเรื่องด้วย (ผ่าน returnOver)',
-   /returnOver\(row, \{\s*qty, person: rb\.person\.trim\(\), device: device\.value, at: atFrom\(rb\.date\)/.test(appOver)
+ok('หน้าต่างคืนของมีช่องวันที่ ตั้งเป็นวันนี้ทุกครั้งที่เปิด และส่ง atFrom(rt.date) เข้าไป',
+   /v-model="rt\.date" type="date"/.test(htmlOver) && /at = atFrom\(rt\.date\)/.test(appOver)
+   && /Object\.assign\(rt, \{ row, mode: 1, person: fsBy\.value \|\| '', date: todayLocal\(\)/.test(appOver));
+ok('วันที่ที่คนคีย์เป็นวันที่ปิดเรื่องด้วย (ผ่าน returnOver)',
+   /returnOver\(row, \{ qty: rtQty\.value, person, device: device\.value, at,/.test(appOver)
    && returnOver(makeFollow({ kind: 'over', entity: 'TUE-H', po: 'P', code: 'C', part_no: 'PN', qty: 3 }),
                  { person: 'ก', at: '2026-10-01T03:00:00.000Z' }).rec.done_at === '2026-10-01T03:00:00.000Z');
-ok('ยังไม่เลือกนิติบุคคล กล่องต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ (A3)',
-   /if \(!entity\.value\) return 'ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';/.test(appOver)
-   && /const rbShortWhy = computed/.test(appOver));
-ok('เทียบไม่ได้ต้องขึ้นบอกในกล่อง ไม่ใช่เงียบเหมือนตอนรับครบ',
-   /const rbShortWhy = computed/.test(appOver) && /shortWhyOf\(rb\.row\.po/.test(appOver)
-   && /v-if="rbShortWhy"/.test(htmlOver)
-   && /\brbShortWhy\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+/* ⚠️ หน้าต่าง "คืนของ" ตัดของจริงออกจากคลัง · shortOfPo คืน [] ทั้งตอนรับครบและตอนเทียบไม่ได้
+ *    "ไม่มีคำเตือน" จึงต้องไม่ถูกอ่านว่า "ตรวจแล้วไม่มีปัญหา" — ต้องถาม shortWhyOf ควบคู่เสมอ
+ *    (ผู้ตรวจ #90 รอบ 3 ข้อ 3 · ผู้ตรวจ #199 รอบ 1 ข้อ 1 — เคยหายไปตอนย้ายจากกล่องเดิมมาหน้าต่าง) */
+{
+  const rtSrc = appOver.slice(appOver.indexOf('const rtWarn = computed('), appOver.indexOf('async function saveReturnPop'));
+  ok('ยังไม่เลือกนิติบุคคลที่หัวจอ หน้าต่างต้องบอกว่าเทียบไม่ได้ ไม่ใช่เงียบ (A3)',
+     /if \(!entity\.value\) return 'เทียบไม่ได้[^']*ยังไม่ได้เลือกนิติบุคคลที่หัวจอ';/.test(rtSrc)
+     && !/!entity\.value\) return '';/.test(rtSrc) && htmlOver.includes('v-if="rtWarn"'), rtSrc);
+  ok('เทียบไม่ได้ต้องขึ้นบอกในหน้าต่าง ไม่ใช่เงียบเหมือนตอนรับครบ (rtWarn ส่ง shortWhy)',
+     /shortWhy: short\.length \? '' : shortWhyOf\(o\.po, opt\)/.test(rtSrc)
+     // ที่ต้องส่ง: ไม่ส่ง shortWhy แล้ว returnOverWarn เงียบเท่ากับตอนรับครบ แยกสองกรณีไม่ออก
+     && returnOverWarn({ after: 0, short: [], qty: 5, over: null }) === ''
+     && returnOverWarn({ after: 0, short: [], shortWhy: shortWhyOf('TM9000H777', sOpt), qty: 5, over: null })
+          .includes('เทียบไม่ได้'), rtSrc);
+}
+ok('แบบ 2 รายการ short กรองนิติบุคคลของเรื่อง over เอง (A3) และใช้ offsetShorts',
+   /s\.entity === o\.entity/.test(appOver) && /offsetShorts\(row, picks, \{ person, device: device\.value, date: rt\.date, at \}\)/.test(appOver));
+ok('เลือก อื่น ๆ แต่หมายเหตุว่าง = ข้อความแดง + ปุ่มบันทึกกดไม่ได้ · ช่องหมายเหตุไม่มีคำอธิบายล่วงหน้า (เจ้าของสั่ง 27 พ.ย. 2026)',
+   /rt\.reason === 'other' && !rt\.note\.trim\(\)\) return 'เลือก "อื่น ๆ" แล้ว — ใส่หมายเหตุก่อน/.test(appOver)
+   && htmlOver.includes('<div class="msg bad" v-if="rtProblem">') && htmlOver.includes('<input v-model="rt.note"></label>')
+   && htmlOver.includes(':disabled="!rtReady"'));
+ok('แบบ 1 ไม่มีเหตุผล "ยกไป PO ถัดไป" (คือแบบ 2 แล้ว)',
+   /const rtReasons = REASONS\.sendback\.filter\(r => r\.code !== 'carry'\)\.map\(r => \(r\.code === 'other' \? \{ \.\.\.r, label: 'อื่น ๆ' \} : r\)\)/.test(appOver));
+// cancelShort / cancelOver / cancelBuy ใน follow.js ล้วนจบที่ voidFollow (เทสของแต่ละตัวยืนยัน voided + id เดิม)
 ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
-   /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
+   /(voidFollow|cancelShort|cancelOver|cancelBuy)\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
 
 /* ── ผู้ตรวจ #90 รอบ 4 ข้อ 1 — วันที่คืนที่โชว์กลับมาในตาราง ──────────────
  * done_at ของเรื่องของเกินเป็นวันที่ที่คนเลือกเอง (atFrom) แล้ว
@@ -700,6 +714,32 @@ ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่�
      && !/done_at[^}]*\.slice\(0,\s*10\)/.test(foverSrc));
   ok('localDate ส่งออกให้เทมเพลตใช้ได้จริง',
      /\blocalDate\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+  // 26 พ.ย. 2026: รอคืน โชว์การลบ ตั้งไว้ − คืนแล้ว = ยังค้าง (สกิล record-ui-evidence · แบบเดียวกับ short รอของ)
+  const headO = (foverSrc.match(/<tr v-if="foSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
+  const colsO = [...headO.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  // 27 พ.ย. 2026: ช่องปุ่มไม่มีหัว — ยอดที่คืนรอบนี้ย้ายเข้าหน้าต่างคืนของ
+  ok('รอคืน: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่คืนแล้ว → ยอดที่ยังค้าง → ช่องปุ่ม (8 ช่องเท่า colgroup)',
+     colsO.length === 8 && colsO[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && colsO[4] === 'ยอดที่ตั้งเรื่อง' && colsO[5] === 'ยอดที่คืนแล้ว'
+     && colsO[6] === 'ยอดที่ยังค้าง' && colsO[7] === '', JSON.stringify(colsO));
+  const colgO = (foverSrc.match(/<colgroup>.*?<\/colgroup>/) || [''])[0];
+  ok('รอคืน: colgroup 8 ช่อง · ตาราง fol even (ช่องไฟเท่ากัน)',
+     (colgO.match(/<col\b/g) || []).length === 8 && foverSrc.includes('<table class="fol even">'), colgO);
+  ok('รอคืน: ยอดที่คืนแล้วอ่านจาก done_qty · ที่มาของยอดตั้งเรื่องผ่าน overSetEvidence (ไม่เขียนเงื่อนไขในเทมเพลต)',
+     foverSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
+     && foverSrc.includes('<template v-for="ev in [overSetEv(r.s)]"') && !foverSrc.includes('รับมา <span class="mono">{{ mrpNum(r.s.recv_qty) }}</span> −'));
+  // ผู้ตรวจ #197: การลบต้องลงตัวกับยอดที่ตั้งเรื่อง — ไม่ลงตัว = ไม่โชว์ (เคสจริงสามแบบที่ผู้ตรวจรันให้ดู)
+  ok('overSetEvidence: ตั้งจากระบบ รับมา 100 − ตามสูตร 80 = 20 ลงตัว → โชว์',
+     JSON.stringify(overSetEvidence({ qty: 20, recv_qty: 100, bom_qty: 80 })) === '{"from":"bom","recv":100,"base":80}');
+  ok('overSetEvidence: คืนไปแล้ว 15 ก่อนตั้งเรื่อง (qty 5 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 5, recv_qty: 100, bom_qty: 80 }) === null);
+  ok('overSetEvidence: กลับมาติดตามหลังคืนบางส่วน (qty 3 · รับมา 100 · สูตร 80) → ไม่โชว์',
+     overSetEvidence({ qty: 3, recv_qty: 100, bom_qty: 80, order_qty: 10 }) === null);
+  ok('overSetEvidence: Delta ทับยอด (qty 3 · ส่งจริง 13 · สั่ง 10 · สูตรเดิม 80) → โชว์แบบ Delta ไม่ใช่ 13 − 80',
+     JSON.stringify(overSetEvidence({ qty: 3, recv_qty: 13, bom_qty: 80, order_qty: 10 })) === '{"from":"delta","recv":13,"base":10}');
+  ok('overSetEvidence: ทศนิยมเคมี 2.96 − 1.61 = 1.35 ลงตัวหลังปัด (A2) · ไม่มีตัวเลข = ไม่โชว์',
+     overSetEvidence({ qty: 1.35, recv_qty: 2.96, bom_qty: 1.61 })?.from === 'bom'
+     && overSetEvidence({ qty: 5, recv_qty: null, bom_qty: 1 }) === null && overSetEvidence({ qty: 5, recv_qty: '', order_qty: '' }) === null);
+  ok('หัว over รอคืน ใหญ่กลางจอ (class fol-title)', foverSrc.includes('<h2 class="fol-title">over รอคืน</h2>'));
 }
 { /* พิสูจน์ว่าสองวิธีให้คนละคำตอบจริง ไม่ใช่เทสที่เขียวทั้งก่อนและหลัง
    * เครื่องในโรงงานตั้งเป็นเวลาไทย (+7) แต่เครื่องที่รันเทสอาจเป็น UTC
@@ -798,7 +838,8 @@ ok('รายการของเสียที่รอ คิดจาก pe
 ok('ตั้งเรื่องส่ง follows เข้าไปด้วย — กันตั้งซ้ำใบเดิม',
    /fromScrapRow\(row, \{[\s\S]{0,220}follows: shorts\.value/.test(appBuy));
 
-ok('ยกเลิกเรื่องใช้ voidFollow ไม่ลบทิ้ง (B1)', /fbVoid[\s\S]{0,300}voidFollow\(plain\(row\)/.test(appBuy));
+// fbVoid ผ่าน cancelBuy (บังคับเหตุผล · 26 พ.ย. 2026) ซึ่งจบที่ voidFollow — เทส cancelBuy ยืนยัน voided + id เดิม
+ok('ยกเลิกเรื่องใช้ voidFollow ไม่ลบทิ้ง (B1)', /fbVoid[\s\S]{0,400}cancelBuy\(plain\(row\)/.test(appBuy));
 ok('การ์ดเตือนเรื่องที่ต้นเหตุหายไปมีจริงบนจอ',
    /const fbOrphans = computed/.test(appBuy) && /v-if="fbOrphans\.length"/.test(htmlBuy));
 
@@ -1067,10 +1108,12 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      && shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0).calc === 8,
      JSON.stringify(shortCheckOf({ po: 'TM9269H001', code: 'A', qty: 0 }, all0)));
   // 21 พ.ย. 2026: ตรง = ตัวจาง (ไม่มีป้าย) · ต่าง = ป้าย — same null (ไม่มียอดเทียบ) ต้องไม่ได้ป้าย "ต่าง"
-  ok('คอลัมน์ "ระบบคิดได้" ขึ้นป้าย ตรง/ต่าง เฉพาะเมื่อ same ไม่ใช่ null',
-     htmlSrc.includes('<button v-if="fsCheck(r.s).same === false && fsWhy(r.s).length" type="button" class="tag warn why-tag"')
-     && htmlSrc.includes('<span v-else-if="fsCheck(r.s).same === false" class="tag warn">ต่าง</span>')
-     && htmlSrc.includes(':class="{ hint: fsCheck(r.s).same !== false }"'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
+  // 26 พ.ย. 2026: เจ้าของสั่งให้ขึ้นแค่ป้าย ต่าง · ตัวเลขทั้งสองยอดย้ายไปอยู่ในกล่องข้อความตอนชี้เมาส์ (เดิมบรรทัดยาวล้นคอลัมน์)
+  ok('ยอดที่ยังค้าง: ขึ้นแค่ป้าย ต่าง เมื่อ same === false · กล่องข้อความบอกทั้งยอดค้างและยอดที่ระบบคิดได้',
+     htmlSrc.includes('<div v-if="fsCheck(r.s).same === false" style="font-weight:400"><button v-if="fsWhy(r.s).length" type="button" class="tag warn why-tag"')
+     && htmlSrc.includes('<span v-else class="tag warn" style="cursor:help"')
+     && htmlSrc.includes("'ยอดที่ยังค้าง ' + mrpNum(r.remain) + ' แต่ระบบคิดจากการรับเข้าเทียบสูตรได้ ' + mrpNum(fsCheck(r.s).calc)")
+     && !htmlSrc.includes('ระบบคิดได้ {{ mrpNum(fsCheck(r.s).calc) }}'));   // 1200 → 1400: แถวยาวขึ้นเพราะคอลัมน์วันที่ PO (14 พ.ย. 2026)
   // 25 พ.ย. 2026: รอส่ง โชว์การลบ ตั้งไว้ − มาแล้ว = ยังค้าง (สกิล record-ui-evidence) · ยอดที่ระบบคิดได้เป็นบรรทัดเล็กใต้ยอดที่ตั้งเรื่อง โชว์เฉพาะเมื่อไม่ตรง
   {
     const head = (htmlSrc.match(/<tr v-if="fsSeg === 'open'" class="fol-th">.*?<\/tr>/) || [''])[0];
@@ -1078,15 +1121,24 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
     ok('รอส่ง: หัวคอลัมน์ ยอดที่ตั้งเรื่อง → ยอดที่มาแล้ว → ยอดที่ยังค้าง → ยอดที่มารอบนี้ (8 ช่องเท่า colgroup)',
        cols.length === 8 && cols[3] === 'วัตถุดิบ · วันที่ตั้งเรื่อง' && cols[4] === 'ยอดที่ตั้งเรื่อง' && cols[5] === 'ยอดที่มาแล้ว'
        && cols[6] === 'ยอดที่ยังค้าง' && cols[7] === 'ยอดที่มารอบนี้', JSON.stringify(cols));
-    ok('รอส่ง: ยอดที่มาแล้วอ่านจาก done_qty · ยอดที่ระบบคิดได้ซ่อนเมื่อตรงกัน (same true)',
-       htmlSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}')
-       && htmlSrc.includes('fsCheck(r.s).calc !== null && fsCheck(r.s).same !== true'));
+    ok('รอส่ง: ยอดที่มาแล้วอ่านจาก done_qty',
+       htmlSrc.includes('{{ mrpNum(Number(r.s.done_qty) || 0) }}'));
     /* ผู้ตรวจ #195 ข้อ 1 — กล่องช่วยเหลือต้องบอกฐานเทียบตรงกับ shortChecker (ยอดที่ยังค้าง ไม่ใช่ยอดที่แจ้งไว้)
        และห้ามอ้างว่ามีป้าย "ตรง" เพราะจอซ่อนบรรทัดทิ้งเมื่อเท่ากัน (G3) */
-    const helpCalc = (htmlSrc.match(/<b>ระบบคิดได้<\/b> =[^]*?<\/p>/) || [''])[0];
-    ok('กล่องช่วยเหลือ: "ระบบคิดได้" บอกว่าเทียบกับยอดที่ยังค้าง · โชว์เฉพาะเมื่อไม่เท่ากัน · ไม่อ้างป้าย "ตรง"',
+    const helpCalc = (htmlSrc.match(/ป้าย <b>ต่าง<\/b> ใต้ <b>ยอดที่ยังค้าง<\/b> =[^]*?<\/p>/) || [''])[0];
+    ok('กล่องช่วยเหลือ: ป้าย ต่าง บอกว่าเทียบกับยอดที่ยังค้าง · ขึ้นเฉพาะเมื่อไม่เท่ากัน · ไม่อ้างป้าย "ตรง"',
        helpCalc.includes('ยอดที่ยังค้าง') && !helpCalc.includes('ยอดที่แจ้งไว้')
        && !/\(\s*ตรง\s*\/\s*ต่าง\s*\)/.test(helpCalc), helpCalc.slice(0, 200));
+    /* ผู้ตรวจ #195 รอบ 2 ข้อ 1 — คำอธิบายในโค้ดต้องบอกฐานเทียบตรงกับ shortChecker ด้วย
+       ไม่ใช่แค่ข้อความบนจอ · JSDoc ที่บอกฐานเทียบผิดคือกับดักของ agent คนถัดไป */
+    const folSrc = fs.readFileSync(new URL('../v2/master/follow.js', import.meta.url), 'utf8');
+    const iChk = folSrc.indexOf('export function shortChecker(');
+    const doc = iChk < 0 ? '' : folSrc.slice(folSrc.lastIndexOf('/**', iChk), iChk);
+    ok('JSDoc ของ shortChecker บอกฐานเทียบว่าเป็นยอดที่ยังค้าง ไม่ใช่ยอดที่เรื่องแจ้งไว้',
+       doc.includes('ยอดที่ยังค้าง') && !doc.includes('แจ้งไว้'), doc.slice(0, 300));
+    const fsCalcDoc = (appSrc.match(/คอลัมน์ "ระบบคิดได้" ในตารางเรื่อง =[^\n]*/) || [''])[0];
+    ok('คอมเมนต์หัว fsCalc บอกฐานเทียบว่าเป็นยอดที่ยังค้าง',
+       fsCalcDoc.includes('ยอดที่ยังค้าง') && !fsCalcDoc.includes('แจ้งไว้'), fsCalcDoc);
   }
 
   /* ── ป้าย "ต่าง" ต้องบอกเหตุ (เจ้าของขอ 25 พ.ย. 2026) ──
@@ -1511,12 +1563,14 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
   const b2 = arriveShort(b.rec, { qty: 5, person: 'สมชาย', date: '2026-10-11', at: '2026-10-11T03:00:00.000Z' });
   ok('รอบสองรับที่เหลือ — ผูกเลขที่ต่อท้าย ไม่ทับของเดิม', statusOf(b2.rec) === 'done' && b2.entry.qty === 5
      && b2.rec.receive_entry_id === b.entry.id + ' ' + b2.entry.id);
-  const c = arriveShort(sh, { receive: false, person: 'สมชาย', at });
-  ok('ติ๊กออก = ปิดเรื่องอย่างเดียว ไม่รับเข้า (ของมากับ Kit List ที่คีย์ไปแล้ว)', statusOf(c.rec) === 'done' && c.entry === null && !c.rec.receive_entry_id);
+  // 26 พ.ย. 2026: เจ้าของสั่งให้รับเข้าคลังทุกครั้ง — ส่ง receive: false มาก็ไม่มีผล
+  const c0 = arriveShort(sh, { receive: false, person: 'สมชาย', at });
+  ok('ส่ง receive: false มา = ยังรับเข้าคลัง (ไม่มีทางปิดเรื่องอย่างเดียวแล้ว)', statusOf(c0.rec) === 'done' && c0.entry && c0.entry.qty === 8);
+  // เรื่องเก่าที่ปิดไปแบบไม่รับเข้า (ก่อน 26 พ.ย. 2026) ยังเอากลับได้
+  const c = { rec: closeFollow(sh, { by: 'สมชาย', at }) };
   // แถวที่แกะจากไฟล์ PO แล้วไม่บอกจำนวนมี qty 0 โดยการออกแบบ (makeFollow ไม่สร้างให้ จึงต่อเอง)
   const z = { ...makeFollow({ kind: 'short', type: 'รอส่ง', entity: E, po: 'TM9269H002', code: 'B1', qty: 1 }), qty: 0 };
-  const z1 = arriveShort(z, { person: 'สมชาย', at });
-  ok('เรื่องไม่ระบุจำนวน + เว้นยอด = ปิดเฉย ๆ ไม่รับเข้า (ไม่รู้ว่ามาเท่าไหร่)', statusOf(z1.rec) === 'done' && z1.entry === null);
+  throws('เรื่องไม่ระบุจำนวน + เว้นยอด = โยน บอกให้ใส่ยอดที่มา (รับเข้าคลังทุกครั้ง)', () => arriveShort(z, { person: 'สมชาย', at }), 'ใส่ยอดที่มา');
   const z2 = arriveShort(z, { qty: 12, person: 'สมชาย', date: '2026-10-10', at });
   ok('เรื่องไม่ระบุจำนวน + ใส่ยอด 12 = ปิด + รับเข้า 12', statusOf(z2.rec) === 'done' && z2.entry && z2.entry.qty === 12);
   throws('รับเข้าแต่ไม่มีชื่อผู้บันทึก = โยน บอกทางออก', () => arriveShort(sh, { at }), 'ผู้บันทึก');
@@ -1554,8 +1608,8 @@ console.log('\n=== V. short "มาแล้ว" = รับเข้าคล�
     ok('localDate ของวันปิดเรื่องได้วันที่ที่คนเลือก', localDate(early) === '2026-10-08');
   }
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-  ok('จอ: ช่องติ๊ก "รับเข้าคลังด้วย" · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
-     html.includes('v-model="fsRecv"') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
+  ok('จอ: ไม่มีช่องติ๊ก "รับเข้าคลังด้วย" แล้ว (26 พ.ย. 2026) · ช่องจำนวนทุกแถว (รวมเรื่องไม่ระบุจำนวน)',
+     !html.includes('fsRecv') && !app.includes('fsRecv') && !html.includes('<input v-if="r.s.qty > 0" v-model="fsGot[r.s.id]"'));
   // ข้อความ A3 ต้องชี้ของที่มีอยู่จริงบนจอ — เดินถึงได้จริงเมื่อยังไม่เลือกนิติบุคคลที่หัวจอ
   // แล้วตารางเหลือแต่แถวกำพร้า (G3 · ผู้ตรวจ #130 รอบ 4 ข้อ 1)
   {
@@ -1789,11 +1843,18 @@ console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ
   const sh = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM9269H101', code: 'A1', qty: 4 });
   const at = '2026-10-19T03:00:00.000Z';
   // short ไม่มีเลข PO + ติ๊กรับเข้า — เดิมโยน "รับเข้า ต้องอ้างอิงเอกสาร" ไม่บอกทางออก
-  throws('short ไม่มี PO + รับเข้า = บอกว่าไม่มีเลข PO และให้เอาติ๊กออก', () => arriveShort({ ...sh, po: '' }, { person: 'ก', at }), 'ไม่มีเลข PO');
-  ok('short ไม่มี PO + ไม่ติ๊กรับเข้า = ปิดเรื่องได้', arriveShort({ ...sh, po: '' }, { receive: false, person: 'ก', at }).entry === null);
+  throws('short ไม่มี PO = บอกว่าไม่มีเลข PO', () => arriveShort({ ...sh, po: '' }, { person: 'ก', at }), 'ไม่มีเลข PO');
   const htmlZ = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const appZ = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
-  ok('ข้อความอ้างชื่อช่องติ๊กที่มีอยู่จริงบนจอ (G3)', htmlZ.includes('v-model="fsRecv"> กด "มาแล้ว" = รับเข้าคลังด้วย'));
+  {
+    let msg = '';
+    try { arriveShort({ ...sh, po: '' }, { person: 'ก', at }); } catch (e) { msg = e.message; }
+    // G3 — ทางออกที่ข้อความบอกต้องเป็นปุ่มที่มีอยู่จริงบนจอ
+    // ไม่ชี้ "เพิ่มเรื่องเอง" — เจ้าของจะเอาปุ่มนั้นออก (26 พ.ย. 2026)
+    ok('ไม่มี PO: ข้อความชี้ปุ่ม "ยกเลิกเรื่อง" ที่มีอยู่จริงบนจอ (G3) · ไม่ชี้ "เพิ่มเรื่องเอง"',
+       msg.includes('"ยกเลิกเรื่อง"') && !msg.includes('เพิ่มเรื่องเอง')
+       && htmlZ.includes('>ยกเลิกเรื่อง</button>'), msg);
+  }
 
   // เอากลับ — จดร่องรอยไว้ที่หมายเหตุ (ไม่เพิ่มช่องใหม่)
   const closed = closeFollow({ ...sh, note: 'ตามกับผู้ขาย' }, { by: 'สมชาย', at: '2026-10-18T03:00:00.000Z' });
@@ -1829,7 +1890,9 @@ console.log('\n=== Z. เรื่องจุกจิก Mat Follow up (เจ
   ok('จอ: แถวนอกสูตรบอกว่ามีในทะเบียนไหม', /note: l\.note, known: !!m \}/.test(appZ));
 
   // จอ
-  ok('จอ: ติ๊กรับเข้าไว้แต่ไม่ได้รับ = บอกว่าไม่ได้รับเข้าคลัง', appZ.includes("' · ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)'"));
+  // 26 พ.ย. 2026: รับเข้าคลังทุกครั้ง — ไม่มีกรณีปิดเรื่องแล้วไม่ได้รับเข้า · ข้อความแจ้งต้องบอกยอดที่รับเข้าเสมอ
+  ok('จอ: กด "มาแล้ว" สำเร็จ = บอกยอดที่รับเข้าคลังทุกครั้ง', appZ.includes("const recv = ` · รับเข้าคลัง ${entry.qty} แล้ว`;")
+     && !appZ.includes('ไม่ได้รับเข้าคลัง (ไม่ได้ใส่จำนวนที่มา)'));
   ok('จอ: ปุ่ม "มาแล้ว" จางระหว่างบันทึก', htmlZ.includes(`:disabled="starting.has('fsclose|' + r.s.id)"`));
   ok('จอ: เปลี่ยน P/N ล้างรหัสนอกสูตรด้วย', htmlZ.includes('fbm.rnote = {}; fbm.extra = []"'));
   ok('จอ: ตารางเรื่องซ้ำแสดงทีละ SHOW_MAX และยกเลิกเฉพาะที่แสดง',
@@ -1867,7 +1930,34 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   const cx = cancelShort(open, { by: 'หัวหน้า', why: 'ยอดน้อย ไม่ติดตาม' });
   ok('ยกเลิกเรื่อง = ไม่ลบ · เหตุผลขึ้นต้นด้วยคำคงที่', cx.voided && cx.id === open.id && stopMarkOf(cx) === 'cancel'
      && cx.void_reason === CANCEL_MARK + ' — ยอดน้อย ไม่ติดตาม');
-  ok('ยกเลิกเรื่องไม่ใส่เหตุผล = ยังมีคำคงที่', cancelShort(open, { by: 'ก' }).void_reason === CANCEL_MARK);
+  // ต้องพิมพ์เหตุผลทุกครั้ง (เจ้าของสั่ง 25 พ.ย. 2026) — เคยเติมคำให้ก่อน แล้วพนักงานกดตกลงเลยไม่แก้
+  throws('ยกเลิกเรื่องไม่ใส่เหตุผล = โยน', () => cancelShort(open, { by: 'ก' }), 'เหตุผล');
+  throws('ยกเลิกเรื่องเหตุผลมีแต่ช่องว่าง = โยน', () => cancelShort(open, { by: 'ก', why: '   ' }), 'เหตุผล');
+  // ปุ่มไม่ติดตามไม่ถามเหตุผลแล้ว (เจ้าของสั่ง 28 พ.ย. 2026 — มีไว้เคลียร์ยอดน้อยอย่างเดียว) ระบบจด "ยอดน้อย" ให้
+  const skNo = skipShort(calc, { entity: E, person: 'ก', at });
+  ok('ไม่ติดตาม short ไม่ต้องใส่เหตุผล · ระบบจด "ไม่ติดตาม — ยอดน้อย" · ยังจดยอดขาดตอนกด',
+     SKIP_WHY === 'ยอดน้อย' && skNo.voided && skNo.void_reason === SKIP_MARK + ' — ' + SKIP_WHY
+     && stopMarkOf(skNo) === 'skip' && stopWhy(skNo) === SKIP_WHY && skNo.qty === 5, JSON.stringify(skNo));
+  // เจ้าของเลือกข้อ 2: มีตัวหนังสือไทย/อังกฤษ + ยาวอย่างน้อย 5 ตัวไม่นับช่องว่าง
+  for (const w of ['-', '.', '---', '12345', '- - - - -', 'ก', 'ไม่', ' a b ']) {
+    ok(`เหตุผล "${w}" ไม่ผ่าน`, stopWhyProblem(w) !== '', stopWhyProblem(w));
+  }
+  for (const w of ['ยอดน้อย', 'Delta ไม่ส่ง', 'short', '  ของหมด  ']) {
+    ok(`เหตุผล "${w}" ผ่าน`, stopWhyProblem(w) === '', stopWhyProblem(w));
+  }
+  ok('ไม่ผ่านแล้วบอกสาเหตุ', stopWhyProblem('-').includes('ตัวหนังสือ') && stopWhyProblem('ไม่').includes(`${WHY_MIN} ตัวอักษร`));
+  throws('ยกเลิกเรื่องเหตุผล "-" = โยน', () => cancelShort(open, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
+  ok('ไม่ติดตาม short: คำที่ส่งมาทาง why ไม่ถูกใช้ (ปุ่มนี้มีเหตุผลเดียว)',
+     skipShort(calc, { entity: E, person: 'ก', at, why: '-' }).void_reason === SKIP_MARK + ' — ' + SKIP_WHY);
+  // ยกเลิกเรื่องหน้าซื้อ — กฎเหตุผลเดียวกัน (เจ้าของสั่ง 26 พ.ย. 2026)
+  throws('ยกเลิกเรื่องซื้อไม่ใส่เหตุผล = โยน', () => cancelBuy(bu, { by: 'ก' }), 'เหตุผล');
+  throws('ยกเลิกเรื่องซื้อเหตุผล "-" = โยน', () => cancelBuy(bu, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
+  throws('ยกเลิกเรื่องซื้อเหตุผลสั้นเกิน = โยน', () => cancelBuy(bu, { by: 'ก', why: 'ซ้ำ' }), 'สั้นเกินไป');
+  throws('cancelBuy ใช้กับ short ไม่ได้', () => cancelBuy(open, { by: 'ก', why: 'ตั้งผิดตัว' }), 'ซื้อทดแทน');
+  { const bx = cancelBuy(bu, { by: 'หัวหน้า', why: '  ตั้งเรื่องซ้ำกับใบเดิม  ' });
+    ok('ยกเลิกเรื่องซื้อ = ไม่ลบ · เก็บเหตุผลตามที่พิมพ์ (ตัดช่องว่างหัวท้าย) ไม่มีคำนำหน้าของปุ่ม short / over',
+       bx.voided && bx.id === bu.id && bx.void_reason === 'ตั้งเรื่องซ้ำกับใบเดิม' && bx.void_by === 'หัวหน้า' && stopMarkOf(bx) === '',
+       bx.void_reason); }
   throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelShort(open, {}), 'ผู้บันทึก');
   throws('ยกเลิกเรื่องที่ปิดแล้ว = โยน', () => cancelShort(closeFollow(open, { by: 'ก' }), { by: 'ก' }), 'ปิดไปแล้ว');
   throws('ยกเลิกซ้ำ = โยน', () => cancelShort(cx, { by: 'ก' }), 'ยกเลิกไปแล้ว');
@@ -1878,7 +1968,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   // ยกเลิกเรื่องที่ของมาบางส่วน = เพดานต้องเป็นยอดที่ยังค้างตอนกด ไม่ใช่ qty เต็ม
   // ไม่งั้นยกเลิกรายการรับเข้าแล้วของขาดโตกลับ แต่การ์ดไม่กลับมาขึ้น (ผู้ตรวจ #146 รอบ 4 ข้อ 1)
   const partGot = cancelShort({ ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H205',
-                                code: '9100000205', qty: 10, by: 'ก', now: at }), done_qty: 4 }, { by: 'ก' });
+                                code: '9100000205', qty: 10, by: 'ก', now: at }), done_qty: 4 }, { by: 'ก', why: 'ยอดน้อย' });
   const calc5 = { po: 'TM0001H205', code: '9100000205', short: 6 };
   ok('ยกเลิกเรื่องที่ของมาบางส่วน: ขาดเท่าตอนกด (6) = ไม่ขึ้น · ขาดโตกลับเป็น 10 (ยกเลิกรับเข้า) = กลับมาขึ้น',
      shortPending([calc5], [partGot]).length === 0 && shortPending([{ ...calc5, short: 10 }], [partGot]).length === 1);
@@ -1892,7 +1982,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   // หยุด → กลับมา → หยุดอีก = การ์ดต้องเหลือรอบล่าสุดรอบเดียว ไม่งั้นกดรอบเก่าแล้วยอดที่รอบหลังรับเข้าคลัง
   // ไปแล้วถูกนับใหม่ = คงคลังเกินจริง (ผู้ตรวจ #146 รอบ 3 ข้อ 1)
   const c1 = { ...cancelShort(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H204',
-               code: '9100000204', qty: 10, by: 'ก', now: at }), { by: 'ก' }),
+               code: '9100000204', qty: 10, by: 'ก', now: at }), { by: 'ก', why: 'ยอดน้อย' }),
                done_qty: 4, void_at: '2026-11-04T01:00:00.000Z' };
   const c2 = { ...c1, id: 'ST-2', qty: 6, done_qty: 1, void_at: '2026-11-04T05:00:00.000Z' };
   const card = stoppedShorts([c1, c2], { entity: E });
@@ -1916,7 +2006,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   // ไม่งั้นกด "มาแล้ว" ทั้งใบรอบสองจะรับเข้าคลังซ้ำยอดที่มาแล้ว (ผู้ตรวจ #146 รอบ 2 ข้อ 1)
   const half = closeFollow(makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H203',
                                         code: '9100000203', qty: 10, by: 'ก', now: at }), { qty: 4, by: 'ก' });
-  const halfBack = restartShort(cancelShort(half, { by: 'ก' }), { by: 'ก', at });
+  const halfBack = restartShort(cancelShort(half, { by: 'ก', why: 'ยอดน้อย' }), { by: 'ก', at });
   ok('กลับมาติดตามเรื่องที่ของมาแล้วบางส่วน = ตั้งยอดเท่าที่ยังค้าง ไม่ใช่ยอดเต็ม (กันรับเข้าคลังเกิน)',
      halfBack.qty === 6 && remainOf(halfBack) === 6, JSON.stringify({ q: halfBack.qty, remain: remainOf(halfBack) }));
   throws('เรื่องที่ของมาครบแล้วแต่ยกเลิกไว้ = ไม่มียอดค้าง บอกให้เพิ่มเอง',
@@ -1927,7 +2017,7 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   const htmlS = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ปุ่มยกเลิกเรื่องในตาราง short · ไม่ติดตามในการ์ดคิดได้ · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม',
      htmlS.includes('@click="fsVoid(r.s)">ยกเลิกเรื่อง</button>') && htmlS.includes('@click="fsSkip(r)">ไม่ติดตาม</button>')
-     && appS.includes('stop: fsStopped.value.length') && htmlS.includes("<template v-if=\"fsSeg === 'stop'\">") && htmlS.includes('@click="fsRestart(x.s)">กลับมาติดตาม</button>')
+     && appS.includes('...stopCounts(fsStopped.value)') && htmlS.includes("<template v-if=\"isStopSeg(fsSeg)\">") && htmlS.includes('@click="fsRestart(x.s)">กลับมาติดตาม</button>')
      && /fsStopped = computed\(\(\) => stoppedShorts\(shorts\.value, \{ entity: entity\.value \}\)\)/.test(appS));
 }
 
@@ -1936,10 +2026,10 @@ console.log('\n=== ST2. คู่เดียวกันหยุดสอง�
   const E = 'TUE-H';
   const t = h => `2026-11-0${h}T03:00:00.000Z`;
   const r1 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: 'TM0001H501', code: '9100000501', qty: 10, by: 'ก', now: t(1) });
-  const stop1 = { ...cancelShort(r1, { by: 'ก' }), void_at: t(2) };                    // รอบ 1: ค้าง 10
+  const stop1 = { ...cancelShort(r1, { by: 'ก', why: 'ยอดน้อย' }), void_at: t(2) };                    // รอบ 1: ค้าง 10
   const r2 = { ...restartShort(stop1, { by: 'ก', at: t(3) }), created_at: t(3) };
   const got8 = closeFollow(r2, { qty: 8, by: 'ก' });                                     // มาแล้ว 8 → ค้าง 2
-  const stop2 = { ...cancelShort(got8, { by: 'ก' }), void_at: t(4) };                   // รอบ 2: ค้าง 2
+  const stop2 = { ...cancelShort(got8, { by: 'ก', why: 'ยอดน้อย' }), void_at: t(4) };                   // รอบ 2: ค้าง 2
   const all = [stop1, stop2];
   const pend = short => shortPending([{ po: 'TM0001H501', code: '9100000501', short }], all).length;
   ok('หยุดสองรอบ (10 แล้ว 2): ขาด 2 = ไม่ขึ้น · ขาด 3 / 6 / 10 = ขึ้น',
@@ -1960,14 +2050,14 @@ console.log('\n=== ST3. หยุดแล้วกลับมาทำต่�
   const pend = (short, all) => shortPending([{ po: P, code: C, short }], all).length;
   // เส้นที่ 1: ยกเลิกตอนค้าง 10 → กลับมาติดตาม → มาครบ → ปิด
   const r1 = makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 10, by: 'ก', now: t(1) });
-  const stop1 = { ...cancelShort(r1, { by: 'ก' }), void_at: t(2) };
+  const stop1 = { ...cancelShort(r1, { by: 'ก', why: 'ยอดน้อย' }), void_at: t(2) };
   const back = { ...restartShort(stop1, { by: 'ก', at: t(3) }), created_at: t(3) };
   const closed = closeFollow(back, { by: 'ก' });
   ok('กลับมาติดตามแล้วปิดเรื่อง → ของขาดใหม่ 5 = ขึ้น · 10 (เท่าเรื่องที่ปิด) = ไม่ขึ้นตามกฎเดิม',
      pend(5, [stop1, closed]) === 1 && pend(10, [stop1, closed]) === 0);
   // เส้นที่ 2: ไม่ติดตามตอนขาด 8 → ตั้งเรื่องเอง → ปิด
   const sk = { ...skipShort({ po: P, code: C, pn: 'PN', short: 8, order: 1, need: 8, have: 0, why: '' },
-                              { entity: E, person: 'ก', at: t(1) }), void_at: t(2) };
+                              { entity: E, person: 'ก', at: t(1), why: 'ยอดน้อย' }), void_at: t(2) };
   const own = closeFollow({ ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, po: P, code: C, qty: 8, by: 'ก', now: t(4) }), created_at: t(4) }, { by: 'ก' });
   ok('ไม่ติดตามแล้วไปตั้งเรื่องเองจนปิด → ของขาดใหม่ 4 = ขึ้น', pend(4, [sk, own]) === 1);
   // ไม่มีเรื่องตั้งทีหลัง = ผลเดิม
@@ -2133,9 +2223,10 @@ console.log('\n=== OR. over: คืนแล้วกดทีเดียว (�
 
   const appR = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlR = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-  ok('จอ: ตาราง over มีช่องยอด + คืนแล้ว · ช่องวันที่คืนอยู่การ์ดเรื่องที่ตั้งไว้แล้วที่เดียว',
-     htmlR.includes('v-model="foGot[r.s.id]"')
-     && (htmlR.match(/v-model="foDate" type="date"/g) || []).length === 1);
+  // 27 พ.ย. 2026: ช่องยอด + ช่องวันที่คืนย้ายเข้าหน้าต่างคืนของ — ช่องวันที่มีที่เดียว
+  ok('จอ: ตาราง over ไม่มีช่องยอดในแถวแล้ว · ช่องวันที่คืนอยู่ในหน้าต่างคืนของที่เดียว',
+     !htmlR.includes('foGot') && (htmlR.match(/v-model="rt\.date" type="date"/g) || []).length === 1
+     && !htmlR.includes('v-model="foDate"'));
   {
     // เจ้าของสั่ง 15 พ.ย. 2026: ของเกินที่ยังไม่ตั้งเรื่อง ต้องตั้งเรื่องก่อน ห้ามคืนข้ามขั้น
     // 21 พ.ย. 2026: การ์ดนี้กลายเป็นปุ่มกรอง "ต้องตั้งเรื่อง" ในตารางจัดกลุ่มราย PO
@@ -2146,11 +2237,12 @@ console.log('\n=== OR. over: คืนแล้วกดทีเดียว (�
        && card.includes('@click="foStart(r)"') && card.includes('@click="foSkip(r)">ไม่ติดตาม</button>')
        && !/foReturnNew/.test(appR + htmlR));
   }
-  ok('จอ: วันที่คืนเลื่อนเป็นวันใหม่เองเมื่อเปิดจอค้างข้ามคืน (กติกาเดียวกับ short)',
-     /foDateOn !== t\) \{ foDate\.value = rollDay\(/.test(appR) && /watch\(tab, k => \{ if \(k === 'fover'\) foDayNow\(\); \}\)/.test(appR));
-  ok('จอ: คำเตือนขึ้นก่อนบันทึก · ปุ่มกันกดซ้ำ · กล่องเดิมใช้ returnOver ตัวเดียวกัน',
-     /const warn = foReturnWarn\(row, qty\);\s*if \(warn && !confirm\(/.test(appR) && /startOnce\(starting, 'foreturn\|' \+ row\.id/.test(appR)
-     && /const \{ rec, entry: e \} = returnOver\(row, \{/.test(appR) && htmlR.includes(`:disabled="starting.has('foreturn|' + r.s.id)"`));
+  // วันที่คืนตั้งใหม่เป็นวันนี้ทุกครั้งที่เปิดหน้าต่าง จึงไม่ค้างข้ามคืนแบบช่องถาวรเดิม
+  ok('จอ: วันที่คืนเป็นวันนี้ทุกครั้งที่เปิดหน้าต่าง (ไม่ค้างข้ามคืน)',
+     /function openReturn\(row\) \{[\s\S]{0,200}date: todayLocal\(\)/.test(appR));
+  ok('จอ: ปุ่มบันทึกกันกดซ้ำระหว่างเซฟ · แบบ 1 ใช้ returnOver ตัวเดียวกับทางเดิม',
+     /if \(!rtReady\.value \|\| futureBlocked\(rt\.date\)\) return;\s*rt\.busy = true;/.test(appR) && /!rt\.busy/.test(appR)
+     && /const \{ rec, entry \} = returnOver\(row, \{/.test(appR));
 }
 
 console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ติดตาม แบบเดียวกับ short (เจ้าของสั่ง 5 พ.ย. 2026) ===');
@@ -2162,6 +2254,9 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   ok('ไม่ติดตาม = เรื่อง over ที่ยกเลิกไว้ · จดยอดเกินตอนกด · คำนำหน้าเดียวกับ short',
      sk.kind === 'over' && sk.voided && sk.qty === 3 && sk.void_reason === SKIP_MARK + ' — ยอดน้อย' && stopMarkOf(sk) === 'skip');
   throws('ไม่ติดตามแต่ไม่มีชื่อ = โยน', () => skipOver(calc, { entity: E, at: t(1) }), 'ผู้บันทึก');
+  const skNo = skipOver(calc, { entity: E, person: 'ก', at: t(1) });
+  ok('ไม่ติดตาม over ไม่ต้องใส่เหตุผล · ระบบจด "ไม่ติดตาม — ยอดน้อย" (เจ้าของสั่ง 28 พ.ย. 2026)',
+     skNo.voided && skNo.qty === 3 && skNo.void_reason === SKIP_MARK + ' — ' + SKIP_WHY && stopMarkOf(skNo) === 'skip');
   const pend = (over, all, opt) => overPending([{ ...calc, over }], all, opt).length;
   ok('ยอดเกินเท่าเดิม / ลดลง = ไม่ขึ้น · เพิ่มขึ้น = กลับมาขึ้น', pend(3, [sk]) === 0 && pend(2, [sk]) === 0 && pend(4, [sk]) === 1);
   ok('ใบตัดยอดของ Delta (stops: false) ยังนับของที่ไม่ติดตาม', pend(3, [sk], { stops: false }) === 1);
@@ -2171,9 +2266,10 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   ok('ยกเลิกเรื่อง over = ไม่ลบ · คำนำหน้า ยกเลิกเรื่อง', cx.voided && cx.id === ov.id && stopMarkOf(cx) === 'cancel');
   throws('ยกเลิกเรื่องที่คืนครบแล้ว = โยน', () => cancelOver(closeFollow(ov, { by: 'ก' }), { by: 'ก' }), 'คืนครบแล้ว');
   throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelOver(ov, {}), 'ผู้บันทึก');
+  throws('ยกเลิกเรื่อง over ไม่ใส่เหตุผล = โยน', () => cancelOver(ov, { by: 'ก' }), 'เหตุผล');
   throws('ยกเลิกเรื่องที่ไม่รู้นิติบุคคล = โยน (A3)', () => cancelOver({ ...ov, entity: '' }, { by: 'ก' }), 'A3');
   throws('cancelOver ใช้กับ short ไม่ได้', () => cancelOver({ ...ov, kind: 'short' }, { by: 'ก' }), 'over');
-  const part = { ...cancelOver(closeFollow(ov, { qty: 6, by: 'ก' }), { by: 'ก' }), void_at: t(2) };
+  const part = { ...cancelOver(closeFollow(ov, { qty: 6, by: 'ก' }), { by: 'ก', why: 'ยอดน้อย' }), void_at: t(2) };
   const pendB = over => overPending([{ ...calc, po: 'TM0001H802', code: '9100000802', over }], [part]).length;
   ok('ยกเลิกเรื่องที่คืนไปบางส่วน: เพดาน = ยอดค้าง (4) ไม่ใช่ยอดเต็ม (10)', pendB(4) === 0 && pendB(5) === 1);
 
@@ -2196,7 +2292,7 @@ console.log('\n=== OS. over: ยกเลิกเรื่อง / ไม่ต
   const htmlO = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ไม่ติดตามในการ์ดคิดได้ · ยกเลิกเรื่องจาง · การ์ดยกเลิก/ไม่ติดตาม · กลับมาติดตาม · เตือนก่อนยกเลิก',
      htmlO.includes('@click="foSkip(r)">ไม่ติดตาม</button>') && htmlO.includes(`:disabled="starting.has('fovoid|' + r.s.id)"`)
-     && htmlO.includes("<template v-if=\"foSeg === 'stop'\">") && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
+     && htmlO.includes("<template v-if=\"isStopSeg(foSeg)\">") && htmlO.includes('@click="foRestart(x.s)">กลับมาติดตาม</button>')
      && /const warn = cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\);\s*if \(warn && !confirm\(/.test(appO) && /cancelOver\(plain\(row\), \{ by: fsBy\.value, why \}\)/.test(appO));
 }
 
@@ -2225,9 +2321,9 @@ console.log('\n=== OX. over: เตือนเมื่อจะคืนมา
 
   const appX = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlX = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
-  ok('จอ: ปุ่มคืนแล้วส่งยอดเกินตอนนี้ให้คำเตือน · กล่องรายละเอียดมีช่องเตือน + ถามก่อนบันทึก · ยกเลิกเรื่องใช้ตัวเดียวกัน',
-     /qty, over: foCalcOf\(row\.po, row\.code\)/.test(appX) && htmlX.includes('v-if="rbExceed"')
-     && /if \(rbExceed\.value && !confirm\(/.test(appX) && /cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\)/.test(appX));
+  ok('จอ: หน้าต่างคืนของส่งยอดเกินตอนนี้ให้คำเตือน (เตือน ไม่ถาม) · ยกเลิกเรื่องใช้ตัวเดียวกัน',
+     /qty: rtQty\.value, over: foCalcOf\(o\.po, o\.code\)/.test(appX) && htmlX.includes('v-if="rtWarn"')
+     && /cancelOverWarn\(row, foCalcOf\(row\.po, row\.code\)\)/.test(appX));
 }
 
 console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้วย P/N ได้ (เจ้าของสั่ง 7 พ.ย. 2026) ===');
@@ -2253,14 +2349,16 @@ console.log('\n=== PN. ตาราง short แสดง P/N · ค้นด้
   const htmlP = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   // 21 พ.ย. 2026: หน้า short จัดกลุ่มราย PO — PO · วันที่ PO · P/N อยู่ที่หัว PO ของทุกปุ่มกรอง (รอของ · ยกเลิก / ไม่ติดตาม ด้วย)
   const iSh = htmlP.indexOf("<template v-else-if=\"tab==='fshort'\">");
-  const tbl = htmlP.slice(htmlP.indexOf('<table class="fol">', iSh), htmlP.indexOf('</table>', htmlP.indexOf('<table class="fol">', iSh)));
+  // ⚠️ หาด้วยคำนำ '<table class="fol' — ตาราง short เป็น "fol even" แล้ว (#195) · หาแบบเต็มคำจะข้ามไปเจอตาราง over แทนโดยไม่ฟ้อง (#197)
+  const iTbl = htmlP.indexOf('<table class="fol', iSh);
+  const tbl = iTbl < 0 ? '' : htmlP.slice(iTbl, htmlP.indexOf('</table>', iTbl));
   ok('จอ: ตารางของขาด / รอส่ง มีคอลัมน์ PO · วันที่ PO · P/N · แถวว่างกินครบทุกคอลัมน์ · ช่องค้นบอกว่าค้น P/N ได้',
      tbl.includes("{{ poDateOf(g.po) || 'ไม่มีวันที่' }}") && tbl.includes("{{ g.po || '(ไม่มีเลข PO)' }}") && tbl.includes("{{ g.pn || '—' }}")
      && tbl.includes(':class="{ hint: g.items[0].s && fsPn(g.items[0].s).fromPo }"') && tbl.includes('colspan="8"')
      && htmlP.includes('<input v-model.trim="fsSearch" placeholder="ค้น PO · P/N · รหัส"'));
   ok('จอ: การ์ดยกเลิก / ไม่ติดตามแล้ว ของ short มี P/N',
      appP.includes('const pickStory = s => ({ po: s.po, pn: partNoOf(s, poIdx.value).pn')
-     && /seg === 'stop' \? groupByPo\(stopped, \{ pick: x => pickStory\(x\.s\)/.test(appP));
+     && /isStopSeg\(seg\) \? groupByPo\(stopped, \{ pick: x => pickStory\(x\.s\)/.test(appP));
   ok('จอ: ตาราง short / over ส่งตัวหา PO ให้ช่องค้น', (appP.match(/showDone: [^\n]*headerOf: poIdx\.value/g) || []).length === 2);
   // ตาราง buy แสดง part_no ของเรื่องเอง และ listFollow ค้น part_no · note อยู่แล้ว — ป้ายต้องบอก (ผู้ตรวจ #151 รอบ 2 ข้อ 1)
   ok('จอ: ป้ายช่องค้นของตาราง ซื้อแมททดแทน บอกว่าค้น P/N · ข้อความได้',
@@ -2401,7 +2499,7 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
   ok('ตัวนับปุ่มกรอง: รอของนับรวมที่มาบางส่วน · ปิดแล้วแยก · ยกเลิกไม่นับ · ไม่ปนนิติบุคคลอื่น (A3) · ไม่ปนชนิดอื่น',
      c.open === 2 && c.partial === 1 && c.done === 2, JSON.stringify(c));
   ok('ปุ่มกรองเรียงตามขั้นของงาน และคีย์ตรงกับตัวนับ',
-     ['short', 'over'].every(k => FOLLOW_SEG[k].map(x => x.k).join() === 'new,open,done,stop'));
+     ['short', 'over'].every(k => FOLLOW_SEG[k].map(x => x.k).join() === 'new,open,done,cancel,skip'));
 
   const items = [{ po: 'P2', pn: '', code: 'A' }, { po: 'P1', pn: 'N1', code: 'B' }, { po: 'P2', pn: 'N2', code: 'C' }];
   const g = groupByPo(items, { pick: r => r });
@@ -2494,16 +2592,287 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
   const appG = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
   const htmlG = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   ok('จอ: ตัวนับบนปุ่มกรองนับจากรายการเต็ม · ปุ่มกรองแทนช่องติ๊กแสดงที่ปิดแล้ว',
-     appG.includes('const fsCounts = computed(() => ({ new: fsNew.value.length, stop: fsStopped.value.length,')
+     appG.includes('const fsCounts = computed(() => ({ new: fsNew.value.length, ...stopCounts(fsStopped.value),')
      && appG.includes("const fsShowDone = computed(() => fsSeg.value === 'done');") && !htmlG.includes('v-model="fsShowDone"')
      && !htmlG.includes('v-model="foShowDone"'));
   ok('จอ: พับ / กาง ใช้ reactive ไม่ส่ง ref เข้าฟังก์ชัน (บทเรียน #175) · ค่าตั้งต้นกางทุกใบ',
      appG.includes('const fsFold = reactive({}), foFold = reactive({});') && htmlG.includes('@click="foldFlip(fsFold, g.po)"')
      && htmlG.includes('<template v-if="!fsFold[g.po]">'));
   ok('จอ: ป้ายจาก MRP เปิดปุ่มกรองที่เรื่องนั้นอยู่ แล้วค้นด้วยเลข PO',
-     /if \(v\.how === 'done'\) fsSeg\.value = 'done';\s*else if \(over\) foSeg\.value = 'stop';\s*else fsSeg\.value = 'stop';/.test(appG));
+     /if \(v\.how === 'done'\) fsSeg\.value = 'done';\s*else if \(over\) foSeg\.value = v\.how;[^\n]*\s*else fsSeg\.value = v\.how;/.test(appG));
   ok('จอ: ไม่โชว์ ETA ในหน้า short / over แล้ว (เจ้าของแจ้ง 21 พ.ย. 2026 — ช่องรับ short จากใบ PO ปิดไปแล้ว)',
      !htmlG.includes('v-model="fu.eta"') && !htmlG.includes('เลย ETA'));
+  // กฎ "กล่องเหตุผลเปิดมาช่องว่าง ไม่เติมคำให้" (เจ้าของสั่ง 25 พ.ย. 2026) เฝ้าที่นี่ —
+  // stopWhyProblem กันเหตุผลขยะได้ แต่คำเติมอย่าง "ยอดน้อย ไม่ติดตาม" ผ่านกฎนั้นสบาย ๆ
+  // ถ้าใครใส่ค่าเริ่มต้นกลับ อาการเดิม (พนักงานกดตกลงทันที) กลับมาโดยไม่มีเทสข้ออื่นแดง
+  const countIn = (s, sub) => s.split(sub).length - 1;
+  ok('จอ: กล่องถามเหตุผลเปิดมาช่องว่างทุกครั้ง · ยกเลิกเรื่อง short / over / หน้าซื้อ ถามผ่าน askWhy · ไม่มีคำเติมค้างเป็นค่าเริ่มต้นของ prompt',
+     appG.includes("let why = prompt(msg, '');")
+     && (appG.match(/askWhy\(/g) || []).length === 4                  // 3 จุดเรียก + 1 บรรทัดประกาศ
+     && countIn(appG, "askWhy('ยกเลิกเรื่องนี้เพราะอะไร") === 3       // fsVoid + foVoid + fbVoid (หน้าซื้อ · 26 พ.ย. 2026)
+     && !appG.includes("prompt('ยกเลิกเรื่องนี้เพราะอะไร')")           // fbVoid เดิมถามตรง ๆ แล้วรับเหตุผลขยะ
+     && !/prompt\([^)]*,\s*['"`]ยอดน้อย/.test(appG));
+  // ปุ่มไม่ติดตามกดแล้วบันทึกเลย ไม่มีกล่องถาม (เจ้าของสั่ง 28 พ.ย. 2026 — ถามแล้วงานสะดุด เหตุผลมีข้อเดียว)
+  const body = name => (appG.split(`async function ${name}(`)[1] || '').split(/\r?\n    }\r?\n/)[0];
+  ok('จอ: fsSkip / foSkip ไม่ถามเหตุผล ไม่มี prompt / confirm · ยังเช็กชื่อผู้บันทึก',
+     ['fsSkip', 'foSkip'].every(n => { const b = body(n); return b && !/askWhy\(|prompt\(|confirm\(|why/.test(b) && b.includes('fsBy.value'); }));
+}
+
+console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทนเรื่อง short ที่ค้าง (เจ้าของสั่ง 27 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H', at = '2026-11-27T03:00:00.000Z', now = '2026-11-27T05:00:00.000Z';
+  const ov = { ...makeFollow({ kind: 'over', entity: E, code: 'A1', po: 'TM9269H001', part_no: 'PN-A', qty: 150 }), id: 'OV1' };
+  const s1 = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9270H015', part_no: 'PN-C', qty: 60 }), id: 'SH1', done_qty: 20 };
+  const s2 = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9271H003', part_no: 'PN-A', qty: 120 }), id: 'SH2' };
+  const r = offsetShorts(ov, [{ row: s1, qty: 40 }, { row: s2, qty: 110 }, { row: s2, qty: '' }],
+                         { person: 'สมชาย', device: 'PC-T', date: '2026-11-27', at, now });
+  const backs = r.entries.filter(e => e.kind === 'sendback'), recvs = r.entries.filter(e => e.kind === 'receive');
+  ok('ลงเป็นคู่: ส่งคืนจาก PO ของ over + รับเข้า PO ของ short · ยอดเท่ากันทุกคู่ · แถวยอดว่างข้ามไป',
+     backs.length === 2 && recvs.length === 2
+     && backs.every(b => b.doc_ref === 'TM9269H001' && b.reason_code === 'carry' && b.entity === E)
+     && recvs[0].doc_ref === 'TM9270H015' && recvs[0].qty === 40 && recvs[1].doc_ref === 'TM9271H003' && recvs[1].qty === 110
+     && recvs.every((x, i) => x.id === pairIdOf(backs[i].id) && x.lot === '2026-11-27'), JSON.stringify(r.entries.map(e => [e.kind, e.doc_ref, e.qty])));
+  ok('คงคลังรวมไม่เปลี่ยน (ของไม่ได้ออกจากโรงงาน)', round5(r.entries.reduce((t, e) => t + signedQty(e), 0)) === 0);
+  ok('เรื่อง over ปิดครบ 150 · ผูกเลขที่ส่งคืนทั้งสองใบ', statusOf(r.overRec) === 'done' && r.overRec.done_qty === 150
+     && r.overRec.return_entry_id === backs.map(b => b.id).join(' '));
+  ok('เรื่อง short: SH1 ค้าง 40 → ปิด · SH2 ค้าง 120 → เหลือ 10 · ผูกเลขที่รับเข้า',
+     statusOf(r.shortRecs[0]) === 'done' && remainOf(r.shortRecs[1]) === 10
+     && r.shortRecs[0].receive_entry_id === recvs[0].id && r.shortRecs[1].receive_entry_id === recvs[1].id);
+  ok('updated_at = เวลาจริงตอนกด · done_at = วันที่คืน (D5)', r.overRec.updated_at === now && r.overRec.done_at === at);
+  ok('เลขที่คู่ลงท้ายตัวใหญ่ P — เลขที่ปกติเป็นตัวเล็กล้วน ไม่ชนกัน', PAIR_SUFFIX === 'P' && !/[A-Z]/.test(backs[0].id.slice(1)));
+
+  throws('รวมเกินยอด over ที่ค้าง = โยน', () => offsetShorts(ov, [{ row: s2, qty: 120 }, { row: s1, qty: 40 }], { person: 'ก', at }), 'เกินยอด over');
+  throws('เกินยอด short ที่ค้างของแถวนั้น = โยน', () => offsetShorts(ov, [{ row: s1, qty: 41 }], { person: 'ก', at }), 'ไม่เกินยอดที่ยังค้าง');
+  throws('ข้ามนิติบุคคล = โยน (A3)', () => offsetShorts(ov, [{ row: { ...s1, entity: 'TUE-U' }, qty: 1 }], { person: 'ก', at }), 'A3');
+  throws('คนละรหัส = โยน', () => offsetShorts(ov, [{ row: { ...s1, code: 'B9' }, qty: 1 }], { person: 'ก', at }), 'คนละรหัส');
+  throws('ไม่ใส่ชื่อผู้คืน = โยน', () => offsetShorts(ov, [{ row: s1, qty: 1 }], { at }), 'ผู้คืน');
+  throws('ไม่ได้ใส่ยอดสักแถว = โยน', () => offsetShorts(ov, [{ row: s1, qty: '' }], { person: 'ก', at }), 'อย่างน้อยหนึ่งแถว');
+
+  // เอากลับฝั่ง over — ยกเลิกส่งคืนทั้งสองใบ + รับเข้าคู่ · คืนยอดค้างให้ short ทีละเรื่อง (ไม่เปิดทั้งเรื่อง)
+  const follows = [r.overRec, ...r.shortRecs];
+  const uo = reopenOver(r.overRec, r.entries, { by: 'หัวหน้า', at: now, follows });
+  ok('เอากลับฝั่ง over: ยกเลิกครบ 4 รายการ (ส่งคืน 2 + รับเข้าคู่ 2) แบบไม่ลบ (B1)',
+     uo.voids.length === 4 && uo.voids.every(v => v.voided && v.void_by === 'หัวหน้า')
+     && round5(uo.voids.reduce((t, v) => t + signedQty(v), 0)) === 0);
+  const back1 = uo.shortRecs.find(x => x.id === 'SH1'), back2 = uo.shortRecs.find(x => x.id === 'SH2');
+  ok('เอากลับฝั่ง over: short SH1 ค้างกลับเป็น 40 (มาแล้ว 20 เดิมยังอยู่) · SH2 ค้างกลับเป็น 120 · ถอดเลขที่คู่ออก · จดร่องรอยในหมายเหตุ',
+     back1 && remainOf(back1) === 40 && back1.done_qty === 20 && statusOf(back1) === 'partial' && back1.receive_entry_id === ''
+     && back2 && remainOf(back2) === 120 && back2.done_at === '' && /ยกเลิกคู่ทดแทน 110/.test(back2.note), JSON.stringify(back1));
+
+  // เอากลับฝั่ง short — ยกเลิกรับเข้า + ส่งคืนคู่ · คืนยอดค้างให้เรื่อง over เท่าคู่นั้น
+  const us = reopenShortP(r.shortRecs[1], r.entries, { by: 'หัวหน้า', at: now, follows });
+  ok('เอากลับฝั่ง short: ยกเลิกรับเข้า + ส่งคืนคู่ · over ค้างกลับมา 110 (คู่อื่นยังอยู่)',
+     us.voids.length === 2 && us.voids.some(v => v.kind === 'sendback') && us.overRecs.length === 1
+     && remainOf(us.overRecs[0]) === 110 && us.overRecs[0].return_entry_id === backs[0].id && !us.overRecs[0].done, JSON.stringify(us.overRecs[0]));
+  /* ⚠️ ค่าติดลบในช่องยอดของแบบ 2 — offsetShorts ทิ้งแถวที่ไม่ใช่ qty > 0 ไปเลย แต่ rtPickSum บนจอบวกค่าติดลบเข้าไปด้วย
+   *    ปล่อยผ่าน = "เลขที่จอบอก" ไม่ใช่ "เลขที่ลงสมุด" แบบเงียบ ๆ และเรื่อง over ปิดครบทั้งที่จอบอกว่ายังเหลือค้าง
+   *    จึงต้องกันที่ rtProblem (ปุ่มบันทึกกดไม่ได้) + min="0" ที่ช่อง (ผู้ตรวจ #199 รอบ 2 ข้อ 1) */
+  {
+    const rtProbSrc = appOver.slice(appOver.indexOf('const rtProblem = computed('), appOver.indexOf('const rtReady = computed('));
+    ok('แบบ 2 ใส่ยอดติดลบ = ข้อความแดงบอกทางออก + ปุ่มบันทึกกดไม่ได้ (G3) · ช่องยอดมี min="0"',
+       /Number\(rt\.pick\[s\.id\]\) < 0/.test(rtProbSrc) && /ติดลบไม่ได้ — ล้างช่องนั้นให้ว่าง/.test(rtProbSrc)
+       && /v-model="rt\.pick\[x\.id\]" type="number" step="any" min="0"/.test(htmlOver), rtProbSrc);
+    const ovN = { ...makeFollow({ kind: 'over', entity: E, code: 'A1', po: 'TM9269H001', part_no: 'PN-A', qty: 10 }), id: 'OVN' };
+    const n1 = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9270H015', qty: 10 }), id: 'SN1' };
+    const n2 = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9271H003', qty: 10 }), id: 'SN2' };
+    const typed = ['10', '-3'];                                                  // ค่าที่พนักงานพิมพ์ลงสองช่อง
+    const onScreen = round5(typed.reduce((t, v) => t + (Number(v) || 0), 0));     // สูตรเดียวกับ rtPickSum ใน app.js
+    const rn = offsetShorts(ovN, [{ row: n1, qty: typed[0] }, { row: n2, qty: typed[1] }], { person: 'ก', at });
+    ok('ที่ต้องกันตั้งแต่ต้น: ค่าติดลบทำให้ยอดที่ลงสมุดมากกว่ายอดที่จอบอก · เรื่อง over ปิดครบทั้งที่จอบอกว่าเหลือค้าง',
+       onScreen === 7 && rn.overRec.done_qty === 10 && statusOf(rn.overRec) === 'done' && rn.entries.length === 2,
+       `จอบอก ${onScreen} · ลงสมุด ${rn.overRec.done_qty}`);
+  }
+
+  /* ⚠️ ปุ่ม "ยกเลิก" ในการ์ด / แท็บ Log แตะรายการได้ทีละใบ โดยไม่ผ่านปุ่ม "เอากลับ" ของหน้า over/short
+   *    คู่ทดแทนผูกกันด้วยเลขที่เท่านั้น ยกเลิกข้างเดียว = ของงอก/หายจากคลังเท่ายอดที่ทดแทน เงียบ ๆ
+   *    doVoid จึงต้องรู้จักคู่ แบบเดียวกับที่รู้จัก fracTwins (ผู้ตรวจ #199 รอบ 3 ข้อ 1) */
+  {
+    const plainRecv = makeEntry({ kind: 'receive', entity: E, material_code: 'A1', qty: 5, lot: 'L1', doc_kind: 'po', doc_ref: 'TM9272H009', person: 'ก' });
+    const plainIssue = makeEntry({ kind: 'issue', entity: E, material_code: 'A1', qty: 5, doc_kind: 'po', doc_ref: 'TM9272H009', person: 'ก' });
+    const plainBack = sendbackEntry(ov, { qty: 5, person: 'ก', at, reason_code: 'over' });   // ส่งคืน Delta ธรรมดา ไม่มีคู่
+    const book = [...r.entries, plainRecv, plainIssue, plainBack];
+    ok('pairTwins: ส่งใบส่งคืนของคู่ → ได้ใบรับเข้าคู่ · ส่งใบรับเข้าที่ลงท้าย P → ได้ใบส่งคืนคู่',
+       pairTwins(book, backs[0]).length === 1 && pairTwins(book, backs[0])[0].id === recvs[0].id
+       && pairTwins(book, recvs[1]).length === 1 && pairTwins(book, recvs[1])[0].id === backs[1].id,
+       JSON.stringify(pairTwins(book, backs[0]).map(x => x.id)));
+    ok('pairTwins: รายการที่ไม่ใช่คู่ (รับเข้าปกติ · จ่ายออก · ส่งคืน Delta ที่ไม่มีคู่ · ไม่มีใบ) ต้องได้ว่าง',
+       pairTwins(book, plainRecv).length === 0 && pairTwins(book, plainIssue).length === 0
+       && pairTwins(book, plainBack).length === 0 && pairTwins(book, null).length === 0);
+    ok('pairTwins: ใบคู่ที่ถูกยกเลิกไปแล้ว ไม่ถูกนับซ้ำ',
+       pairTwins(book.map(x => x.id === recvs[0].id ? { ...x, voided: true } : x), backs[0]).length === 0);
+    // คงคลังรวมของสมุด (นับแค่ที่ยังไม่ยกเลิก) ก่อน / หลังยกเลิกข้างเดียว เทียบกับยกเลิกพร้อมคู่
+    const bal = list => round5(list.filter(e => !e.voided).reduce((t, e) => t + signedQty(e), 0));
+    const pairOnly = r.entries.filter(e => e.id === backs[0].id || e.id === recvs[0].id);
+    const oneSide = pairOnly.map(e => e.id === backs[0].id ? { ...e, voided: true } : e);
+    const bothSides = pairOnly.map(e => pairTwins(pairOnly, pairOnly[0]).some(t => t.id === e.id) || e.id === pairOnly[0].id
+                                        ? { ...e, voided: true } : e);
+    ok('ยกเลิกข้างเดียวทำให้คงคลังเพี้ยนเท่ายอดที่ทดแทน · ยกเลิกพร้อมคู่แล้วคงคลังไม่ขยับ',
+       bal(pairOnly) === 0 && bal(oneSide) === 40 && bal(bothSides) === 0, `${bal(oneSide)}`);
+    ok('doVoid ของแท็บ Log / การ์ด เรียก pairTwins จริง และยกเลิกคู่ไปพร้อมกัน (ไม่ลบ · B1) · กล่องยืนยันบอกก่อนกด (G3)',
+       /const pr = pairTwins\(entries\.value, src\)\.map\(t => voidEntry\(t, \{ by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: \$\{reason\}` \}\)\)/.test(appOver)
+       && /all: \[v, \.\.\.tw, \.\.\.pr\]/.test(appOver) && /db\.put\('entries', all\)/.test(appOver)
+       && /const voidPairs = computed\(/.test(appOver) && /voidPairs,/.test(appOver)
+       && /v-if="voidPairs\.length"/.test(htmlOver) && /คงคลังจึงไม่ขยับ/.test(htmlOver),
+       appOver.slice(appOver.indexOf('async function doVoid()'), appOver.indexOf('async function doVoid()') + 900));
+
+    // กล่องยืนยันของ "เอากลับ" ต้องแยกคู่ทดแทน (คงคลังไม่ขยับ) ออกจากรายการเดี่ยว (ผู้ตรวจ #199 รอบ 4 ข้อสังเกต 4)
+    const sp = splitPairs([backs[0], recvs[0], plainBack, plainRecv, null]);
+    ok('splitPairs: คู่ทดแทนนับเป็น 1 คู่ (ใบส่งคืน) · ส่งคืน Delta / รับเข้าปกติเป็นรายการเดี่ยว',
+       sp.pairs.length === 1 && sp.pairs[0].id === backs[0].id
+       && sp.singles.length === 2 && sp.singles.some(x => x.id === plainBack.id) && sp.singles.some(x => x.id === plainRecv.id),
+       JSON.stringify(sp));
+    const half = splitPairs([recvs[0]]);
+    ok('splitPairs: ใบรับเข้าลงท้าย P ที่คู่ไม่อยู่ในชุด → เป็นรายการเดี่ยว (ไม่หายจากกล่อง)',
+       half.pairs.length === 0 && half.singles.length === 1);
+    ok('ปุ่มเอากลับทั้งสองฝั่งเรียก splitPairs · คู่ทดแทนบอกว่า "ยอดคงคลังไม่เปลี่ยน"',
+       (appOver.match(/const \{ pairs, singles \} = splitPairs\(voids\);/g) || []).length === 2
+       && (appOver.match(/ยอดคงคลังไม่เปลี่ยน · ยอดค้างของเรื่อง (short|over) กลับมา/g) || []).length === 2);
+  }
+
+  // แบบ 1 ของออกจากคลังจริง → rtWarn ต้องส่งคงคลังหลังคืน ไม่ใช่ 0 ตายตัว (ผู้ตรวจ #199 รอบ 4 ข้อสังเกต 2)
+  ok('rtWarn: แบบ 1 ส่ง after = คงคลัง − ยอดคืน · แบบ 2 ส่ง 0 (คงคลังไม่ขยับ)',
+     /const after = rt\.mode === 1 \? round5\(rtBook\.value - rtQty\.value\) : 0;/.test(appOver)
+     && /returnOverWarn\(\{ after, short,/.test(appOver) && !/returnOverWarn\(\{ after: 0/.test(appOver));
+  ok('returnOverWarn: after ติดลบขึ้นเตือน (ไม่บล็อก — เป็นข้อความเฉย ๆ)',
+     returnOverWarn({ after: -3, qty: 5 }).includes('ยอดคงคลังจะติดลบเป็น -3'));
+
+  const plainArr = arriveShort(s2, { person: 'ก', at, date: '2026-11-27' });
+  const plainUndo = reopenShortP(plainArr.rec, [plainArr.entry, ...r.entries], { by: 'ก', follows });
+  ok('รับเข้าจาก "มาแล้ว" ปกติ (ไม่มีคู่) เอากลับแล้วยกเลิกแค่ใบนั้น ไม่แตะเรื่อง over',
+     plainUndo.voids.length === 1 && plainUndo.voids[0].id === plainArr.entry.id && plainUndo.overRecs.length === 0);
+}
+
+console.log('\n=== RT3. คืนของ แบบ 3 — PC return (เจ้าของสั่ง 27 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H', at = '2026-11-28T03:00:00.000Z';
+  const ov = { ...makeFollow({ kind: 'over', entity: E, code: 'A1', po: 'TM9269H001', part_no: 'PN-A', qty: 20 }), id: 'OV3' };
+  const sh = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3' };
+  throws('"Short 5.4" ในหมายเหตุ = เพดาน · ใส่ 6 = โยน', () => offsetShorts(ov, [{ row: sh, qty: 6, cap: 5.4, tag: 'PC RETURN' }], { person: 'ก', at }), 'PC return ได้ไม่เกิน 5.4');
+  const r = offsetShorts(ov, [{ row: sh, qty: 5.4, cap: 5.4, tag: 'MC RETURN' }], { person: 'ก', at });
+  ok('ใส่ไม่เกินเพดานได้คู่เหมือนแบบ 2 · หมายเหตุทั้งคู่ติดป้าย MC RETURN ให้ตามรอยได้',
+     r.entries.length === 2 && r.entries.every(e => e.qty === 5.4 && e.note.includes('(คืนของ · MC RETURN)'))
+     && remainOf(r.shortRecs[0]) === 4.6, JSON.stringify(r.entries.map(e => e.note)));
+  ok('ไม่ส่ง tag (แบบ 2) = หมายเหตุเดิม "(คืนของ)"',
+     offsetShorts(ov, [{ row: sh, qty: 1 }], { person: 'ก', at }).entries.every(e => e.note.endsWith('(คืนของ)')));
+  ok('จอ: แบบ 2 / 3 แยกกันด้วย pcReturnIndex · เรื่องเดียวอยู่แบบเดียว · แบบ 3 ส่ง cap + tag เข้า offsetShorts',
+     /const rtList = computed\(\(\) => \(rt\.mode === 1 \? \[\] : rtShorts\.value\.filter\(s => !!rtPcOf\(s\) === \(rt\.mode === 3\)\)\)\);/.test(appOver)
+     && /const rtPcIdx = computed\(\(\) => pcReturnIndex\(pos\.value\)\);/.test(appOver)
+     && /cap: rtCapPo\(s\), tag: rtPcOf\(s\)\.kind \+ ' RETURN'/.test(appOver)
+     && /const big = rtList\.value\.find\(s => round5\(Number\(rt\.pick\[s\.id\]\) \|\| 0\) > rtCap\(s\)\);/.test(appOver));
+  ok('จอ: ปุ่มแบบ 3 + ตารางโชว์หมายเหตุจากไฟล์ PO เป็นหลักฐาน · แบบ 2 บอกว่ามีกี่ PO อยู่แบบ 3',
+     htmlOver.includes('@click="rt.mode = 3">3 · PC return') && htmlOver.includes('{{ rtPcOf(x).text }}')
+     && htmlOver.includes('<tr v-for="x in rtList"') && !htmlOver.includes('<tr v-for="x in rtShorts"')
+     && htmlOver.includes('อยู่ในแบบ 3</div>'));
+  ok('นำเข้าไฟล์ PO ซ้ำ: แถวเดิมที่หมายเหตุ L เปลี่ยนถูกเขียนลงเครื่อง (ติดธงซิงค์) และแทนที่ตัวบนจอ',
+     /plan\.noteUpd = poNoteUpdates\(p\.pos, pos\.value\)/.test(appOver) && /await db\.put\('pos', \[\.\.\.rows, \.\.\.upd\]\);/.test(appOver)
+     && /pos\.value\.splice\(i, 1, u\)/.test(appOver));
+
+  /* เพดาน "Short N" เป็นยอดรวม ไม่ใช่ต่อการกดบันทึกหนึ่งครั้ง (ผู้ตรวจ #205 รอบ 2 ข้อ 1)
+   * เดิมเทียบ cap ดิบทุกรอบ → กดเต็มเพดานรอบแรก ยอดค้างของ short ลดลง
+   * รอบถัดไป cap กลายเป็นยอดค้างที่เหลือ แล้วผ่านด่านอีกครั้ง รวมแล้วทะลุที่ Delta แจ้ง */
+  const CAP = 5.4;
+  const capOf = (book, s) => pcCapLeft(book, s, CAP);
+  ok('pcCapLeft: ยังไม่เคยทดแทน = เพดานเต็ม · ไม่มีเพดานในหมายเหตุ (null) = null',
+     capOf([], sh) === CAP && pcCapLeft([], sh, null) === null && pairedInQty([], sh) === 0);
+
+  // รอบ 1 — ใส่เต็มเพดาน 5.4 (ยอด short ค้าง 10 → เหลือ 4.6)
+  const g1 = offsetShorts(ov, [{ row: sh, qty: CAP, cap: capOf([], sh), tag: 'PC RETURN' }], { person: 'ก', at });
+  const book1 = g1.entries, sh1 = g1.shortRecs[0], ov1 = g1.overRec;
+  ok('pairedInQty: นับยอดที่ทดแทนไปแล้วจากคู่ในสมุด (ใบรับเข้าที่เลขที่ลงท้าย P + มีใบส่งคืนคู่)',
+     pairedInQty(book1, sh1) === CAP && remainOf(sh1) === 4.6, `${pairedInQty(book1, sh1)}`);
+  ok('pcCapLeft: เพดานที่เหลือหลังรอบแรก = 0 (เทียบกับยอด short ที่ยังค้าง 4.6 — จอต้องยังโชว์ "ได้ไม่เกิน 0")',
+     capOf(book1, sh1) === 0);
+  throws('กดรอบสองติด: เพดานสะสมเต็มแล้ว ทดแทนยอดที่เหลือต่อไม่ได้',
+         () => offsetShorts(ov1, [{ row: sh1, qty: 4.6, cap: capOf(book1, sh1), tag: 'PC RETURN' }], { person: 'ก', at }),
+         'PC return ได้ไม่เกิน 0');
+
+  // ทดแทนบางส่วนแล้วกดต่อ — เพดานที่เหลือต้องเป็นส่วนต่าง ไม่ใช่เพดานเต็มอีกรอบ
+  const g2 = offsetShorts(ov, [{ row: sh, qty: 2, cap: capOf([], sh), tag: 'PC RETURN' }], { person: 'ก', at });
+  const book2 = g2.entries, sh2 = g2.shortRecs[0];
+  ok('ทดแทนบางส่วน 2 → เพดานเหลือ 3.4', capOf(book2, sh2) === 3.4, `${capOf(book2, sh2)}`);
+  throws('รอบสองใส่ 4 (รวม 6 เกินเพดาน 5.4) = โยน',
+         () => offsetShorts(g2.overRec, [{ row: sh2, qty: 4, cap: capOf(book2, sh2), tag: 'PC RETURN' }], { person: 'ก', at }),
+         'PC return ได้ไม่เกิน 3.4');
+  ok('รอบสองใส่ 3.4 (รวมพอดีเพดาน) ผ่าน · ยอดรวมที่ทดแทนทั้งสองรอบ = 5.4',
+     (() => {
+       const g3 = offsetShorts(g2.overRec, [{ row: sh2, qty: 3.4, cap: capOf(book2, sh2), tag: 'PC RETURN' }], { person: 'ก', at });
+       const all = [...book2, ...g3.entries];
+       return pairedInQty(all, g3.shortRecs[0]) === CAP && capOf(all, g3.shortRecs[0]) === 0;
+     })());
+  // ยกเลิกคู่แล้วเพดานต้องคืนมา ไม่งั้นแก้รายการผิดแล้วทำต่อไม่ได้
+  ok('ยกเลิกคู่ (ส่งคืนถูกยกเลิก) → ไม่นับเป็นยอดที่ทดแทนแล้ว เพดานกลับมาเต็ม',
+     capOf(book1.map(e => e.kind === 'sendback' ? { ...e, voided: true } : e), sh1) === CAP);
+  ok('pairedInQty: คู่ของ PO / รหัส / นิติบุคคลอื่น ไม่ถูกนับรวม (A3)',
+     pairedInQty(book1, { ...sh1, po: 'TM9999H001' }) === 0
+     && pairedInQty(book1, { ...sh1, code: 'ZZ' }) === 0
+     && pairedInQty(book1, { ...sh1, entity: 'OTHER' }) === 0);
+
+  /* เพดานเป็นยอดรวมของ PO + รหัส ไม่ใช่ต่อเรื่อง short (ผู้ตรวจ #205 รอบ 3 ข้อ 1)
+   * PO + รหัสเดียวกันมีเรื่องเปิดค้างสองใบได้ ถ้าเทียบ cap ทีละแถว ทั้งสองแถวได้เพดานเต็มใบละ
+   * แล้วรวมกันทะลุที่ Delta แจ้งในการกดบันทึกครั้งเดียว โดยไม่มีด่านไหนฟ้อง */
+  {
+    const shA = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3A' };
+    const shB = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3B' };
+    const pick = (a, b) => [{ row: shA, qty: a, cap: CAP, tag: 'PC RETURN' },
+                            { row: shB, qty: b, cap: CAP, tag: 'PC RETURN' }];
+    throws('เรื่อง short สองใบของ PO + รหัสเดียวกัน ใส่ใบละเต็มเพดานในการกดครั้งเดียว = โยน',
+           () => offsetShorts(ov, pick(CAP, CAP), { person: 'ก', at }), 'รวมทุกเรื่องของ PO นี้ 10.8 เกินเพดาน 5.4');
+    throws('สองใบรวมเกินเพดานแม้ใบละไม่เกิน (3 + 3 = 6) = โยน',
+           () => offsetShorts(ov, pick(3, 3), { person: 'ก', at }), 'เกินเพดาน 5.4');
+    const okPair = offsetShorts(ov, pick(3, 2.4), { person: 'ก', at });
+    ok('สองใบรวมพอดีเพดาน (3 + 2.4) ผ่าน · ลงคู่ครบสี่รายการ ยอดรวมที่ทดแทน = เพดาน',
+       okPair.entries.length === 4 && okPair.shortRecs.length === 2
+       && round5(okPair.entries.filter(e => e.kind === 'receive').reduce((t, e) => t + e.qty, 0)) === CAP,
+       JSON.stringify(okPair.entries.map(e => `${e.kind}:${e.qty}`)));
+    ok('เรื่องของ PO อื่นในชุดเดียวกันใช้เพดานของตัวเอง ไม่ถูกรวมข้าม PO',
+       offsetShorts(ov, [{ row: shA, qty: CAP, cap: CAP, tag: 'PC RETURN' },
+                         { row: { ...shB, po: 'TM9999H001' }, qty: CAP, cap: CAP, tag: 'PC RETURN' }],
+                    { person: 'ก', at }).entries.length === 4);
+    ok('แบบ 2 (ไม่ส่ง cap) สองใบของ PO เดียวกันยังไม่ถูกบังคับเพดาน ผลเท่าเดิม',
+       offsetShorts(ov, [{ row: shA, qty: 9 }, { row: shB, qty: 9 }], { person: 'ก', at }).entries.length === 4);
+  }
+
+  ok('จอ: rtCap หักยอดที่กรอกไว้ในแถวอื่นของ PO + รหัสเดียวกัน · ส่งเพดานของ PO (rtCapPo) เข้าชั้นตรรกะ ไม่ใช่เพดานที่หักแล้ว',
+     /const rtOtherPick = s => round5\(rtList\.value\.reduce\(/.test(appOver)
+     && /Math\.min\(remainOf\(s\), Math\.max\(0, round5\(left - rtOtherPick\(s\)\)\)\)/.test(appOver)
+     && /const left = rt\.mode === 3 \? \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.left : null;/.test(appOver)
+     && /rtOtherPick\(big\) > 0 \? `แถวอื่นของ PO นี้ใส่ไว้/.test(appOver));
+
+  ok('จอ: rtCap หักยอดที่ทดแทนไปแล้วผ่าน pcCapLeft (ไม่เทียบเพดานดิบ) · ตารางโชว์ "ทดแทนไปแล้ว"',
+     /done: pairedInQty\(entries\.value, s\), left: pcCapLeft\(entries\.value, s, \(rtPcOf\(s\) \|\| \{\}\)\.cap\)/.test(appOver)
+     && /const rtDone = s => \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.done \|\| 0;/.test(appOver)
+     && /const left = rt\.mode === 3 \? \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.left : null;/.test(appOver)
+     && !/Math\.min\(remainOf\(s\), pc\.cap\)/.test(appOver)
+     && /rtDone,/.test(appOver)
+     && htmlOver.includes('ทดแทนไปแล้ว {{ mrpNum(rtDone(x)) }}'));
+}
+
+console.log('\n=== SPL. แยกปุ่ม ยกเลิกแล้ว / ไม่ติดตามแล้ว (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H';
+  const base = { kind: 'short', entity: E, voided: true, qty: 5, unit: 'PCE' };
+  const c1 = { ...base, id: 'C1', po: 'P1', code: 'A1', void_reason: CANCEL_MARK + ' — ของไม่มาแล้ว', void_at: '2026-11-20T01:00:00.000Z' };
+  const k1 = { ...base, id: 'K1', po: 'P2', code: 'A1', void_reason: SKIP_MARK + ' — ขาดเศษนิดเดียว', void_at: '2026-11-21T01:00:00.000Z' };
+  // คู่เดียวกันหยุดสองรอบ: รอบเก่ายกเลิก รอบใหม่ไม่ติดตาม → อยู่ปุ่มไม่ติดตามแล้วปุ่มเดียว (รอบล่าสุด)
+  const oldC = { ...base, id: 'C0', po: 'P3', code: 'A1', void_reason: CANCEL_MARK + ' — รอบแรก', void_at: '2026-11-10T01:00:00.000Z' };
+  const newK = { ...base, id: 'K3', po: 'P3', code: 'A1', void_reason: SKIP_MARK + ' — รอบสอง', void_at: '2026-11-22T01:00:00.000Z' };
+  const all = [c1, k1, oldC, newK];
+  // แยกปุ่มแบบเดียวกับจอ (fsStopHit): x.mark === ปุ่มที่เลือก · ไม่ส่ง = รายการเต็มของตัวนับ
+  const ids = o => stoppedShorts(all, { entity: E }).filter(x => !o.mark || x.mark === o.mark).map(x => x.s.id).join();
+  ok('แยกด้วย mark: cancel = เฉพาะยกเลิก · skip = เฉพาะไม่ติดตาม · ไม่ส่ง = ทั้งหมดเหมือนเดิม',
+     ids({ mark: 'cancel' }) === 'C1' && ids({ mark: 'skip' }) === 'K3,K1' && ids({}) === 'K3,K1,C1', [ids({ mark: 'cancel' }), ids({ mark: 'skip' }), ids({})].join(' | '));
+  ok('หยุดสองรอบ: รอบเก่า (ยกเลิก) ไม่โผล่ในปุ่มยกเลิกแล้ว — กรองหลังเลือกรอบล่าสุด', !ids({ mark: 'cancel' }).includes('C0'));
+  ok('stopCounts นับแยกสองปุ่ม · รวมกัน = ตัวนับเดิม',
+     JSON.stringify(stopCounts(stoppedShorts(all, { entity: E }))) === JSON.stringify({ cancel: 1, skip: 2 })
+     && JSON.stringify(stopCounts(undefined)) === JSON.stringify({ cancel: 0, skip: 0 }));
+  ok('isStopSeg: เฉพาะ cancel / skip', isStopSeg('cancel') && isStopSeg('skip') && !isStopSeg('stop') && !isStopSeg('done') && !isStopSeg('open'));
+  ok('ป้ายปุ่มบอกสถานะ (ยกเลิกแล้ว · ไม่ติดตามแล้ว) ไม่ซ้ำชื่อปุ่มกดในแถว',
+     ['short', 'over'].every(k => FOLLOW_SEG[k].slice(3).map(x => x.label).join() === 'ยกเลิกแล้ว,ไม่ติดตามแล้ว'));
+  const appSp = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('จอ: รายการของปุ่มที่กดกรองด้วย mark ก่อนค้น · ทั้ง short และ over',
+     appSp.includes('filterPick(fsStopped.value.filter(x => x.mark === fsSeg.value)')
+     && appSp.includes('filterPick(foStopped.value.filter(x => x.mark === foSeg.value)')
+     && appSp.includes('...stopCounts(foStopped.value)'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

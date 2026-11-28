@@ -80,13 +80,14 @@ const codeOf = v => typeof v === 'number' ? String(Math.round(v))
  */
 export function parsePoFile(aoa) {
   const pos = [];
-  let curDate = '';
+  let curDate = '', cur = null;
   for (const row of aoa) {
     if (!row) continue;
     const a = row[0];
     if (typeof a === 'string' && a.includes('subcontract')) {
       const d = parseThaiDate(a);
       if (d) curDate = d;
+      cur = null;
       continue;
     }
     if (typeof a === 'number' && row[3]) {
@@ -101,11 +102,17 @@ export function parsePoFile(aoa) {
         po,
         qty: Number(row[5]) || 0,
         core: String(row[9] || '').trim(),
-        remark: String(row[16] || '').trim()
+        remark: String(row[16] || '').trim(),
+        l_note: ''
       });
+      cur = pos[pos.length - 1];
     }
     // ⚠️ คอลัมน์ L (หมายเหตุของขาด / ETA) ไม่แกะเป็นเรื่อง short แล้ว — เจ้าของสั่ง 7 พ.ย. 2026
     // ซ้ำกับการ์ด "ยังรับไม่ครบตาม BOM" · พนักงานตั้งเรื่องซ้ำแล้วยอดผิด · เรื่องเก่าที่แกะไว้แล้วยังอยู่ตามเดิม
+    // เก็บเป็นข้อความดิบใน l_note แทน (เจ้าของอนุญาต 27 พ.ย. 2026) — ใช้หา PC / MC RETURN ของคืนของแบบ 3
+    // หมายเหตุอยู่ทั้งแถว PO และแถวถัดลงมาที่ไม่มีเลขลำดับ (หลายรหัสต่อ PO) → ต่อกันทีละบรรทัด
+    const note = row[11];
+    if (cur && typeof note === 'string' && note.trim()) cur.l_note = cur.l_note ? cur.l_note + '\n' + note.trim() : note.trim();
   }
   return { pos, dates: [...new Set(pos.map(p => p.date))].filter(Boolean) };
 }
@@ -808,6 +815,62 @@ export function poHeader(poList, po) {
     .pop();
   return hit ? { pn: String(hit.pn || ''), order: Number(hit.qty) || null,
                  date: String(hit.date || '') } : null;
+}
+
+/**
+ * PO ใบนี้ Delta แจ้ง "PC RETURN" / "MC RETURN" ของรหัสนี้ไหม — จากหมายเหตุคอลัมน์ L ของไฟล์ PO รายวัน
+ * (เจ้าของสั่ง 27 พ.ย. 2026 · MC RETURN = PC RETURN) ใช้กับปุ่ม "คืนของ" แบบ 3 เท่านั้น ไม่สร้างเรื่อง short
+ * บรรทัดต้องมีรหัสเป็นคำเต็มตัว (ไม่ใช่ส่วนของเลขอื่น) และคำว่า PC/MC RETURN
+ *   "4037010105 PC RETURN"              → { kind: 'PC', cap: null }
+ *   "4037010105 Short 5.4 KG PC RETURN" → cap 5.4 = ทดแทนได้ไม่เกินนี้ (เจ้าของสั่ง)
+ * ไม่เจอ = null
+ */
+export function pcReturnOfNote(note, code) {
+  const c = String(code == null ? '' : code).trim().toUpperCase();
+  if (!c) return null;
+  for (const raw of String(note || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.toUpperCase().split(/[^0-9A-Z-]+/).includes(c)) continue;
+    const m = /\b([PM]C)\s*RETURN\b/i.exec(line);
+    if (!m) continue;
+    const sh = /\bshort\s*([\d,]*\.?\d+)/i.exec(line);
+    const cap = sh ? Number(sh[1].replace(/,/g, '')) : null;
+    return { kind: m[1].toUpperCase(), cap: cap > 0 ? cap : null, text: line };
+  }
+  return null;
+}
+
+/**
+ * ดัชนีของ pcReturnOfNote — คืน (po, code) => { kind, cap, text } | null
+ * กติกาเดียวกับ poHeaderIndex: PO ซ้ำหลายวัน = ใช้หมายเหตุของแถววันล่าสุด (Delta ยืนยันครั้งหลังสุด)
+ * วันล่าสุดไม่มีหมายเหตุแล้ว = ไม่ใช่ PC return แล้ว · แถวที่นำเข้าก่อนมีช่องนี้ = ไม่มีหมายเหตุ
+ */
+export function pcReturnIndex(poList) {
+  const byPo = new Map();
+  const list = (poList || []).filter(Boolean).map((p, i) => ({ p, i }))
+    .sort((a, b) => String(a.p.date || '').localeCompare(String(b.p.date || '')) || a.i - b.i);
+  for (const { p } of list) {
+    const key = String(p.po == null ? '' : p.po).trim();
+    if (key) byPo.set(key, p);
+  }
+  return (po, code) => {
+    const hit = byPo.get(String(po == null ? '' : po).trim());
+    return hit ? pcReturnOfNote(hit.l_note, code) : null;
+  };
+}
+
+/**
+ * นำเข้าไฟล์ PO ซ้ำ — แถวที่มีอยู่แล้วแต่หมายเหตุคอลัมน์ L เปลี่ยน คืนแถวเดิมที่แก้แค่ l_note
+ * ไม่แตะช่องอื่นของแถวเดิม (P/N · จำนวน · วันที่) · ไฟล์ที่นำเข้าก่อนมีช่องนี้จะได้หมายเหตุตอนนำเข้าซ้ำ
+ */
+export function poNoteUpdates(parsed, existing) {
+  const byId = new Map((existing || []).filter(Boolean).map(p => [p.id, p]));
+  const out = [];
+  for (const x of parsed || []) {
+    const y = x && byId.get(x.id);
+    if (y && String(y.l_note || '') !== String(x.l_note || '')) out.push({ ...y, l_note: String(x.l_note || '') });
+  }
+  return out;
 }
 
 /**

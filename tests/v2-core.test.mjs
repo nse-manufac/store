@@ -8,9 +8,10 @@
 import fs from 'node:fs';
 import { KINDS, REASONS, makeEntry, voidEntry, signedQty, round5, unknownKinds, setExpiry, missingExpiry,
          LOG_KINDS, logRows, logSheet, LOG_HEAD, missingExpiryCounts } from '../v2/core/ledger.js';
-import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft } from '../v2/core/balance.js';
+import { balanceOf, balances, cardRows, oddBalances, receivedOfDoc, movedOfDoc, poStockOf, stillToIssue, overIssue, poStocks, poMoves, fracSweep, fracTwins, isFracLeft, lastIssueAt, fracCleanAt } from '../v2/core/balance.js';
 import { poLotsOf } from '../v2/core/lots.js';
 import { isFracAdj, FRAC_REASON } from '../v2/core/ledger.js';
+import { atFrom, localDate, futureDateErr } from '../v2/core/localtime.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -402,7 +403,9 @@ console.log('\n=== ยกเลิกรายการจากหน้า Log
   // กล่องยืนยันตัวเดียวกับการ์ด: ต้องอยู่นอกแท็บ ไม่งั้นกดจากหน้า Log แล้วไม่มีอะไรขึ้น
   const box = html.indexOf('<div class="modal" v-if="voidBox.row"'), lastTab = html.lastIndexOf("v-else-if=\"tab==='");
   ok('กล่องยืนยันยกเลิกอยู่นอกแท็บ (ขึ้นได้จากทุกหน้า)', box > lastTab && box > 0);
-  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /async function doVoid\(\)[\s\S]*?voidEntry\(src,[\s\S]*?for \(const x of \[v, \.\.\.tw\]\) entries\.value\.splice\(entries\.value\.findIndex\(e => e\.id === x\.id\), 1, x\)/.test(src));
+  // ใบที่ยกเลิกพร้อมกัน: ล้างเศษ (tw) + คู่ทดแทน short ของ "คืนของ แบบ 2" (pr · ผู้ตรวจ #199 รอบ 3)
+  // splice แทนที่ในตำแหน่งเดิมด้วยใบที่ติดธงแล้ว — ไม่ใช่ลบออกจากสมุด (B1)
+  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /function voidBundle\(src, by, reason\) \{\s*const v = voidEntry\(src,[\s\S]*?all: \[v, \.\.\.tw, \.\.\.pr\][\s\S]*?async function doVoid\(\)[\s\S]*?= voidBundle\(src, by, reason\);[\s\S]*?for \(const x of all\) entries\.value\.splice\(entries\.value\.findIndex\(e => e\.id === x\.id\), 1, x\)/.test(src));
 }
 
 console.log('\n=== หน้ารอเติมวันหมดอายุ (แท็บย่อยใน Log · เจ้าของเคาะ 28 ก.ย. 2026) ===');
@@ -449,6 +452,35 @@ console.log('\n=== ยอดของ PO ใบเดียวบนหน้า
   ok('ยังต้องจ่าย = ตามสูตร − จ่ายแล้ว', stillToIssue(100, 40.2) === 59.8);
   ok('ยังไม่รู้ยอดตามสูตร = null ไม่ใช่ 0', stillToIssue(null, 5) === null && stillToIssue('', 5) === null);
   ok('จ่ายเกินสูตร = ติดลบ', stillToIssue(10, 12) === -2);
+}
+
+console.log('\n=== ห้ามจ่ายออกเกินของที่มี (A4 · เจ้าของสั่ง 25 พ.ย. 2026) ===');
+{
+  const have = { A1: 10, B2: 0.5, C3: 3 };                       // รหัสสมมติ
+  const bal = c => have[String(c).trim().toUpperCase()] ?? 0;
+  ok('จ่ายไม่เกินที่มี = ผ่าน', overIssue([{ code: 'A1', qty: 10 }, { code: 'B2', qty: 0.5 }], bal).length === 0);
+  const o = overIssue([{ code: 'A1', qty: 12 }], bal);
+  ok('จ่ายเกิน = บอกมีเท่าไหร่ จะจ่ายเท่าไหร่ ขาดเท่าไหร่',
+     o.length === 1 && o[0].bal === 10 && o[0].qty === 12 && o[0].short === 2, JSON.stringify(o));
+  ok('เกินแค่เศษก็ไม่ผ่าน (ทุกรหัส ไม่มีเพดานเศษ)', overIssue([{ code: 'B2', qty: 0.50001 }], bal).length === 1);
+  ok('ทศนิยมลอยไม่ทำให้ติด — 0.1 + 0.2 จากของ 0.3', overIssue([{ code: 'X', qty: 0.1 }, { code: 'X', qty: 0.2 }], () => 0.3).length === 0);
+  const two = overIssue([{ code: 'C3', qty: 2 }, { code: ' c3 ', qty: 2 }], bal);
+  ok('รหัสเดียวกันสองบรรทัดรวมยอดก่อนเทียบ — ทีละบรรทัดผ่าน รวมกันเกิน',
+     two.length === 1 && two[0].qty === 4 && two[0].short === 1, JSON.stringify(two));
+  ok('ไม่เคยรับเลย = ของที่มีเป็น 0 ไม่ผ่าน', overIssue([{ code: 'NEW', qty: 1 }], bal)[0]?.short === 1);
+  ok('ของติดลบอยู่แล้ว = ขาดนับจากยอดติดลบ', overIssue([{ code: 'Z', qty: 1 }], () => -2)[0]?.short === 3);
+  ok('บรรทัดไม่มีรหัสหรือยอดว่างไม่นับ', overIssue([{ code: '', qty: 5 }, { code: 'A1', qty: 0 }], bal).length === 0);
+
+  const src = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const save = src.slice(src.indexOf('async function saveOut()'), src.indexOf('const at = atFrom(outH.date)', src.indexOf('async function saveOut()')));
+  ok('saveOut หยุดก่อนบันทึกเมื่อจ่ายเกิน ไม่มีกล่องยืนยันให้กดผ่าน',
+     /if \(outOver\.value\.length\) \{ flash\([^\n]*\); return; \}/.test(save) && !/confirm\(/.test(save));
+  ok('ของที่มี = ยอดของ PO บนหัวจอ หรือยอดรวมถ้าไม่ใส่ PO (outBalOf)',
+     /const outOver = computed\(\(\) => overIssue\(outReady\.value, code => outBalOf\(\{ code \}\)/.test(src));
+  ok('ปุ่มบันทึกจ่ายออกกดไม่ได้เมื่อจ่ายเกิน · กล่องแดงบอกตัวเลขที่ทำให้ติด',
+     /:disabled="!outReady\.length \|\| outOver\.length > 0">บันทึกจ่ายออก/.test(html)
+     && /class="msg bad" v-if="outOver\.length"/.test(html) && /' มี ' \+ o\.bal \+ ' จะจ่าย ' \+ o\.qty \+ ' ขาด ' \+ o\.short/.test(html));
 }
 
 console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เจ้าของเคาะ 22 พ.ย. 2026 · แบบ ก แยกเป็นรายการปรับยอด) ===');
@@ -529,16 +561,71 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
                                               E, po, [c], () => 1, by)[0];
               const a = mk('A-B', 'C'), b = mk('A', 'B-C');
               return !!a && !!b && a.id !== b.id && a.id === `FRAC|${E}|A-B|C|0`; })());
+  // ── กล่องล้างเศษให้เลือกวันที่เองได้ จึงต้องมีพื้นเวลา: ห้ามเก่ากว่าใบจ่ายออกใบล่าสุด (ผู้ตรวจ #198 รอบ 1) ──
+  {
+    const R = mk({ material_code: P, kind: 'receive', qty: 438, lot: 'W46', doc_ref: 'POJ', at: '2026-11-01T03:00:00.000Z' });
+    const I1 = mk({ material_code: P, kind: 'issue', qty: 200, doc_ref: 'POJ', at: '2026-11-10T03:00:00.000Z' });
+    const I2 = mk({ material_code: P, kind: 'issue', qty: 237.10025, doc_ref: 'POJ', at: '2026-11-20T03:00:00.000Z' });
+    const vo = e => voidEntry(e, { by: 'เจ้าของ', reason: 'ทดสอบ' });
+    const base3 = [R, I1, I2], floor = lastIssueAt(base3, E, 'POJ', P);
+    ok('lastIssueAt: เวลาใบจ่ายออกใบล่าสุดของ PO + รหัสนั้น · ไม่นับรับเข้า / ใบที่ยกเลิก / PO หรือรหัสอื่น / ไม่มีเลข PO',
+       floor === I2.at && lastIssueAt([R, I1, vo(I2)], E, 'POJ', P) === I1.at
+       && lastIssueAt([R], E, 'POJ', P) === '' && lastIssueAt(base3, E, 'POJ', K) === ''
+       && lastIssueAt(base3, E, 'POZ', P) === '' && lastIssueAt(base3, E, '', P) === '',
+       floor + ' / ' + lastIssueAt([R, I1, vo(I2)], E, 'POJ', P));
+    // เศษ 0.89975 เกิดจากใบ 20 พ.ย. — ล้างย้อนไป 15 พ.ย. (คั่นกลางสองใบจ่าย) ผูกคู่ไม่เจอ แล้วยกเลิกใบนั้นยอดขาดเงียบ ๆ
+    const bad = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: '2026-11-15T03:00:00.000Z' });
+    const left = poStockOf([R, I1, vo(I2), ...bad], E, 'POJ').get(P);
+    ok('ล้างเศษที่ at เก่ากว่าใบจ่ายล่าสุด = ยกเลิกใบจ่ายแล้วยอด PO ขาดไปเท่าเศษ และไม่มีป้าย "เศษ" ให้เห็นอีก',
+       bad.length === 1 && fracTwins([...base3, ...bad], I2).length === 0
+       && left.bal === 237.10025 && !isFracLeft(left, tolOf(P)) && '2026-11-15T03:00:00.000Z' < floor,
+       JSON.stringify(left));
+    const good = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: floor });
+    ok('ล้างเศษที่ at ไม่เก่ากว่า lastIssueAt ผูกคู่ได้ · ยกเลิกทั้งคู่แล้วยอด PO กลับเท่ารับ − ที่จ่ายจริง (จอต้องบังคับให้อยู่ฝั่งนี้)',
+       good.length === 1 && fracTwins([...base3, ...good], I2).length === 1
+       && poStockOf([R, I1, vo(I2), ...good.map(vo)], E, 'POJ').get(P).bal === 238);
+    throws('lastIssueAt ลืมส่ง entity ไม่ได้ (A3)', () => lastIssueAt(base3, '', 'POJ', P), 'นิติบุคคล');
+    // ── fracCleanAt: ตัวตัดสินเวลาของกล่องล้างเศษ (ผู้ตรวจ #198 ข้อสังเกต 2) · now ส่งเข้าไปเอง ไม่ขึ้นกับนาฬิกา/เขตเวลาของเครื่องที่รันเทส ──
+    const day = localDate(floor), fl = Date.parse(floor);
+    const early = new Date(fl - 3600e3), late = new Date(fl + 3600e3);   // นาฬิกาตอนกด ก่อน / หลังเวลาในใบจ่าย (วันเดียวกัน)
+    const same = fracCleanAt(day, floor, early);
+    ok('fracCleanAt วันเดียวกับใบจ่าย แต่นาฬิกาตอนกดย้อนกว่าใบ → at = เวลาใบจ่าย (วันที่ไม่เปลี่ยน)',
+       !same.err && same.at === floor && localDate(same.at) === day, JSON.stringify(same));
+    ok('…at ที่ได้ผูกคู่กับใบจ่ายได้ · ยกเลิกทั้งคู่แล้วยอด PO กลับเท่ารับ − ที่จ่ายจริง',
+       (() => { const add = fracSweep(base3, E, 'POJ', [P], tolOf, { ...by, at: same.at });
+                return add.length === 1 && fracTwins([...base3, ...add], I2).length === 1
+                  && poStockOf([R, I1, vo(I2), ...add.map(vo)], E, 'POJ').get(P).bal === 238; })());
+    ok('fracCleanAt วันเดียวกัน นาฬิกาตอนกดเลยเวลาใบไปแล้ว → ใช้เวลาตอนกดตามปกติ',
+       fracCleanAt(day, floor, late).at === late.toISOString());
+    const back = fracCleanAt(localDate(new Date(fl - 86400e3).toISOString()), floor, late);
+    ok('fracCleanAt วันก่อนใบจ่ายล่าสุด → err บอกวันของใบจ่าย ไม่มี at',
+       !back.at && back.err.includes(day) && /ย้อนหลัง/.test(back.err), JSON.stringify(back));
+    const fwd = localDate(new Date(fl + 3 * 86400e3).toISOString());
+    ok('fracCleanAt วันหลังใบจ่าย / ยังไม่มีใบจ่าย (floor ว่าง) → atFrom ตามวันที่เลือก',
+       fracCleanAt(fwd, floor, early).at === atFrom(fwd, early) && fracCleanAt(day, '', early).at === atFrom(day, early));
+  }
   {
     const appB = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
     const htmlB = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
     ok('จอ: ค้างเศษ = ปุ่ม "ล้างเศษ" ท้ายรายการเคลื่อนไหวของ PO นั้น (ไม่ทำตารางแยก) · ปุ่มเรียก fracSweep รหัสเดียว · ป้าย "ล้างเศษ" ในรายการ',
-       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracClean\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
+       /<tr v-if="bpFrac\(p, l\.code\)" class="noprint">[\s\S]*?@click\.stop="bpFracOpen\(p\.po, l\.code, r\.pn\)">ล้างเศษ<\/button>/.test(htmlB)
        && /const bpFrac = \(p, code\) => isFracLeft\(p, fracTolAt\(code\)\);/.test(appB)
-       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person: who, device: device\.value, part_no: pn \}/.test(appB)
-       && /if \(!who\) \{ flash\('ยังไม่ได้ใส่ชื่อคนกด/.test(appB)
+       && /fracSweep\(entries\.value, entity\.value, po, \[code\], fracTolAt, \{ person, device: device\.value, part_no: pn, at \}/.test(appB)
+       && /if \(!person \|\| !date \|\| futureBlocked\(date\)\) return;/.test(appB)
        && /v-if="balView==='pn' && !bpClosed" class="hint noprint"[^>]*>PO ที่ส่งครบแล้วหรือเก่ากว่า \{\{ MRP_FRESH_DAYS \}\}/.test(htmlB)
        && /label: isFracAdj\(m\.e\) \? 'ล้างเศษ' : KINDS/.test(appB) && !/fracLeftovers|balView==='frac'/.test(appB + htmlB));
+    ok('จอ: ป้าย "เศษ" บนแถว PO กดล้างได้เลย เรียกตัวเดียวกับปุ่มข้างใน · ไม่พับ/กางแถว (ผู้ใช้บอกว่าลึกเกิน · 26 พ.ย. 2026)',
+       /<button v-if="bpFrac\(p, l\.code\)" class="tag warn bp-frac"[^>]*@click\.stop="bpFracOpen\(p\.po, l\.code, r\.pn\)">เศษ<\/button>/.test(htmlB)
+       && /button\.tag\.bp-frac\{[^}]*cursor:pointer/.test(htmlB));
+    ok('จอ: ล้างเศษเป็นกล่องกรอกวันที่ · ชื่อผู้ล้าง แบบกล่องจ่ายออก ไม่ใช้ prompt · ปุ่มบันทึกกดไม่ได้ถ้าไม่มีเศษแล้ว/ไม่มีชื่อ/ไม่มีวันที่ (27 พ.ย. 2026)',
+       !/prompt\(`ล้างเศษ/.test(appB) && /<div class="modal" v-if="bpFq\.open"/.test(htmlB)
+       && /<input v-model="bpFq\.date" type="date"/.test(htmlB) && /ชื่อผู้ล้าง<input v-model\.trim="bpFq\.person"/.test(htmlB)
+       && /:disabled="!bpFqRow \|\| !bpFrac\(bpFqRow, bpFq\.code\) \|\| !bpFq\.person \|\| !bpFq\.date">บันทึกล้างเศษ/.test(htmlB));
+    ok('จอ: กล่องล้างเศษไม่ยอมบันทึกวันที่ย้อนก่อนใบจ่ายออกครั้งล่าสุด · ด่านอยู่ใน bpFracClean ไม่ใช่แค่ :min (พิมพ์ข้ามได้) · ข้อความบอกทางออก (G3 · ผู้ตรวจ #198 รอบ 1)',
+       /const bpFqFloor = computed\(\(\) => \(bpFq\.open && entity\.value \? lastIssueAt\(entries\.value, entity\.value, bpFq\.po, bpFq\.code\)/.test(appB)
+       && /const t = fracCleanAt\(date, bpFqFloor\.value\);\s*if \(t\.err\) \{ flash\(t\.err, true\); return; \}\s*const at = t\.at;/.test(appB)   // ตัวตัดสินเทสด้วยการรันจริงข้างบน
+       && !/let at = atFrom\(date\)/.test(appB)
+       && /<input v-model="bpFq\.date" type="date" :min="localDate\(bpFqFloor\)" :max="todayLocal\(\)">/.test(htmlB));
   }
   throws('fracSweep ลืมส่ง entity ไม่ได้ (A3)', () => fracSweep(rows, '', 'POF', [P], tolOf, by), 'นิติบุคคล');
   ok('"ล้างเศษ" ระบบทำเอง — อยู่ในรายการเหตุผล (ป้ายในการ์ด) แต่ติด auto ไม่ให้คนเลือก',
@@ -549,10 +636,16 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
   ok('จอ: กล่องยกเลิกรายการ ถ้าการปรับยอดที่อยู่หลังเป็นล้างเศษ ไม่เขียน "ที่เคยนับได้" (ผู้ตรวจ #185)',
      /v-if="isFracAdj\(voidAfterAdjust\)">รายการนั้นคือ <b>ล้างเศษ PO/.test(htmlV)
      && /e\.at > r\.at\s*&& !voidTwins\.value\.some\(t => t\.id === e\.id\)\)/.test(app) && /<span class="hint" v-else>ส่วนต่างของการปรับยอด/.test(htmlV)
-     && /voidTwins, reasonLabel, noteCell, isFracAdj \};/.test(app));
+     && /voidTwins, voidPairs, reasonLabel, noteCell, isFracAdj \};/.test(app));
   ok('จอ: ยกเลิกจ่ายออกแล้วยกเลิกล้างเศษที่คู่กันในรอบเดียวกัน · กล่องยืนยันบอกก่อน (เจ้าของเคาะ 23 พ.ย.)',
-     /const tw = fracTwins\(entries\.value, src\)\.map\(t => voidEntry\(t,/.test(app) && /await db\.put\('entries', \[v, \.\.\.tw\]\)/.test(app)
+     /const tw = fracTwins\(entries\.value, src\)\.map\(t => voidEntry\(t,/.test(app)
+     && /return \{ v, tw, pr, all: \[v, \.\.\.tw, \.\.\.pr\] \};/.test(app)
+     && /const \{ tw, pr, all \} = voidBundle\(src, by, reason\);\s*await db\.put\('entries', all\)/.test(app)
      && /<p class="hint" v-if="voidTwins\.length"/.test(htmlV));
+  // ปุ่มแก้จ่ายเกิน BOM หน้ายอดคงคลัง (28 พ.ย. 2026) ยกเลิกผ่าน voidBundle ตัวเดียวกับ Log — ล้างเศษคู่ไม่ค้าง
+  ok('จอ: แก้จ่ายเกินจากหน้ายอดคงคลังยกเลิกผ่าน voidBundle เดียวกับ Log (ล้างเศษ / คู่ทดแทนไปด้วย)',
+     /async function bpFixSave\(\)[\s\S]*?const \{ tw, all \} = voidBundle\(src, by,/.test(app)
+     && /await db\.put\('entries', \[\.\.\.all, \.\.\.add\]\);\s*for \(const x of all\) entries\.value\.splice/.test(app));
   ok('จอ: บันทึกจ่ายออกแล้วล้างเศษของ PO นั้น (try ของตัวเอง) · ช่องเลือกเหตุผลกรองของ auto ออก · "นับได้" ไม่ขึ้นกับล้างเศษ',
      /fracSweep\(entries\.value, entity\.value, outH\.po, posted\.map\(e => e\.material_code\), fracTolAt,/.test(so)
      && so.indexOf('fracSweep(') > so.indexOf("await db.put('entries', posted)") && /if \(outH\.po\) try \{/.test(so)
@@ -563,6 +656,34 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
      /const at = atFrom\(outH\.date\);/.test(so) && (so.match(/atFrom\(/g) || []).length === 1
      && so.indexOf('atFrom(') < so.indexOf('outReady.value.map(') && !so.includes('posted[0].at'),
      JSON.stringify(so.match(/at[,:] ?[^\n]*/g)));
+}
+
+console.log('\n=== ห้ามลงวันอนาคตทุกช่องที่บันทึก (เจ้าของสั่ง 27 พ.ย. 2026) ===');
+{
+  const T = '2026-11-27';
+  ok('พรุ่งนี้ / ปีหน้า = ข้อความแดงบอกวันนี้', /ยังไม่ถึง/.test(futureDateErr('2026-11-28', T))
+     && futureDateErr('2026-11-28', T).includes(T) && !!futureDateErr('2027-01-01', T));
+  ok('วันนี้ / ย้อนหลัง = ผ่าน', futureDateErr(T, T) === '' && futureDateErr('2026-11-26', T) === '' && futureDateErr('2025-12-31', T) === '');
+  ok('ค่าว่าง / รูปแบบอื่น = ไม่ตัดสินที่นี่', futureDateErr('', T) === '' && futureDateErr(null, T) === '' && futureDateErr('28/11/2026', T) === '');
+  const app = fs.readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const body = name => { const i = app.indexOf('function ' + name + '('); return i < 0 ? '' : app.slice(i, app.indexOf('\n    }\n', i)); };
+  // ทุกปุ่มบันทึกที่รับวันที่จากคน — ตรวจก่อนเขียนลงเครื่อง (เพิ่มช่องวันที่ใหม่ต้องเพิ่มที่นี่ด้วย)
+  const saves = { saveIn: 'inH.date', saveOut: 'outH.date', saveMisc: 'mk.date', bpFracClean: 'date', bpIssSave: 'bpIss.date',
+                  saveWeekly: 'wkH.date', fsClose: 'fsDayNow()', mrpSetDate: 'date', saveReturnPop: 'rt.date', fbIssue: 'fbDoc.date',
+                  fbReqSubmit: 'fbReqDayNow()', fbClose: 'fbDayNow()' };
+  const miss = Object.entries(saves).filter(([f, v]) => { const b = body(f); const i = b.indexOf('futureBlocked(' + v + ')');
+    return i < 0 || ['db.put(', 'fsPut(', 'buyDocFile('].some(w => b.includes(w) && b.indexOf(w) < i); });
+  ok('ทุกปุ่มบันทึกเรียก futureBlocked ก่อนเขียนลงเครื่อง', miss.length === 0, miss.map(x => x[0]).join(','));
+  ok('futureBlocked ใช้ futureDateErr + todayLocal() ขณะกด · ขึ้นข้อความแดง',
+     /function futureBlocked\(date\) \{\s*const why = futureDateErr\(date, todayLocal\(\)\);\s*if \(why\) flash\(why, true\);/.test(app));
+  const dates = html.match(/<input[^>]*type="date"[^>]*>/g) || [];
+  const noMax = dates.filter(t => !t.includes(':max="todayLocal()"') && !/l\.expiry|fxDraft|lg\.from|lg\.to/.test(t));
+  ok('ช่องวันที่ทุกช่อง (ยกเว้นวันหมดอายุ · ช่องกรองหน้าค้นหา) ปฏิทินเลือกวันอนาคตไม่ได้', dates.length >= 18 && noMax.length === 0,
+     noMax.join(' | '));
+  ok('ช่องวันหมดอายุ · ช่องกรองหน้าค้นหา ไม่ถูกจำกัด', dates.filter(t => /l\.expiry|fxDraft|lg\.from|lg\.to/.test(t)).every(t => !t.includes(':max')));
+  ok('ช่องเติมวันที่ PO ไม่ผูก v-model — บล็อกแล้วล้างช่องเอง', /mrpSetDate\(r\.po, \$event\.target\.value, \$event\.target\)/.test(html)
+     && /if \(futureBlocked\(date\)\) \{ if \(el\) el\.value = ''; return; \}/.test(app));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
