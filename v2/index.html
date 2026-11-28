@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.11">
+<meta name="app-version" content="2026-11-28.12">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -1687,7 +1687,7 @@ textarea{font:inherit}
                 <thead><tr><th style="width:120px">รหัส</th><th>ชื่อ</th>
                   <th style="width:105px">หมวด</th><th style="width:110px">คงเหลือ</th>
                   <th style="width:55px">หน่วย</th><th style="width:110px">เคลื่อนไหวล่าสุด</th>
-                  <th style="width:80px"></th></tr></thead>
+                  <th style="width:150px" class="noprint"></th></tr></thead>
                 <tbody><tr v-for="r in balShown.rows" :key="r.code">
                   <td class="mono"><b>{{ r.code }}</b></td>
                   <td>{{ r.desc }}
@@ -1696,8 +1696,11 @@ textarea{font:inherit}
                   <td class="mono"><b :style="r.qty<0?'color:var(--bad)':''">{{ r.qty }}</b></td>
                   <td class="mono hint">{{ r.unit }}</td>
                   <td class="mono hint">{{ r.last ? localDate(r.last) : '—' }}</td>
-                  <!-- ไม่มีปุ่มจ่ายออกจากหน้านี้แล้ว — พนักงานกดจ่ายออกจากตรงนี้แล้วสับสน จ่ายออกที่หน้าจ่ายออกที่เดียว (เจ้าของสั่ง 22 พ.ย. 2026) -->
-                  <td><button class="btn" style="padding:2px 9px" @click="openCard(r.code)">การ์ด</button></td>
+                  <!-- 22 พ.ย. 2026 เคยถอดปุ่มจ่ายออกจากหน้านี้ (ปุ่มเดิมพาไปเติมใบเบิกหน้าจ่ายออก พนักงานสับสน)
+                       28 พ.ย. 2026 เจ้าของสั่งให้จ่ายได้อีก — ปุ่มนี้เปิดกล่องเลือก PO แล้วบันทึกเลย ไม่พาไปหน้าอื่น -->
+                  <td class="noprint" style="white-space:nowrap">
+                    <button class="btn primary" style="padding:2px 12px" :data-ciiss="r.code" @click="ciIssOpen(r.code)">จ่าย</button>
+                    <button class="btn" style="padding:2px 9px;margin-left:6px" @click="openCard(r.code)">การ์ด</button></td>
                 </tr></tbody>
               </table>
               <p v-if="!balShown.rows.length" class="empty">
@@ -3962,6 +3965,51 @@ textarea{font:inherit}
             <button class="btn" @click="bpFix.open=false">ไม่แก้แล้ว</button>
             <button class="btn primary" @click="bpFixSave"
                     :disabled="!bpFixChk || !bpFixChk.ok || !bpFix.by || !!bpFixWhy">บันทึกการแก้</button>
+          </div>
+        </div>
+      </div>
+      <!-- จ่ายออกจากหน้ารายรหัส (เจ้าของสั่ง 28 พ.ย. 2026) — เลือก PO ที่ยังมีของ (ใบเก่าขึ้นก่อน) · โชว์ P/N ของใบ · ไม่คุม BOM
+           เพดาน = คงเหลือของใบที่เลือก (A4) · บันทึกผ่าน postPoIssue ตัวเดียวกับกล่องจ่ายของหน้าราย P/N -->
+      <div class="modal" v-if="ciIss.open" @click.self="ciIss.open=false">
+        <div class="modal-box" style="width:min(760px,100%)" role="dialog" aria-modal="true">
+          <h2>จ่ายออก</h2>
+          <table><tbody>
+            <tr><td class="hint" style="width:150px">วัตถุดิบ</td><td><span class="mono"><b>{{ ciIss.code }}</b></span> {{ (matOf(ciIss.code) || {}).description || '' }}</td></tr>
+          </tbody></table>
+          <p style="margin:14px 0 4px"><b>1. เลือก PO ที่จะตัดของ</b> <span class="hint">— เฉพาะ PO ที่ยังมีของรหัสนี้ · PO เก่าขึ้นก่อน</span></p>
+          <table class="mrp" style="margin-top:0"><thead><tr><th style="width:30px"></th><th>PO</th><th>PO Date</th><th>P/N</th>
+            <th class="r">รับเข้า</th><th class="r">จ่ายออก</th><th class="r">คงเหลือ</th></tr></thead>
+            <tbody>
+              <tr v-for="p in ciIssPos" :key="p.po" style="cursor:pointer" @click="ciIss.po = p.po" :data-ciiss-po="p.po">
+                <td><input type="radio" name="ciiss" :checked="ciIss.po === p.po"></td>
+                <td class="mono"><b>{{ p.po }}</b></td><td class="mono">{{ p.date || '—' }}</td>
+                <td class="mono">{{ p.pn || 'ไม่รู้ P/N' }}</td>
+                <td class="mono r">{{ mrpNum(p.recv) }}</td>
+                <td class="mono r">{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">ส่งคืน Delta {{ mrpNum(p.sendback) }}</div></td>
+                <td class="mono r"><b>{{ mrpNum(p.bal) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></td></tr>
+              <tr v-if="!ciIssPos.length"><td colspan="7" class="hint">ไม่มี PO ไหนที่ยังมีของรหัสนี้ — คีย์รับเข้าของ PO นั้นก่อน แล้วค่อยจ่าย</td></tr>
+            </tbody></table>
+          <template v-if="ciIssRow">
+            <p style="margin:14px 0 4px"><b>2. กรอกการจ่าย</b>
+              <span class="hint">— PO {{ ciIssRow.po }} · P/N {{ ciIssRow.pn || 'ไม่รู้ P/N' }} · จ่ายได้สูงสุด</span>
+              <b class="mono">{{ mrpNum(ciIssChk.max) }}</b> <span class="hint">{{ unitOf(ciIss.code) }}</span></p>
+            <div class="row">
+              <label class="f" style="width:150px">วันที่<input v-model="ciIss.date" type="date" :max="todayLocal()"></label>
+              <label class="f grow">ชื่อผู้จ่าย<input v-model.trim="ciIss.person"></label>
+              <label class="f grow">ชื่อผู้เบิก<input v-model.trim="ciIss.requester"></label>
+              <label class="f" style="width:130px">จำนวนที่จ่าย
+                <input v-model.number="ciIss.qty" type="number" step="any" min="0" class="mono" data-ciiss-qty></label>
+            </div>
+            <div class="msg bad" v-if="ciIssChk.overRecv" style="margin:10px 0 0">
+              <b>เกินของที่ PO นี้มี</b> — ครั้งนี้ {{ mrpNum(ciIssChk.qty) }} มากกว่าคงเหลือของ PO {{ ciIssRow.po }} {{ mrpNum(ciIssRow.bal) }}
+              · ใส่ได้ไม่เกิน {{ mrpNum(ciIssChk.max) }} หรือเลือก PO อื่นที่ยังมีของ</div>
+          </template>
+          <p v-else-if="ciIss.po" class="msg bad" style="margin:10px 0 0">PO {{ ciIss.po }} ไม่มีของรหัสนี้เหลือแล้ว (อาจมีเครื่องอื่นจ่ายไป) — เลือก PO อื่น</p>
+          <div class="row" style="margin-top:12px">
+            <div class="grow"></div>
+            <button class="btn" @click="ciIss.open=false">ไม่จ่ายแล้ว</button>
+            <button class="btn primary" @click="ciIssSave"
+                    :disabled="!ciIssChk || !ciIssChk.ok || !ciIss.person || !ciIss.requester || !ciIss.date">บันทึกจ่ายออก</button>
           </div>
         </div>
       </div>

@@ -35,7 +35,7 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt, codePoRows } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
@@ -1879,26 +1879,50 @@ createApp({
       return (l && l.byPo.find(x => x.po === bpIss.po)) || null;
     });
     const bpIssChk = computed(() => (bpIssRow.value ? poIssueCheck(bpIssRow.value, bpIss.qty) : null));
+    /* บันทึกจ่ายออกหนึ่งรายการอ้าง PO แล้วล้างเศษของ PO นั้น — กล่องจ่ายของหน้าราย P/N กับหน้ารายรหัสใช้ตัวเดียวกัน
+     * ผู้เรียกเช็กกฎ (poIssueCheck) กับวันอนาคต (futureBlocked) ก่อนเรียก · โยน error ให้ผู้เรียกขึ้นข้อความเอง */
+    async function postPoIssue({ po, code, pn, date, person, requester, qty }) {
+      const at = atFrom(date);   // เวลาเดียวกับล้างเศษ ให้ยกเลิกแล้วผูกคู่กันได้ (แบบ saveOut)
+      const e = makeEntry({ entity: entity.value, kind: 'issue', material_code: code, qty, lot: '', lot_inferred: false,
+                            doc_kind: 'po', doc_ref: po, part_no: pn, at, person, device: device.value,
+                            note: 'ผู้เบิก: ' + requester });   // ไม่มีช่องผู้เบิกแยก — เจ้าของเลือกใส่หมายเหตุ (28 พ.ย. 2026) ไม่ต้องแก้ Apps Script
+      await db.put('entries', [e]);
+      entries.value.push(e);
+      let crumbs = [], crumbErr = '';
+      try {
+        crumbs = fracSweep(entries.value, entity.value, po, [code], fracTolAt, { person, device: device.value, at, part_no: pn });
+        if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
+      } catch (err) { crumbs = []; crumbErr = err.message; }
+      db.announce('entries');
+      flash(`บันทึกจ่ายออก ${code} × ${qty} · PO ${po}` + (crumbs.length ? ' · ล้างเศษแล้ว' : '')
+            + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
+    }
     async function bpIssSave() {
       const c = bpIssChk.value;
       if (!c || !c.ok || !bpIss.person || !bpIss.requester || !bpIss.date || futureBlocked(bpIss.date)) return;
       try {
-        const at = atFrom(bpIss.date);   // เวลาเดียวกับล้างเศษ ให้ยกเลิกแล้วผูกคู่กันได้ (แบบ saveOut)
-        const e = makeEntry({ entity: entity.value, kind: 'issue', material_code: bpIss.code, qty: c.qty, lot: '', lot_inferred: false,
-                              doc_kind: 'po', doc_ref: bpIss.po, part_no: bpIss.pn, at, person: bpIss.person, device: device.value,
-                              note: 'ผู้เบิก: ' + bpIss.requester });   // ไม่มีช่องผู้เบิกแยก — เจ้าของเลือกใส่หมายเหตุ (28 พ.ย. 2026) ไม่ต้องแก้ Apps Script
-        await db.put('entries', [e]);
-        entries.value.push(e);
-        let crumbs = [], crumbErr = '';
-        try {
-          crumbs = fracSweep(entries.value, entity.value, bpIss.po, [bpIss.code], fracTolAt,
-                             { person: bpIss.person, device: device.value, at, part_no: bpIss.pn });
-          if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
-        } catch (err) { crumbs = []; crumbErr = err.message; }
-        db.announce('entries');
-        flash(`บันทึกจ่ายออก ${bpIss.code} × ${c.qty} · PO ${bpIss.po}` + (crumbs.length ? ' · ล้างเศษแล้ว' : '')
-              + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
+        await postPoIssue({ po: bpIss.po, code: bpIss.code, pn: bpIss.pn, date: bpIss.date,
+                            person: bpIss.person, requester: bpIss.requester, qty: c.qty });
         bpIss.open = false;
+      } catch (err) { flash(err.message, true); }
+    }
+    /* จ่ายออกจากหน้ารายรหัส (เคมี · METAL PART · เจ้าของสั่ง 28 พ.ย. 2026) — ปุ่ม "จ่าย" ท้ายแถวรหัส → เลือก PO ที่ยังมีของในกล่อง
+     * เคมีจ่ายรวมข้าม PO จึงให้เลือกใบเอง (ใบเก่าขึ้นก่อน · codePoRows) · โชว์ P/N ของใบ แต่ไม่คุมจ่ายสะสมตาม BOM (เจ้าของสั่ง)
+     * เพดานคือคงเหลือของใบที่เลือก (A4) — poIssueCheck แบบไม่รู้ยอดตาม BOM · ตัวเลขอ่านจากสมุดทุกครั้งแบบ bpIssRow */
+    const ciIss = reactive({ open: false, code: '', po: '', date: '', person: '', requester: '', qty: null });
+    function ciIssOpen(code) {
+      Object.assign(ciIss, { open: true, code, po: '', date: todayLocal(), requester: '', qty: null });   // ผู้จ่ายจำชื่อล่าสุดไว้ แบบ bpIss
+    }
+    const ciIssPos = computed(() => (ciIss.open && entity.value ? codePoRows(poStocks(entries.value, entity.value), ciIss.code, poIdx.value) : []));
+    const ciIssRow = computed(() => ciIssPos.value.find(p => p.po === ciIss.po) || null);
+    const ciIssChk = computed(() => (ciIssRow.value ? poIssueCheck({ need: null, issued: ciIssRow.value.issued, bal: ciIssRow.value.bal }, ciIss.qty) : null));
+    async function ciIssSave() {
+      const c = ciIssChk.value, r = ciIssRow.value;
+      if (!c || !c.ok || !r || !ciIss.person || !ciIss.requester || !ciIss.date || futureBlocked(ciIss.date)) return;
+      try {
+        await postPoIssue({ po: r.po, code: ciIss.code, pn: r.pn, date: ciIss.date,
+                            person: ciIss.person, requester: ciIss.requester, qty: c.qty });
+        ciIss.open = false;
       } catch (err) { flash(err.message, true); }
     }
     /* แก้รายการจ่ายที่เกิน (เจ้าของสั่ง 28 พ.ย. 2026) — แทนทางเดิมที่กดยอดติดลบแล้วพาไปแท็บ Log (19 พ.ย.) · เจ้าของให้ถอดทางนั้นออก — กดป้าย "จ่ายเกิน" (เกิน BOM) หรือยอดติดลบ (เกินรับเข้า) ของแถว PO
@@ -4231,7 +4255,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, ciIss, ciIssOpen, ciIssPos, ciIssRow, ciIssChk, ciIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,

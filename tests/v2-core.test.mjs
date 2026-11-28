@@ -669,7 +669,7 @@ console.log('\n=== ห้ามลงวันอนาคตทุกช่อ�
   const html = fs.readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
   const body = name => { const i = app.indexOf('function ' + name + '('); return i < 0 ? '' : app.slice(i, app.indexOf('\n    }\n', i)); };
   // ทุกปุ่มบันทึกที่รับวันที่จากคน — ตรวจก่อนเขียนลงเครื่อง (เพิ่มช่องวันที่ใหม่ต้องเพิ่มที่นี่ด้วย)
-  const saves = { saveIn: 'inH.date', saveOut: 'outH.date', saveMisc: 'mk.date', bpFracClean: 'date', bpIssSave: 'bpIss.date',
+  const saves = { saveIn: 'inH.date', saveOut: 'outH.date', saveMisc: 'mk.date', bpFracClean: 'date', bpIssSave: 'bpIss.date', ciIssSave: 'ciIss.date',
                   saveWeekly: 'wkH.date', fsClose: 'fsDayNow()', mrpSetDate: 'date', saveReturnPop: 'rt.date', fbIssue: 'fbDoc.date',
                   fbReqSubmit: 'fbReqDayNow()', fbClose: 'fbDayNow()' };
   const miss = Object.entries(saves).filter(([f, v]) => { const b = body(f); const i = b.indexOf('futureBlocked(' + v + ')');

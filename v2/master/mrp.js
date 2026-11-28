@@ -645,3 +645,24 @@ export function fixSweepAt(entries, entity, po, code, srcAt) {
   const floor = lastIssueAt(entries, entity, po, code);
   return floor && String(floor) > String(srcAt || '') ? floor : srcAt;
 }
+
+/**
+ * PO ที่ยังมีของของรหัสหนึ่ง — ให้กล่องจ่ายออกจากหน้ายอดคงคลัง "รายรหัส" เลือก PO (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   stocks = poStocks(entries, entity) · headerOf = poHeaderIndex(posVisible) ให้ PO Date กับ P/N ของใบ
+ *   เฉพาะใบที่คงเหลือ > 0 (ใบติดลบ / ศูนย์ จ่ายไม่ได้อยู่แล้ว · A4) · ไม่กรองใบที่ปิดแล้ว — เคมีใช้รวมกันข้ามใบ ของค้างในใบเก่าได้
+ *   เรียง PO Date เก่าก่อน (ของเก่าออกก่อน) · ไม่รู้วันที่ไว้ท้าย
+ *   ยอดของใบมาจาก poStocks ตัวเดียวกับหน้าราย P/N และหน้าจ่ายออก — ห้ามคิดใหม่ในนี้
+ * คืน [{ po, date, pn, recv, sendback, issued, bal }]
+ */
+export function codePoRows(stocks, code, headerOf) {
+  const c = txt(code), out = [];
+  if (!c) return out;
+  for (const [po, codes] of stocks || []) {
+    const s = codes && codes.get(c);
+    if (!s || !(s.bal > 0)) continue;
+    const h = headerOf ? headerOf(po) : null;
+    out.push({ po, date: h ? txt(h.date) : '', pn: h ? txt(h.pn) : '',
+               recv: s.recv, sendback: s.sendback, issued: s.issued, bal: s.bal });
+  }
+  return out.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || a.po.localeCompare(b.po));
+}
