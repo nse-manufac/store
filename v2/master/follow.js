@@ -252,7 +252,7 @@ export function reopenFollow(row, { at, by = '' } = {}) {
  * ⚠️ รายการรับเข้าอ้าง PO ของเรื่อง short เดิม (เจ้าของเลือก) → ยอดขาดของ PO นั้นลดตามจริง การ์ดไม่ขึ้นให้ตั้งซ้ำ
  * ⚠️ ล็อต = วันที่รับเข้า (กติกาเดียวกับหน้ารับเข้า) · วันหมดอายุเว้นไว้ เติมทีหลังได้ที่แท็บ Log
  * ⚠️ date/at = วันที่ของมาจริง (แก้ย้อนหลังได้) → ใช้กับรายการรับเข้า ล็อต และ done_at ของเรื่อง
- *    แต่ updated_at ของเรื่องต้องเป็นเวลาจริงตอนกด ไม่งั้นคีย์ย้อนวันแล้วแพ้ตอนซิงค์ (D5 · กฎเดียวกับ doReturn ของ over)
+ *    แต่ updated_at ของเรื่องต้องเป็นเวลาจริงตอนกด ไม่งั้นคีย์ย้อนวันแล้วแพ้ตอนซิงค์ (D5 · กฎเดียวกับ returnOver / offsetShorts ของ over)
  * ⚠️ นิติบุคคลมาจากเรื่องนั้นเอง ไม่ใช่หัวจอ (A3) · ผูกเลขที่รายการรับเข้าไว้ที่เรื่อง ให้ "เอากลับ" ยกเลิกตามได้
  * คืน { rec, entry }
  */
@@ -283,13 +283,15 @@ export function arriveShort(row, { qty, person = '', device = '', date = '', at 
  * เอาเรื่อง short กลับ (กด "มาแล้ว" ผิด) — เปิดเรื่องใหม่ และยกเลิกรายการรับเข้าที่ปุ่มนั้นสร้าง (เจ้าของเลือก 10 ต.ค. 2026)
  * ยกเลิกแบบไม่ลบ (B1) · คืน { rec, voids } — ผู้เรียกบันทึก voids ลงสมุดเอง
  */
-export function reopenShort(row, entries = [], { by = '', at = '' } = {}) {
+export function reopenShort(row, entries = [], { by = '', at = '', follows = [] } = {}) {
   if (!row) throw new Error('ไม่มีรายการให้เปิดใหม่');
   const ids = String(row.receive_entry_id || '').split(/\s+/).filter(Boolean);
   const hit = (entries || []).filter(e => e && ids.includes(e.id) && !e.voided);
   if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการรับเข้า');
   const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง short กลับ — กด "มาแล้ว" ผิด' }));
-  return { rec: { ...reopenFollow(row, { at, by }), receive_entry_id: '' }, voids };
+  // รับเข้าที่มาจาก "คืนของ แบบ 2" มีคู่ส่งคืนฝั่ง over — ต้องถอยทั้งคู่ ไม่งั้นยอด over หายไปฟรี ๆ (เจ้าของสั่ง 27 พ.ย. 2026)
+  const { voids: pv, recs: overRecs } = undoPairs(hit, entries, follows, { side: 'short', by, at });
+  return { rec: { ...reopenFollow(row, { at, by }), receive_entry_id: '' }, voids: [...voids, ...pv], overRecs };
 }
 
 /**
@@ -1295,14 +1297,16 @@ export function doubleReturns(follows, entries, { entity } = {}) {
  * ยกเลิกแบบไม่ลบ (B1) · ยอดคงคลังกลับมาเท่าที่คืนไป · คืน { rec, voids } — ผู้เรียกบันทึก voids ลงสมุดเอง
  * ⚠️ เดิมไม่มีทางย้อน · ยกเลิกรายการส่งคืนที่แท็บ Log แล้วเรื่องยังขึ้น "คืนครบแล้ว" ค้างไว้
  */
-export function reopenOver(row, entries = [], { by = '', at = '' } = {}) {
+export function reopenOver(row, entries = [], { by = '', at = '', follows = [] } = {}) {
   if (!row || row.kind !== 'over') throw new Error('ใช้ได้กับเรื่อง over เท่านั้น');
   if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว เอากลับไม่ได้');
   const ids = idsOf(row.return_entry_id);
   const hit = (entries || []).filter(e => e && ids.includes(e.id) && !e.voided);
   if (hit.length && !txt(by)) throw new Error('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน — ต้องบอกว่าใครยกเลิกรายการส่งคืน');
-  const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง over กลับ — กด "คืนแล้ว" ผิดหรือคืนซ้ำ' }));
-  return { rec: { ...reopenFollow(row, { at, by }), return_entry_id: '' }, voids };
+  const voids = hit.map(e => voidEntry(e, { by: txt(by), reason: 'เอาเรื่อง over กลับ — กด "คืนของ" ผิดหรือคืนซ้ำ' }));
+  // ส่งคืนที่เป็น "ทดแทน short" มีคู่รับเข้าฝั่ง short — ถอยทั้งคู่ และคืนยอดค้างให้เรื่อง short (เจ้าของสั่ง 27 พ.ย. 2026)
+  const { voids: pv, recs: shortRecs } = undoPairs(hit, entries, follows, { side: 'over', by, at });
+  return { rec: { ...reopenFollow(row, { at, by }), return_entry_id: '' }, voids: [...voids, ...pv], shortRecs };
 }
 
 /* ══════════ Short / Over บน Bin Card (เจ้าของสั่ง 28 ก.ย. 2026) ══════════ */
@@ -1456,6 +1460,136 @@ export function returnOver(row, { qty, person = '', device = '', at = '', reason
   const rec = closeFollow(row, { qty: n, by: txt(person), doneAt: at });
   rec.return_entry_id = [txt(row.return_entry_id), entry.id].filter(Boolean).join(' ');
   return { rec, entry };
+}
+
+/* ══════════ คืนของ แบบ 2 — เอา over ไปทดแทนเรื่อง short ที่ค้าง (เจ้าของสั่ง 27 พ.ย. 2026) ══════════
+ * ของไม่ได้ออกจากโรงงาน — ลงเป็นคู่ "ส่งคืนจาก PO ของ over" + "รับเข้า PO ของ short" ยอดเท่ากัน
+ * คงคลังรวมจึงเท่าเดิม แต่ยอดเกินของ PO เก่ากับยอดขาดของ PO ใหม่หายไปพร้อมกันตามจริง
+ *
+ * ⚠️ คู่ผูกกันด้วยเลขที่: รับเข้า = เลขที่ส่งคืน + PAIR_SUFFIX · เลขที่จาก makeEntry เป็นตัวเล็กล้วน
+ *    ตัวใหญ่ 'P' ท้ายเลขจึงไม่ชนกับเลขที่ปกติ · ไม่ต้องเพิ่มช่องใหม่ในสมุด (ไม่ต้องแก้ชีต / Apps Script)
+ * ⚠️ "เอากลับ" ฝั่งไหนก็ตาม ต้องถอยทั้งคู่ (undoPairs) — ถอยข้างเดียวแล้วยอดคลังเพี้ยนไปเท่ายอดนั้น */
+export const PAIR_SUFFIX = 'P';
+export const pairIdOf = sendbackId => txt(sendbackId) + PAIR_SUFFIX;
+
+/**
+ * ใบที่คู่กับรายการนี้ ถ้ามันมาจาก "คืนของ แบบ 2" (ยังไม่ถูกยกเลิก) · ไม่ใช่คู่ = []
+ * ปุ่ม "ยกเลิก" ในการ์ด / แท็บ Log แตะรายการได้ทีละใบ — ยกเลิกข้างเดียวแล้วคงคลังเพี้ยน
+ * ไปเท่ายอดที่ทดแทน โดยไม่มีอะไรฟ้อง (ผู้ตรวจ #199 รอบ 3 ข้อ 1) ผู้เรียกต้องยกเลิกคู่ไปด้วย
+ * ⚠️ ผูกกันด้วยเลขที่เท่านั้น (รับเข้า = เลขที่ส่งคืน + PAIR_SUFFIX) · เช็กชนิดอีกใบด้วย
+ *    เพื่อไม่ให้เลขที่จากทางอื่นที่เผอิญลงท้าย P ถูกนับเป็นคู่
+ */
+/**
+ * แยกรายการที่จะยกเลิกเป็น "คู่ทดแทน" (ส่งคืน + รับเข้าที่ผูกกันด้วยเลขที่) กับ "รายการเดี่ยว"
+ * ใช้เขียนกล่องยืนยันของปุ่ม "เอากลับ" ให้ตรงผลจริง — คู่ทดแทนยกเลิกแล้วคงคลังไม่ขยับ · รายการเดี่ยวขยับ
+ * (ผู้ตรวจ #199 รอบ 4 ข้อสังเกต 4: กล่องนับใบคู่รวมกับใบส่งคืน แล้วบอกว่าคงคลังจะกลับมา ทั้งที่ไม่ขยับ)
+ * คืน { pairs: [ใบส่งคืนของแต่ละคู่], singles: [รายการที่ไม่มีคู่ในชุดนี้] }
+ */
+export function splitPairs(list = []) {
+  const byId = new Map((list || []).filter(Boolean).map(e => [txt(e.id), e]));
+  const pairs = [], singles = [];
+  for (const e of list || []) {
+    if (!e) continue;
+    const id = txt(e.id);
+    const mate = e.kind === 'sendback' ? byId.get(pairIdOf(id)) : null;
+    if (mate && mate.kind === 'receive') { pairs.push(e); continue; }
+    if (e.kind === 'receive' && id.endsWith(PAIR_SUFFIX)) {
+      const back = byId.get(id.slice(0, -PAIR_SUFFIX.length));
+      if (back && back.kind === 'sendback') continue;   // นับไปแล้วผ่านใบส่งคืนของคู่
+    }
+    singles.push(e);
+  }
+  return { pairs, singles };
+}
+
+export function pairTwins(entries, e) {
+  if (!e) return [];
+  const id = txt(e.id);
+  const pid = e.kind === 'sendback' ? pairIdOf(id)
+    : (e.kind === 'receive' && id.endsWith(PAIR_SUFFIX) ? id.slice(0, -PAIR_SUFFIX.length) : '');
+  if (!pid) return [];
+  const mateKind = e.kind === 'sendback' ? 'receive' : 'sendback';
+  return (entries || []).filter(x => x && txt(x.id) === pid && x.kind === mateKind && !x.voided);
+}
+
+/**
+ * picks = [{ row: เรื่อง short, qty }] · แถวที่ qty ว่าง / 0 ข้ามไป
+ * คืน { overRec, shortRecs, entries } — ผู้เรียกบันทึก entries ลงสมุดก่อน แล้วค่อยบันทึกเรื่อง
+ * ⚠️ date/at = วันที่คืนจริง (แก้ย้อนได้) · updated_at ของเรื่องเป็นเวลาจริงตอนกด (now · D5) แบบ returnOver
+ */
+export function offsetShorts(over, picks = [], { person = '', device = '', date = '', at = '', now } = {}) {
+  if (!over || over.kind !== 'over') throw new Error('ใช้ได้กับเรื่อง over เท่านั้น');
+  if (over.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
+  if (!txt(person)) throw new Error('ใส่ชื่อผู้คืนก่อน');
+  const use = (picks || []).filter(p => p && p.row && Number(p.qty) > 0);
+  if (!use.length) throw new Error('ใส่ยอดที่ทดแทนอย่างน้อยหนึ่งแถว');
+  let total = 0;
+  for (const { row: s, qty } of use) {
+    if (s.kind !== 'short' || s.voided) throw new Error('ทดแทนได้เฉพาะเรื่อง short ที่ยังไม่ถูกยกเลิก');
+    if (txt(s.entity) !== txt(over.entity)) throw new Error(`short ${txt(s.po)} เป็นของนิติบุคคลอื่น — ทดแทนข้ามนิติบุคคลไม่ได้ (INVARIANTS A3)`);
+    if (txt(s.code).toUpperCase() !== txt(over.code).toUpperCase()) throw new Error(`short ${txt(s.po)} เป็นคนละรหัสกับ over`);
+    if (!txt(s.po)) throw new Error('เรื่อง short นี้ไม่มีเลข PO — รับเข้าคลังไม่ได้');
+    const n = round5(Number(qty));
+    if (n > remainOf(s)) throw new Error(`short ${txt(s.po)} ทดแทนได้ไม่เกินยอดที่ยังค้าง (${remainOf(s)})`);
+    total = round5(total + n);
+  }
+  if (total > remainOf(over)) throw new Error(`รวมทดแทน ${total} เกินยอด over ที่ยังค้าง (${remainOf(over)})`);
+  const day = txt(date) || txt(at).slice(0, 10);
+  const entries = [], shortRecs = [], backIds = [];
+  for (const { row: s, qty } of use) {
+    const n = round5(Number(qty));
+    const back = makeEntry({
+      kind: 'sendback', entity: over.entity, material_code: over.code, qty: n,
+      doc_kind: 'po', doc_ref: txt(over.po), part_no: txt(over.part_no), reason_code: 'carry',
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทน short PO ${txt(s.po)} (คืนของ)`
+    });
+    const recv = makeEntry({
+      id: pairIdOf(back.id), kind: 'receive', entity: s.entity, material_code: s.code, qty: n,
+      lot: day || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: txt(s.po), part_no: txt(s.part_no),
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทนจาก over PO ${txt(over.po)} (คืนของ)`
+    });
+    entries.push(back, recv);
+    backIds.push(back.id);
+    const rec = closeFollow(s, { qty: n, by: txt(person), at: now, doneAt: at });
+    rec.receive_entry_id = [txt(s.receive_entry_id), recv.id].filter(Boolean).join(' ');
+    shortRecs.push(rec);
+  }
+  const overRec = closeFollow(over, { qty: total, by: txt(person), at: now, doneAt: at });
+  overRec.return_entry_id = [txt(over.return_entry_id), ...backIds].filter(Boolean).join(' ');
+  return { overRec, shortRecs, entries };
+}
+
+/**
+ * ถอยคู่ของ "คืนของ แบบ 2" — hit = รายการที่ฝั่งที่กด "เอากลับ" กำลังยกเลิก
+ *   side 'over'  → หา "รับเข้า" คู่ของส่งคืนแต่ละใบ · ยกเลิก + ลดยอดที่ปิดไว้ของเรื่อง short เจ้าของ
+ *   side 'short' → หา "ส่งคืน" คู่ของรับเข้าแต่ละใบ · ยกเลิก + ลดยอดที่ปิดไว้ของเรื่อง over เจ้าของ
+ * ลดแค่ยอดของคู่นั้น ไม่เปิดทั้งเรื่อง — อีกฝั่งอาจได้ยอดมาจากทางอื่นด้วย · คืน { voids, recs }
+ */
+function undoPairs(hit, entries, follows, { side, by, at }) {
+  const byId = new Map((entries || []).filter(Boolean).map(e => [e.id, e]));
+  const recs = new Map(), voids = [];
+  const now = txt(at) || new Date().toISOString();
+  for (const e of hit || []) {
+    const id = String(e.id);
+    const pid = side === 'over' ? pairIdOf(id)
+      : (id.endsWith(PAIR_SUFFIX) ? id.slice(0, -PAIR_SUFFIX.length) : '');
+    const mate = pid && byId.get(pid);
+    if (!mate || mate.voided) continue;
+    voids.push(voidEntry(mate, { by: txt(by), reason: side === 'over'
+      ? 'เอาเรื่อง over กลับ — ยกเลิกคู่ทดแทน short' : 'เอาเรื่อง short กลับ — ยกเลิกคู่ทดแทนจาก over' }));
+    const kind = side === 'over' ? 'short' : 'over';
+    const field = side === 'over' ? 'receive_entry_id' : 'return_entry_id';
+    const own = [...recs.values()].find(f => idsOf(f[field]).includes(pid))
+      || (follows || []).find(f => f && f.kind === kind && !f.voided && idsOf(f[field]).includes(pid));
+    if (!own) continue;
+    const q = round5(Number(own.qty) || 0);
+    const done_qty = round5(Math.max(0, (Number(own.done_qty) || 0) - (Number(mate.qty) || 0)));
+    const done = q > 0 ? done_qty >= q : false;
+    recs.set(own.id, { ...own, done_qty, done, done_at: done ? own.done_at : '', done_by: done ? own.done_by : '',
+      [field]: idsOf(own[field]).filter(x => x !== pid).join(' '), updated_at: now,
+      note: joinNote(own.note, `${REOPEN_MARK}${localDate(now)} โดย ${txt(by) || 'ไม่ระบุชื่อ'} (ยกเลิกคู่ทดแทน ${mate.qty})`) });
+  }
+  return { voids, recs: [...recs.values()] };
 }
 
 /**
