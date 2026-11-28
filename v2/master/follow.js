@@ -1197,14 +1197,17 @@ export function shortDiffExplainer(calcRows, follows, bomRowOf) {
      *    · recv_qty จาก "รับเข้าคลังตอนตั้งเรื่อง" → "ACTUAL (ส่งจริง) ที่ Delta แจ้ง"
      *    อ่านตรง ๆ แล้วกุเหตุที่ไม่เคยเกิด — "จำนวนสั่ง 2.6 → 200" · "มีการยกเลิกใบรับเข้า" ทั้งที่คลังไม่ขยับ
      *    (ผู้ตรวจ #209 รอบ 2 · กับดักเดียวกับที่ overSetEvidence / overStopEvidence เตือนไว้ในไฟล์นี้)
-     * ต้องเข้าทั้งสองข้อ เพราะข้อเดียวไม่พอ:
-     *   1. รูปยอด — ไฟล์ตั้ง qty จาก VAR = สั่ง − ส่งจริง จึงได้ order_qty − recv_qty ≈ qty (แบบแผนของ overSetEvidence)
-     *      ลำพังข้อนี้ไม่พอ: แถว auto ที่ต่อชิ้น = 1 พอดี (ป้าย 1 ดวงต่อชิ้น) ก็เข้ารูปนี้ เพราะจำนวนสั่ง = ยอดตามสูตร
-     *   2. หมายเหตุประจำที่ fromShortRow ติดไว้หายไป — ไฟล์ทับช่องหมายเหตุทุกครั้งที่ทับตัวเลข (fields.note ใน planMatFollow)
-     *      และ planMatFollow เป็นทางเดียวที่ทับสามช่องแช่แข็งของเรื่องที่มีอยู่แล้ว (ไล่ทุกที่ที่เขียนสามช่องนี้แล้ว)
-     * ⚠️ แถวที่ไฟล์แจ้ง Cut Return ต้องเผื่อด้วย — rowToFollow ตั้ง qty = VAR − cut (matfollow.js) รูปยอดจึงเพี้ยนไปเท่า cut
-     *    ไม่เผื่อแล้วแถวพวกนั้นตกไปกิ่งล่างแล้วกุเหตุเหมือนก่อนแก้ทุกตัวอักษร (ผู้ตรวจ #209 รอบ 3 ข้อ 1)
-     *    เลขอยู่ในช่องหมายเหตุของเรื่องแล้ว (ไฟล์เขียน `Cut Return <เลข>` ลงไปเสมอ) ไม่ต้องเพิ่มช่องใหม่ ไม่แตะ E2
+     * สัญญาณที่ใช้คือ **หมายเหตุประจำที่ fromShortRow ติดไว้หายไป** อย่างเดียว
+     *   ไฟล์ทับช่องหมายเหตุทุกครั้งที่ทับตัวเลข (fields.note ใน planMatFollow) และ planMatFollow เป็นทางเดียว
+     *   ที่ทับสามช่องแช่แข็ง + ช่องหมายเหตุของเรื่องที่มีอยู่แล้ว (ไล่ทุกที่ที่เขียนสามช่องนี้และ note แล้ว
+     *   ไม่มีช่องแก้หมายเหตุบนจอ · reopenFollow / restartShort ยก base เดิมมา · migrateFollow ไม่แตะ)
+     *   และ bom_qty เขียนจาก 4 ที่เท่านั้น (fromShortRow · fromOverRow · restartShort · restartOver)
+     *   แถวที่เข้ากิ่ง canBom จึงเป็นแถว auto กับลูกของมันเท่านั้น
+     * ⚠️ ห้ามเอารูปยอด (order_qty − recv_qty ≈ qty) มาเป็นสัญญาณร่วม — เคยทำแล้วพลาดสองทาง (ผู้ตรวจ #209 รอบ 4 ข้อ 1)
+     *    restartShort ยกยอดแช่แข็งกับ base มาครบ แต่ตั้ง qty = ยอดที่ยังค้าง รูปยอดจึงหลุดทันทีที่กด "มาแล้ว" ไว้ก่อนยกเลิก
+     *    แล้วเรื่องที่ "กลับมาติดตาม" ตกมากิ่งล่างแล้วกุเหตุชุดเดิมกลับมาทั้งดุ้น (ปุ่มที่ cancelShortWarn แนะให้พนักงานกดเอง)
+     *    หมายเหตุประจำเป็นธงที่ติดทนข้ามการยกเลิก / กลับมาติดตาม ต่างจากรูปยอดที่เพี้ยนทันทีที่ qty เปลี่ยน
+     * cut (Cut Return ที่ไฟล์เขียนลงหมายเหตุ) ใช้แค่พิมพ์ในข้อความ ไม่ใช้ตัดสินแล้ว — rowToFollow ตั้ง qty = VAR − cut
      *    ⚠️ ห้าม import readNote จาก matfollow.js — matfollow.js import ไฟล์นี้อยู่แล้ว จะ import วนกัน (ใช้ regex เดียวกันในไฟล์นี้)
      */
     const canBom = has(follow.bom_qty) && fo > 0;
@@ -1212,11 +1215,9 @@ export function shortDiffExplainer(calcRows, follows, bomRowOf) {
     const cutM = /cut\s*return\s*:?\s*(-?[\d,.]+)/i.exec(base);
     const cutN = cutM ? Number(String(cutM[1]).replace(/,/g, '')) : null;
     const cut = cutN != null && isFinite(cutN) ? cutN : null;
-    const plainShaped = Math.abs(round5(fo - fr) - q) < 5e-4;
-    const cutShaped = !plainShaped && cut != null && Math.abs(round5(fo - fr - cut) - q) < 5e-4;
-    const deltaShaped = canBom && (plainShaped || cutShaped) && base !== SYS_SHORT_NOTE;
+    const deltaShaped = canBom && base !== SYS_SHORT_NOTE;
     if (deltaShaped) {
-      out.push(`ยอดในเรื่อง ${n(q)} มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง ${n(fo)} · ส่งจริง ${n(fr)}${cutShaped ? ` · หัก Cut Return ${n(cut)}` : ''}) ไม่ใช่ยอดตอนตั้งเรื่อง`
+      out.push(`ยอดในเรื่อง ${n(q)} มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง ${n(fo)} · ส่งจริง ${n(fr)}${cut != null ? ` · หัก Cut Return ${n(cut)}` : ''}) ไม่ใช่ยอดตอนตั้งเรื่อง`
         + (done > 0 ? ` (มาแล้ว ${n(done)} ยังค้าง ${n(remain)})` : '')
         + ` · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
     } else if (canBom) {

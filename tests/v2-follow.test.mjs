@@ -1148,10 +1148,12 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
      แล้ว 10 ต.ค. ตั้งเรื่องใหม่ 2.778 ปิดไป · 25 พ.ย. มีคนเอาเรื่องเก่า (2.6) กลับมา — เดิมต้องเปิดชีตไล่เองถึงรู้ */
   {
     const nowRow = { po: 'TM5269H789', pn: '2877679001', code: '3513605200', order: 200, need: 2.778, have: 0, short: 2.778, why: '' };
-    const old = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, source: 'auto', po: 'TM5269H789', code: '3513605200',
-                  qty: 2.6, order_qty: 200, bom_qty: 2.6, recv_qty: 0, date: '2026-10-01' }) };
-    const dup = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, source: 'auto', po: 'TM5269H789', code: '3513605200',
-                  qty: 2.778, order_qty: 200, bom_qty: 2.778, recv_qty: 0, date: '2026-10-10' }),
+    /* ⚠️ ตั้งด้วย fromShortRow จริง ไม่ใช่ makeFollow — เรื่องที่ระบบตั้งต้องมีหมายเหตุประจำติดมาด้วย
+       makeFollow เปล่า ๆ ได้ note = '' ซึ่งหน้าตาเหมือนแถวที่ไฟล์ MAT'L FOLLOWING ทับแล้วเป๊ะ (ผู้ตรวจ #209 รอบ 4 ข้อ 1) */
+    const old = { ...fromShortRow({ po: 'TM5269H789', pn: '2877679001', code: '3513605200',
+                  order: 200, need: 2.6, have: 0, short: 2.6, why: '' }, { entity: E, date: '2026-10-01' }) };
+    const dup = { ...fromShortRow({ po: 'TM5269H789', pn: '2877679001', code: '3513605200',
+                  order: 200, need: 2.778, have: 0, short: 2.778, why: '' }, { entity: E, date: '2026-10-10' }),
                   done: true, done_qty: 2.778, done_at: '2026-10-10T08:31:43.389Z' };
     const bomRow = { pn: '2877679001', code: '3513605200', usage: 0.01389, source: 'ใบเบิก ชีต 113 · 2026-09-29', imported_at: '2026-10-05T01:23:18.878Z' };
     const why = shortDiffExplainer([nowRow], [old, dup], () => bomRow)(old);
@@ -1274,6 +1276,37 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
        แถวที่ไฟล์ไม่เคยทับจึงได้ cut = null แล้วตกลงเป็นเงื่อนไขเดิมเป๊ะ ไม่ได้ถอดสัญญาณไหนออก */
     ok('ต่อชิ้น = 1 ไฟล์ไม่เคยทับ — การเผื่อ Cut Return ไม่ทำให้แถวนี้เปลี่ยนคำตอบ',
        JSON.stringify(shortDiffExplainer(oneNow, [], null)(one)) === JSON.stringify(cWhy), JSON.stringify(cWhy));
+
+    /* ── ผู้ตรวจ #209 รอบ 4 ข้อ 1 — กดปุ่ม "กลับมาติดตาม" แล้วห้ามกุเหตุชุดเดิมกลับมา ──
+       restartShort ยกยอดแช่แข็งทั้งสามช่องและหมายเหตุมาครบ แต่ตั้ง qty = ยอดที่ยังค้าง
+       รูปยอด order_qty − recv_qty จึงหลุดทันทีที่กด "มาแล้ว" ไว้ก่อนยกเลิก ซึ่ง cancelShortWarn แนะให้พนักงานทำแบบนั้นเอง
+       เดินเส้นจริงทั้งเส้น: fromShortRow → planMatFollow → arriveShort → cancelShort → restartShort (ห้ามตั้งค่าในมือ)
+       ⚠️ calcRows ของสองเคสนี้ตั้งมือเป็น "ยอดที่ระบบคิดได้ตอนนี้" เหมือนเคสอื่นในบล็อกนี้ — เทียบข้อความที่ bubble พูด */
+    const cycle = rec => {
+      const got = arriveShort(rec, { qty: 0.5, person: 'ก', date: '2026-11-20', at: '2026-11-20T02:00:00.000Z' }).rec;
+      const off = cancelShort(got, { by: 'ก', why: 'Delta ไม่ส่งของที่เหลือ' });
+      return restartShort(off, { by: 'ก', date: '2026-11-25', at: '2026-11-25T02:00:00.000Z' });
+    };
+    // คลังรับ 0.6 ตั้งแต่ 1 ต.ค. แล้วไม่ขยับอีกเลย · สูตรไม่เปลี่ยน · ไม่มีการยกเลิกใบรับเข้า ไม่มีการส่งคืน
+    // (ไฟล์แจ้ง ACTUAL 1.5 ทับ recv_qty ไว้ → ตัวเลข 1.5 ไม่ใช่ยอดรับเข้าคลัง ห้ามเอามาประกาศเหตุ)
+    const back = cycle(overwritten({ order: 200, need: 2.6, have: 0.6, short: 2 }, 2.6, 1.5).rec);
+    const backWhy = shortDiffExplainer([{ po: PO, pn: PN, code: CODE, order: 200, need: 2.6, have: 0.6, short: 2, why: '' }], [], null)(back);
+    ok('กลับมาติดตามเรื่องที่ไฟล์ Delta ทับยอดไว้ — ยอดแช่แข็งยังเชื่อถือไม่ได้ ต้องไม่กุเหตุชุดเดิมกลับมา',
+       back.qty === 0.6 && back.order_qty === 2.6 && back.recv_qty === 1.5 && backWhy.length === 1
+       && !backWhy[0].includes('ยกเลิกใบรับเข้า') && !backWhy[0].includes('ลดลงหลังตั้งเรื่อง')
+       && !backWhy[0].includes('จำนวนสั่ง') && !backWhy[0].includes('ต่อชิ้น') && !backWhy[0].includes('ไม่ได้มาจากสูตรตอนตั้ง')
+       && backWhy[0].includes("มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง 2.6 · ส่งจริง 1.5)")
+       && backWhy[0].includes('ตามสูตร 2.6 − รับแล้ว 0.6 = 2'), JSON.stringify([back.qty, backWhy]));
+
+    // แถว auto ที่ไฟล์ไม่เคยทับ — กลับมาติดตามแล้วคำตอบต้องเท่าเดิม (restartShort ยกหมายเหตุประจำมาด้วย)
+    const backSys = cycle(fromShortRow({ po: PO, pn: PN, code: CODE, order: 200, need: 2.6, have: 0.6, short: 2, why: '' },
+                          { entity: EH, date: '2026-10-01' }));
+    const backSysWhy = shortDiffExplainer([{ po: PO, pn: PN, code: CODE, order: 200, need: 2.6, have: 0.6, short: 2, why: '' }], [], null)(backSys);
+    ok('กลับมาติดตามแถว auto ที่ไฟล์ไม่เคยทับ — ยอดแช่แข็งยังเชื่อถือได้ คำตอบเท่าเดิม ไม่ไปอ้างไฟล์ Delta',
+       backSys.qty === 1.5 && splitNoteTrace(backSys.note).base === splitNoteTrace(one.note).base
+       && backSysWhy.length === 1 && !backSysWhy[0].includes('MAT')
+       && backSysWhy[0].includes('ยอดในเรื่อง 1.5 ไม่ได้มาจากสูตรตอนตั้ง (ตามสูตร 2.6 − รับแล้ว 0.6 = 2)'),
+       JSON.stringify([backSys.qty, backSysWhy]));
   }
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
