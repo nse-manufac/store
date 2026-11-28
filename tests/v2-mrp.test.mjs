@@ -635,7 +635,7 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
      /ชื่อผู้จ่าย<input v-model\.trim="bpIss\.person"><\/label>\s*<label class="f grow">ชื่อผู้เบิก<input v-model\.trim="bpIss\.requester"/.test(html));
   ok('app.js: เปิดกล่องตั้งวันที่เป็นวันนี้ · บันทึกเช็กกฎซ้ำก่อนเขียน · อ้าง PO ของปุ่มที่กด',
      /bpIssOpen\(pn, po, code\) \{\s*Object\.assign\(bpIss, \{ open: true, pn, po, code, date: todayLocal\(\)/.test(app)
-     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.requester \|\| !bpIss\.date\) return;/.test(app) && /doc_ref: bpIss\.po, part_no: bpIss\.pn/.test(app));
+     && /if \(!c \|\| !c\.ok \|\| !bpIss\.person \|\| !bpIss\.requester \|\| !bpIss\.date \|\| futureBlocked\(bpIss\.date\)\) return;/.test(app) && /doc_ref: bpIss\.po, part_no: bpIss\.pn/.test(app));
   ok('app.js: ผู้เบิกลงหมายเหตุเป็น "ผู้เบิก: ชื่อ" (ไม่เพิ่มช่องใหม่ ไม่ต้องแก้ Apps Script) · เปิดกล่องใหม่ล้างชื่อผู้เบิก',
      /note: 'ผู้เบิก: ' \+ bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
   ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
