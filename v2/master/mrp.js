@@ -582,10 +582,11 @@ export function poIssueCheck(p, qty) {
  * แก้รายการจ่ายออกที่ทำให้ PO จ่ายเกิน — เกิน BOM หรือเกินของที่รับเข้า (คงเหลือ PO ติดลบ) จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026)
  *   วิธีแก้ = ยกเลิกรายการเดิม (ยังอยู่ในสมุด ขีดฆ่า · B1) แล้วบันทึกจำนวนที่ถูกแทน — ไม่เปลี่ยนสูตรยอด
  *   p = แถว byPo ({ need, issued, bal }) · oldQty = จำนวนของรายการที่เลือก · newQty = จำนวนที่ถูกต้อง
- * กฎ: ลดได้อย่างเดียว 0 ≤ ใหม่ < เดิม — 0 = รายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO) ยกเลิกอย่างเดียว
- *   จ่ายเพิ่มให้ใช้ปุ่ม "จ่าย" ซึ่งมีกฎ BOM / คงเหลือของมันเอง
+ * กฎ: ลดได้เสมอ (0 = รายการนี้ไม่ควรมีเลย คีย์ซ้ำ / ผิด PO ยกเลิกอย่างเดียว)
+ *   เพิ่มได้ด้วย (คีย์น้อยไป · เจ้าของสั่ง 28 พ.ย. 2026 — ปุ่มแก้ไขทุกแถว) แต่ต้องไม่ทำให้เกิน BOM หรือเกินคงเหลือ PO (A4 แบบปุ่มจ่าย)
+ *   maxUp = เดิม + min(ที่ BOM ยังให้จ่าย, คงเหลือ PO) · ใส่เท่าเดิม = ไม่มีอะไรให้แก้
  *   หลังแก้ยังเกินอยู่ก็บันทึกได้ (ดีขึ้นแล้ว · อาจมีอีกรายการที่ต้องแก้) จอบอกยอดที่ยังเกินให้เห็น
- * คืน { qty, old, after, afterDiff, balAfter, suggest, bigger, ok }
+ * คืน { qty, old, after, afterDiff, balAfter, suggest, same, up, maxUp, overUp, ok }
  *   after = จ่ายรวมของ PO นี้หลังแก้ · afterDiff = after − ตาม BOM (null เมื่อไม่รู้ยอดตาม BOM)
  *   balAfter = คงเหลือ PO หลังแก้ (คงเหลือเดิม + ที่ลดลง)
  *   suggest = จำนวนที่ทำให้หายเกินทั้งสองข้อ — จ่ายรวมไม่เกิน BOM และคงเหลือไม่ติดลบ (ไม่ต่ำกว่า 0)
@@ -603,8 +604,11 @@ export function poFixCheck(p, oldQty, newQty) {
   const balAfter = q === null ? null : round5(bal + old - q);
   const cut = Math.max(0, need === null ? 0 : issued - need, -bal);   // ต้องลดอย่างน้อยเท่านี้ถึงหายเกินทั้งสองข้อ
   const suggest = need === null && bal >= 0 ? null : round5(Math.max(0, old - cut));
-  const bigger = q !== null && q >= old;
-  return { qty: q, old, after, afterDiff, balAfter, suggest, bigger, ok: q !== null && q >= 0 && q < old };
+  const same = q !== null && q === old, up = q !== null && q > old;
+  const room = Math.min(need === null ? Infinity : round5(need - issued), bal);
+  const maxUp = round5(old + Math.max(0, room));
+  const overUp = up && q > maxUp;
+  return { qty: q, old, after, afterDiff, balAfter, suggest, same, up, maxUp, overUp, ok: q !== null && q >= 0 && !same && !overUp };
 }
 
 /**

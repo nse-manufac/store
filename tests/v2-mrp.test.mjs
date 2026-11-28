@@ -484,9 +484,9 @@ console.log('\n=== ยอดคงคลังราย PO (เจ้าขอ�
        && ['l', 'p'].every(v => html.includes(`<span v-else-if="${v}.issueDiff == null" class="hint">—</span>`)));
     ok('จอ: ป้าย "จ่ายเกิน" ของแถว PO กดแล้วเปิดกล่องแก้ (bpFixOpen) ไม่พับ/กางแถว',
        /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad'" class="tag bad bp-frac"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)"/.test(html));
-    ok('จอ: ปุ่ม "แก้ไข" สีแดงต่อจากปุ่มจ่าย ขึ้นเฉพาะแถวที่ป้ายจ่ายเกิน หรือคงเหลือติดลบ · เปิดกล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)',
+    ok('จอ: ปุ่ม "แก้ไข" ต่อจากปุ่มจ่าย ทุกแถวที่มีรายการจ่าย · แดงเฉพาะแถวจ่ายเกิน / คงเหลือติดลบ · เปิดกล่องเดียวกัน (เจ้าของสั่ง 28 พ.ย. 2026)',
        /\.btn\.danger\{background:var\(--bad\)/.test(html)
-       && /<button v-if="bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad' \|\| p\.bal < 0" class="btn danger"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)">แก้ไข<\/button>/.test(html));
+       && /<button v-if="p\.issued > 0" class="btn" :class="\{ danger: bpDiffLabel\(p\.issueDiff\)\[1\] === 'bad' \|\| p\.bal < 0 \}"[^>]*@click\.stop="bpFixOpen\(r\.pn, p\.po, l\.code\)">แก้ไข<\/button>/.test(html));
     ok('จอ: ไม่มีคอลัมน์ส่งคืน Delta แล้ว — ยอดส่งคืนขึ้นเป็นตัวสีเหลืองใต้ยอดจ่ายออก (ของออกจากคลัง · เจ้าของสั่ง 22 พ.ย. 2026)',
        html.includes('{{ mrpNum(l.issued) }}<div v-if="l.sendback" class="bp-sb">') && html.includes('{{ mrpNum(p.issued) }}<div v-if="p.sendback" class="bp-sb">')
        && !html.includes('l.sendback ? mrpNum(l.sendback)') && !html.includes('p.sendback ? mrpNum(p.sendback)'));
@@ -696,8 +696,16 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
   const dup = { need: 100, issued: 200 };
   ok('คีย์ซ้ำ: แนะนำ 0 · ใส่ 0 ได้ (ยกเลิกอย่างเดียว)', poFixCheck(dup, 100, 0).ok && poFixCheck(dup, 100, 0).suggest === 0
      && poFixCheck(dup, 100, 0).afterDiff === 0);
-  ok('ลดได้อย่างเดียว — เท่าเดิม / มากกว่าเดิม / ติดลบ / ว่าง ไม่ผ่าน',
-     !poFixCheck(dup, 100, 100).ok && poFixCheck(dup, 100, 100).bigger && !poFixCheck(dup, 100, 150).ok
+  // เพิ่มได้ถ้าไม่เกิน BOM / คงเหลือ PO (ปุ่มแก้ไขทุกแถว · เจ้าของสั่ง 28 พ.ย. 2026)
+  const low = { need: 1000, issued: 600, bal: 300 };   // คีย์ 300 ทั้งที่ควร 400 · BOM ยังให้อีก 400 · ของยังมี 300
+  ok('คีย์น้อยไป: เพิ่มได้ไม่เกิน เดิม + min(ที่ BOM ยังให้, คงเหลือ PO)', poFixCheck(low, 300, 400).ok && poFixCheck(low, 300, 400).up
+     && poFixCheck(low, 300, 0).maxUp === 600 && poFixCheck(low, 300, 600).ok && !poFixCheck(low, 300, 600.001).ok
+     && poFixCheck(low, 300, 600.001).overUp && poFixCheck({ need: 400, issued: 380, bal: 500 }, 80, 0).maxUp === 100
+     && poFixCheck({ need: null, issued: 5, bal: 2 }, 5, 0).maxUp === 7);
+  ok('ไม่เกินอะไร: ปุ่มแนะนำไม่มีความหมาย (suggest = เดิม) · คีย์มากไปลดได้ตามปกติ',
+     poFixCheck(low, 300, 0).suggest === 300 && poFixCheck(low, 300, 250).ok && !poFixCheck(low, 300, 250).up);
+  ok('เท่าเดิม / เพิ่มเกิน / ติดลบ / ว่าง ไม่ผ่าน',
+     !poFixCheck(dup, 100, 100).ok && poFixCheck(dup, 100, 100).same && !poFixCheck(dup, 100, 150).ok && poFixCheck(dup, 100, 150).overUp
      && !poFixCheck(dup, 100, -1).ok && [null, '', 'x'].every(x => !poFixCheck(dup, 100, x).ok && poFixCheck(dup, 100, x).qty === null));
   // เกินหลายรายการ: ลดรายการเดียวแล้วยังเกิน → บันทึกได้ จอบอกยอดที่ยังเกิน
   const many = { need: 10, issued: 16 };

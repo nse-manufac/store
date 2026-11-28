@@ -1644,7 +1644,9 @@ textarea{font:inherit}
                                       <!-- ปุ่มแก้ไขสีแดง ขึ้นเฉพาะแถวที่จ่ายเกิน BOM หรือคงเหลือติดลบ ให้เห็นชัด (เจ้าของสั่ง 28 พ.ย. 2026) — เปิดกล่องเดียวกับป้าย -->
                                       <td class="noprint" style="white-space:nowrap"><button class="btn primary" style="padding:3px 14px" :data-bpiss="bpKey(p.po, l.code)"
                                           @click.stop="bpIssOpen(r.pn, p.po, l.code)">จ่าย</button>
-                                        <button v-if="bpDiffLabel(p.issueDiff)[1] === 'bad' || p.bal < 0" class="btn danger" style="padding:3px 14px;margin-left:6px" :data-bpfix-btn="bpKey(p.po, l.code)"
+                                        <!-- ปุ่มแก้ไขทุกแถวที่มีรายการจ่าย — คีย์ผิดแต่ไม่เกินก็แก้ได้ (เจ้าของสั่ง 28 พ.ย. 2026) · แดงเฉพาะแถวจ่ายเกิน BOM / คงเหลือติดลบ -->
+                                        <button v-if="p.issued > 0" class="btn" :class="{ danger: bpDiffLabel(p.issueDiff)[1] === 'bad' || p.bal < 0 }"
+                                          style="padding:3px 14px;margin-left:6px" :data-bpfix-btn="bpKey(p.po, l.code)"
                                           @click.stop="bpFixOpen(r.pn, p.po, l.code)">แก้ไข</button></td>
                                     </tr>
                                     <tr v-if="bpLine[bpKey(p.po, l.code)]"><td></td><td colspan="9" style="padding:4px 0 10px">
@@ -3884,7 +3886,7 @@ textarea{font:inherit}
            ยกเลิกรายการเดิม (ขีดฆ่าใน Log · B1) แล้วบันทึกจำนวนที่ถูกแทน · ลดได้อย่างเดียว · กฎ poFixCheck (master/mrp.js) -->
       <div class="modal" v-if="bpFix.open" @click.self="bpFix.open=false">
         <div class="modal-box" style="width:min(820px,100%)" role="dialog" aria-modal="true">
-          <h2>แก้รายการจ่ายที่เกิน</h2>
+          <h2>{{ bpFixRow && (bpFixRow.issueDiff > 0 || bpFixRow.bal < 0) ? 'แก้รายการจ่ายที่เกิน' : 'แก้รายการจ่าย' }}</h2>
           <table><tbody>
             <tr><td class="hint" style="width:150px">P/N</td><td class="mono">{{ bpFix.pn || 'ไม่รู้ P/N' }}</td></tr>
             <tr><td class="hint">PO</td><td class="mono"><b>{{ bpFix.po }}</b>
@@ -3930,15 +3932,16 @@ textarea{font:inherit}
               </tbody></table>
             <template v-if="bpFixSrc">
               <p style="margin:14px 0 4px"><b>2. รายการนี้ควรจ่ายเท่าไหร่</b>
-                <span class="hint"> — ใส่ 0 ถ้ารายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO)</span></p>
+                <span class="hint"> — ใส่ 0 ถ้ารายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO) · คีย์น้อยไปใส่เพิ่มได้ไม่เกิน {{ bpFixChk ? mrpNum(bpFixChk.maxUp) : '' }}</span></p>
               <div class="row">
                 <label class="f" style="width:170px">จำนวนที่ถูกต้อง
                   <input v-model.number="bpFix.qty" type="number" step="any" min="0" class="mono" data-bpfix-qty></label>
-                <button v-if="bpFixChk && bpFixChk.suggest !== null" class="btn" style="align-self:flex-end" data-bpfix-suggest
+                <button v-if="bpFixChk && bpFixChk.suggest !== null && bpFixChk.suggest < bpFixChk.old" class="btn" style="align-self:flex-end" data-bpfix-suggest
                         @click="bpFix.qty = bpFixChk.suggest">ใช้ {{ mrpNum(bpFixChk.suggest) }} (หายเกิน)</button>
               </div>
-              <div class="msg bad" v-if="bpFixChk && bpFixChk.bigger" style="margin:10px 0 0">
-                แก้ได้แค่ลดลง — ใส่น้อยกว่า {{ mrpNum(bpFixChk.old) }} · ถ้าต้องจ่ายเพิ่มให้ใช้ปุ่ม "จ่าย"</div>
+              <div class="msg bad" v-if="bpFixChk && bpFixChk.same" style="margin:10px 0 0">เท่าเดิม — ใส่จำนวนที่ถูกต้อง ไม่มีอะไรให้แก้ถ้ายอดนี้ถูกแล้ว</div>
+              <div class="msg bad" v-else-if="bpFixChk && bpFixChk.overUp" style="margin:10px 0 0">
+                เพิ่มได้ไม่เกิน {{ mrpNum(bpFixChk.maxUp) }} — มากกว่านั้นจะเกินตาม BOM หรือเกินของที่ PO นี้มี · ของไม่พอให้คีย์รับเข้าของ PO นี้ก่อน</div>
               <div class="msg bad" v-else-if="bpFixChk && bpFixChk.qty !== null && bpFixChk.qty < 0" style="margin:10px 0 0">จำนวนติดลบไม่ได้</div>
               <div class="msg" v-else-if="bpFixChk && bpFixChk.ok" style="margin:10px 0 0"
                    :class="bpFixChk.afterDiff > 0 || bpFixChk.balAfter < 0 ? 'warn' : 'ok'">
@@ -3947,7 +3950,7 @@ textarea{font:inherit}
                 <template v-else> · ตาม BOM {{ mrpNum(bpFixRow.need) }} →
                   <b>{{ bpFixChk.afterDiff > 0 ? 'ยังเกิน ' + mrpNum(bpFixChk.afterDiff) + ' — มีรายการอื่นต้องแก้อีก'
                         : bpFixChk.afterDiff === 0 ? 'พอดี BOM' : 'ยังจ่ายได้อีก ' + mrpNum(-bpFixChk.afterDiff) }}</b></template>
-                <br>คงเหลือ PO นี้ {{ mrpNum(bpFixRow.bal) }} + {{ mrpNum(bpFixChk.old - bpFixChk.qty) }} = <b>{{ mrpNum(bpFixChk.balAfter) }}</b>
+                <br>คงเหลือ PO นี้ {{ mrpNum(bpFixRow.bal) }} {{ bpFixChk.up ? '−' : '+' }} {{ mrpNum(Math.abs(bpFixChk.old - bpFixChk.qty)) }} = <b>{{ mrpNum(bpFixChk.balAfter) }}</b>
                 <b v-if="bpFixChk.balAfter < 0"> → ยังจ่ายเกินรับเข้า {{ mrpNum(-bpFixChk.balAfter) }} — มีรายการอื่นต้องแก้อีก</b></div>
               <div class="row" style="margin-top:12px">
                 <label class="f grow">เหตุผลที่แก้<input v-model="bpFix.reason" data-bpfix-why></label>
