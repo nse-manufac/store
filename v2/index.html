@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.4">
+<meta name="app-version" content="2026-11-28.5">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -2322,8 +2322,8 @@ textarea{font:inherit}
             <span class="tag ok">{{ imp.fileName }}</span>
             <div class="grow"></div>
             <button class="btn" @click="imp=null">ยกเลิก</button>
-            <button class="btn primary" @click="applyImp" :disabled="impBusy || !imp.plan.fresh.length">
-              นำเข้า {{ imp.plan.fresh.length }} รายการ</button>
+            <button class="btn primary" @click="applyImp" :disabled="impBusy || !(imp.plan.fresh.length || (imp.plan.noteUpd || []).length)">
+              นำเข้า {{ imp.plan.fresh.length }} รายการ<template v-if="(imp.plan.noteUpd || []).length"> · อัปเดตหมายเหตุ {{ imp.plan.noteUpd.length }} ใบ</template></button>
           </div>
 
           <div class="row" style="margin-top:12px;gap:26px">
@@ -2331,6 +2331,8 @@ textarea{font:inherit}
             <div><div class="hint">ยังไม่เคยนำเข้า</div><div class="big">{{ imp.plan.fresh.length }}</div></div>
             <div v-if="imp.plan.dup"><div class="hint">นำเข้าไปแล้ว</div>
               <div class="big hint">{{ imp.plan.dup }}</div></div>
+            <div v-if="(imp.plan.noteUpd || []).length"><div class="hint">หมายเหตุคอลัมน์ L เปลี่ยน</div>
+              <div class="big">{{ imp.plan.noteUpd.length }}</div></div>
             <div v-if="imp.kind!=='po'"><div class="hint">PO ที่เกี่ยวข้อง</div>
               <div class="big">{{ imp.plan.pos.length }}</div></div>
           </div>
@@ -3923,6 +3925,7 @@ textarea{font:inherit}
           <div class="mrp-seg fol-seg rt-seg" role="group" aria-label="แบบการคืน">
             <button type="button" :aria-pressed="rt.mode === 1" @click="rt.mode = 1">1 · คืน Delta<small>ส่งของกลับไปให้ Delta</small></button>
             <button type="button" :aria-pressed="rt.mode === 2" @click="rt.mode = 2">2 · ทดแทน short ที่ค้าง<small>เอาไปชดเชยเรื่อง short ที่ตั้งไว้</small></button>
+            <button type="button" :aria-pressed="rt.mode === 3" @click="rt.mode = 3">3 · PC return<small>PO ที่ไฟล์ PO แจ้ง PC / MC RETURN</small></button>
           </div>
           <div class="row" style="gap:14px;align-items:flex-end">
             <label class="f" style="width:200px">ผู้คืน<input v-model.trim="rt.person"></label>
@@ -3936,25 +3939,30 @@ textarea{font:inherit}
             <label class="f grow" style="min-width:240px">หมายเหตุ<input v-model="rt.note"></label>
           </div>
           <template v-else>
-            <table v-if="rtShorts.length" style="margin-top:10px">
+            <table v-if="rtList.length" style="margin-top:10px">
               <thead><tr><th>PO</th><th>P/N</th><th>วันที่ตั้งเรื่อง</th><th class="r">ยอดที่ตั้งเรื่อง</th><th class="r">ยอดที่มาแล้ว</th>
-                <th class="r">ยอด short ที่ยังค้าง</th><th class="r">ยอดที่ทดแทนให้ PO นี้</th></tr></thead>
-              <tbody><tr v-for="x in rtShorts" :key="x.id">
+                <th class="r">ยอด short ที่ยังค้าง</th><th v-if="rt.mode === 3">หมายเหตุในไฟล์ PO</th><th class="r">ยอดที่ทดแทนให้ PO นี้</th></tr></thead>
+              <tbody><tr v-for="x in rtList" :key="x.id">
                 <td class="mono">{{ x.po }}</td><td class="mono">{{ x.part_no || '—' }}</td>
                 <td class="mono hint">{{ x.date || '—' }}<template v-if="x.created_by"> · {{ x.created_by }}</template></td>
                 <td class="mono r">{{ x.qty > 0 ? mrpNum(x.qty) : '—' }}</td>
                 <td class="mono r">{{ mrpNum(Number(x.done_qty) || 0) }}</td>
                 <td class="mono r fol-key">{{ mrpNum(remainOf(x)) }}</td>
+                <td v-if="rt.mode === 3" class="mono" style="font-size:13px">{{ rtPcOf(x).text }}
+                  <div v-if="rtCap(x) < remainOf(x)" class="hint">ได้ไม่เกิน <b>{{ mrpNum(rtCap(x)) }}</b></div></td>
                 <td class="r"><input v-model="rt.pick[x.id]" type="number" step="any" min="0" class="mono fol-qty" style="text-align:right;margin:0"></td>
               </tr></tbody>
             </table>
+            <div v-else-if="rt.mode === 3" class="msg warn">ไม่มีเรื่อง short ที่ยังค้างของรหัส <b class="mono">{{ rt.row.code }}</b> ที่ไฟล์ PO แจ้ง PC / MC RETURN</div>
             <div v-else class="msg warn">ไม่มีเรื่อง short ที่ยังค้างของรหัส <b class="mono">{{ rt.row.code }}</b> ในนิติบุคคลนี้</div>
+            <div v-if="rt.mode === 2 && rtShorts.length > rtList.length" class="hint" style="margin-top:6px">
+              อีก {{ rtShorts.length - rtList.length }} PO ไฟล์ PO แจ้ง PC / MC RETURN — อยู่ในแบบ 3</div>
           </template>
           <div class="msg bad" v-if="rtProblem"><b>{{ rtProblem }}</b></div>
           <div class="msg ok" v-else-if="rtQty > 0">
             <template v-if="rt.mode === 1">คืน <b>{{ mrpNum(rtQty) }}</b> ให้ Delta → over ของ {{ rt.row.po }} เหลือค้าง <b>{{ mrpNum(rtRemain - rtQty) }}</b>
               · คงคลัง {{ mrpNum(rtBook) }} → <b>{{ mrpNum(rtBook - rtQty) }}</b></template>
-            <template v-else>รวมทดแทน <b>{{ mrpNum(rtQty) }}</b> → over ของ {{ rt.row.po }} เหลือค้าง <b>{{ mrpNum(rtRemain - rtQty) }}</b>
+            <template v-else>รวม{{ rt.mode === 3 ? ' PC return' : 'ทดแทน' }} <b>{{ mrpNum(rtQty) }}</b> → over ของ {{ rt.row.po }} เหลือค้าง <b>{{ mrpNum(rtRemain - rtQty) }}</b>
               · คงคลังเท่าเดิม <b>{{ mrpNum(rtBook) }}</b></template>
           </div>
           <div class="msg warn" v-if="rtWarn" style="white-space:pre-line">{{ rtWarn }}</div>

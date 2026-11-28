@@ -9,7 +9,7 @@
  * ถ้าไม่รวม จะเห็นแค่บรรทัดสุดท้ายแล้วยอดขาดไปเงียบ ๆ โดยไม่มีอะไรฟ้อง
  */
 import fs from 'node:fs';
-import { parsePoFile, parseKitList, parseKitChem, pickKitSheet, kitNameInfo, kitContentKind, kitFileCheck, kitEntityMismatch, kitsOfPo, kitLinesOfPo, kitPrefill, kitsToKeep, deltaSentOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
+import { parsePoFile, pcReturnOfNote, pcReturnIndex, poNoteUpdates, parseKitList, parseKitChem, pickKitSheet, kitNameInfo, kitContentKind, kitFileCheck, kitEntityMismatch, kitsOfPo, kitLinesOfPo, kitPrefill, kitsToKeep, deltaSentOfPo, isChemKit, kitReceivePlan, kitReceiveByPo, kitPoSummary, setPoArrived, nextArrived, poHeader, importPlan,
          parseThaiDate, excelDate, receivedOutsideList, switchedPo, nextShownPo,
          poHistory, searchPos } from '../v2/master/po-kit.js';
 import { atFrom } from '../v2/core/localtime.js';
@@ -78,6 +78,45 @@ ok('หมายเหตุคอลัมน์ L มีรหัส + Short /
      // ผู้ตรวจ #152: ตัวแปลง ETA ไม่มีใครใช้แล้ว · คอมเมนต์ฟอร์มเพิ่มเรื่องเองไม่บอกว่าไฟล์ PO เป็นทางเดียว
      && !fs.readFileSync(new URL('../v2/master/po-kit.js', import.meta.url), 'utf8').includes('parseEnDate')
      && !appS.includes('ของเดิมเกิดได้ทางเดียวคือแกะจากคอลัมน์ L'));
+}
+
+// ── คอลัมน์ L เก็บเป็นข้อความดิบ l_note (เจ้าของอนุญาต 27 พ.ย. 2026) — ใช้หา PC / MC RETURN ของคืนของแบบ 3 ──
+{
+  const aoa = [
+    ['รายการ subcontract ที่ 27 กรกฎาคม พ.ศ. 2569'],
+    [1, 'NSE', 2870627900, 'PO-1', null, 10, null, null, null, '', null, '4037010105 Short 5.4 KG PC RETURN'],
+    [null, null, null, null, null, null, null, null, null, null, null, '4037010106 MC RETURN'],
+    [2, 'NSE', 2800404400, 'PO-2', null, 5, null, null, null, '', null, '4037010105 ETA 2 JUNE 2026'],
+    ['รายการ subcontract ที่ 28 กรกฎาคม พ.ศ. 2569'],
+    [null, null, null, null, null, null, null, null, null, null, null, '4037010199 PC RETURN'],
+    [1, 'NSE', 2800404400, 'PO-3', null, 5]
+  ];
+  const r = parsePoFile(aoa);
+  ok('l_note: หมายเหตุของแถว PO + แถวถัดลงมาที่ไม่มีเลขลำดับ ต่อกันทีละบรรทัด',
+     r.pos[0].l_note === '4037010105 Short 5.4 KG PC RETURN\n4037010106 MC RETURN' && r.pos[1].l_note === '4037010105 ETA 2 JUNE 2026',
+     JSON.stringify(r.pos.map(p => p.l_note)));
+  ok('l_note: หัววันใหม่ตัดช่วง — หมายเหตุก่อนแถว PO แรกของวันไม่ไปติด PO ของวันก่อน · ไม่มีหมายเหตุ = ว่าง',
+     r.pos[1].l_note === '4037010105 ETA 2 JUNE 2026' && r.pos[2].l_note === '');
+  const pc = pcReturnOfNote(r.pos[0].l_note, '4037010105'), mc = pcReturnOfNote(r.pos[0].l_note, '4037010106');
+  ok('pcReturnOfNote: "Short 5.4 KG PC RETURN" → PC · ได้ไม่เกิน 5.4 · MC RETURN = แบบเดียวกัน ไม่มีเพดาน',
+     pc && pc.kind === 'PC' && pc.cap === 5.4 && pc.text === '4037010105 Short 5.4 KG PC RETURN'
+     && mc && mc.kind === 'MC' && mc.cap === null, JSON.stringify([pc, mc]));
+  ok('pcReturnOfNote: รหัสต้องตรงทั้งคำ (ส่วนของเลขอื่นไม่นับ) · มีแต่ ETA = ไม่ใช่ PC return · ว่าง = null',
+     pcReturnOfNote(r.pos[0].l_note, '403701010') === null && pcReturnOfNote(r.pos[1].l_note, '4037010105') === null
+     && pcReturnOfNote('', '4037010105') === null && pcReturnOfNote(undefined, '4037010105') === null
+     && pcReturnOfNote('4037010105 Short 1,250.5 PCE pc return', '4037010105').cap === 1250.5);
+  const later = { ...r.pos[0], id: 'Plater', date: '2026-07-30', l_note: '4037010105 ETA 5 AUG 2026' };
+  ok('pcReturnIndex: ใช้หมายเหตุของแถววันล่าสุดของ PO (กติกาเดียวกับ poHeaderIndex) · วันล่าสุดไม่มีแล้ว = ไม่ใช่แล้ว',
+     pcReturnIndex(r.pos)('PO-1', '4037010105').cap === 5.4 && pcReturnIndex([...r.pos, later])('PO-1', '4037010105') === null
+     && pcReturnIndex(r.pos)('PO-9', '4037010105') === null && pcReturnIndex([{ id: 'x', po: 'PO-1', date: '2026-07-27' }])('PO-1', '4037010105') === null);
+  const old = { ...r.pos[0], l_note: undefined, qty: 999 };
+  const upd = poNoteUpdates(r.pos, [old, { ...r.pos[1] }]);
+  ok('poNoteUpdates: นำเข้าซ้ำ แถวเดิมที่หมายเหตุเปลี่ยนได้ l_note ใหม่ · ช่องอื่นของแถวเดิมไม่แตะ · หมายเหตุเท่าเดิม = ไม่ส่ง',
+     upd.length === 1 && upd[0].id === old.id && upd[0].qty === 999 && upd[0].l_note === r.pos[0].l_note && old.l_note === undefined);
+  const gs = fs.readFileSync(new URL('../v2/sync/apps-script.gs', import.meta.url), 'utf8');
+  const posDef = gs.slice(gs.indexOf('  POs: {'), gs.indexOf('  Kits: {'));
+  ok('Apps Script: ชีต POs มีคอลัมน์ l_note ต่อท้าย + เก็บเป็นข้อความ (ไม่งั้นซิงค์แล้วหมายเหตุหายเงียบ)',
+     /cols: \[[^\]]*'updated_at','l_note'\]/.test(posDef) && /texts: \[[^\]]*'l_note'\]/.test(posDef), posDef);
 }
 
 console.log('\n=== C. Kit List รายวัน (22-H) ===');

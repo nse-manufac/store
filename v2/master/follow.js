@@ -1524,29 +1524,32 @@ export function offsetShorts(over, picks = [], { person = '', device = '', date 
   const use = (picks || []).filter(p => p && p.row && Number(p.qty) > 0);
   if (!use.length) throw new Error('ใส่ยอดที่ทดแทนอย่างน้อยหนึ่งแถว');
   let total = 0;
-  for (const { row: s, qty } of use) {
+  for (const { row: s, qty, cap } of use) {
     if (s.kind !== 'short' || s.voided) throw new Error('ทดแทนได้เฉพาะเรื่อง short ที่ยังไม่ถูกยกเลิก');
     if (txt(s.entity) !== txt(over.entity)) throw new Error(`short ${txt(s.po)} เป็นของนิติบุคคลอื่น — ทดแทนข้ามนิติบุคคลไม่ได้ (INVARIANTS A3)`);
     if (txt(s.code).toUpperCase() !== txt(over.code).toUpperCase()) throw new Error(`short ${txt(s.po)} เป็นคนละรหัสกับ over`);
     if (!txt(s.po)) throw new Error('เรื่อง short นี้ไม่มีเลข PO — รับเข้าคลังไม่ได้');
     const n = round5(Number(qty));
     if (n > remainOf(s)) throw new Error(`short ${txt(s.po)} ทดแทนได้ไม่เกินยอดที่ยังค้าง (${remainOf(s)})`);
+    // แบบ 3 PC return: "Short N" ในหมายเหตุไฟล์ PO = เพดานของ PO นั้น (เจ้าของสั่ง 27 พ.ย. 2026)
+    if (cap != null && n > Number(cap)) throw new Error(`short ${txt(s.po)} PC return ได้ไม่เกิน ${cap} ตามหมายเหตุในไฟล์ PO`);
     total = round5(total + n);
   }
   if (total > remainOf(over)) throw new Error(`รวมทดแทน ${total} เกินยอด over ที่ยังค้าง (${remainOf(over)})`);
   const day = txt(date) || txt(at).slice(0, 10);
   const entries = [], shortRecs = [], backIds = [];
-  for (const { row: s, qty } of use) {
+  for (const { row: s, qty, tag } of use) {
     const n = round5(Number(qty));
+    const via = txt(tag) ? `คืนของ · ${txt(tag)}` : 'คืนของ';   // แบบ 3 ติดป้าย PC / MC RETURN ให้ตามรอยได้
     const back = makeEntry({
       kind: 'sendback', entity: over.entity, material_code: over.code, qty: n,
       doc_kind: 'po', doc_ref: txt(over.po), part_no: txt(over.part_no), reason_code: 'carry',
-      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทน short PO ${txt(s.po)} (คืนของ)`
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทน short PO ${txt(s.po)} (${via})`
     });
     const recv = makeEntry({
       id: pairIdOf(back.id), kind: 'receive', entity: s.entity, material_code: s.code, qty: n,
       lot: day || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: txt(s.po), part_no: txt(s.part_no),
-      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทนจาก over PO ${txt(over.po)} (คืนของ)`
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทนจาก over PO ${txt(over.po)} (${via})`
     });
     entries.push(back, recv);
     backIds.push(back.id);

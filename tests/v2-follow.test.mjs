@@ -2681,5 +2681,31 @@ console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทน�
      plainUndo.voids.length === 1 && plainUndo.voids[0].id === plainArr.entry.id && plainUndo.overRecs.length === 0);
 }
 
+console.log('\n=== RT3. คืนของ แบบ 3 — PC return (เจ้าของสั่ง 27 พ.ย. 2026) ===');
+{
+  const E = 'TUE-H', at = '2026-11-28T03:00:00.000Z';
+  const ov = { ...makeFollow({ kind: 'over', entity: E, code: 'A1', po: 'TM9269H001', part_no: 'PN-A', qty: 20 }), id: 'OV3' };
+  const sh = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3' };
+  throws('"Short 5.4" ในหมายเหตุ = เพดาน · ใส่ 6 = โยน', () => offsetShorts(ov, [{ row: sh, qty: 6, cap: 5.4, tag: 'PC RETURN' }], { person: 'ก', at }), 'PC return ได้ไม่เกิน 5.4');
+  const r = offsetShorts(ov, [{ row: sh, qty: 5.4, cap: 5.4, tag: 'MC RETURN' }], { person: 'ก', at });
+  ok('ใส่ไม่เกินเพดานได้คู่เหมือนแบบ 2 · หมายเหตุทั้งคู่ติดป้าย MC RETURN ให้ตามรอยได้',
+     r.entries.length === 2 && r.entries.every(e => e.qty === 5.4 && e.note.includes('(คืนของ · MC RETURN)'))
+     && remainOf(r.shortRecs[0]) === 4.6, JSON.stringify(r.entries.map(e => e.note)));
+  ok('ไม่ส่ง tag (แบบ 2) = หมายเหตุเดิม "(คืนของ)"',
+     offsetShorts(ov, [{ row: sh, qty: 1 }], { person: 'ก', at }).entries.every(e => e.note.endsWith('(คืนของ)')));
+  ok('จอ: แบบ 2 / 3 แยกกันด้วย pcReturnIndex · เรื่องเดียวอยู่แบบเดียว · แบบ 3 ส่ง cap + tag เข้า offsetShorts',
+     /const rtList = computed\(\(\) => \(rt\.mode === 1 \? \[\] : rtShorts\.value\.filter\(s => !!rtPcOf\(s\) === \(rt\.mode === 3\)\)\)\);/.test(appOver)
+     && /const rtPcIdx = computed\(\(\) => pcReturnIndex\(pos\.value\)\);/.test(appOver)
+     && /cap: rtCap\(s\), tag: rtPcOf\(s\)\.kind \+ ' RETURN'/.test(appOver)
+     && /const big = rtList\.value\.find\(s => round5\(Number\(rt\.pick\[s\.id\]\) \|\| 0\) > rtCap\(s\)\);/.test(appOver));
+  ok('จอ: ปุ่มแบบ 3 + ตารางโชว์หมายเหตุจากไฟล์ PO เป็นหลักฐาน · แบบ 2 บอกว่ามีกี่ PO อยู่แบบ 3',
+     htmlOver.includes('@click="rt.mode = 3">3 · PC return') && htmlOver.includes('{{ rtPcOf(x).text }}')
+     && htmlOver.includes('<tr v-for="x in rtList"') && !htmlOver.includes('<tr v-for="x in rtShorts"')
+     && htmlOver.includes('อยู่ในแบบ 3</div>'));
+  ok('นำเข้าไฟล์ PO ซ้ำ: แถวเดิมที่หมายเหตุ L เปลี่ยนถูกเขียนลงเครื่อง (ติดธงซิงค์) และแทนที่ตัวบนจอ',
+     /plan\.noteUpd = poNoteUpdates\(p\.pos, pos\.value\)/.test(appOver) && /await db\.put\('pos', \[\.\.\.rows, \.\.\.upd\]\);/.test(appOver)
+     && /pos\.value\.splice\(i, 1, u\)/.test(appOver));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
