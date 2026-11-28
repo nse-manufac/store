@@ -2649,7 +2649,7 @@ console.log('\n=== RT. คืนของ แบบ 2 — over ทดแทน�
        bal(pairOnly) === 0 && bal(oneSide) === 40 && bal(bothSides) === 0, `${bal(oneSide)}`);
     ok('doVoid ของแท็บ Log / การ์ด เรียก pairTwins จริง และยกเลิกคู่ไปพร้อมกัน (ไม่ลบ · B1) · กล่องยืนยันบอกก่อนกด (G3)',
        /const pr = pairTwins\(entries\.value, src\)\.map\(t => voidEntry\(t, \{ by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: \$\{reason\}` \}\)\)/.test(appOver)
-       && /const all = \[v, \.\.\.tw, \.\.\.pr\]/.test(appOver) && /db\.put\('entries', all\)/.test(appOver)
+       && /all: \[v, \.\.\.tw, \.\.\.pr\]/.test(appOver) && /db\.put\('entries', all\)/.test(appOver)
        && /const voidPairs = computed\(/.test(appOver) && /voidPairs,/.test(appOver)
        && /v-if="voidPairs\.length"/.test(htmlOver) && /คงคลังจึงไม่ขยับ/.test(htmlOver),
        appOver.slice(appOver.indexOf('async function doVoid()'), appOver.indexOf('async function doVoid()') + 900));
