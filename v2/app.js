@@ -37,7 +37,7 @@ import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
          planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
-         listFollow, partNoOf, openFollow, orphanFollow, voidFollow,
+         listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
          FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, overExceedWarn, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
@@ -3045,13 +3045,12 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     async function fsSkip(row) {
+      // ไม่ถามเหตุผล — ระบบจด "ยอดน้อย" ให้ (เจ้าของสั่ง 28 พ.ย. 2026 · กฎอยู่ที่ skipShort) · กดผิดกด "กลับมาติดตาม" ได้
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      const why = askWhy(`ไม่ติดตาม ${row.po} · ${row.code} (ขาด ${row.short}) เพราะอะไร`);
-      if (why === null) return;
       try {
         await startOnce(starting, startKey('short', row), async () => {
           await fsPut(skipShort(row, { entity: entity.value, person: fsBy.value, unit: unitOf(row.code),
-                                       date: todayLocal(), why, follows: shorts.value }));
+                                       date: todayLocal(), follows: shorts.value }));
           flash(`ไม่ติดตาม ${row.po} · ${row.code} แล้ว — ถ้ายอดขาดเพิ่มขึ้นจะกลับมาขึ้นอีก`);
         });
       } catch (err) { flash(err.message, true); }
@@ -3090,13 +3089,12 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     async function foSkip(row) {
+      // ไม่ถามเหตุผล — ระบบจด "ยอดน้อย" ให้ (เจ้าของสั่ง 28 พ.ย. 2026 · กฎอยู่ที่ skipOver) · กดผิดกด "กลับมาติดตาม" ได้
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
-      const why = askWhy(`ไม่ติดตาม ${row.po} · ${row.code} (เกิน ${row.over}) เพราะอะไร`);
-      if (why === null) return;
       try {
         await startOnce(starting, startKey('over', row), async () => {
           await fsPut(skipOver(row, { entity: entity.value, person: fsBy.value, unit: unitOf(row.code),
-                                      date: todayLocal(), why, follows: shorts.value }));
+                                      date: todayLocal(), follows: shorts.value }));
           flash(`ไม่ติดตาม ${row.po} · ${row.code} แล้ว — ถ้ายอดเกินเพิ่มขึ้นจะกลับมาขึ้นอีก`);
         });
       } catch (err) { flash(err.message, true); }
@@ -3424,10 +3422,11 @@ createApp({
 
     /** ยกเลิกเรื่องที่ตั้งผิด — ไม่ลบทิ้ง (B1) · ของเสียใบนั้นกลับมาให้ตั้งเรื่องใหม่ได้ */
     async function fbVoid(row) {
-      const why = prompt('ยกเลิกเรื่องนี้เพราะอะไร');
-      if (!why || !why.trim()) return;
+      // กล่องว่าง · เหตุผลขยะถามซ้ำ — กฎเดียวกับ short / over (เจ้าของสั่ง 26 พ.ย. 2026)
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร');
+      if (why === null) return;
       try {
-        await fsPut(voidFollow(plain(row), { by: fsBy.value || 'ไม่ระบุ', reason: why.trim() }));
+        await fsPut(cancelBuy(plain(row), { by: fsBy.value || 'ไม่ระบุ', why }));
         flash('ยกเลิกเรื่องแล้ว — ยังอยู่ในระบบให้ตรวจย้อนหลังได้');
       } catch (err) { flash(err.message, true); }
     }
