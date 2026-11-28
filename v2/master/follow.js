@@ -1538,7 +1538,8 @@ export function pairedInQty(entries, short) {
 }
 
 /**
- * เพดาน PC return ที่ยังเหลือของเรื่อง short ใบนี้ · null = หมายเหตุไฟล์ PO ไม่ได้กำหนดเพดาน
+ * เพดาน PC return ที่ยังเหลือของ PO + รหัสของเรื่อง short ใบนี้ · null = หมายเหตุไฟล์ PO ไม่ได้กำหนดเพดาน
+ * ⚠️ เป็นเพดานของ PO ไม่ใช่ของเรื่อง — เรื่องซ้ำหลายใบของ PO + รหัสเดียวกันใช้เพดานก้อนเดียวกันนี้
  * ⚠️ เพดาน "Short N" ในหมายเหตุเป็น **ยอดรวม** ไม่ใช่ต่อการกดบันทึกหนึ่งครั้ง
  *    ไม่หักยอดที่เคยทดแทนไปแล้ว กดสองรอบติดจะทะลุเพดานได้ทุกครั้งที่เพดานมีผล
  *    (ผู้ตรวจ #205 รอบ 2 ข้อ 1) — over ของ PO หนึ่งจะถูกตัดไปลง short อีก PO
@@ -1561,6 +1562,11 @@ export function offsetShorts(over, picks = [], { person = '', device = '', date 
   const use = (picks || []).filter(p => p && p.row && Number(p.qty) > 0);
   if (!use.length) throw new Error('ใส่ยอดที่ทดแทนอย่างน้อยหนึ่งแถว');
   let total = 0;
+  /* เพดาน "Short N" เป็นยอดรวมของ PO + รหัส ไม่ใช่ต่อเรื่อง short — PO + รหัสเดียวกันมีเรื่อง
+   * เปิดค้างได้สองใบ (ฟอร์มคีย์เรื่องเองไม่มีด่านกันซ้ำ · เรื่องซ้ำในชีตมีอยู่แล้ว) ถ้าเทียบ cap
+   * ทีละแถว ทั้งสองแถวได้เพดานเต็มใบละ แล้วรวมกันทะลุที่ Delta แจ้งในการกดครั้งเดียว
+   * (ผู้ตรวจ #205 รอบ 3 ข้อ 1) จึงต้องรวมยอดด้วยกุญแจ PO + รหัส แล้วเทียบยอดสะสม */
+  const capSum = new Map();
   for (const { row: s, qty, cap } of use) {
     if (s.kind !== 'short' || s.voided) throw new Error('ทดแทนได้เฉพาะเรื่อง short ที่ยังไม่ถูกยกเลิก');
     if (txt(s.entity) !== txt(over.entity)) throw new Error(`short ${txt(s.po)} เป็นของนิติบุคคลอื่น — ทดแทนข้ามนิติบุคคลไม่ได้ (INVARIANTS A3)`);
@@ -1569,9 +1575,19 @@ export function offsetShorts(over, picks = [], { person = '', device = '', date 
     const n = round5(Number(qty));
     if (n > remainOf(s)) throw new Error(`short ${txt(s.po)} ทดแทนได้ไม่เกินยอดที่ยังค้าง (${remainOf(s)})`);
     /* แบบ 3 PC return: "Short N" ในหมายเหตุไฟล์ PO = เพดานของ PO นั้น (เจ้าของสั่ง 27 พ.ย. 2026)
-     * ⚠️ เพดานเป็นยอดรวม ผู้เรียกต้องส่ง cap ที่หักยอดที่เคยทดแทนไปแล้วเข้ามา (pcCapLeft)
-     *    ส่งเพดานดิบเข้ามา ด่านนี้จะบังคับแค่ต่อครั้ง แล้วกดสองรอบติดทะลุได้ */
-    if (cap != null && n > Number(cap)) throw new Error(`short ${txt(s.po)} PC return ได้ไม่เกิน ${cap} ตามหมายเหตุในไฟล์ PO`);
+     * ⚠️ เพดานเป็นยอดรวมของ PO นั้น ไม่ใช่ต่อครั้งและไม่ใช่ต่อเรื่อง ผู้เรียกต้องส่ง cap ที่หัก
+     *    ยอดที่เคยทดแทนไปแล้วเข้ามา (pcCapLeft) · ส่งเพดานดิบเข้ามา ด่านนี้จะบังคับแค่ต่อครั้ง
+     *    แล้วกดสองรอบติดทะลุได้ · ยอดของหลายเรื่องใน PO เดียวกันรวมกันที่นี่ (capSum) */
+    if (cap != null) {
+      const key = txt(s.po) + '|' + txt(s.code).toUpperCase();
+      const got = capSum.get(key) || { cap: Number(cap), sum: 0 };
+      got.cap = Math.min(got.cap, Number(cap));
+      got.sum = round5(got.sum + n);
+      capSum.set(key, got);
+      if (got.sum > got.cap) throw new Error(got.sum === n
+        ? `short ${txt(s.po)} PC return ได้ไม่เกิน ${got.cap} ตามหมายเหตุในไฟล์ PO`
+        : `short ${txt(s.po)} PC return รวมทุกเรื่องของ PO นี้ ${got.sum} เกินเพดาน ${got.cap} ตามหมายเหตุในไฟล์ PO — ลดยอดที่ใส่ลง`);
+    }
     total = round5(total + n);
   }
   if (total > remainOf(over)) throw new Error(`รวมทดแทน ${total} เกินยอด over ที่ยังค้าง (${remainOf(over)})`);

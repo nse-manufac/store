@@ -2696,7 +2696,7 @@ console.log('\n=== RT3. คืนของ แบบ 3 — PC return (เจ้�
   ok('จอ: แบบ 2 / 3 แยกกันด้วย pcReturnIndex · เรื่องเดียวอยู่แบบเดียว · แบบ 3 ส่ง cap + tag เข้า offsetShorts',
      /const rtList = computed\(\(\) => \(rt\.mode === 1 \? \[\] : rtShorts\.value\.filter\(s => !!rtPcOf\(s\) === \(rt\.mode === 3\)\)\)\);/.test(appOver)
      && /const rtPcIdx = computed\(\(\) => pcReturnIndex\(pos\.value\)\);/.test(appOver)
-     && /cap: rtCap\(s\), tag: rtPcOf\(s\)\.kind \+ ' RETURN'/.test(appOver)
+     && /cap: rtCapPo\(s\), tag: rtPcOf\(s\)\.kind \+ ' RETURN'/.test(appOver)
      && /const big = rtList\.value\.find\(s => round5\(Number\(rt\.pick\[s\.id\]\) \|\| 0\) > rtCap\(s\)\);/.test(appOver));
   ok('จอ: ปุ่มแบบ 3 + ตารางโชว์หมายเหตุจากไฟล์ PO เป็นหลักฐาน · แบบ 2 บอกว่ามีกี่ PO อยู่แบบ 3',
      htmlOver.includes('@click="rt.mode = 3">3 · PC return') && htmlOver.includes('{{ rtPcOf(x).text }}')
@@ -2745,6 +2745,37 @@ console.log('\n=== RT3. คืนของ แบบ 3 — PC return (เจ้�
      pairedInQty(book1, { ...sh1, po: 'TM9999H001' }) === 0
      && pairedInQty(book1, { ...sh1, code: 'ZZ' }) === 0
      && pairedInQty(book1, { ...sh1, entity: 'OTHER' }) === 0);
+
+  /* เพดานเป็นยอดรวมของ PO + รหัส ไม่ใช่ต่อเรื่อง short (ผู้ตรวจ #205 รอบ 3 ข้อ 1)
+   * PO + รหัสเดียวกันมีเรื่องเปิดค้างสองใบได้ ถ้าเทียบ cap ทีละแถว ทั้งสองแถวได้เพดานเต็มใบละ
+   * แล้วรวมกันทะลุที่ Delta แจ้งในการกดบันทึกครั้งเดียว โดยไม่มีด่านไหนฟ้อง */
+  {
+    const shA = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3A' };
+    const shB = { ...makeFollow({ kind: 'short', type: 'ขาด', entity: E, code: 'A1', po: 'TM9272H001', part_no: 'PN-B', qty: 10 }), id: 'SH3B' };
+    const pick = (a, b) => [{ row: shA, qty: a, cap: CAP, tag: 'PC RETURN' },
+                            { row: shB, qty: b, cap: CAP, tag: 'PC RETURN' }];
+    throws('เรื่อง short สองใบของ PO + รหัสเดียวกัน ใส่ใบละเต็มเพดานในการกดครั้งเดียว = โยน',
+           () => offsetShorts(ov, pick(CAP, CAP), { person: 'ก', at }), 'รวมทุกเรื่องของ PO นี้ 10.8 เกินเพดาน 5.4');
+    throws('สองใบรวมเกินเพดานแม้ใบละไม่เกิน (3 + 3 = 6) = โยน',
+           () => offsetShorts(ov, pick(3, 3), { person: 'ก', at }), 'เกินเพดาน 5.4');
+    const okPair = offsetShorts(ov, pick(3, 2.4), { person: 'ก', at });
+    ok('สองใบรวมพอดีเพดาน (3 + 2.4) ผ่าน · ลงคู่ครบสี่รายการ ยอดรวมที่ทดแทน = เพดาน',
+       okPair.entries.length === 4 && okPair.shortRecs.length === 2
+       && round5(okPair.entries.filter(e => e.kind === 'receive').reduce((t, e) => t + e.qty, 0)) === CAP,
+       JSON.stringify(okPair.entries.map(e => `${e.kind}:${e.qty}`)));
+    ok('เรื่องของ PO อื่นในชุดเดียวกันใช้เพดานของตัวเอง ไม่ถูกรวมข้าม PO',
+       offsetShorts(ov, [{ row: shA, qty: CAP, cap: CAP, tag: 'PC RETURN' },
+                         { row: { ...shB, po: 'TM9999H001' }, qty: CAP, cap: CAP, tag: 'PC RETURN' }],
+                    { person: 'ก', at }).entries.length === 4);
+    ok('แบบ 2 (ไม่ส่ง cap) สองใบของ PO เดียวกันยังไม่ถูกบังคับเพดาน ผลเท่าเดิม',
+       offsetShorts(ov, [{ row: shA, qty: 9 }, { row: shB, qty: 9 }], { person: 'ก', at }).entries.length === 4);
+  }
+
+  ok('จอ: rtCap หักยอดที่กรอกไว้ในแถวอื่นของ PO + รหัสเดียวกัน · ส่งเพดานของ PO (rtCapPo) เข้าชั้นตรรกะ ไม่ใช่เพดานที่หักแล้ว',
+     /const rtOtherPick = s => round5\(rtList\.value\.reduce\(/.test(appOver)
+     && /Math\.min\(remainOf\(s\), Math\.max\(0, round5\(left - rtOtherPick\(s\)\)\)\)/.test(appOver)
+     && /const left = rt\.mode === 3 \? \(rtCapIdx\.value\.get\(s\.id\) \|\| \{\}\)\.left : null;/.test(appOver)
+     && /rtOtherPick\(big\) > 0 \? `แถวอื่นของ PO นี้ใส่ไว้/.test(appOver));
 
   ok('จอ: rtCap หักยอดที่ทดแทนไปแล้วผ่าน pcCapLeft (ไม่เทียบเพดานดิบ) · ตารางโชว์ "ทดแทนไปแล้ว"',
      /done: pairedInQty\(entries\.value, s\), left: pcCapLeft\(entries\.value, s, \(rtPcOf\(s\) \|\| \{\}\)\.cap\)/.test(appOver)

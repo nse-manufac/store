@@ -2924,12 +2924,26 @@ createApp({
       [s.id, { done: pairedInQty(entries.value, s), left: pcCapLeft(entries.value, s, (rtPcOf(s) || {}).cap) }])));
     /** ยอดที่เคย PC return / ทดแทนให้เรื่อง short ใบนี้ไปแล้ว (คู่ที่ยังไม่ถูกยกเลิก) */
     const rtDone = s => (rtCapIdx.value.get(s.id) || {}).done || 0;
+    /** เพดาน "Short N" ที่เหลือของ PO + รหัสนี้ (ยอดรวม · ไม่หักแถวอื่นในชุดที่กำลังกรอก)
+     * ⚠️ ตัวนี้คือที่ส่งเข้า offsetShorts — ด่านชั้นตรรกะรวมยอดของ PO + รหัสเองแล้ว
+     *    ส่ง rtCap (ที่หักแถวอื่นไปแล้ว) เข้าไปจะหักซ้ำสองชั้น แล้วรวมพอดีเพดานก็ถูกปฏิเสธ */
+    const rtCapPo = s => {
+      const left = rt.mode === 3 ? (rtCapIdx.value.get(s.id) || {}).left : null;
+      return left == null ? null : left;
+    };
+    /** ยอดที่กรอกไว้ในแถวอื่นของ PO + รหัสเดียวกัน — เรื่อง short เปิดค้างซ้ำใบได้ แล้วใช้เพดานก้อนเดียวกัน */
+    const rtOtherPick = s => round5(rtList.value.reduce((t, x) => (x.id !== s.id && String(x.po) === String(s.po)
+      && String(x.code || '').toUpperCase() === String(s.code || '').toUpperCase()
+      ? t + Math.max(0, Number(rt.pick[x.id]) || 0) : t), 0));
     /** ใส่ได้ไม่เกินเท่าไร — ยอด short ที่ค้าง · แบบ 3 ไม่เกินเพดาน "Short N" **ที่เหลือ** ด้วย
      * ⚠️ เพดานในหมายเหตุเป็นยอดรวม ต้องหักที่ทดแทนไปแล้ว (pcCapLeft) ไม่ใช่เทียบดิบต่อการกดหนึ่งครั้ง
-     *    ไม่หักแล้วกดสองรอบติดทะลุเพดานได้ และบรรทัด "ได้ไม่เกิน" บนจอก็หายไปด้วย (ผู้ตรวจ #205 รอบ 2 ข้อ 1) */
+     *    ไม่หักแล้วกดสองรอบติดทะลุเพดานได้ และบรรทัด "ได้ไม่เกิน" บนจอก็หายไปด้วย (ผู้ตรวจ #205 รอบ 2 ข้อ 1)
+     * ⚠️ และเป็นเพดานของ PO ไม่ใช่ของเรื่อง จึงต้องหักยอดที่กรอกไว้ในแถวอื่นของ PO + รหัสเดียวกันด้วย
+     *    ไม่หักแล้วสองแถวโชว์ "ได้ไม่เกิน" เต็มเพดานทั้งคู่ ชวนให้กรอกใบละเต็ม แล้วไปโดนด่านตอนกดเซฟ
+     *    (ผู้ตรวจ #205 รอบ 3 ข้อ 1 · G3 — ต้องเห็นเพดานที่เหลือจริงก่อนกด) */
     const rtCap = s => {
-      const left = rt.mode === 3 ? (rtCapIdx.value.get(s.id) || {}).left : null;
-      return left == null ? remainOf(s) : Math.min(remainOf(s), left);
+      const left = rtCapPo(s);
+      return left == null ? remainOf(s) : Math.min(remainOf(s), Math.max(0, round5(left - rtOtherPick(s))));
     };
     const rtPickSum = computed(() => round5(rtList.value.reduce((t, s) => t + (Number(rt.pick[s.id]) || 0), 0)));
     const rtQty = computed(() => (rt.mode !== 1 ? rtPickSum.value : round5(Number(rt.qty) || 0)));
@@ -2944,9 +2958,11 @@ createApp({
         if (neg) return `PO ${neg.po} ใส่ยอดติดลบไม่ได้ — ล้างช่องนั้นให้ว่าง หรือใส่ยอดที่จะทดแทนจริง`;
         const big = rtList.value.find(s => round5(Number(rt.pick[s.id]) || 0) > rtCap(s));
         if (big && rtCap(big) < remainOf(big)) {
-          const done = rtDone(big);   // เพดานเหลือน้อยเพราะเคยทดแทนไปแล้ว ต้องบอกด้วย ไม่ใช่โชว์แค่เลขที่เหลือ (G3)
+          // เพดานเหลือน้อยเพราะเคยทดแทนไปแล้ว หรือเพราะแถวอื่นของ PO เดียวกันกินไป ต้องบอกด้วย (G3)
+          const why = [rtDone(big) > 0 ? `ทดแทนไปแล้ว ${mrpNum(rtDone(big))}` : '',
+                       rtOtherPick(big) > 0 ? `แถวอื่นของ PO นี้ใส่ไว้ ${mrpNum(rtOtherPick(big))}` : ''].filter(Boolean).join(' · ');
           return `PO ${big.po} PC return ได้ไม่เกิน ${mrpNum(rtCap(big))} ตามหมายเหตุในไฟล์ PO`
-            + (done > 0 ? ` (เพดาน ${mrpNum((rtPcOf(big) || {}).cap)} · ทดแทนไปแล้ว ${mrpNum(done)}) — เกินกว่านี้ต้องให้ Delta แจ้งเพดานใหม่ในไฟล์ PO ก่อน` : '');
+            + (why ? ` (เพดาน ${mrpNum((rtPcOf(big) || {}).cap)} · ${why}) — เกินกว่านี้ต้องให้ Delta แจ้งเพดานใหม่ในไฟล์ PO ก่อน` : '');
         }
         if (big) return `PO ${big.po} ใส่ได้ไม่เกินยอด short ที่ยังค้าง (${mrpNum(remainOf(big))})`;
       }
@@ -2986,7 +3002,7 @@ createApp({
         } else {
           const pc = rt.mode === 3;
           const picks = rtList.value.map(s => ({ row: plain(s), qty: rt.pick[s.id],
-                                                 ...(pc ? { cap: rtCap(s), tag: rtPcOf(s).kind + ' RETURN' } : {}) }));
+                                                 ...(pc ? { cap: rtCapPo(s), tag: rtPcOf(s).kind + ' RETURN' } : {}) }));
           const r = offsetShorts(row, picks, { person, device: device.value, date: rt.date, at });
           add = r.entries; recs = [r.overRec, ...r.shortRecs];
           msg = `${pc ? 'PC return' : 'ทดแทน short'} ${r.shortRecs.length} PO รวม ${rtQty.value} จาก over ${row.po} แล้ว`;
