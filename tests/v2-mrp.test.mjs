@@ -775,5 +775,23 @@ console.log('\n=== ยอดคงคลังราย P/N — ค้นรห�
   ok('app.js: watch ที่กาง P/N ตามคำค้นดูแค่ balQ ไม่ลาก bpFocus / bpAll ทุกครั้งที่บันทึก',
      app.includes('watch(balQ, () => {') && !/watch\(\s*\(\)\s*=>[^,]*bpFocus/.test(app));
 }
+console.log('\n=== หน้ายอดคงคลังรายรหัส: เคมี + TERMINAL + SOLDER (เจ้าของสั่ง 28 พ.ย. 2026) ===');
+{
+  const { isPoolItem } = await import('../v2/master/mrp.js');
+  ok('หน้ารายรหัส: หมวด CHEMICAL ทุกตัว · ชื่อมี TERMINAL / SOLDER ไม่ว่าหมวดไหน',
+     isPoolItem('CHEMICAL', 'THINNER') && isPoolItem('METAL PART', 'TERMINAL PIN 1.0') && isPoolItem('WIRE', 'SOLDER WIRE SN99.3')
+     && isPoolItem('METAL PART', 'TERMINALS BRASS') && isPoolItem('chemical', ''));
+  ok('หน้ารายรหัส: ตัวเลข / สัญลักษณ์ติดหน้าคำก็นับ (0.3TERMINAL · 1SOLDER · SN-SOLDER) · ตัวอักษรอังกฤษติดหน้าไม่นับ (เจ้าของสั่ง 28 พ.ย. 2026)',
+     isPoolItem('METAL PART', 'STRIP 0.3TERMINAL') && isPoolItem('OTHER', '1SOLDER BAR') && isPoolItem('OTHER', 'SN-SOLDER')
+     && !isPoolItem('OTHER', 'XTERMINAL') && !isPoolItem('OTHER', 'RESOLDERED'));
+  ok('หน้ารายรหัส: METAL PART ตัวอื่น / หมวดอื่นไม่ขึ้น',
+     !isPoolItem('METAL PART', 'STRIP CU 0.3') && !isPoolItem('METAL PART', 'CLIP') && !isPoolItem('WIRE', 'WIRE 0.35 UEW')
+     && !isPoolItem('OTHER', 'XTERMINAL') && !isPoolItem('', ''));
+  const html = readFileSync(new URL('../v2/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('หน้ารายรหัสกรองด้วย isPoolItem (เคมี · TERMINAL · SOLDER) แทนเคมี + METAL PART',
+     /isPoolItem\(r\.category, r\.desc\)/.test(app) && !/r\.category === 'METAL PART'/.test(app) && html.includes('เฉพาะเคมี · TERMINAL · SOLDER'));
+}
+
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);
