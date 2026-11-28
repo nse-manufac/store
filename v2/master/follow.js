@@ -1164,6 +1164,7 @@ export const shortCheckOf = (follow, calcRows) => shortChecker(calcRows)(follow)
  * เทียบยอดที่แช่แข็งไว้ตอนตั้งเรื่อง (order_qty · bom_qty · recv_qty) กับที่คิดได้ตอนนี้ แยกเป็นตัวต่อตัว:
  *   ตามสูตรเปลี่ยน (ต่อชิ้น / จำนวนสั่ง) · ยอดรับเข้าไม่เท่ากับที่กด "มาแล้ว" · ยอดในเรื่องไม่ได้มาจากสูตรตอนตั้ง
  * ⚠️ รับเข้าหลังตั้งเรื่องหักยอดที่กด "มาแล้ว" ในเรื่องนี้ก่อน — มาบางส่วนแล้วกดมาแล้วตามปกติ ไม่ใช่เหตุที่ต่าง
+ * ⚠️ เรื่องที่ไฟล์ MAT'L FOLLOWING ของ Delta ทับยอดแช่แข็งไปแล้ว ห้ามประกาศเหตุจากสามช่องนั้น — ดูคอมเมนต์ที่ deltaShaped
  * แล้วบอกเรื่องอื่นของคู่ PO + รหัสเดียวกันที่ยังไม่ยกเลิก (เช่นเรื่องที่ปิดไปแล้ว แต่มีคนเอาเรื่องเก่ากลับมา)
  *
  * calcRows = shortAll(..., { all: true }) · follows = เรื่องทั้งหมด · bomRowOf(pn, code) = บรรทัดสูตรตอนนี้ (ไม่ส่ง = ไม่บอกที่มาสูตร)
@@ -1190,7 +1191,27 @@ export function shortDiffExplainer(calcRows, follows, bomRowOf) {
     if (Math.abs(remain - now.short) < 5e-4) return [];
     const out = [];
     const fo = Number(follow.order_qty), fb = Number(follow.bom_qty), fr = Number(follow.recv_qty) || 0;
-    if (has(follow.bom_qty) && fo > 0) {
+    /* ⚠️ แถวที่นำเข้าไฟล์ MAT'L FOLLOWING ของ Delta ทับแล้ว — ห้ามอ่าน order_qty / recv_qty เป็นค่าตอนตั้งเรื่อง
+     *    planMatFollow (matfollow.js) ทับสองช่องนี้ลงบนเรื่องที่มีอยู่แล้ว โดยไม่แตะ bom_qty และไม่เปลี่ยน source
+     *    ความหมายเปลี่ยนไปคนละเรื่อง: order_qty จาก "จำนวนสั่ง (ชิ้น)" → "ยอดในคอลัมน์ P/O"
+     *    · recv_qty จาก "รับเข้าคลังตอนตั้งเรื่อง" → "ACTUAL (ส่งจริง) ที่ Delta แจ้ง"
+     *    อ่านตรง ๆ แล้วกุเหตุที่ไม่เคยเกิด — "จำนวนสั่ง 2.6 → 200" · "มีการยกเลิกใบรับเข้า" ทั้งที่คลังไม่ขยับ
+     *    (ผู้ตรวจ #209 รอบ 2 · กับดักเดียวกับที่ overSetEvidence / overStopEvidence เตือนไว้ในไฟล์นี้)
+     * ต้องเข้าทั้งสองข้อ เพราะข้อเดียวไม่พอ:
+     *   1. รูปยอด — ไฟล์ตั้ง qty จาก VAR = สั่ง − ส่งจริง จึงได้ order_qty − recv_qty ≈ qty (แบบแผนของ overSetEvidence)
+     *      ลำพังข้อนี้ไม่พอ: แถว auto ที่ต่อชิ้น = 1 พอดี (ป้าย 1 ดวงต่อชิ้น) ก็เข้ารูปนี้ เพราะจำนวนสั่ง = ยอดตามสูตร
+     *   2. หมายเหตุประจำที่ fromShortRow ติดไว้หายไป — ไฟล์ทับช่องหมายเหตุทุกครั้งที่ทับตัวเลข (fields.note ใน planMatFollow)
+     *      และ planMatFollow เป็นทางเดียวที่ทับสามช่องแช่แข็งของเรื่องที่มีอยู่แล้ว (ไล่ทุกที่ที่เขียนสามช่องนี้แล้ว)
+     * ⚠️ ยังไม่ครอบแถวที่ไฟล์แจ้ง Cut Return (qty = สั่ง − ส่งจริง − cut ข้อ 1 จึงไม่เข้ารูป) — กันสนิทต้องติดธงลงในเรื่อง = แตะโครงข้อมูล (E2)
+     */
+    const canBom = has(follow.bom_qty) && fo > 0;
+    const deltaShaped = canBom && Math.abs(round5(fo - fr) - q) < 5e-4
+      && splitNoteTrace(follow.note).base !== SYS_SHORT_NOTE;
+    if (deltaShaped) {
+      out.push(`ยอดในเรื่อง ${n(q)} มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง ${n(fo)} · ส่งจริง ${n(fr)}) ไม่ใช่ยอดตอนตั้งเรื่อง`
+        + (done > 0 ? ` (มาแล้ว ${n(done)} ยังค้าง ${n(remain)})` : '')
+        + ` · ตอนนี้ตามสูตร ${n(now.need)} − รับแล้ว ${n(now.have)} = ${n(now.short)}`);
+    } else if (canBom) {
       const dNeed = round5(now.need - fb);
       if (Math.abs(dNeed) >= 5e-4) {
         const parts = [];

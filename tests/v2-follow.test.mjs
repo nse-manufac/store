@@ -14,6 +14,8 @@ import { writeBuyPo } from '../v2/export/bincard.js';
 import { offsetShorts, pairIdOf, PAIR_SUFFIX, pairTwins, splitPairs, pairedInQty, pcCapLeft, reopenShort as reopenShortP } from '../v2/master/follow.js';
 import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
 import { FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
+import { splitNoteTrace } from '../v2/master/follow.js';
+import { rowToFollow, planMatFollow } from '../v2/master/matfollow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, SKIP_WHY, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
          statusOf, remainOf, overdue, closeFollow, reopenFollow, voidFollow,
@@ -1199,6 +1201,52 @@ console.log('\n=== R. ของขาดที่คิดจากการร�
     ok('จอ: กดป้าย "ต่าง" แล้วขึ้น bubble บอกเหตุ (ไม่วางกล่องใต้ชื่อให้รกจอ)',
        htmlSrc.includes('@click.stop="fsWhyFlip(r.s.id)">ต่าง</button>') && htmlSrc.includes('<div v-if="fsWhyId === r.s.id" class="why-pop" @click.stop>')
        && !htmlSrc.includes('class="fol-why"') && /shortDiffExplainer\(fsCalc\.value, shorts\.value/.test(appSrc));
+  }
+
+  /* ── ผู้ตรวจ #209 รอบ 2 ข้อ 1 — เรื่องที่ไฟล์ MAT'L FOLLOWING ของ Delta ทับยอดแช่แข็งแล้ว ห้ามกุเหตุ ──
+     ตั้งเรื่องด้วย fromShortRow จริง แล้วส่งผ่าน planMatFollow จริง (ตั้งค่าในมือจะไม่ได้คุ้มทางข้อมูลที่พัง)
+     ไฟล์ทับ order_qty = คอลัมน์ P/O · recv_qty = ACTUAL แต่ไม่แตะ bom_qty และไม่เปลี่ยน source (ยังเป็น auto) */
+  {
+    const EH = 'TUE-H', PO = 'TM5269H789', PN = '2877679001', CODE = '3513605200';
+    const at = '2026-10-03T02:00:00.000Z';
+    // แถวไฟล์ Delta หนึ่งแถว: [วันที่, P/O, PN, CODE, DES., P/O(สั่ง), ACTUAL(ส่งจริง), VAR., หมายเหตุ, หมายเหตุ]
+    const matRow = (order, actual) => rowToFollow(['2026-10-03', PO, PN, CODE, '', order, actual, round5(order - actual), '', '']);
+    const overwritten = (setCalc, order, actual) => {
+      const set = fromShortRow({ ...setCalc, po: PO, pn: PN, code: CODE, why: '' }, { entity: EH, date: '2026-10-01' });
+      const plan = planMatFollow([matRow(order, actual)], [set], { now: at, by: 'ก' });
+      if (plan.update.length !== 1) throw new Error('ไฟล์ไม่ได้ทับเรื่องเดิม: ' + JSON.stringify(plan.failed) + plan.create.length);
+      return { set, rec: plan.update[0].rec };
+    };
+
+    // เคส A — PO สั่ง 200 ชิ้นไม่เคยเปลี่ยน · ต่อชิ้น 0.013 → 0.01389 · ไฟล์ทับ order_qty 200 → 2.6
+    const a = overwritten({ order: 200, need: 2.6, have: 0, short: 2.6 }, 2.6, 0);
+    const aWhy = shortDiffExplainer([{ po: PO, pn: PN, code: CODE, order: 200, need: 2.778, have: 0, short: 2.778, why: '' }], [], null)(a.rec);
+    ok('ไฟล์ Delta ทับยอดแช่แข็งแล้ว — ไม่กุว่า "จำนวนสั่ง" หรือ "ต่อชิ้น" เปลี่ยน แต่บอกว่ายอดมาจากไฟล์ พร้อมตัวตั้งที่คิดได้ตอนนี้',
+       aWhy.length === 1 && !aWhy[0].includes('จำนวนสั่ง') && !aWhy[0].includes('ต่อชิ้น')
+       && aWhy[0].includes("มาจากไฟล์ MAT'L FOLLOWING ของ Delta (สั่ง 2.6 · ส่งจริง 0)")
+       && aWhy[0].includes('ตามสูตร 2.778 − รับแล้ว 0 = 2.778'), JSON.stringify(aWhy));
+
+    // เคส B — คลังรับ 0.6 เท่าเดิมตั้งแต่ต้น · สูตรไม่เปลี่ยน · Delta แจ้ง ACTUAL 1.5 (ไม่ตรงกับที่คลังรับ)
+    const b = overwritten({ order: 200, need: 2.6, have: 0.6, short: 2 }, 2.6, 1.5);
+    const bWhy = shortDiffExplainer([{ po: PO, pn: PN, code: CODE, order: 200, need: 2.6, have: 0.6, short: 2, why: '' }], [], null)(b.rec);
+    ok('ไฟล์ Delta ทับ recv_qty แล้ว — ไม่กุว่ามีการยกเลิกใบรับเข้า / ส่งคืน ทั้งที่คลังไม่ขยับ',
+       bWhy.length === 1 && !bWhy[0].includes('ยกเลิกใบรับเข้า') && !bWhy[0].includes('ลดลงหลังตั้งเรื่อง')
+       && bWhy[0].includes("(สั่ง 2.6 · ส่งจริง 1.5)") && bWhy[0].includes('ตามสูตร 2.6 − รับแล้ว 0.6 = 2'), JSON.stringify(bWhy));
+    ok('ไฟล์ทับจริง — order_qty / recv_qty เปลี่ยน แต่ bom_qty กับ source คงเดิม (ทางข้อมูลที่ทำให้พัง)',
+       b.set.order_qty === 200 && b.set.recv_qty === 0.6 && b.rec.order_qty === 2.6 && b.rec.recv_qty === 1.5
+       && b.rec.bom_qty === 2.6 && b.rec.source === 'auto', JSON.stringify([b.set.order_qty, b.rec.order_qty, b.rec.source]));
+
+    /* เคส C — ต่อชิ้น = 1 พอดี (ป้าย 1 ดวงต่อชิ้น) ไฟล์ไม่เคยทับ
+       รูปยอด order_qty − recv_qty = qty เข้าเหมือนแถวที่ไฟล์ทับเป๊ะ ๆ เพราะจำนวนสั่ง = ยอดตามสูตร
+       ดักด้วยรูปยอดอย่างเดียวจะกลืนเหตุจริงทิ้ง แล้วกุว่ามาจากไฟล์ Delta ที่ไม่เคยนำเข้า */
+    const one = fromShortRow({ po: PO, pn: PN, code: 'LBL1', order: 200, need: 200, have: 0, short: 200, why: '' }, { entity: EH, date: '2026-10-01' });
+    const oneNow = [{ po: PO, pn: PN, code: 'LBL1', order: 200, need: 210, have: 0, short: 210, why: '' }];
+    const cWhy = shortDiffExplainer(oneNow, [], null)(one);
+    ok('ต่อชิ้น = 1 และไฟล์ไม่เคยทับ — ยังบอกเหตุจริงว่าสูตรเปลี่ยน ไม่ไปอ้างไฟล์ Delta',
+       cWhy.length === 1 && cWhy[0].includes('ต่อชิ้น 1 → 1.05') && !cWhy[0].includes('MAT'), JSON.stringify(cWhy));
+    ok('หมายเหตุประจำของเรื่องที่ระบบตั้งหาย = สัญญาณว่าไฟล์ทับ (ไฟล์ทับช่องหมายเหตุทุกครั้งที่ทับตัวเลข)',
+       splitNoteTrace(one.note).base === splitNoteTrace(b.set.note).base && splitNoteTrace(b.rec.note).base !== splitNoteTrace(b.set.note).base
+       && shortDiffExplainer(oneNow, [], null)({ ...one, note: '' })[0].includes("มาจากไฟล์ MAT'L FOLLOWING"), JSON.stringify([one.note, b.rec.note]));
   }
 
   ok('เทียบ — PO ยังไม่มีรับเข้า / ไม่มีในสูตร / คิดไม่ได้ บอกเหตุผล',
