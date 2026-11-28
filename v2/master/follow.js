@@ -462,13 +462,21 @@ export function sumFollow(rows, { today = '' } = {}) {
 
 /* ══════════ หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026 · แบบเดียวกับแท็บ MRP) ══════════ */
 
-/** ปุ่มกรองบนหัวหน้า — ลำดับตามขั้นของงาน · k ตรงกับคีย์ของ followCounts */
+/** ปุ่มกรองบนหัวหน้า — ลำดับตามขั้นของงาน · k ตรงกับคีย์ของ followCounts / stopCounts
+ *  ยกเลิก กับ ไม่ติดตาม แยกเป็นสองปุ่ม (เจ้าของสั่ง 28 พ.ย. 2026) · k = ค่าของ stopMarkOf */
 export const FOLLOW_SEG = {
   short: [{ k: 'new', label: 'ต้องตั้งเรื่อง', dot: 'warn' }, { k: 'open', label: 'รอของ', dot: 'bad' },
-          { k: 'done', label: 'ปิดแล้ว', dot: 'ok' }, { k: 'stop', label: 'ยกเลิก / ไม่ติดตาม', dot: '' }],
+          { k: 'done', label: 'ปิดแล้ว', dot: 'ok' },
+          { k: 'cancel', label: 'ยกเลิกแล้ว', dot: '' }, { k: 'skip', label: 'ไม่ติดตามแล้ว', dot: '' }],
   over:  [{ k: 'new', label: 'ต้องตั้งเรื่อง', dot: 'warn' }, { k: 'open', label: 'รอคืน', dot: 'bad' },
-          { k: 'done', label: 'คืนแล้ว', dot: 'ok' }, { k: 'stop', label: 'ยกเลิก / ไม่ติดตาม', dot: '' }]
+          { k: 'done', label: 'คืนแล้ว', dot: 'ok' },
+          { k: 'cancel', label: 'ยกเลิกแล้ว', dot: '' }, { k: 'skip', label: 'ไม่ติดตามแล้ว', dot: '' }]
 };
+/** ปุ่มกรองนี้เป็นของเรื่องที่หยุดตามไหม (ยกเลิกแล้ว / ไม่ติดตามแล้ว) */
+export const isStopSeg = k => k === 'cancel' || k === 'skip';
+/** ตัวนับของสองปุ่มหยุดตาม — รับแถวจาก stoppedShorts / stoppedOvers */
+export const stopCounts = rows => ({ cancel: (rows || []).filter(x => x.mark === 'cancel').length,
+                                     skip: (rows || []).filter(x => x.mark === 'skip').length });
 
 /** ตัวเลขบนปุ่มกรอง — open นับรวมที่ได้มาบางส่วน (partial) · กรองชนิดและนิติบุคคลแบบเดียวกับ listFollow */
 export function followCounts(rows, { kind = '', entity = '' } = {}) {
@@ -801,9 +809,9 @@ export function shortSettled(follows) {
 
 /**
  * เหมือน shortSettled แต่บอกด้วยว่าจบเพราะเรื่องไหน — คืน (po, code, ยอดขาด) => { how, id } | null
- * how: 'stop' = ยกเลิกเรื่อง / ไม่ติดตาม (อยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว") · 'done' = ปิดเรื่องตรงยอด
+ * how: 'cancel' / 'skip' = ยกเลิกเรื่อง / ไม่ติดตาม (ตรงกับคีย์ปุ่มกรองที่เรื่องนั้นอยู่) · 'done' = ปิดเรื่องตรงยอด
  * id = เรื่องที่ทำให้จบ — แท็บ MRP ใช้กระโดดไปแถวนั้นในแท็บ short (เจ้าของสั่ง 15 พ.ย. 2026)
- * ⚠️ เรื่องหยุดมาก่อน — การ์ดยกเลิกเป็นที่ที่เจ้าของขอให้ลิงก์ไป · ปิดตรงยอดใช้เมื่อไม่มีเรื่องหยุด
+ * ⚠️ เรื่องหยุดมาก่อน — ปุ่มกรองยกเลิกแล้ว / ไม่ติดตามแล้ว เป็นที่ที่เจ้าของขอให้ลิงก์ไป · ปิดตรงยอดใช้เมื่อไม่มีเรื่องหยุด
  */
 export function shortSettledBy(follows) {
   const closed = new Map();
@@ -820,7 +828,7 @@ export function shortSettledBy(follows) {
   const stillStopped = stopGate(follows, 'short');
   return (po, code, short) => {
     const st = stillStopped(po, code, short);
-    if (st) return { how: 'stop', id: st.id };
+    if (st) return { how: stopMarkOf(st), id: st.id };
     const d = sameAsClosed(po, code, short);
     return d ? { how: 'done', id: d.id } : null;
   };
@@ -837,17 +845,17 @@ export function overSettled(follows) {
   return (po, code, over) => !!gate(po, code, over);
 }
 
-/** เหมือน overSettled แต่บอกเรื่องที่ทำให้จบ — คืน (po, code, ยอดเกิน) => { how: 'stop', id } | null (ดู shortSettledBy) */
+/** เหมือน overSettled แต่บอกเรื่องที่ทำให้จบ — คืน (po, code, ยอดเกิน) => { how: 'cancel' | 'skip', id } | null (ดู shortSettledBy) */
 export function overSettledBy(follows) {
   const gate = stopGate(follows, 'over');
-  return (po, code, over) => { const f = gate(po, code, over); return f ? { how: 'stop', id: f.id } : null; };
+  return (po, code, over) => { const f = gate(po, code, over); return f ? { how: stopMarkOf(f), id: f.id } : null; };
 }
 
 /**
  * เพดาน "ไม่ขึ้นอีก" ของคู่ที่หยุดตาม (ยกเลิกเรื่อง / ไม่ติดตาม) — คืน (po, code, ยอดที่คิดได้ตอนนี้) => เรื่องที่หยุดไว้ | null
  * ใช้ร่วมกันทั้ง short (shortPending) และ over (overPending) · ย้ายมาจาก shortPending (#146) พฤติกรรมเดิม
  * ⚠️ เพดาน = ยอดที่ยังค้างในเรื่องตอนกด (remainOf) ไม่ใช่ qty เต็ม (ผู้ตรวจ #146 รอบ 4)
- * ⚠️ เก็บรอบที่หยุดล่าสุดรอบเดียวต่อคู่ — กฎเดียวกับการ์ด "ยกเลิก / ไม่ติดตามแล้ว" (ผู้ตรวจ #146 รอบ 6)
+ * ⚠️ เก็บรอบที่หยุดล่าสุดรอบเดียวต่อคู่ — กฎเดียวกับปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" (ผู้ตรวจ #146 รอบ 6)
  * ⚠️ คู่ที่มีเรื่องตั้งหลังเวลายกเลิก (กลับมาติดตาม / ตั้งเอง) = เพดานหมดอายุ (ผู้ตรวจ #146 รอบ 7)
  */
 function stopGate(follows, kind) {
@@ -876,7 +884,7 @@ function stopGate(follows, kind) {
  * ของบางตัวขาดนิดเดียว ไม่คุ้มตาม — ปุ่ม "ยกเลิกเรื่อง" ที่เรื่องที่ตั้งแล้ว · ปุ่ม "ไม่ติดตาม" ที่การ์ด "ยังรับไม่ครบตาม BOM"
  * ทั้งสองเก็บเป็นเรื่อง short ที่ยกเลิกไว้ (voided) — ใช้ช่องที่มีอยู่ ไม่ต้องแก้ชีต / Apps Script
  * เหตุผลขึ้นต้นด้วยคำคงที่ไว้แยกว่ามาจากปุ่มไหน · ยกเลิกแบบอื่น (เช่น เรื่องซ้ำ) ไม่นับ
- * เจ้าของเคาะ: อยู่การ์ดเดียวกัน "ยกเลิก / ไม่ติดตามแล้ว" · ยอดขาดเพิ่มขึ้น = กลับมาขึ้น
+ * เจ้าของเคาะ: เดิมอยู่การ์ดเดียวกัน · ตั้งแต่ 28 พ.ย. 2026 แยกเป็นปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" · ยอดขาดเพิ่มขึ้น = กลับมาขึ้น
  *             นำเข้าไฟล์ Delta ซ้ำ = ไม่สร้างใหม่ ถ้ายอดในไฟล์เท่าตอนยกเลิก (matfollow.js)
  */
 export const CANCEL_MARK = 'ยกเลิกเรื่อง';
@@ -905,7 +913,7 @@ export function stopWhyProblem(why) {
 }
 /* ปุ่ม "ไม่ติดตาม" ไม่ถามเหตุผล (เจ้าของสั่ง 28 พ.ย. 2026) — ปุ่มนี้มีไว้เคลียร์ยอดน้อยอย่างเดียว เหตุผลมีแค่ข้อเดียว
  * บังคับพิมพ์ทุกครั้งไม่ได้อะไรเพิ่ม แต่ทำให้งานสะดุด · ระบบจดให้เป็น "ไม่ติดตาม — ยอดน้อย"
- * ยอดที่หยุด (ขาด / เกิน ณ ตอนกด) อยู่ในการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ข้างเหตุผลอยู่แล้ว คนตรวจเห็นว่าน้อยจริงไหม
+ * ยอดที่หยุด (ขาด / เกิน ณ ตอนกด) อยู่ในปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" ข้างเหตุผลอยู่แล้ว คนตรวจเห็นว่าน้อยจริงไหม
  * ปุ่ม "ยกเลิกเรื่อง" ยังต้องพิมพ์เหตุผลเหมือนเดิม (เหตุผลมีได้หลายแบบ) */
 export const SKIP_WHY = 'ยอดน้อย';
 function needWhy(why) {
@@ -1005,7 +1013,7 @@ function cancelStop(row, kind, { by = '', why = '' } = {}) {
   if (row.voided) throw new Error('เรื่องนี้ถูกยกเลิกไปแล้ว');
   if (statusOf(row) === 'done') throw new Error(kind === 'over' ? 'เรื่องนี้คืนครบแล้ว — ไม่ต้องยกเลิก' : 'เรื่องนี้ปิดไปแล้ว — ไม่ต้องยกเลิก');
   /* ⚠️ แถวที่ยังไม่มี entity ขึ้นในตาราง short ของทุกนิติบุคคล (ดู sameEntity) ยกเลิกแล้วจะหายจากทุกจอ
-   *    แต่ยังกดทับการ์ด "ยังรับไม่ครบตาม BOM" อยู่ (pairKey ไม่มี entity) และการ์ด "ยกเลิก / ไม่ติดตามแล้ว"
+   *    แต่ยังกดทับการ์ด "ยังรับไม่ครบตาม BOM" อยู่ (pairKey ไม่มี entity) และปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว"
    *    ซึ่งกรองตาม entity ตรง ๆ (A3) จะไม่แสดงให้ กดกลับมาติดตามไม่ได้ → กันที่ทางเข้า (ผู้ตรวจ #146 รอบ 1 ข้อ 1) */
   if (!txt(row.entity)) throw new Error('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — เลือกนิติบุคคลที่หัวจอ '
     + 'แล้วกดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ที่หัวแท็บก่อน แล้วค่อยยกเลิก (INVARIANTS A3)');
@@ -1039,7 +1047,7 @@ export function skipShort(calcRow, { entity, person = '', unit = '', date = '', 
 }
 
 /**
- * การ์ด "ยกเลิก / ไม่ติดตามแล้ว" — เรื่อง short ที่หยุดด้วยสองปุ่มนี้ ของนิติบุคคลนี้ ใหม่สุดก่อน
+ * ปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" — เรื่อง short ที่หยุดด้วยสองปุ่มนี้ ของนิติบุคคลนี้ ใหม่สุดก่อน
  * คืน [{ s, mark }] · ซ่อนคู่ที่กด "กลับมาติดตาม" แล้ว (มีเรื่อง short ที่ไม่ยกเลิกของคู่นั้น ตั้งหลังเวลายกเลิก)
  * คู่ PO+รหัสละแถวเดียว = รอบที่หยุดไว้ล่าสุด (รอบเก่ายังอยู่ในฐานข้อมูลเป็นประวัติ ไม่ได้ลบ · B1)
  */
@@ -1055,7 +1063,7 @@ export function sliceKeep(rows, max, keep) {
   const hit = all.slice(max).find(keep);
   return hit ? [...out, hit] : out;
 }
-/** การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ของ over — กติกาเดียวกับ short */
+/** ปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" ของ over — กติกาเดียวกับ short */
 export function stoppedOvers(follows, opts = {}) { return stoppedOf(follows, 'over', opts); }
 function stoppedOf(follows, kind, { entity } = {}) {
   if (!txt(entity)) return [];
@@ -1074,7 +1082,7 @@ function stoppedOf(follows, kind, { entity } = {}) {
   }
   return [...newest.values()]
     .sort((a, b) => txt(b.void_at).localeCompare(txt(a.void_at)))
-    .map(s => ({ s, mark: stopMarkOf(s) }));
+    .map(s => ({ s, mark: stopMarkOf(s) }));   // mark = คีย์ปุ่มกรอง (cancel / skip) · จอแยกปุ่มจาก mark หลังเลือกรอบล่าสุดแล้ว
 }
 
 /** over: กลับมาติดตาม — ตั้งเรื่อง over ใหม่ด้วยยอดที่ยังค้าง (ของเดิมยังยกเลิกอยู่ เป็นประวัติ) · ยอดที่คืนไปแล้วไม่นับซ้ำ */
@@ -1513,6 +1521,44 @@ export function pairTwins(entries, e) {
 }
 
 /**
+ * ยอดที่เคยทดแทนให้เรื่อง short ใบนี้ไปแล้วด้วยคู่ "คืนของ แบบ 2 / 3" (ทุกรอบที่ยังไม่ถูกยกเลิก)
+ * หาจากสมุดตรง ๆ ไม่ต้องเพิ่มช่องใหม่และไม่ต้องอ่านสตริงของหมายเหตุ:
+ * ใบ 'receive' ที่เลขที่ลงท้าย PAIR_SUFFIX · PO + รหัส + นิติบุคคลเดียวกับเรื่อง (A3)
+ * และมีใบ 'sendback' คู่ที่ยังไม่ถูกยกเลิก (ตรรกะเดียวกับ splitPairs)
+ * ⚠️ ยกเลิกคู่แล้วยอดคืนมาเอง เพราะนับแค่ใบที่ยังไม่ถูกยกเลิกทั้งสองข้าง
+ */
+export function pairedInQty(entries, short) {
+  if (!short || !txt(short.po)) return 0;
+  const po = txt(short.po), code = txt(short.code).toUpperCase(), ent = txt(short.entity);
+  const byId = new Map((entries || []).filter(Boolean).map(e => [txt(e.id), e]));
+  let sum = 0;
+  for (const e of entries || []) {
+    if (!e || e.voided || e.kind !== 'receive') continue;
+    const id = txt(e.id);
+    if (!id.endsWith(PAIR_SUFFIX)) continue;
+    if (txt(e.doc_ref) !== po || txt(e.material_code).toUpperCase() !== code) continue;
+    if (ent && txt(e.entity) !== ent) continue;
+    const back = byId.get(id.slice(0, -PAIR_SUFFIX.length));
+    if (!back || back.kind !== 'sendback' || back.voided) continue;
+    sum = round5(sum + (Number(e.qty) || 0));
+  }
+  return sum;
+}
+
+/**
+ * เพดาน PC return ที่ยังเหลือของ PO + รหัสของเรื่อง short ใบนี้ · null = หมายเหตุไฟล์ PO ไม่ได้กำหนดเพดาน
+ * ⚠️ เป็นเพดานของ PO ไม่ใช่ของเรื่อง — เรื่องซ้ำหลายใบของ PO + รหัสเดียวกันใช้เพดานก้อนเดียวกันนี้
+ * ⚠️ เพดาน "Short N" ในหมายเหตุเป็น **ยอดรวม** ไม่ใช่ต่อการกดบันทึกหนึ่งครั้ง
+ *    ไม่หักยอดที่เคยทดแทนไปแล้ว กดสองรอบติดจะทะลุเพดานได้ทุกครั้งที่เพดานมีผล
+ *    (ผู้ตรวจ #205 รอบ 2 ข้อ 1) — over ของ PO หนึ่งจะถูกตัดไปลง short อีก PO
+ *    มากกว่าที่ Delta อนุญาต แล้วกระทบยอดราย PO กับ Delta ไม่ตรง
+ */
+export function pcCapLeft(entries, short, cap) {
+  if (cap == null || cap === '') return null;
+  return Math.max(0, round5(Number(cap) - pairedInQty(entries, short)));
+}
+
+/**
  * picks = [{ row: เรื่อง short, qty }] · แถวที่ qty ว่าง / 0 ข้ามไป
  * คืน { overRec, shortRecs, entries } — ผู้เรียกบันทึก entries ลงสมุดก่อน แล้วค่อยบันทึกเรื่อง
  * ⚠️ date/at = วันที่คืนจริง (แก้ย้อนได้) · updated_at ของเรื่องเป็นเวลาจริงตอนกด (now · D5) แบบ returnOver
@@ -1524,29 +1570,49 @@ export function offsetShorts(over, picks = [], { person = '', device = '', date 
   const use = (picks || []).filter(p => p && p.row && Number(p.qty) > 0);
   if (!use.length) throw new Error('ใส่ยอดที่ทดแทนอย่างน้อยหนึ่งแถว');
   let total = 0;
-  for (const { row: s, qty } of use) {
+  /* เพดาน "Short N" เป็นยอดรวมของ PO + รหัส ไม่ใช่ต่อเรื่อง short — PO + รหัสเดียวกันมีเรื่อง
+   * เปิดค้างได้สองใบ (ฟอร์มคีย์เรื่องเองไม่มีด่านกันซ้ำ · เรื่องซ้ำในชีตมีอยู่แล้ว) ถ้าเทียบ cap
+   * ทีละแถว ทั้งสองแถวได้เพดานเต็มใบละ แล้วรวมกันทะลุที่ Delta แจ้งในการกดครั้งเดียว
+   * (ผู้ตรวจ #205 รอบ 3 ข้อ 1) จึงต้องรวมยอดด้วยกุญแจ PO + รหัส แล้วเทียบยอดสะสม */
+  const capSum = new Map();
+  for (const { row: s, qty, cap } of use) {
     if (s.kind !== 'short' || s.voided) throw new Error('ทดแทนได้เฉพาะเรื่อง short ที่ยังไม่ถูกยกเลิก');
     if (txt(s.entity) !== txt(over.entity)) throw new Error(`short ${txt(s.po)} เป็นของนิติบุคคลอื่น — ทดแทนข้ามนิติบุคคลไม่ได้ (INVARIANTS A3)`);
     if (txt(s.code).toUpperCase() !== txt(over.code).toUpperCase()) throw new Error(`short ${txt(s.po)} เป็นคนละรหัสกับ over`);
     if (!txt(s.po)) throw new Error('เรื่อง short นี้ไม่มีเลข PO — รับเข้าคลังไม่ได้');
     const n = round5(Number(qty));
     if (n > remainOf(s)) throw new Error(`short ${txt(s.po)} ทดแทนได้ไม่เกินยอดที่ยังค้าง (${remainOf(s)})`);
+    /* แบบ 3 PC return: "Short N" ในหมายเหตุไฟล์ PO = เพดานของ PO นั้น (เจ้าของสั่ง 27 พ.ย. 2026)
+     * ⚠️ เพดานเป็นยอดรวมของ PO นั้น ไม่ใช่ต่อครั้งและไม่ใช่ต่อเรื่อง ผู้เรียกต้องส่ง cap ที่หัก
+     *    ยอดที่เคยทดแทนไปแล้วเข้ามา (pcCapLeft) · ส่งเพดานดิบเข้ามา ด่านนี้จะบังคับแค่ต่อครั้ง
+     *    แล้วกดสองรอบติดทะลุได้ · ยอดของหลายเรื่องใน PO เดียวกันรวมกันที่นี่ (capSum) */
+    if (cap != null) {
+      const key = txt(s.po) + '|' + txt(s.code).toUpperCase();
+      const got = capSum.get(key) || { cap: Number(cap), sum: 0 };
+      got.cap = Math.min(got.cap, Number(cap));
+      got.sum = round5(got.sum + n);
+      capSum.set(key, got);
+      if (got.sum > got.cap) throw new Error(got.sum === n
+        ? `short ${txt(s.po)} PC return ได้ไม่เกิน ${got.cap} ตามหมายเหตุในไฟล์ PO`
+        : `short ${txt(s.po)} PC return รวมทุกเรื่องของ PO นี้ ${got.sum} เกินเพดาน ${got.cap} ตามหมายเหตุในไฟล์ PO — ลดยอดที่ใส่ลง`);
+    }
     total = round5(total + n);
   }
   if (total > remainOf(over)) throw new Error(`รวมทดแทน ${total} เกินยอด over ที่ยังค้าง (${remainOf(over)})`);
   const day = txt(date) || txt(at).slice(0, 10);
   const entries = [], shortRecs = [], backIds = [];
-  for (const { row: s, qty } of use) {
+  for (const { row: s, qty, tag } of use) {
     const n = round5(Number(qty));
+    const via = txt(tag) ? `คืนของ · ${txt(tag)}` : 'คืนของ';   // แบบ 3 ติดป้าย PC / MC RETURN ให้ตามรอยได้
     const back = makeEntry({
       kind: 'sendback', entity: over.entity, material_code: over.code, qty: n,
       doc_kind: 'po', doc_ref: txt(over.po), part_no: txt(over.part_no), reason_code: 'carry',
-      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทน short PO ${txt(s.po)} (คืนของ)`
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทน short PO ${txt(s.po)} (${via})`
     });
     const recv = makeEntry({
       id: pairIdOf(back.id), kind: 'receive', entity: s.entity, material_code: s.code, qty: n,
       lot: day || '(ไม่ระบุ)', doc_kind: 'po', doc_ref: txt(s.po), part_no: txt(s.part_no),
-      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทนจาก over PO ${txt(over.po)} (คืนของ)`
+      at: txt(at) || undefined, person: txt(person), device, note: `ทดแทนจาก over PO ${txt(over.po)} (${via})`
     });
     entries.push(back, recv);
     backIds.push(back.id);
@@ -1637,7 +1703,7 @@ export function overExceedWarn(qty, over) {
  */
 
 /** ยกเลิกเรื่องซื้อทดแทน — ไม่ลบ (B1) · เหตุผลกฎเดียวกับ short / over (stopWhyProblem · เจ้าของสั่ง 26 พ.ย. 2026)
- *  ไม่มีคำนำหน้าแบบ CANCEL_MARK — หน้าซื้อไม่มีการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ให้แยกป้าย */
+ *  ไม่มีคำนำหน้าแบบ CANCEL_MARK — หน้าซื้อไม่มีปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" ให้แยกป้าย */
 export function cancelBuy(row, { by = '', why = '' } = {}) {
   if (!row || row.kind !== 'buy') throw new Error('ใช้ได้กับเรื่องซื้อทดแทนเท่านั้น');
   needWhy(why);

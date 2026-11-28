@@ -164,12 +164,12 @@ ok('ทุกรหัสที่เกินจบเรื่องแล้�
 
 console.log('=== M4c. ป้าย "จบเรื่องแล้ว" รู้ว่าจบเพราะเรื่องไหน — กดไปแถวนั้นในแท็บ short / over (เจ้าของสั่ง 15 พ.ย. 2026) ===');
 const via962 = fl => r962(fl).lines.find(l => l.code === B).via;
-ok('ไม่ติดตาม = via ชี้เรื่องที่หยุดไว้ (การ์ดยกเลิก)', JSON.stringify(via962([skipped])) === JSON.stringify({ how: 'stop', id: skipped.id }));
-ok('ยกเลิกเรื่อง = via ชี้เรื่องที่ยกเลิก', JSON.stringify(via962([cancelled])) === JSON.stringify({ how: 'stop', id: cancelled.id }));
+ok('ไม่ติดตาม = via ชี้เรื่องที่หยุดไว้ (การ์ดยกเลิก)', JSON.stringify(via962([skipped])) === JSON.stringify({ how: 'skip', id: skipped.id }));
+ok('ยกเลิกเรื่อง = via ชี้เรื่องที่ยกเลิก', JSON.stringify(via962([cancelled])) === JSON.stringify({ how: 'cancel', id: cancelled.id }));
 ok('ปิดเรื่องตรงยอด = via done ชี้เรื่องที่ปิด', JSON.stringify(via962([closedSame])) === JSON.stringify({ how: 'done', id: closedSame.id }));
 const sOld = { ...skipped, id: 'F-OLD', void_at: '2026-11-01T01:00:00.000Z' }, sNew = { ...skipped, id: 'F-NEW', void_at: '2026-11-10T01:00:00.000Z' };
 const closedEarly = { ...closedSame, created_at: '2026-11-05T01:00:00.000Z' };
-ok('ปิดตรงยอดไว้ก่อน แล้วมาหยุดทีหลัง = ชี้การ์ดยกเลิก', JSON.stringify(via962([closedEarly, sNew])) === JSON.stringify({ how: 'stop', id: 'F-NEW' }));
+ok('ปิดตรงยอดไว้ก่อน แล้วมาหยุดทีหลัง = ชี้การ์ดยกเลิก', JSON.stringify(via962([closedEarly, sNew])) === JSON.stringify({ how: 'skip', id: 'F-NEW' }));
 ok('หยุดไว้ก่อน แล้วมีเรื่องตั้งทีหลังและปิดตรงยอด = ชี้เรื่องที่ปิด (เพดานหยุดหมดอายุ — กฎ stopGate เดิม)',
    JSON.stringify(via962([sOld, closedEarly])) === JSON.stringify({ how: 'done', id: closedSame.id }));
 ok('หยุดไว้หลายรอบ = ชี้รอบล่าสุด ตรงกับแถวที่การ์ดยกเลิกแสดง (stoppedShorts)',
