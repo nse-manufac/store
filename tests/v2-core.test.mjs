@@ -405,7 +405,7 @@ console.log('\n=== ยกเลิกรายการจากหน้า Log
   ok('กล่องยืนยันยกเลิกอยู่นอกแท็บ (ขึ้นได้จากทุกหน้า)', box > lastTab && box > 0);
   // ใบที่ยกเลิกพร้อมกัน: ล้างเศษ (tw) + คู่ทดแทน short ของ "คืนของ แบบ 2" (pr · ผู้ตรวจ #199 รอบ 3)
   // splice แทนที่ในตำแหน่งเดิมด้วยใบที่ติดธงแล้ว — ไม่ใช่ลบออกจากสมุด (B1)
-  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /async function doVoid\(\)[\s\S]*?voidEntry\(src,[\s\S]*?const all = \[v, \.\.\.tw, \.\.\.pr\];[\s\S]*?for \(const x of all\) entries\.value\.splice\(entries\.value\.findIndex\(e => e\.id === x\.id\), 1, x\)/.test(src));
+  ok('ยกเลิกแล้วรายการยังอยู่ในสมุด แค่ติดธงยกเลิก (B1)', /function voidBundle\(src, by, reason\) \{\s*const v = voidEntry\(src,[\s\S]*?all: \[v, \.\.\.tw, \.\.\.pr\][\s\S]*?async function doVoid\(\)[\s\S]*?= voidBundle\(src, by, reason\);[\s\S]*?for \(const x of all\) entries\.value\.splice\(entries\.value\.findIndex\(e => e\.id === x\.id\), 1, x\)/.test(src));
 }
 
 console.log('\n=== หน้ารอเติมวันหมดอายุ (แท็บย่อยใน Log · เจ้าของเคาะ 28 ก.ย. 2026) ===');
@@ -644,8 +644,13 @@ console.log('\n=== ล้างเศษ PO ตอนจ่ายออก (เ�
      && /voidTwins, voidPairs, reasonLabel, noteCell, isFracAdj \};/.test(app));
   ok('จอ: ยกเลิกจ่ายออกแล้วยกเลิกล้างเศษที่คู่กันในรอบเดียวกัน · กล่องยืนยันบอกก่อน (เจ้าของเคาะ 23 พ.ย.)',
      /const tw = fracTwins\(entries\.value, src\)\.map\(t => voidEntry\(t,/.test(app)
-     && /const all = \[v, \.\.\.tw, \.\.\.pr\];\s*await db\.put\('entries', all\)/.test(app)
+     && /return \{ v, tw, pr, all: \[v, \.\.\.tw, \.\.\.pr\] \};/.test(app)
+     && /const \{ tw, pr, all \} = voidBundle\(src, by, reason\);\s*await db\.put\('entries', all\)/.test(app)
      && /<p class="hint" v-if="voidTwins\.length"/.test(htmlV));
+  // ปุ่มแก้จ่ายเกิน BOM หน้ายอดคงคลัง (28 พ.ย. 2026) ยกเลิกผ่าน voidBundle ตัวเดียวกับ Log — ล้างเศษคู่ไม่ค้าง
+  ok('จอ: แก้จ่ายเกินจากหน้ายอดคงคลังยกเลิกผ่าน voidBundle เดียวกับ Log (ล้างเศษ / คู่ทดแทนไปด้วย)',
+     /async function bpFixSave\(\)[\s\S]*?const \{ tw, all \} = voidBundle\(src, by,/.test(app)
+     && /await db\.put\('entries', \[\.\.\.all, \.\.\.add\]\);\s*for \(const x of all\) entries\.value\.splice/.test(app));
   ok('จอ: บันทึกจ่ายออกแล้วล้างเศษของ PO นั้น (try ของตัวเอง) · ช่องเลือกเหตุผลกรองของ auto ออก · "นับได้" ไม่ขึ้นกับล้างเศษ',
      /fracSweep\(entries\.value, entity\.value, outH\.po, posted\.map\(e => e\.material_code\), fracTolAt,/.test(so)
      && so.indexOf('fracSweep(') > so.indexOf("await db.put('entries', posted)") && /if \(outH\.po\) try \{/.test(so)

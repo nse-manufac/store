@@ -35,10 +35,10 @@ import { makeEntity, entityOfPo, resolveEntity, activeCodes, infoOf,
 import { addMove, applyMoves, movedTo, movePreview, normEnt } from './master/entity-move.js';
 import { parseMatFollow, planMatFollow } from './master/matfollow.js';
 import { mrpRows, mrpMatch, mrpKeep, mrpLineLabel, mrpNum, mrpNoPoIssues, fillPoDate, MRP_FILTERS, MRP_SEG, MRP_FRESH_DAYS,
-         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck } from './master/mrp.js';
+         planShipList, planMap, poWeekMap, setPoWeek, stockPnRows, openPoKeep, bpDiffLabel, poIssueCheck, poFixCheck, poOverRows, fixSweepAt } from './master/mrp.js';
 import { migrateAll, makeFollow, statusOf, remainOf, closeFollow,
          listFollow, partNoOf, openFollow, orphanFollow, voidFollow, cancelBuy,
-         FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
+         FOLLOW_SEG, isStopSeg, stopCounts, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence, overSetEvidence,
          overAll, overPending, overCutMatch, OVER_MIN, fromOverRow, sendbackEntry, returnOver, returnOverWarn, offsetShorts, pairTwins, splitPairs, shortOfPo, shortWhyOf,
          shortAll, shortPending, shortChecker, fromShortRow, SHORT_MIN,
          cancelShort, cancelShortWarn, skipShort, stoppedShorts, sliceKeep, restartShort, stopWhyProblem,
@@ -1741,13 +1741,18 @@ createApp({
      * เพี้ยนไปเท่ายอดนั้นเงียบ ๆ จึงต้องยกเลิกทั้งคู่เสมอ แบบเดียวกับล้างเศษ (ผู้ตรวจ #199 รอบ 3 ข้อ 1)
      * แยก computed จาก voidTwins เพราะข้อความในกล่องคนละเรื่องกัน (ล้างเศษโชว์ส่วนต่าง · คู่นี้โชว์ PO ปลายทาง) */
     const voidPairs = computed(() => voidBox.row ? pairTwins(entries.value, entries.value.find(e => e.id === voidBox.row.id)) : []);
+    /* ยกเลิกรายการพร้อมของที่ผูกคู่กัน (ล้างเศษ · คู่ทดแทน short) — Log กับปุ่ม "จ่ายเกิน" หน้ายอดคงคลังใช้ตัวเดียวกัน
+     * แยกเมื่อไหร่ ทางหนึ่งจะยกเลิกครึ่งเดียวแล้วคงคลังเพี้ยนเงียบ ๆ */
+    function voidBundle(src, by, reason) {
+      const v = voidEntry(src, { by, reason });
+      const tw = fracTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกตามจ่ายออกที่ถูกยกเลิก: ${reason}` }));
+      const pr = pairTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: ${reason}` }));
+      return { v, tw, pr, all: [v, ...tw, ...pr] };
+    }
     async function doVoid() {
       try {
         const src = entries.value.find(e => e.id === voidBox.row.id), by = voidBox.by.trim(), reason = voidBox.reason.trim();
-        const v = voidEntry(src, { by, reason });
-        const tw = fracTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกตามจ่ายออกที่ถูกยกเลิก: ${reason}` }));
-        const pr = pairTwins(entries.value, src).map(t => voidEntry(t, { by, reason: `ยกเลิกคู่ทดแทน short ที่คู่กัน: ${reason}` }));
-        const all = [v, ...tw, ...pr];
+        const { tw, pr, all } = voidBundle(src, by, reason);
         await db.put('entries', all);
         for (const x of all) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
         db.announce('entries');
@@ -1826,27 +1831,7 @@ createApp({
       return bpAll.value.filter(r => !r.empty && (!q || r.pn.toUpperCase().includes(q)
         || r.pos.some(p => p.po.toUpperCase().includes(q)) || r.lines.some(l => l.live && l.code.includes(q))));
     });
-    const bpDraw = drawing(bpShown, r => !!bpOpen[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที (ปุ่มกลับเลื่อนหาแถวนั้น)
-    /* กดยอดติดลบราย PO → แท็บ Log จ่ายออก ค้น PO + รหัส ทุกวันที่ ให้ยกเลิกใบที่คีย์ผิด / คีย์ซ้ำได้ทันที (เจ้าของสั่ง 19 พ.ย. 2026)
-     * ปุ่ม "กลับไปยอดคงคลัง" มุมซ้ายล่าง (แบบปุ่มกลับไป MRP) คืนตัวกรองของ Log ที่ตั้งไว้เดิม แล้วเลื่อนกลับไปแถวเดิม */
-    const bpBack = ref(null);
-    watch(tab, k => { if (k !== 'lgout') bpBack.value = null; });
-    function bpGoLog(po, code, pn) {
-      bpBack.value = { po, code, pn, lg: { from: lg.from, to: lg.to, q: lg.q, voided: lg.voided } };
-      Object.assign(lg, { from: '', to: '', q: po + ' ' + code, voided: false });
-      tab.value = 'lgout';
-      window.scrollTo(0, 0);
-    }
-    function bpGoBack() {
-      const b = bpBack.value;
-      if (!b) return;
-      Object.assign(lg, b.lg);
-      balView.value = 'pn';
-      tab.value = 'bal';
-      // ยกเลิกแล้วบรรทัดอาจไม่ติดลบ (ถูกซ่อน) → เลื่อนไปแถว P/N แทน
-      nextTick(() => (document.querySelector(`[data-bp="${CSS.escape(bpKey(b.po, b.code))}"]`)
-        || document.querySelector(`[data-bpn="${CSS.escape(b.pn)}"]`))?.scrollIntoView({ block: 'center' }));
-    }
+    const bpDraw = drawing(bpShown, r => !!bpOpen[r.pn]);   // P/N ที่กางอยู่ขึ้นทันที
     // รายการเคลื่อนไหว — คิดเฉพาะ PO × รหัสที่กางอยู่ (แถวที่พับไม่คิด)
     /* ล้างเศษของเก่า (เจ้าของเคาะ 23 พ.ย. 2026) — ปุ่มอยู่ในรายการเคลื่อนไหวของ PO ที่ค้างเศษ ไม่ทำตารางแยก
      * ตรรกะ isFracLeft / fracSweep (core/balance.js) · ตั้งแต่ #185 จ่ายออกแล้วระบบล้างให้เอง ที่เหลือคือของก่อนหน้านั้น */
@@ -1922,6 +1907,56 @@ createApp({
         flash(`บันทึกจ่ายออก ${bpIss.code} × ${c.qty} · PO ${bpIss.po}` + (crumbs.length ? ' · ล้างเศษแล้ว' : '')
               + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : ''), !!crumbErr);
         bpIss.open = false;
+      } catch (err) { flash(err.message, true); }
+    }
+    /* แก้รายการจ่ายที่เกิน (เจ้าของสั่ง 28 พ.ย. 2026) — แทนทางเดิมที่กดยอดติดลบแล้วพาไปแท็บ Log (19 พ.ย.) · เจ้าของให้ถอดทางนั้นออก — กดป้าย "จ่ายเกิน" (เกิน BOM) หรือยอดติดลบ (เกินรับเข้า) ของแถว PO
+     * → เลือกรายการจ่ายที่ผิด → ใส่จำนวนที่ถูก
+     * ยกเลิกรายการเดิม (ยังอยู่ในสมุด · B1) แล้วบันทึกจำนวนที่ถูกแทน วันที่ / ผู้จ่าย / หมายเหตุเดิม · 0 = ยกเลิกอย่างเดียว
+     * ไม่ใช้ "คืนของ" เพราะยอดจ่ายราย PO ไม่หักคืนของ (เจ้าของเคาะ) · กฎอยู่ที่ poFixCheck (master/mrp.js) */
+    const bpFix = reactive({ open: false, pn: '', po: '', code: '', id: '', qty: null, reason: '', by: '' });
+    function bpFixOpen(pn, po, code) {
+      Object.assign(bpFix, { open: true, pn, po, code, id: '', qty: null, reason: '' });   // ชื่อผู้แก้จำไว้
+    }
+    const bpFixRow = computed(() => {
+      if (!bpFix.open) return null;
+      const r = bpAll.value.find(x => x.pn === bpFix.pn), l = r && r.lines.find(x => x.code === bpFix.code);
+      return (l && l.byPo.find(x => x.po === bpFix.po)) || null;
+    });
+    const bpFixList = computed(() => !bpFix.open ? [] : entries.value
+      .filter(e => e.entity === entity.value && e.kind === 'issue' && alive(e) && String(e.doc_ref) === bpFix.po
+                   && normCode(e.material_code) === normCode(bpFix.code))
+      .sort((a, b) => String(a.at).localeCompare(String(b.at)) || String(a.created_at).localeCompare(String(b.created_at))));
+    // ยอดสะสมทีละรายการ + รายการไหนทำให้เกิน BOM / เกินรับเข้า / น่าจะคีย์ซ้ำ (เจ้าของสั่ง 28 พ.ย. 2026)
+    const bpFixRows = computed(() => (bpFixRow.value ? poOverRows(bpFixList.value, bpFixRow.value, e => localDate(e.at)) : []));
+    const bpFixSrc = computed(() => bpFixList.value.find(e => e.id === bpFix.id) || null);
+    const bpFixChk = computed(() => (bpFixRow.value && bpFixSrc.value ? poFixCheck(bpFixRow.value, bpFixSrc.value.qty, bpFix.qty) : null));
+    const bpFixWhy = computed(() => stopWhyProblem(bpFix.reason));
+    async function bpFixSave() {
+      const c = bpFixChk.value, src = bpFixSrc.value, by = bpFix.by.trim();
+      if (!c || !c.ok || !src || !by || bpFixWhy.value) return;
+      try {
+        const { tw, all } = voidBundle(src, by, `แก้รายการจ่ายที่เกิน — ${src.qty} → ${c.qty}: ${bpFix.reason.trim()}`);
+        const add = c.qty > 0 ? [makeEntry({ entity: src.entity, kind: 'issue', material_code: src.material_code, qty: c.qty,
+          lot: src.lot, lot_inferred: src.lot_inferred, doc_kind: src.doc_kind, doc_ref: src.doc_ref, part_no: src.part_no,
+          at: src.at, person: src.person, device: device.value, expiry_date: src.expiry_date,
+          reqmt_qty: src.reqmt_qty, issued_qty: src.issued_qty,
+          note: [src.note, `แทนรายการ ${src.qty} ที่ยกเลิก (แก้โดย ${by})`].filter(Boolean).join(' · ') })] : [];
+        await db.put('entries', [...all, ...add]);
+        for (const x of all) entries.value.splice(entries.value.findIndex(e => e.id === x.id), 1, x);
+        entries.value.push(...add);
+        let crumbs = [], crumbErr = '';   // ยกเลิกล้างเศษคู่ไปแล้ว → ถ้ายังเหลือเศษจริงล้างใหม่
+        try {
+          // ไม่เก่ากว่าใบจ่ายใบล่าสุด — แก้แถวเก่าแล้วล้างเศษ ณ วันใบเก่า จะผูกคู่กับใบที่ใหม่กว่าไม่ได้ (ผู้ตรวจ #206)
+          const at = fixSweepAt(entries.value, entity.value, bpFix.po, src.material_code, src.at);
+          crumbs = fracSweep(entries.value, entity.value, bpFix.po, [src.material_code], fracTolAt,
+                             { person: by, device: device.value, at, part_no: src.part_no });
+          if (crumbs.length) { await db.put('entries', crumbs); entries.value.push(...crumbs); }
+        } catch (err) { crumbs = []; crumbErr = err.message; }
+        db.announce('entries');
+        flash(`แก้แล้ว ${bpFix.code} · PO ${bpFix.po}: ${src.qty} → ${c.qty}` + (tw.length ? ` · ยกเลิกล้างเศษที่คู่กัน ${tw.length}` : '')
+              + (crumbs.length ? ' · ล้างเศษใหม่แล้ว' : '') + (crumbErr ? ' · ล้างเศษไม่สำเร็จ: ' + crumbErr : '')
+              + ' — รายการเดิมยังอยู่ใน Log (ขีดฆ่า)', !!crumbErr);
+        bpFix.open = false;
       } catch (err) { flash(err.message, true); }
     }
     const bpMoves = computed(() => {
@@ -3080,7 +3115,7 @@ createApp({
     }
 
     /* ── short: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 4 พ.ย. 2026) ── ตรรกะที่ master/follow.js
-     * ทั้งสองปุ่มไปอยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายแท็บ · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ */
+     * ไปอยู่ปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" บนหัวหน้า (แยกตามปุ่มที่กด) · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ */
     async function fsVoid(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       // ด่านนิติบุคคลก่อนถามอะไร — ไม่ให้คนตอบสองกล่องฟรีแล้วค่อยรู้ว่ายกเลิกไม่ได้ (ผู้ตรวจ #146 รอบ 9)
@@ -3088,13 +3123,13 @@ createApp({
       // ที่ค้างในเรื่องไม่ตรงกับที่ระบบคิดได้ = เตือนก่อน (เพดาน "ไม่ขึ้นอีก" คือยอดที่ค้าง)
       const warn = cancelShortWarn(row, fsCheck(row).calc);
       if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
-      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)');
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปปุ่ม "ยกเลิกแล้ว" บนหัวหน้า)');
       if (why === null) return;
       try {
         // กันกดซ้ำ — ทางเดียวกับปุ่มอื่นในหน้านี้
         await startOnce(starting, 'fsvoid|' + row.id, async () => {
           await fsPut(cancelShort(plain(row), { by: fsBy.value, why }));
-          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่ปุ่ม "ยกเลิกแล้ว" บนหัวหน้า`);
         });
       } catch (err) { flash(err.message, true); }
     }
@@ -3111,7 +3146,7 @@ createApp({
     }
     const fsStopped = computed(() => stoppedShorts(shorts.value, { entity: entity.value }));
     // ค้นก่อนตัดที่ SHOW_MAX (ผู้ตรวจ #177) — pickStory ประกาศทีหลัง เรียกตอนคิดจึงไม่ติด
-    const fsStopHit = computed(() => filterPick(fsStopped.value, { pick: x => pickStory(x.s), q: fsSearch.value }));
+    const fsStopHit = computed(() => filterPick(fsStopped.value.filter(x => x.mark === fsSeg.value), { pick: x => pickStory(x.s), q: fsSearch.value }));
     const fsStopShown = computed(() => sliceKeep(fsStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
     async function fsRestart(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
@@ -3126,19 +3161,19 @@ createApp({
     }
 
     /* ── over: ยกเลิกเรื่อง / ไม่ติดตาม (เจ้าของสั่ง 5 พ.ย. 2026 — แบบเดียวกับ short) ── ตรรกะที่ master/follow.js
-     * ทั้งสองปุ่มไปอยู่การ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายแท็บ · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ด้วยยอดที่ยังค้าง */
+     * ไปอยู่ปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" บนหัวหน้า (แยกตามปุ่มที่กด) · กด "กลับมาติดตาม" = ตั้งเรื่องใหม่ด้วยยอดที่ยังค้าง */
     async function foVoid(row) {
       if (!fsBy.value) { flash('ใส่ชื่อในช่อง "ผู้บันทึก" ก่อน', true); return; }
       if (!String(row.entity || '').trim()) { flash('เรื่องนี้ยังไม่รู้ว่าเป็นของนิติบุคคลไหน — กดปุ่ม "เป็นของ" ในการ์ด "ยังไม่รู้ว่าเป็นของนิติบุคคลไหน" ก่อน', true); return; }
       // ระบบคิดไม่ได้ = ไม่เตือน · คิดได้ = ยอดเกินตอนนี้ (0 หรือติดลบก็เตือนได้ — foCalc0 ไม่มีเพดาน)
       const warn = cancelOverWarn(row, foCalcOf(row.po, row.code));
       if (warn && !confirm(warn + '\n\nยกเลิกเรื่องต่อไหม')) return;
-      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ท้ายหน้า)');
+      const why = askWhy('ยกเลิกเรื่องนี้เพราะอะไร (ย้ายไปปุ่ม "ยกเลิกแล้ว" บนหัวหน้า)');
       if (why === null) return;
       try {
         await startOnce(starting, 'fovoid|' + row.id, async () => {
           await fsPut(cancelOver(plain(row), { by: fsBy.value, why }));
-          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่การ์ด "ยกเลิก / ไม่ติดตามแล้ว"`);
+          flash(`ยกเลิกเรื่อง ${row.po} · ${row.code} แล้ว — ดูได้ที่ปุ่ม "ยกเลิกแล้ว" บนหัวหน้า`);
         });
       } catch (err) { flash(err.message, true); }
     }
@@ -3154,19 +3189,19 @@ createApp({
       } catch (err) { flash(err.message, true); }
     }
     const foStopped = computed(() => stoppedOvers(shorts.value, { entity: entity.value }));
-    const foStopHit = computed(() => filterPick(foStopped.value, { pick: x => pickStory(x.s), q: foSearch.value }));
+    const foStopHit = computed(() => filterPick(foStopped.value.filter(x => x.mark === foSeg.value), { pick: x => pickStory(x.s), q: foSearch.value }));
     const foStopShown = computed(() => sliceKeep(foStopHit.value, SHOW_MAX, x => x.s.id === followPin.value));
 
     /* ── หน้า short / over จัดกลุ่มราย PO (เจ้าของสั่ง 21 พ.ย. 2026) ── กฎอยู่ที่ master/follow.js groupByPo
      * ปุ่มกรองเลือกว่าจะจัดกลุ่มรายการไหน · ค่าตั้งต้นกางทุกใบ (fold[po] = true คือพับ) · ช่องค้นใช้ได้ทุกปุ่ม */
-    const fsCounts = computed(() => ({ new: fsNew.value.length, stop: fsStopped.value.length,
+    const fsCounts = computed(() => ({ new: fsNew.value.length, ...stopCounts(fsStopped.value),
       ...followCounts(shorts.value, { kind: 'short', entity: entity.value }) }));
-    const foCounts = computed(() => ({ new: foNew.value.length, stop: foStopped.value.length,
+    const foCounts = computed(() => ({ new: foNew.value.length, ...stopCounts(foStopped.value),
       ...followCounts(shorts.value, { kind: 'over', entity: entity.value }) }));
     const pickStory = s => ({ po: s.po, pn: partNoOf(s, poIdx.value).pn, code: s.code, text: s.void_reason });
     const groupsOf = (seg, q, calc, rows, stopped) =>
       seg === 'new' ? groupByPo(calc, { pick: r => r, q })
-      : seg === 'stop' ? groupByPo(stopped, { pick: x => pickStory(x.s) })   // ค้นไปแล้วใน fsStopHit / foStopHit
+      : isStopSeg(seg) ? groupByPo(stopped, { pick: x => pickStory(x.s) })   // ค้นไปแล้วใน fsStopHit / foStopHit
       : groupByPo(rows, { pick: r => pickStory(r.s) });   // ค้นไปแล้วใน listFollow
     const fsGroups = computed(() => groupsOf(fsSeg.value, fsSearch.value, fsNew.value, fsRows.value, fsStopShown.value));
     const foGroups = computed(() => groupsOf(foSeg.value, foSearch.value, foNew.value, foRows.value, foStopShown.value));
@@ -3178,7 +3213,7 @@ createApp({
     const foldAll = (o, groups, shut) => { for (const g of groups) o[g.po] = shut; };
     const fuShow = ref(false);
     /* ป้าย "จบเรื่องแล้ว" ในแท็บ MRP กดแล้วไปแถวของเรื่องที่ทำให้จบ (เจ้าของสั่ง 15 พ.ย. 2026)
-     * ยกเลิก / ไม่ติดตาม = การ์ดท้ายแท็บ short / over · ปิดเรื่องตรงยอด = ตารางเรื่องที่ปิดแล้วของแท็บ short
+     * ยกเลิก / ไม่ติดตาม = ปุ่มกรอง "ยกเลิกแล้ว" / "ไม่ติดตามแล้ว" ของแท็บ short / over (via.how บอกว่าปุ่มไหน) · ปิดเรื่องตรงยอด = ตารางเรื่องที่ปิดแล้วของแท็บ short
      * เรื่องไหนทำให้จบ ตัดสินที่ shortSettledBy / overSettledBy (follow.js) — ตรงนี้แค่เปิดแท็บแล้วเลื่อนไปหา */
     /* ปุ่ม "กลับไป MRP" มุมซ้ายล่าง (เจ้าของสั่ง 15 พ.ย. 2026) — จำ PO + รหัสที่กดมา กลับไปแล้วกางใบเดิม เลื่อนถึงแถวเดิม
      * ย้ายไปแท็บอื่นที่ไม่ใช่ short / over = ไม่ขึ้นแล้ว */
@@ -3203,8 +3238,8 @@ createApp({
       const over = l.state === 'oskip';
       // เปิดปุ่มกรองที่เรื่องนั้นอยู่ แล้วค้นด้วยเลข PO ให้เหลือใบเดียว
       if (v.how === 'done') fsSeg.value = 'done';
-      else if (over) foSeg.value = 'stop';
-      else fsSeg.value = 'stop';
+      else if (over) foSeg.value = v.how;   // 'cancel' | 'skip' = ปุ่มที่เรื่องนั้นอยู่
+      else fsSeg.value = v.how;
       if (over) foSearch.value = po; else fsSearch.value = po;
       followPin.value = v.id;   // แถวนี้ขึ้นเสมอแม้อยู่เลย SHOW_MAX แถว (sliceKeep)
       // ใบที่พับไว้ไม่มีแถวใน DOM — กางใบเป้าหมายก่อนเสมอ แบบที่ mrpGoBack กาง mrpOpen (ผู้ตรวจ #177 รอบ 2)
@@ -4204,7 +4239,7 @@ createApp({
              outH, outLines, outHint, addOutLine, fillOutLine, expandOut, pickOutPo, clearIn, clearOut,
              outBalOf, outAfterOf, outIssuedOf, outLeftOf, outSuggestOf, useSuggested,
              outReady, outOver, saveOut, addFromOutLine,
-             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpBack, bpGoLog, bpGoBack, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, fracTolAt, oddRows,
+             balQ, balZero, balShown, balSum, balView, bpClosed, bpOpen, bpCode, bpLine, bpFull, bpKey, flip, bpShown, bpDraw, bpMoves, bpFrac, bpFq, bpFqRow, bpFqFloor, bpFracOpen, bpFracClean, bpIss, bpIssOpen, bpIssRow, bpIssChk, bpIssSave, bpFix, bpFixOpen, bpFixRow, bpFixList, bpFixRows, bpFixSrc, bpFixChk, bpFixWhy, bpFixSave, fracTolAt, oddRows,
              cardCode, cardMat, cardBal, card, cardLots, cardVoided, traceOf, trace,
              openCard, closeCard,
              expBusy, expMsg, store, saveStore, fold, toggleFold, openTrace, cardPlan, exportOneCard, exportAllCards, localDate, localTime, badge, onBadge,
@@ -4226,7 +4261,7 @@ createApp({
       fsAssign, fsClose, fsDate, fsReopen,
       fu, onFuCode, fuReady, fuSave, SHORT_TYPES,
       foSearch, foSeg, foCalc, foNew, foBlocked, foRows, foAll, fsStopHit, foStopHit,
-      FOLLOW_SEG, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, overSetEv, foStopEv,
+      FOLLOW_SEG, isStopSeg, fsCounts, foCounts, fsGroups, foGroups, fsDraw, foDraw, fsFold, foFold, foldFlip, foldAll, fuShow, followNote, stopWhy, stopEvidence, overSetEv, foStopEv,
       ocDate, ocMatch,
       mf, mfBusy, mfMsg, onMfFile, mfApply,
       fbSearch, fbShowDone, fbNew, fbAll, fbRows, prices, priceBusy, priceSet, fbPrice, fbSum, fbPickSum, bahtTxt, unitPriceTxt, onPriceFile, fbOrphans, fbStart, unitOf, fbReq, fbReqBusy, fbDeptList, fbReqPicked, fbReqAll, fbReqMissing, fbReqSubmit, fbVoid, fbGot, fbDate, fbClose, fbReopen,

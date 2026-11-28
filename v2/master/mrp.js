@@ -44,6 +44,7 @@
  *    เรื่องติดตามใช้ sameEntity (เรื่องที่ยังไม่มีเจ้าของนับให้ทุกนิติบุคคล — แบบการ์ด short)
  */
 import { round5 } from '../core/ledger.js';
+import { lastIssueAt } from '../core/balance.js';
 import { shortWhyOf, shortSettledBy, overSettledBy, sameEntity, OVER_MIN } from './follow.js';
 import { poHeaderIndex } from './po-kit.js';
 import { CATEGORIES } from './materials.js';
@@ -67,7 +68,7 @@ function daysBefore(date, n) {
  *   lines = [{ code, usage, need, have, issued, diff, state, via }]
  *     state: ok · short · skip (ขาดแต่จบเรื่องแล้ว) · over · oskip (เกินแต่จบเรื่องแล้ว)
  *            · extra (ไม่อยู่ในสูตร) · zero (สูตรใช้ 0) · na (ใบคิดไม่ได้)
- *     via: skip / oskip = { how: 'stop' | 'done', id } เรื่องที่ทำให้จบ (ป้ายกดไปแถวนั้นในแท็บ short / over) · อื่น ๆ = null
+ *     via: skip / oskip = { how: 'cancel' | 'skip' | 'done', id } เรื่องที่ทำให้จบ (ป้ายกดไปแถวนั้นในแท็บ short / over) · อื่น ๆ = null
  *   noDate = ใบในไฟล์ PO ที่ไม่มีวันที่ — จอให้เติมวันที่ได้
  *   state ของใบ: short (มี Short) · over (มี Over ไม่มี Short) · ok · na (คิดไม่ได้ — why บอกเหตุ)
  *
@@ -575,4 +576,72 @@ export function poIssueCheck(p, qty) {
   const max = round5(Math.max(0, bomLeft === null ? bal : Math.min(bal, bomLeft)));
   const overBom = bomLeft !== null && q > bomLeft, overRecv = q > bal;
   return { qty: q, bomLeft, bal, max, overBom, overRecv, ok: q > 0 && !overBom && !overRecv };
+}
+
+/**
+ * แก้รายการจ่ายออกที่ทำให้ PO จ่ายเกิน — เกิน BOM หรือเกินของที่รับเข้า (คงเหลือ PO ติดลบ) จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026)
+ *   วิธีแก้ = ยกเลิกรายการเดิม (ยังอยู่ในสมุด ขีดฆ่า · B1) แล้วบันทึกจำนวนที่ถูกแทน — ไม่เปลี่ยนสูตรยอด
+ *   p = แถว byPo ({ need, issued, bal }) · oldQty = จำนวนของรายการที่เลือก · newQty = จำนวนที่ถูกต้อง
+ * กฎ: ลดได้อย่างเดียว 0 ≤ ใหม่ < เดิม — 0 = รายการนี้ไม่ควรมีเลย (คีย์ซ้ำ / ผิด PO) ยกเลิกอย่างเดียว
+ *   จ่ายเพิ่มให้ใช้ปุ่ม "จ่าย" ซึ่งมีกฎ BOM / คงเหลือของมันเอง
+ *   หลังแก้ยังเกินอยู่ก็บันทึกได้ (ดีขึ้นแล้ว · อาจมีอีกรายการที่ต้องแก้) จอบอกยอดที่ยังเกินให้เห็น
+ * คืน { qty, old, after, afterDiff, balAfter, suggest, bigger, ok }
+ *   after = จ่ายรวมของ PO นี้หลังแก้ · afterDiff = after − ตาม BOM (null เมื่อไม่รู้ยอดตาม BOM)
+ *   balAfter = คงเหลือ PO หลังแก้ (คงเหลือเดิม + ที่ลดลง)
+ *   suggest = จำนวนที่ทำให้หายเกินทั้งสองข้อ — จ่ายรวมไม่เกิน BOM และคงเหลือไม่ติดลบ (ไม่ต่ำกว่า 0)
+ *             null เมื่อไม่รู้ยอดตาม BOM และคงเหลือไม่ติดลบ (ไม่มีอะไรให้เทียบ)
+ */
+export function poFixCheck(p, oldQty, newQty) {
+  const old = round5(Number(oldQty) || 0);
+  const issued = round5(Number(p && p.issued) || 0);
+  const bal = round5(Number(p && p.bal) || 0);
+  const need = p && p.need != null ? Number(p.need) : null;
+  const blank = newQty === '' || newQty == null || !isFinite(Number(newQty));
+  const q = blank ? null : round5(Number(newQty));
+  const after = q === null ? null : round5(issued - old + q);
+  const afterDiff = after === null || need === null ? null : round5(after - need);
+  const balAfter = q === null ? null : round5(bal + old - q);
+  const cut = Math.max(0, need === null ? 0 : issued - need, -bal);   // ต้องลดอย่างน้อยเท่านี้ถึงหายเกินทั้งสองข้อ
+  const suggest = need === null && bal >= 0 ? null : round5(Math.max(0, old - cut));
+  const bigger = q !== null && q >= old;
+  return { qty: q, old, after, afterDiff, balAfter, suggest, bigger, ok: q !== null && q >= 0 && q < old };
+}
+
+/**
+ * รายการจ่ายของ PO × รหัส เรียงตามวันที่ พร้อมบอกว่ารายการไหนทำให้ยอดเกิน (เจ้าของสั่ง 28 พ.ย. 2026 — "ต้องเห็นจริง ๆ ว่ารายการไหน")
+ *   list = รายการจ่ายที่ยังนับอยู่ เรียงตามเวลาแล้ว · p = แถว byPo ({ need, issued, bal }) · dayOf(e) = วันที่ของรายการ (เทียบคีย์ซ้ำ)
+ *   เดินยอดสะสมทีละรายการ:
+ *     overBom  = ส่วนของรายการนี้ที่ทำให้จ่ายสะสมเกิน BOM (0 = ไม่เกิน)
+ *     overRecv = ส่วนของรายการนี้ที่ทำให้จ่ายสะสมเกินของที่รับเข้า — เพดาน = รับ − ส่งคืน + ล้างเศษ = คงเหลือ + จ่ายแล้ว (สูตรเดียวกับ poStockOf)
+ *     dupOf    = รายการก่อนหน้าที่วันเดียวกันและจำนวนเท่ากัน (น่าจะคีย์ซ้ำ) · null = ไม่มี
+ *   ⚠️ บอกได้แค่ "ยอดสะสมเกินตั้งแต่รายการไหน" — ตัวที่คีย์ผิดจริงอาจเป็นรายการก่อนหน้า จอต้องบอกให้ตรวจกับใบเบิกก่อนเลือก
+ */
+export function poOverRows(list, p, dayOf = e => String(e.at || '').slice(0, 10)) {
+  const need = p && p.need != null ? Number(p.need) : null;
+  const cap = round5((Number(p && p.bal) || 0) + (Number(p && p.issued) || 0));
+  let cum = 0;
+  const rows = (list || []).map(e => {
+    const qty = round5(Number(e.qty) || 0);
+    cum = round5(cum + qty);
+    const overBom = need === null ? 0 : round5(Math.max(0, Math.min(qty, cum - need)));
+    const overRecv = round5(Math.max(0, Math.min(qty, cum - cap)));
+    return { e, qty, cum, overBom, overRecv, dupOf: null };
+  });
+  rows.forEach((r, i) => {
+    const d = rows.slice(0, i).find(x => x.qty === r.qty && dayOf(x.e) === dayOf(r.e));
+    if (d) r.dupOf = d.e;
+  });
+  return rows;
+}
+
+/**
+ * เวลาที่ใช้ล้างเศษหลังแก้รายการจ่ายที่เกิน (ผู้ตรวจ #206 รอบ 1)
+ *   กล่องแก้ให้เลือกแถวเก่าได้ (รายการที่ผิดจริงอาจเป็นแถวก่อนหน้า) — ถ้าล้างเศษ ณ วันของใบเก่า
+ *   แล้ววันหลังมีคนยกเลิกใบจ่ายที่ใหม่กว่า fracTwins ผูกคู่ไม่เจอ รายการ −เศษ ค้าง ยอด PO ขาดเงียบ ๆ
+ *   → ใช้เวลาที่ไม่เก่ากว่าใบจ่ายใบล่าสุดที่ยังไม่ยกเลิกของ PO + รหัสนั้น (lastIssueAt · core/balance.js)
+ *   ต้องเรียกหลังใส่ใบแทนลงสมุดแล้ว · ห้ามแก้ fracTwins แทน (core/balance.js · CLAUDE.md ข้อ 7)
+ */
+export function fixSweepAt(entries, entity, po, code, srcAt) {
+  const floor = lastIssueAt(entries, entity, po, code);
+  return floor && String(floor) > String(srcAt || '') ? floor : srcAt;
 }
