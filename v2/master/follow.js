@@ -1633,6 +1633,14 @@ export function overExceedWarn(qty, over) {
  * ไม่งั้นไล่ย้อนไม่ได้ว่าซื้อมาทดแทนของที่เสียครั้งไหน และตั้งเรื่องซ้ำใบเดิมได้ไม่รู้ตัว
  */
 
+/** ยกเลิกเรื่องซื้อทดแทน — ไม่ลบ (B1) · เหตุผลกฎเดียวกับ short / over (stopWhyProblem · เจ้าของสั่ง 26 พ.ย. 2026)
+ *  ไม่มีคำนำหน้าแบบ CANCEL_MARK — หน้าซื้อไม่มีการ์ด "ยกเลิก / ไม่ติดตามแล้ว" ให้แยกป้าย */
+export function cancelBuy(row, { by = '', why = '' } = {}) {
+  if (!row || row.kind !== 'buy') throw new Error('ใช้ได้กับเรื่องซื้อทดแทนเท่านั้น');
+  needWhy(why);
+  return voidFollow(row, { by, reason: txt(why) });
+}
+
 /** เรื่องซื้อทดแทนที่ผูกกับรายการของเสียใบนี้อยู่แล้ว — ที่ยกเลิกไปแล้วไม่นับ */
 export function buyFor(follows, scrapEntryId) {
   const key = txt(scrapEntryId);
