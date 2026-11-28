@@ -301,7 +301,10 @@ console.log('\n=== Q. ซิงค์ให้เครื่องอื่น�
 {
   const T = 10 * 3600000;
   const tk = o => syncTick({ now: T, lastFullAt: T - 30000, ...o });
-  ok('กำลังซิงค์/กำลังถามอยู่ = ไม่ทำอะไรซ้อน', tk({ busy: true, pending: 3 }) === '');
+  ok('กำลังซิงค์/กำลังถามอยู่ ไม่มีของค้าง = ไม่ทำอะไรซ้อน', tk({ busy: true }) === '' && tk({ busy: true, hidden: true }) === '');
+  ok('บันทึกระหว่างซิงค์ (busy + มีของค้าง) = ต่อรอบทันทีที่รอบเดิมจบ ไม่รอ 20 วินาที',
+     tk({ busy: true, pending: 3 }) === 'again' && tk({ busy: true, pending: 1, failed: true }) === 'again'
+     && syncTick({ now: T, busy: true, pending: 1 }) === 'again');
   ok('เพิ่งเปิดโปรแกรม (ยังไม่เคยซิงค์เต็ม) = ซิงค์เต็ม', syncTick({ now: T }) === 'full');
   ok('มีของค้างส่ง = ส่ง (เฉพาะตารางที่ค้าง)', tk({ pending: 2 }) === 'push');
   ok('ไม่มีของค้าง = ถามว่าตารางไหนเปลี่ยน', tk({}) === 'ask');
@@ -341,6 +344,16 @@ console.log('\n=== Q. ซิงค์ให้เครื่องอื่น�
      at('if (mark) seen[TABLES[t].sheet] = mark;') > at('sync.since[t] = d.serverTime;') && at('sync.since[t] = d.serverTime;') > 0);
   ok('app.js ใช้ syncTick ตัดสินรอบ ไม่เหลือ setInterval 2 นาทีแบบเดิม',
      app.includes('setInterval(syncTickNow, ASK_MS)') && !/setInterval\([^\n]*120000\)/.test(app));
+  const fn = name => { const i = app.indexOf(name); return i < 0 ? '' : app.slice(i, app.indexOf('\n    }', i)); };
+  const tickSrc = fn('async function syncTickNow'), resyncSrc = fn('async function resync');
+  ok("app.js: syncTick ตอบ 'again' = ตั้งธงต่อรอบ · ถามเสร็จแล้วไม่ได้ซิงค์ต่อ ก็ยังต่อรอบให้",
+     /what === 'again'\) \{ again = true; return; \}/.test(tickSrc) && tickSrc.includes('againNow();'));
+  ok('app.js: ถาม changes พังเพราะเน็ต/ตั้งค่า = ป้ายแดงทันที (ไม่เขียวค้าง 10 นาที)',
+     /else \{ sync\.state = 'error'; sync\.error = err\.message; \}/.test(tickSrc));
+  ok('app.js: ดึงใหม่ทั้งหมด ล้าง seen ก่อนซิงค์ (ไม่งั้นถามแล้วข้ามตารางที่เคยดึง)',
+     resyncSrc.includes('delete seen[k]') && resyncSrc.indexOf('delete seen') < resyncSrc.indexOf('await syncNow'));
+  ok('app.js: ดึงใหม่ทั้งหมด รอซิงค์ที่วิ่งอยู่จบก่อนล้าง since (ไม่งั้นตารางที่กำลังดึงเขียนทับแล้วไม่ถูกดึงใหม่)',
+     /while \(syncing \|\| asking\)/.test(resyncSrc) && resyncSrc.indexOf('while (syncing') < resyncSrc.indexOf('sync.since = {}'));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);

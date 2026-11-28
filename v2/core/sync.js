@@ -295,9 +295,10 @@ export const FULL_MS_OLD = 120000;   // สคริปต์รุ่นเก�
  * failed = รอบก่อนพัง → กลับไปแบบเดิมทุกอย่าง (ซิงค์เต็มทุก 2 นาที ไม่ส่ง ไม่ถาม ระหว่างนั้น)
  *   ไม่งั้นช่วงเน็ตหลุดหรือเซิร์ฟเวอร์แน่น จะลองส่งซ้ำทุก 20 วินาที ป้ายกะพริบ และไปเพิ่มคิวให้เซิร์ฟเวอร์
  * hidden = แท็บถูกซ่อน → ไม่ถาม (ไม่มีใครดูอยู่ · กลับมาที่หน้าจอแล้วถามทันที) แต่ยังส่งของค้างและซิงค์เต็มตามรอบ
+ * busy + มีของค้าง = 'again' → ให้ต่อรอบทันทีที่รอบที่วิ่งอยู่จบ (บันทึกระหว่างซิงค์ ไม่ต้องรอรอบ 20 วินาทีถัดไป)
  */
 export function syncTick({ now = 0, lastFullAt = 0, pending = 0, hidden = false, canAsk = true, failed = false, busy = false } = {}) {
-  if (busy) return '';
+  if (busy) return pending ? 'again' : '';
   if (now - lastFullAt >= (canAsk && !failed ? FULL_MS : FULL_MS_OLD)) return 'full';
   if (failed) return '';
   if (pending) return 'push';

@@ -3967,9 +3967,10 @@ createApp({
         if (!silent) flash('ซิงค์ไม่สำเร็จ: ' + err.message, true);
       } finally {
         syncing = false;
-        if (again) { again = false; setTimeout(syncTickNow, 0); }   // บันทึกระหว่างซิงค์ = ต่อรอบทันที ไม่รอรอบถัดไป
+        againNow();   // บันทึกระหว่างซิงค์ = ต่อรอบทันที ไม่รอรอบถัดไป
       }
     }
+    function againNow() { if (again) { again = false; setTimeout(syncTickNow, 0); } }
 
     /**
      * ส่งขึ้นใหม่ทั้งหมด — ติดธงทุกแถวว่ายังไม่ได้ส่ง แล้วซิงค์
@@ -3995,7 +3996,10 @@ createApp({
     async function resync() {
       if (!confirm('จะดึงข้อมูลใหม่ทั้งหมดจากเซิร์ฟเวอร์\n'
         + 'ของที่ยังไม่ได้ส่งขึ้นจะไม่ถูกทับ และไม่มีอะไรถูกลบ\n\nทำต่อไหม')) return;
+      // ซิงค์เบื้องหลังวิ่งอยู่ = รอให้จบก่อน ไม่งั้นตารางที่กำลังดึงจะเขียน since ทับค่าที่เพิ่งล้าง แล้วไม่ถูกดึงใหม่
+      while (syncing || asking) await new Promise(r => setTimeout(r, 200));
       sync.since = {};
+      for (const k of Object.keys(seen)) delete seen[k];   // ไม่งั้น askPlan ข้ามตารางที่เคยดึงไปแล้ว
       await syncNow(false);
     }
 
@@ -4007,6 +4011,7 @@ createApp({
       const now = Date.now();
       const what = syncTick({ now, lastFullAt, pending: pending.value.total, hidden: document.hidden,
                               canAsk: now >= askOffUntil, failed: sync.state === 'error', busy: syncing || asking });
+      if (what === 'again') { again = true; return; }
       if (what === 'full') return syncNow(true);
       if (what === 'push') return syncNow(true, dirtyTables(syncStore.value));
       if (what !== 'ask') return;
@@ -4015,12 +4020,15 @@ createApp({
       try { res = await api('changes', { since: sinceBySheet(sync.since) }); }
       catch (err) {
         // สคริปต์รุ่นเก่ายังไม่มี changes = กลับไปซิงค์เต็มทุก 2 นาที แล้วลองถามใหม่ใน 10 นาที
-        // เน็ตหลุด = เงียบไว้ ป้ายไม่กะพริบแดงทุก 20 วินาที · รอบซิงค์เต็มเป็นคนรายงาน
         if (looksLikeOldScript(err.message)) askOffUntil = Date.now() + 10 * 60000;
+        // เน็ตหลุด / ตั้งค่าผิด = ถือว่ารอบนี้พัง ป้ายแดงทันที · syncTick ถอยไปซิงค์เต็มทุก 2 นาที (ไม่ถามถี่ ป้ายไม่กะพริบ)
+        // ไม่งั้นเครื่องที่ไม่ได้คีย์อะไรจะเขียวค้างได้ถึง 10 นาทีทั้งที่ติดต่อเซิร์ฟเวอร์ไม่ได้
+        else { sync.state = 'error'; sync.error = err.message; }
       } finally { asking = false; }
-      if (!res) return;
-      const ts = askPlan(res, seen);
+      const ts = res ? askPlan(res, seen) : [];
       if (ts.length) return syncNow(true, ts, res.stamps || {});
+      againNow();
+      if (!res) return;
       // ไม่มีอะไรค้างส่ง และไม่มีตารางไหนเปลี่ยน = ข้อมูลในเครื่องเป็นปัจจุบัน
       if (!pending.value.total && sync.state !== 'error') sync.lastOkAt = new Date().toISOString();
     }
