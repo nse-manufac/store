@@ -2180,7 +2180,7 @@ console.log('\n=== OR. over: คืนแล้วกดทีเดียว (�
   ok('จอ: วันที่คืนเป็นวันนี้ทุกครั้งที่เปิดหน้าต่าง (ไม่ค้างข้ามคืน)',
      /function openReturn\(row\) \{[\s\S]{0,200}date: todayLocal\(\)/.test(appR));
   ok('จอ: ปุ่มบันทึกกันกดซ้ำระหว่างเซฟ · แบบ 1 ใช้ returnOver ตัวเดียวกับทางเดิม',
-     /if \(!rtReady\.value\) return;\s*rt\.busy = true;/.test(appR) && /!rt\.busy/.test(appR)
+     /if \(!rtReady\.value \|\| futureBlocked\(rt\.date\)\) return;\s*rt\.busy = true;/.test(appR) && /!rt\.busy/.test(appR)
      && /const \{ rec, entry \} = returnOver\(row, \{/.test(appR));
 }
 
