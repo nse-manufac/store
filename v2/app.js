@@ -1875,9 +1875,9 @@ createApp({
      * ต่างจากปุ่มที่ถอดไปใน #178: ปุ่มนั้นแอบเติมบรรทัดลงใบเบิกค้างในหน้าจ่ายออก ที่นี่บันทึกจากกล่องนี้ตรง ๆ หนึ่งรายการ
      * กฎ (ไม่เกิน BOM สะสม · ไม่เกินของที่ PO นี้รับเข้ามา) อยู่ที่ poIssueCheck (master/mrp.js)
      * ตัวเลขในกล่องอ่านจาก bpAll ทุกครั้ง ไม่ได้จำแถวตอนกด — เครื่องอื่นซิงค์เข้ามาระหว่างกรอก ตัวเลขกับกฎก็ตามทัน */
-    const bpIss = reactive({ open: false, pn: '', po: '', code: '', date: '', person: '', qty: null });
+    const bpIss = reactive({ open: false, pn: '', po: '', code: '', date: '', person: '', requester: '', qty: null });
     function bpIssOpen(pn, po, code) {
-      Object.assign(bpIss, { open: true, pn, po, code, date: todayLocal(), qty: null });   // ผู้จ่ายจำชื่อล่าสุดไว้
+      Object.assign(bpIss, { open: true, pn, po, code, date: todayLocal(), requester: '', qty: null });   // ผู้จ่ายจำชื่อล่าสุดไว้ · ผู้เบิกเปลี่ยนทุกครั้ง ล้างทิ้ง
     }
     const bpIssRow = computed(() => {
       if (!bpIss.open) return null;
@@ -1887,11 +1887,12 @@ createApp({
     const bpIssChk = computed(() => (bpIssRow.value ? poIssueCheck(bpIssRow.value, bpIss.qty) : null));
     async function bpIssSave() {
       const c = bpIssChk.value;
-      if (!c || !c.ok || !bpIss.person || !bpIss.date) return;
+      if (!c || !c.ok || !bpIss.person || !bpIss.requester || !bpIss.date) return;
       try {
         const at = atFrom(bpIss.date);   // เวลาเดียวกับล้างเศษ ให้ยกเลิกแล้วผูกคู่กันได้ (แบบ saveOut)
         const e = makeEntry({ entity: entity.value, kind: 'issue', material_code: bpIss.code, qty: c.qty, lot: '', lot_inferred: false,
-                              doc_kind: 'po', doc_ref: bpIss.po, part_no: bpIss.pn, at, person: bpIss.person, device: device.value });
+                              doc_kind: 'po', doc_ref: bpIss.po, part_no: bpIss.pn, at, person: bpIss.person, device: device.value,
+                              note: 'ผู้เบิก: ' + bpIss.requester });   // ไม่มีช่องผู้เบิกแยก — เจ้าของเลือกใส่หมายเหตุ (28 พ.ย. 2026) ไม่ต้องแก้ Apps Script
         await db.put('entries', [e]);
         entries.value.push(e);
         let crumbs = [], crumbErr = '';

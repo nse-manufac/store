@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="app-version" content="2026-11-28.3">
+<meta name="app-version" content="2026-11-28.4">
 <title>ระบบ Bin Card v2</title>
 
 <!--
@@ -3842,6 +3842,7 @@ textarea{font:inherit}
             <div class="row" style="margin-top:12px">
               <label class="f" style="width:150px">วันที่<input v-model="bpIss.date" type="date"></label>
               <label class="f grow">ชื่อผู้จ่าย<input v-model.trim="bpIss.person"></label>
+              <label class="f grow">ชื่อผู้เบิก<input v-model.trim="bpIss.requester" data-bpiss-req></label>
               <label class="f" style="width:130px">จำนวนที่จ่าย
                 <input v-model.number="bpIss.qty" type="number" step="any" min="0" class="mono" data-bpiss-qty></label>
             </div>
@@ -3857,7 +3858,7 @@ textarea{font:inherit}
             <div class="grow"></div>
             <button class="btn" @click="bpIss.open=false">ไม่จ่ายแล้ว</button>
             <button class="btn primary" @click="bpIssSave"
-                    :disabled="!bpIssChk || !bpIssChk.ok || !bpIss.person || !bpIss.date">บันทึกจ่ายออก</button>
+                    :disabled="!bpIssChk || !bpIssChk.ok || !bpIss.person || !bpIss.requester || !bpIss.date">บันทึกจ่ายออก</button>
           </div>
         </div>
       </div>
