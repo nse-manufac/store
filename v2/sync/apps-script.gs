@@ -73,9 +73,10 @@ var TABLES = {
   // ถ้าไม่ซิงค์ เครื่องที่ไม่ได้นำเข้าจะกางรายการรับเข้าจากสูตรแทน Kit List โดยไม่รู้ตัว
   POs: {
     key: 'id',
-    cols: ['id','date','sub','pn','po','qty','core','remark','updated_at'],
+    // l_note = หมายเหตุคอลัมน์ L ของไฟล์ PO (PC RETURN · ETA · Short) — 28 พ.ย. 2026 · ต่อท้ายเสมอ ชีตเดิมได้คอลัมน์เพิ่มเอง
+    cols: ['id','date','sub','pn','po','qty','core','remark','updated_at','l_note'],
     bools: [],
-    texts: ['id','date','pn','po','updated_at']
+    texts: ['id','date','pn','po','updated_at','l_note']
   },
   Kits: {
     key: 'id',
