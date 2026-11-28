@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import { cancelOver, cancelOverWarn, skipOver, stoppedOvers, restartOver, overSetEvidence } from '../v2/master/follow.js';
 import { returnOver, returnOverWarn, overExceedWarn, partNoOf, buyPrice, buySum, money2 } from '../v2/master/follow.js';
 import { writeBuyPo } from '../v2/export/bincard.js';
-import { buyRequest, REQ_FIELDS } from '../v2/master/follow.js';
+import { buyRequest, REQ_FIELDS, cancelBuy } from '../v2/master/follow.js';
 import { FOLLOW_SEG, followCounts, groupByPo, filterPick, followNote, newestDone, stopWhy, stopEvidence, overStopEvidence } from '../v2/master/follow.js';
 import { cancelShort, cancelShortWarn, skipShort, stoppedShorts, restartShort, stopMarkOf, CANCEL_MARK, SKIP_MARK, stopWhyProblem, WHY_MIN } from '../v2/master/follow.js';
 import { FOLLOW_KINDS, SHORT_TYPES, SOURCES, makeFollow, migrateFollow, migrateAll,
@@ -682,8 +682,9 @@ ok('เทียบไม่ได้ต้องขึ้นบอกในก�
    /const rbShortWhy = computed/.test(appOver) && /shortWhyOf\(rb\.row\.po/.test(appOver)
    && /v-if="rbShortWhy"/.test(htmlOver)
    && /\brbShortWhy\b/.test(appOver.slice(appOver.lastIndexOf('return {'))));
+// cancelShort / cancelOver / cancelBuy ใน follow.js ล้วนจบที่ voidFollow (เทสของแต่ละตัวยืนยัน voided + id เดิม)
 ok('ยกเลิกเรื่องใช้ voidFollow ไม่ใช่ลบทิ้ง (B1)',
-   /voidFollow\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
+   /(voidFollow|cancelShort|cancelOver|cancelBuy)\(plain\(row\)/.test(appOver) && !/db\.del\('shorts'/.test(appOver));
 
 /* ── ผู้ตรวจ #90 รอบ 4 ข้อ 1 — วันที่คืนที่โชว์กลับมาในตาราง ──────────────
  * done_at ของเรื่องของเกินเป็นวันที่ที่คนเลือกเอง (atFrom) แล้ว
@@ -823,7 +824,8 @@ ok('รายการของเสียที่รอ คิดจาก pe
 ok('ตั้งเรื่องส่ง follows เข้าไปด้วย — กันตั้งซ้ำใบเดิม',
    /fromScrapRow\(row, \{[\s\S]{0,220}follows: shorts\.value/.test(appBuy));
 
-ok('ยกเลิกเรื่องใช้ voidFollow ไม่ลบทิ้ง (B1)', /fbVoid[\s\S]{0,300}voidFollow\(plain\(row\)/.test(appBuy));
+// fbVoid ผ่าน cancelBuy (บังคับเหตุผล · 26 พ.ย. 2026) ซึ่งจบที่ voidFollow — เทส cancelBuy ยืนยัน voided + id เดิม
+ok('ยกเลิกเรื่องใช้ voidFollow ไม่ลบทิ้ง (B1)', /fbVoid[\s\S]{0,400}cancelBuy\(plain\(row\)/.test(appBuy));
 ok('การ์ดเตือนเรื่องที่ต้นเหตุหายไปมีจริงบนจอ',
    /const fbOrphans = computed/.test(appBuy) && /v-if="fbOrphans\.length"/.test(htmlBuy));
 
@@ -1867,6 +1869,15 @@ console.log('\n=== ST. short: ยกเลิกเรื่อง / ไม่�
   ok('ไม่ผ่านแล้วบอกสาเหตุ', stopWhyProblem('-').includes('ตัวหนังสือ') && stopWhyProblem('ไม่').includes(`${WHY_MIN} ตัวอักษร`));
   throws('ยกเลิกเรื่องเหตุผล "-" = โยน', () => cancelShort(open, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
   throws('ไม่ติดตาม short เหตุผลสั้นเกิน = โยน', () => skipShort(calc, { entity: E, person: 'ก', at, why: 'ไม่' }), 'สั้นเกินไป');
+  // ยกเลิกเรื่องหน้าซื้อ — กฎเหตุผลเดียวกัน (เจ้าของสั่ง 26 พ.ย. 2026)
+  throws('ยกเลิกเรื่องซื้อไม่ใส่เหตุผล = โยน', () => cancelBuy(bu, { by: 'ก' }), 'เหตุผล');
+  throws('ยกเลิกเรื่องซื้อเหตุผล "-" = โยน', () => cancelBuy(bu, { by: 'ก', why: '-' }), 'ตัวหนังสือ');
+  throws('ยกเลิกเรื่องซื้อเหตุผลสั้นเกิน = โยน', () => cancelBuy(bu, { by: 'ก', why: 'ซ้ำ' }), 'สั้นเกินไป');
+  throws('cancelBuy ใช้กับ short ไม่ได้', () => cancelBuy(open, { by: 'ก', why: 'ตั้งผิดตัว' }), 'ซื้อทดแทน');
+  { const bx = cancelBuy(bu, { by: 'หัวหน้า', why: '  ตั้งเรื่องซ้ำกับใบเดิม  ' });
+    ok('ยกเลิกเรื่องซื้อ = ไม่ลบ · เก็บเหตุผลตามที่พิมพ์ (ตัดช่องว่างหัวท้าย) ไม่มีคำนำหน้าของปุ่ม short / over',
+       bx.voided && bx.id === bu.id && bx.void_reason === 'ตั้งเรื่องซ้ำกับใบเดิม' && bx.void_by === 'หัวหน้า' && stopMarkOf(bx) === '',
+       bx.void_reason); }
   throws('ยกเลิกเรื่องไม่มีชื่อ = โยน', () => cancelShort(open, {}), 'ผู้บันทึก');
   throws('ยกเลิกเรื่องที่ปิดแล้ว = โยน', () => cancelShort(closeFollow(open, { by: 'ก' }), { by: 'ก' }), 'ปิดไปแล้ว');
   throws('ยกเลิกซ้ำ = โยน', () => cancelShort(cx, { by: 'ก' }), 'ยกเลิกไปแล้ว');
@@ -2511,10 +2522,11 @@ console.log('\n=== หน้า short / over จัดกลุ่มราย P
   // stopWhyProblem กันเหตุผลขยะได้ แต่คำเติมอย่าง "ยอดน้อย ไม่ติดตาม" ผ่านกฎนั้นสบาย ๆ
   // ถ้าใครใส่ค่าเริ่มต้นกลับ อาการเดิม (พนักงานกดตกลงทันที) กลับมาโดยไม่มีเทสข้ออื่นแดง
   const countIn = (s, sub) => s.split(sub).length - 1;
-  ok('จอ: กล่องถามเหตุผลเปิดมาช่องว่างทุกครั้ง · ทั้งสี่ปุ่ม short / over ถามผ่าน askWhy · ไม่มีคำเติมค้างเป็นค่าเริ่มต้นของ prompt',
+  ok('จอ: กล่องถามเหตุผลเปิดมาช่องว่างทุกครั้ง · สี่ปุ่ม short / over + ยกเลิกเรื่องหน้าซื้อ ถามผ่าน askWhy · ไม่มีคำเติมค้างเป็นค่าเริ่มต้นของ prompt',
      appG.includes("let why = prompt(msg, '');")
-     && (appG.match(/askWhy\(/g) || []).length === 5                  // 4 จุดเรียก + 1 บรรทัดประกาศ
-     && countIn(appG, "askWhy('ยกเลิกเรื่องนี้เพราะอะไร") === 2       // fsVoid + foVoid
+     && (appG.match(/askWhy\(/g) || []).length === 6                  // 5 จุดเรียก + 1 บรรทัดประกาศ
+     && countIn(appG, "askWhy('ยกเลิกเรื่องนี้เพราะอะไร") === 3       // fsVoid + foVoid + fbVoid (หน้าซื้อ · 26 พ.ย. 2026)
+     && !appG.includes("prompt('ยกเลิกเรื่องนี้เพราะอะไร')")           // fbVoid เดิมถามตรง ๆ แล้วรับเหตุผลขยะ
      && countIn(appG, 'askWhy(`ไม่ติดตาม ') === 2                     // fsSkip + foSkip
      && !/prompt\([^)]*,\s*['"`]ยอดน้อย/.test(appG));
 }
