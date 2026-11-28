@@ -748,5 +748,11 @@ console.log('\n=== ยอดคงคลังราย P/N — ค้นรห�
   ok('ไม่มีแถวก็ไม่พัง', stockPnFocus(undefined, 'X').hits.size === 0);
 }
 
+{
+  // watch ที่กางให้ต้องดูแค่ balQ — ถ้าเอา bpFocus มาเป็นตัวที่ watch จะลาก bpAll มาคิดทุกครั้งที่บันทึก (ผู้ตรวจ #208 รอบ 3 · G2)
+  const app = readFileSync(new URL('../v2/app.js', import.meta.url), 'utf8');
+  ok('app.js: watch ที่กาง P/N ตามคำค้นดูแค่ balQ ไม่ลาก bpFocus / bpAll ทุกครั้งที่บันทึก',
+     app.includes('watch(balQ, () => {') && !/watch\(\s*\(\)\s*=>[^,]*bpFocus/.test(app));
+}
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
 process.exit(fail === 0 ? 0 : 1);

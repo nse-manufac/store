@@ -1842,7 +1842,10 @@ createApp({
     let bpAuto = [];
     // ไม่ดูว่าอยู่มุมมองไหน — เคยกันไว้แล้วหลุด: สลับไปรายรหัส ล้างช่อง แล้วกลับมา แถวค้างกาง (ผู้ตรวจ #208 รอบ 1 ข้อ 1)
     // ตอนอยู่รายรหัส ตาราง P/N ไม่ได้ขึ้นจอ กาง/พับไว้ก่อนก็ไม่มีผลอะไร
-    watch(() => bpFocus.value.exact.map(x => bpKey(x.pn, x.code)).join(','), () => {
+    // ⚠️ ดูแค่ balQ ห้ามเอา bpFocus มาเป็นตัวที่ watch — watch รันทุกครั้งที่ของที่มันอ่านเปลี่ยน ไม่ว่าอยู่แท็บไหน
+    //    bpFocus ลาก bpAll (poStocks + stockPnRows + mrpAll) มาคิดใหม่ทุกครั้งที่บันทึก → หน้ารับเข้า/จ่ายออกช้าลง ~4 เท่า (ผู้ตรวจ #208 รอบ 3 · G2)
+    //    callback ของ watch ไม่นับเป็นของที่ watch ดู จึงอ่าน bpFocus ข้างในได้ (คิดเฉพาะตอนคำค้นเปลี่ยน)
+    watch(balQ, () => {
       for (const x of bpAuto) { bpOpen[x.pn] = false; bpCode[bpKey(x.pn, x.code)] = false; }
       bpAuto = bpFocus.value.exact;
       for (const x of bpAuto) { bpOpen[x.pn] = true; bpCode[bpKey(x.pn, x.code)] = true; }
