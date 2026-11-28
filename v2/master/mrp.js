@@ -605,3 +605,30 @@ export function poFixCheck(p, oldQty, newQty) {
   const bigger = q !== null && q >= old;
   return { qty: q, old, after, afterDiff, balAfter, suggest, bigger, ok: q !== null && q >= 0 && q < old };
 }
+
+/**
+ * รายการจ่ายของ PO × รหัส เรียงตามวันที่ พร้อมบอกว่ารายการไหนทำให้ยอดเกิน (เจ้าของสั่ง 28 พ.ย. 2026 — "ต้องเห็นจริง ๆ ว่ารายการไหน")
+ *   list = รายการจ่ายที่ยังนับอยู่ เรียงตามเวลาแล้ว · p = แถว byPo ({ need, issued, bal }) · dayOf(e) = วันที่ของรายการ (เทียบคีย์ซ้ำ)
+ *   เดินยอดสะสมทีละรายการ:
+ *     overBom  = ส่วนของรายการนี้ที่ทำให้จ่ายสะสมเกิน BOM (0 = ไม่เกิน)
+ *     overRecv = ส่วนของรายการนี้ที่ทำให้จ่ายสะสมเกินของที่รับเข้า — เพดาน = รับ − ส่งคืน + ล้างเศษ = คงเหลือ + จ่ายแล้ว (สูตรเดียวกับ poStockOf)
+ *     dupOf    = รายการก่อนหน้าที่วันเดียวกันและจำนวนเท่ากัน (น่าจะคีย์ซ้ำ) · null = ไม่มี
+ *   ⚠️ บอกได้แค่ "ยอดสะสมเกินตั้งแต่รายการไหน" — ตัวที่คีย์ผิดจริงอาจเป็นรายการก่อนหน้า จอต้องบอกให้ตรวจกับใบเบิกก่อนเลือก
+ */
+export function poOverRows(list, p, dayOf = e => String(e.at || '').slice(0, 10)) {
+  const need = p && p.need != null ? Number(p.need) : null;
+  const cap = round5((Number(p && p.bal) || 0) + (Number(p && p.issued) || 0));
+  let cum = 0;
+  const rows = (list || []).map(e => {
+    const qty = round5(Number(e.qty) || 0);
+    cum = round5(cum + qty);
+    const overBom = need === null ? 0 : round5(Math.max(0, Math.min(qty, cum - need)));
+    const overRecv = round5(Math.max(0, Math.min(qty, cum - cap)));
+    return { e, qty, cum, overBom, overRecv, dupOf: null };
+  });
+  rows.forEach((r, i) => {
+    const d = rows.slice(0, i).find(x => x.qty === r.qty && dayOf(x.e) === dayOf(r.e));
+    if (d) r.dupOf = d.e;
+  });
+  return rows;
+}

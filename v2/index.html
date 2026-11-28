@@ -3880,7 +3880,7 @@ textarea{font:inherit}
            เลือกรายการที่ผิด → ใส่จำนวนที่ถูก
            ยกเลิกรายการเดิม (ขีดฆ่าใน Log · B1) แล้วบันทึกจำนวนที่ถูกแทน · ลดได้อย่างเดียว · กฎ poFixCheck (master/mrp.js) -->
       <div class="modal" v-if="bpFix.open" @click.self="bpFix.open=false">
-        <div class="modal-box" style="width:min(660px,100%)" role="dialog" aria-modal="true">
+        <div class="modal-box" style="width:min(820px,100%)" role="dialog" aria-modal="true">
           <h2>แก้รายการจ่ายที่เกิน</h2>
           <table><tbody>
             <tr><td class="hint" style="width:150px">P/N</td><td class="mono">{{ bpFix.pn || 'ไม่รู้ P/N' }}</td></tr>
@@ -3907,13 +3907,23 @@ textarea{font:inherit}
             <p v-if="bpFixRow.bal < 0" class="msg warn" style="margin:10px 0 0">ถ้ารายการจ่ายถูกแล้ว แต่ยังไม่ได้คีย์รับเข้าของ PO นี้
               ไม่ต้องแก้ที่นี่ — ไปคีย์รับเข้าให้ครบก่อน แล้วยอดติดลบจะหายเอง</p>
             <p style="margin:14px 0 4px"><b>1. เลือกรายการจ่ายที่คีย์ผิด หรือคีย์ซ้ำ</b></p>
-            <table class="mrp" style="margin-top:0"><thead><tr><th style="width:30px"></th><th>วันที่</th><th class="r">จำนวน</th><th>ผู้ทำ</th><th>หมายเหตุ</th></tr></thead>
+            <!-- แถวแดง = รายการที่ทำให้ยอดสะสมเกิน · ป้ายบอกเกินอะไรเท่าไหร่ / ซ้ำกับรายการไหน (เจ้าของสั่ง 28 พ.ย. 2026) · ตรรกะ poOverRows -->
+            <p class="hint" style="margin:0 0 6px">แถวสีแดง = ยอดจ่ายสะสมเกินตั้งแต่รายการนี้ (นับตามวันที่) — รายการที่คีย์ผิดจริงอาจเป็นแถวก่อนหน้า ตรวจกับใบเบิกก่อนเลือก</p>
+            <table class="mrp" style="margin-top:0"><thead><tr><th style="width:30px"></th><th>วันที่</th><th class="r">จำนวน</th><th class="r">จ่ายสะสม</th>
+              <th>ผู้ทำ</th><th>หมายเหตุ</th><th>ทำให้เกิน</th></tr></thead>
               <tbody>
-                <tr v-for="e in bpFixList" :key="e.id" style="cursor:pointer" @click="bpFix.id = e.id; bpFix.qty = null">
-                  <td><input type="radio" name="bpfix" :checked="bpFix.id === e.id" :data-bpfix-pick="e.id"></td>
-                  <td class="mono">{{ localDate(e.at) }}</td><td class="mono r">{{ mrpNum(e.qty) }}</td>
-                  <td>{{ e.person }}</td><td style="white-space:normal">{{ e.note || '' }}</td></tr>
-                <tr v-if="!bpFixList.length"><td colspan="5" class="hint">ไม่มีรายการจ่ายของ PO นี้ที่ยังไม่ถูกยกเลิก</td></tr>
+                <tr v-for="x in bpFixRows" :key="x.e.id" style="cursor:pointer" @click="bpFix.id = x.e.id; bpFix.qty = null"
+                    :style="x.overBom || x.overRecv || x.dupOf ? 'background:var(--badbg)' : ''" :data-bpfix-row="x.e.id">
+                  <td><input type="radio" name="bpfix" :checked="bpFix.id === x.e.id" :data-bpfix-pick="x.e.id"></td>
+                  <td class="mono">{{ localDate(x.e.at) }}</td><td class="mono r">{{ mrpNum(x.qty) }}</td>
+                  <td class="mono r">{{ mrpNum(x.cum) }}</td>
+                  <td>{{ x.e.person }}</td><td style="white-space:normal">{{ x.e.note || '' }}</td>
+                  <td style="white-space:normal">
+                    <span v-if="x.overBom" class="tag bad" style="margin:1px 2px">เกิน BOM {{ mrpNum(x.overBom) }}</span>
+                    <span v-if="x.overRecv" class="tag bad" style="margin:1px 2px">เกินรับเข้า {{ mrpNum(x.overRecv) }}</span>
+                    <span v-if="x.dupOf" class="tag warn" style="margin:1px 2px">ซ้ำกับรายการ {{ localDate(x.dupOf.at) }} · {{ mrpNum(x.dupOf.qty) }}</span>
+                    <span v-if="!x.overBom && !x.overRecv && !x.dupOf" class="hint">—</span></td></tr>
+                <tr v-if="!bpFixRows.length"><td colspan="7" class="hint">ไม่มีรายการจ่ายของ PO นี้ที่ยังไม่ถูกยกเลิก</td></tr>
               </tbody></table>
             <template v-if="bpFixSrc">
               <p style="margin:14px 0 4px"><b>2. รายการนี้ควรจ่ายเท่าไหร่</b>

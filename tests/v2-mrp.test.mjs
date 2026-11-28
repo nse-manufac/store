@@ -643,6 +643,10 @@ console.log('\n=== จ่ายออกทีละ PO จากหน้าย
   ok('app.js: ผู้เบิกลงหมายเหตุเป็น "ผู้เบิก: ชื่อ" (ไม่เพิ่มช่องใหม่ ไม่ต้องแก้ Apps Script) · เปิดกล่องใหม่ล้างชื่อผู้เบิก',
      /note: 'ผู้เบิก: ' \+ bpIss\.requester/.test(app) && /date: todayLocal\(\), requester: '', qty: null/.test(app));
   ok('ไม่มีทางลัดพาไปหน้าจ่ายออก (goIssue) กลับมา', !/goIssue/.test(app));
+  ok('จอ: กล่องแก้โชว์จ่ายสะสม · แถวแดงกับป้ายเกิน BOM / เกินรับเข้า / ซ้ำกับรายการไหน (poOverRows · เจ้าของสั่ง 28 พ.ย. 2026)',
+     /<tr v-for="x in bpFixRows"/.test(html) && html.includes('<th class="r">จ่ายสะสม</th>')
+     && html.includes('เกิน BOM {{ mrpNum(x.overBom) }}') && html.includes('เกินรับเข้า {{ mrpNum(x.overRecv) }}')
+     && html.includes('ซ้ำกับรายการ {{ localDate(x.dupOf.at) }}') && /poOverRows\(bpFixList\.value, bpFixRow\.value/.test(app));
 }
 
 console.log('\n=== แก้รายการจ่ายเกิน BOM จากหน้ายอดคงคลัง (เจ้าของสั่ง 28 พ.ย. 2026) ===');
@@ -674,6 +678,20 @@ console.log('\n=== แก้รายการจ่ายเกิน BOM จ�
      poFixCheck({ need: 500, issued: 600, bal: -30 }, 300, 0).suggest === 200
      && poFixCheck({ need: 500, issued: 530, bal: -80 }, 300, 0).suggest === 220);
   ok('ไม่รู้ยอดตาม BOM แต่คงเหลือติดลบ: ยังแนะนำได้จากคงเหลือ', poFixCheck({ need: null, issued: 50, bal: -10 }, 20, 0).suggest === 10);
+  // รายการไหนทำให้เกิน (เจ้าของสั่ง 28 พ.ย. 2026)
+  const { poOverRows } = await import('../v2/master/mrp.js');
+  const E = (qty, at) => ({ qty, at });
+  const cr = poOverRows([E(3, '2026-11-12T02:00Z'), E(3.0004, '2026-11-14T02:00Z')], { need: 6, issued: 6.0004, bal: 0.4996 });
+  ok('เศษ: รายการที่สองทำให้เกิน BOM 0.0004 · รายการแรกไม่เกิน · จ่ายสะสมถูก',
+     cr[0].overBom === 0 && cr[1].overBom === 0.0004 && cr[1].cum === 6.0004 && cr.every(r => r.overRecv === 0 && !r.dupOf));
+  const du = poOverRows([E(300, '2026-11-12T02:00Z'), E(300, '2026-11-12T02:00Z')], { need: 500, issued: 600, bal: 100 });
+  ok('คีย์ซ้ำ: รายการที่สองเกิน BOM 100 และชี้ว่าซ้ำกับรายการแรก (วันเดียวกัน จำนวนเท่ากัน)',
+     du[1].overBom === 100 && du[1].dupOf === du[0].e && du[0].dupOf === null);
+  const ng = poOverRows([E(500, '2026-11-12T02:00Z'), E(400, '2026-11-15T02:00Z')], { need: 1000, issued: 900, bal: -100 });
+  ok('จ่ายเกินรับเข้า: เพดาน = คงเหลือ + จ่ายแล้ว (800) · รายการที่สองเกินรับเข้า 100 · ไม่เกิน BOM',
+     ng[0].overRecv === 0 && ng[1].overRecv === 100 && ng.every(r => r.overBom === 0));
+  ok('ไม่รู้ยอดตาม BOM: ไม่ชี้เกิน BOM · วันต่างกันไม่นับว่าซ้ำ',
+     poOverRows([E(5, '2026-11-01T02:00Z'), E(5, '2026-11-02T02:00Z')], { need: null, issued: 10, bal: 0 }).every(r => r.overBom === 0 && !r.dupOf));
 }
 
 console.log(`\n${fail === 0 ? '>>> ผ่านทั้งหมด' : '>>> มีข้อที่ไม่ผ่าน'} (${pass} ผ่าน · ${fail} ตก)`);
