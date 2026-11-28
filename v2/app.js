@@ -1840,8 +1840,9 @@ createApp({
       return hit ? base.filter(l => hit.has(l.code)) : base;
     };
     let bpAuto = [];
-    watch(() => balView.value === 'pn' ? bpFocus.value.exact.map(x => bpKey(x.pn, x.code)).join(',') : '', () => {
-      if (balView.value !== 'pn') return;
+    // ไม่ดูว่าอยู่มุมมองไหน — เคยกันไว้แล้วหลุด: สลับไปรายรหัส ล้างช่อง แล้วกลับมา แถวค้างกาง (ผู้ตรวจ #208 รอบ 1 ข้อ 1)
+    // ตอนอยู่รายรหัส ตาราง P/N ไม่ได้ขึ้นจอ กาง/พับไว้ก่อนก็ไม่มีผลอะไร
+    watch(() => bpFocus.value.exact.map(x => bpKey(x.pn, x.code)).join(','), () => {
       for (const x of bpAuto) { bpOpen[x.pn] = false; bpCode[bpKey(x.pn, x.code)] = false; }
       bpAuto = bpFocus.value.exact;
       for (const x of bpAuto) { bpOpen[x.pn] = true; bpCode[bpKey(x.pn, x.code)] = true; }
